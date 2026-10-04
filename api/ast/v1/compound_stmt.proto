@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CompoundStmt {
+  reserved 1;
+  reserved "statement";
+  repeated StatementValue body = 2;
+  optional bool is_statement_expression = 3;
+}

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CoreturnStmt {
+  reserved 1;
+  reserved "statement";
+  ExpressionValue operand = 2;
+  ExpressionValue promise_call = 3;
+}

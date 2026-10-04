@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXBindTemporaryExpr {
+  ExprInfo info = 1;
+  ExpressionValue subexpression = 2;
+  CXXTemporary temporary = 3;
+}

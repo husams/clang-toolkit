@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message DeclRefExpr {
+  ExprInfo info = 1;
+  DeclarationSymbol declaration = 2;
+  DeclarationName name = 3;
+  NestedNameSpecifier qualifier = 4;
+  optional bool is_non_odr_use = 5;
+  optional bool has_explicit_template_arguments = 6;
+  repeated TemplateArgument template_arguments = 7;
+}

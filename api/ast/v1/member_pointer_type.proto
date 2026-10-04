@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message MemberPointerType {
+  TypeInfo info = 1;
+  QualType pointee_type = 2;
+  NestedNameSpecifier class_qualifier = 3;
+  optional bool is_member_function_pointer = 4;
+}

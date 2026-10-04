@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message UnresolvedMemberExpr {
+  ExprInfo info = 1;
+  ExpressionValue base = 2;
+  DeclarationName name = 3;
+  NestedNameSpecifier qualifier = 4;
+  repeated DeclarationSymbol candidate_declarations = 5;
+  optional bool is_arrow = 6;
+  optional bool is_unqualified = 7;
+  repeated TemplateArgument template_arguments = 8;
+}

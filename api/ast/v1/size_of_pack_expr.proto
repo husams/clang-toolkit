@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message SizeOfPackExpr {
+  ExprInfo info = 1;
+  DeclarationSymbol pack_declaration = 2;
+  optional int64 pack_size = 3;
+}

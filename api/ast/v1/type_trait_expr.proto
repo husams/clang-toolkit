@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message TypeTraitExpr {
+  ExprInfo info = 1;
+  optional TypeTrait trait = 2;
+  repeated QualType queried_types = 3;
+  optional bool trait_value = 4;
+}

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/operators.proto";
+import "ast/v1/semantic_types.proto";
+
+message CXXOperatorCallExpr {
+  CallExprInfo call = 1;
+  optional OverloadedOperatorKind operator_kind = 2;
+}

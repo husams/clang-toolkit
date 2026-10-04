@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message LValueReferenceType {
+  reserved 3;
+  reserved "is_spelled_as_lvalue";
+  TypeInfo info = 1;
+  QualType referred_type = 2;
+}

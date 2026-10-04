@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message FunctionDecl {
+  reserved 6;
+  reserved "is_virtual_as_written";
+  FunctionDeclInfo function = 1;
+  optional bool is_deleted = 2;
+  optional bool is_defaulted = 3;
+  optional bool is_explicitly_defaulted = 4;
+  optional bool is_pure_virtual = 5;
+  optional bool is_trivial = 7;
+  optional bool is_trivial_for_call = 8;
+  optional bool is_inline_specified = 9;
+}

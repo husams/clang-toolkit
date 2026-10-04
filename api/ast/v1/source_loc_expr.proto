@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message SourceLocExpr {
+  reserved 2;
+  reserved "builtin_location";
+  ExprInfo info = 1;
+  DeclarationSymbol parent_context = 3;
+  optional SourceLocExprKind kind = 4;
+  optional string builtin_name = 5;
+}

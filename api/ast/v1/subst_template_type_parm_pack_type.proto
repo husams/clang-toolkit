@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message SubstTemplateTypeParmPackType {
+  TypeInfo info = 1;
+  DeclarationSymbol associated_declaration = 2;
+  DeclarationSymbol replaced_parameter = 3;
+  optional uint32 parameter_index = 4;
+  optional bool is_final = 5;
+  TemplateArgument argument_pack = 6;
+}

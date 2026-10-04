@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ForStmt {
+  reserved 1;
+  reserved "statement";
+  StatementValue init_statement = 2;
+  DeclarationValue condition_variable = 3;
+  ExpressionValue condition = 4;
+  ExpressionValue increment = 5;
+  StatementValue body = 6;
+}

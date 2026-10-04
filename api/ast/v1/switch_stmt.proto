@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message SwitchStmt {
+  reserved 1;
+  reserved "statement";
+  DeclarationValue condition_variable = 2;
+  ExpressionValue condition = 3;
+  StatementValue body = 4;
+  StatementValue default_case = 5;
+  optional bool is_constexpr = 6;
+  optional bool is_all_enum_cases_covered = 7;
+}

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message EnumConstantDecl {
+  ValueDeclInfo value = 1;
+  ExpressionValue initializer = 2;
+  APSIntBits evaluated_value = 3;
+}

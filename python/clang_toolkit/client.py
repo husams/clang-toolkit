@@ -9,7 +9,9 @@ from dataclasses import dataclass
 class Client:
     address: str = "127.0.0.1:7878"
 
-    def match(self, matcher: str) -> list[str]:
+    def match(self, matcher: str, *, files: list[str] | None = None) -> list[str]:
+        """Run a matcher over the active project or an explicit file selection."""
+        del matcher, files
         raise NotImplementedError("transport (gRPC/REST) not wired yet")
 
     def cfg(self, function: str) -> str:

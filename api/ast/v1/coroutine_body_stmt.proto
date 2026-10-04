@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CoroutineBodyStmt {
+  reserved 1;
+  reserved "statement";
+  StatementValue body = 2;
+  DeclarationValue promise_declaration = 3;
+  ExpressionValue return_value = 4;
+  StatementValue exception_handler = 5;
+  StatementValue fallthrough_handler = 6;
+  repeated StatementValue parameter_moves = 7;
+  repeated ExpressionValue allocation_expressions = 8;
+  repeated ExpressionValue deallocation_expressions = 9;
+}

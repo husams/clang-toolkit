@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message EnumDecl {
+  TagDeclInfo tag = 1;
+  QualType integer_type = 2;
+  QualType promotion_type = 3;
+  optional bool is_scoped = 4;
+  optional bool is_fixed = 5;
+}

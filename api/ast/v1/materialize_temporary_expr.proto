@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message MaterializeTemporaryExpr {
+  ExprInfo info = 1;
+  ExpressionValue subexpression = 2;
+  DeclarationSymbol extending_declaration = 3;
+  optional uint32 bound_to_lvalue_rank = 4;
+}

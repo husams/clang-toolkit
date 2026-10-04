@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message VarDecl {
+  reserved 6;
+  reserved "initializer_owner_declaration";
+  VarDeclInfo variable = 1;
+  optional DeclVariableTLSKind tls_kind = 2;
+  optional DeclVariableInitializationStyle initialization_style = 3;
+  optional bool is_static_data_member = 4;
+  ExpressionValue initializer_from_any_declaration = 5;
+}

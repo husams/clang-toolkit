@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message TopLevelStmtDecl {
+  reserved 3;
+  reserved "is_semicolon_missing";
+  DeclInfo declaration = 1;
+  StatementValue statement = 2;
+}

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXConversionDecl {
+  CXXMethodDeclInfo method = 1;
+  optional bool is_explicit = 2;
+  optional bool is_explicit_specifier_value = 3;
+  ExpressionValue explicit_specifier_expression = 4;
+}

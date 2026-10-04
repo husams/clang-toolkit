@@ -9,25 +9,27 @@ Python CLI (prompt_toolkit), a Python API for users and AI agents, and one-shot 
 ```
  ctk (interactive CLI)   Python API / AI agents   one-shot CLI
             \                    |                   /
-             +------ api/ (gRPC or REST, TBD) ------+
+             +------ api/ (gRPC: UDS + HTTPS) ------+
                                  |
                         server/ (ctk-server, C++20)
    net/      transport front-end, request dispatch
-   script/   scripting engine composing queries
+   script/   scripting engine composing queries (custom DSL, ANTLR4 grammar)
    cache/    in-memory LRU (hash table; radix tree for prefix lookups)
    storage/  persistent cache (filesystem blobs + SQLite index)
    clang/    Clang API layer: matchers, traversal, CFG, call graph
 ```
 
 - `api/` is the contract. Change it first, then server and Python client together.
+- Transport: gRPC/protobuf over a Unix domain socket (`unix://<path>`, local) and HTTPS (TLS, remote).
 - `server/include/ctk/<module>/` holds public headers; `server/src/<module>/` the implementation.
 - Only `server/src/clang/` includes Clang/LLVM headers. Everything else stays Clang-free.
 - `python/clang_toolkit/` — `client.py` (Python API) and `cli/` (interactive console).
+- REPL commands are parsed with Lark (`python/clang_toolkit/cli/grammar.lark`); no hand-written parser.
 
 ## Layout
 
 ```
-api/                 interface definition (.proto or OpenAPI)
+api/                 interface definition (protobuf .proto, gRPC services)
 server/              C++ server (CMake target ctk-server, lib ctk_core, ctk_clang)
 server/tests/        GoogleTest unit tests
 python/clang_toolkit Python package (API + CLI, entry point `ctk`)
@@ -66,7 +68,7 @@ cmake --preset dev-noclang   # build without the Clang layer
 uv sync
 uv run pytest tests/unit
 uv run pytest tests/e2e -m e2e
-uv run ctk --server 127.0.0.1:7878
+uv run ctk --server unix:///tmp/ctk.sock
 ```
 
 ## Conventions
@@ -77,8 +79,3 @@ uv run ctk --server 127.0.0.1:7878
   CLI command, unit test, and a BDD scenario.
 - Run all C++ and Python tests before declaring work done; all must be green.
 - Worktrees go under `~/.claude/worktrees/clang-toolkit/<branch>`.
-
-## Open decisions
-
-- Transport: gRPC vs REST.
-- Scripting engine choice (e.g. Lua, embedded Python, custom DSL).

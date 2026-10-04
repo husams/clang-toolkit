@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ExpressionTraitExpr {
+  ExprInfo info = 1;
+  optional ExpressionTrait trait = 2;
+  ExpressionValue queried_expression = 3;
+  optional bool trait_value = 4;
+}

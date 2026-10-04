@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message RecordType {
+  reserved 4, 5;
+  reserved "keyword", "is_tag_owned";
+  TypeInfo info = 1;
+  DeclarationSymbol declaration = 2;
+  NestedNameSpecifier qualifier = 3;
+  DeclarationSymbol template_declaration = 6;
+  TemplateName template_name = 7;
+  repeated TemplateArgument specialization_arguments = 8;
+}

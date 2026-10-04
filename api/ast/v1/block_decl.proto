@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message BlockDecl {
+  DeclInfo declaration = 1;
+  repeated DeclarationValue parameters = 2;
+  StatementValue body = 3;
+  repeated BlockCaptureInfo captures = 4;
+  optional bool is_variadic = 5;
+  QualType signature = 6;
+}

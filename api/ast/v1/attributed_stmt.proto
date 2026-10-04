@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message AttributedStmt {
+  reserved 1;
+  reserved "statement";
+  repeated AttributeValue attributes = 2;
+  StatementValue substatement = 3;
+}

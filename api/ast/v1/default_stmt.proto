@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message DefaultStmt {
+  reserved 1, 3;
+  reserved "next_switch_case", "statement";
+  StatementValue substatement = 2;
+}

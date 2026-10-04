@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ConditionalOperator {
+  ExprInfo info = 1;
+  ExpressionValue condition = 2;
+  ExpressionValue true_expression = 3;
+  ExpressionValue false_expression = 4;
+}

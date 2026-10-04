@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message UsingDirectiveDecl {
+  reserved 5;
+  reserved "namespace_location";
+  NamedDeclInfo named = 1;
+  DeclarationSymbol nominated_namespace = 2;
+  DeclarationSymbol nominated_namespace_alias = 3;
+  DeclarationSymbol common_ancestor = 4;
+}

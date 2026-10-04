@@ -3,7 +3,13 @@ FetchContent_Declare(googletest
   URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.tar.gz)
 FetchContent_MakeAvailable(googletest)
 
-add_executable(ctk_tests test_lru_cache.cpp)
+add_executable(ctk_tests
+  test_lru_cache.cpp
+  test_radix_tree.cpp
+  test_cache_identity.cpp
+  test_cache_contract.cpp
+  test_snapshot_cache.cpp
+)
 target_link_libraries(ctk_tests PRIVATE ctk_core GTest::gtest_main)
 
 include(GoogleTest)

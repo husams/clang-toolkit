@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/operators.proto";
+import "ast/v1/semantic_types.proto";
+
+message CXXFoldExpr {
+  ExprInfo info = 1;
+  ExpressionValue pattern = 2;
+  ExpressionValue left_operand = 3;
+  ExpressionValue right_operand = 4;
+  optional BinaryOpcode operator_kind = 5;
+  optional bool is_left_fold = 6;
+}

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXTryStmt {
+  reserved 1;
+  reserved "statement";
+  StatementValue try_block = 2;
+  repeated StatementValue handlers = 3;
+}

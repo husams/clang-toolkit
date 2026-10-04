@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message UsingDecl {
+  reserved 7;
+  reserved "using_location";
+  NamedDeclInfo named = 1;
+  NestedNameSpecifier qualifier = 2;
+  DeclarationName name = 3;
+  repeated DeclarationSymbol shadows = 4;
+  optional bool is_access_declaration = 5;
+  optional bool has_typename = 6;
+}

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message VarTemplateDecl {
+  NamedDeclInfo named = 1;
+  DeclarationValue templated_declaration = 2;
+  TemplateParameterList template_parameters = 3;
+  repeated DeclarationSymbol specializations = 4;
+}

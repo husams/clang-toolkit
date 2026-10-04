@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message TypedefType {
+  reserved 5;
+  reserved "keyword";
+  TypeInfo info = 1;
+  DeclarationSymbol declaration = 2;
+  QualType desugared_type = 3;
+  NestedNameSpecifier qualifier = 4;
+}

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message BuiltinType {
+  TypeInfo info = 1;
+  optional BuiltinKind kind = 2;
+  optional string extended_kind_name = 3;
+}

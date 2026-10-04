@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message StaticAssertDecl {
+  DeclInfo declaration = 1;
+  ExpressionValue assertion_expression = 2;
+  ExpressionValue message_expression = 3;
+  optional bool is_failed = 4;
+}

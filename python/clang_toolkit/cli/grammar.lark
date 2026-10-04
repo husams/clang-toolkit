@@ -1,0 +1,213 @@
+start: statement
+reference_start: reference
+
+?statement: assignment
+          | command
+          | reference                    -> display
+          | STRING                       -> display
+          | foreach_expression           -> display
+
+assignment: LET NAME EQUAL value_expression
+
+?command: MATCH root_expression [IN value_expression] -> match
+        | PRINT value_expression         -> print
+        | SET USER? setting              -> set_command
+        | CLEAR USER? NAME               -> clear_command
+        | ADD EXTRA_ARG STRING           -> add_arg
+        | SAVE reference TO STRING [AS NAME] -> save_command
+        | LOAD STRING INTO reference     -> load_command
+        | HISTORY SAVE STRING            -> history_save
+        | HISTORY CLEAR                  -> history_clear
+        | SESSION LABEL STRING           -> session_label
+        | CFG cfg_expression            -> cfg
+        | CALLGRAPH [target_expression]  -> callgraph
+        | HELP                           -> help
+        | QUIT                           -> quit
+        | EXIT                           -> exit
+        | TRAVERSE target_expression    -> traverse
+        | SCRIPT target_expression      -> script
+
+?setting: TRAVERSAL NAME                 -> traversal_setting
+        | EXTRA_ARGS list_value          -> args_setting
+        | CACHE_DIR TO STRING            -> cache_setting
+        | FILES TO value_expression      -> files_setting
+        | OUTPUT TO (STRING | STDOUT) [MODE REPLACE] -> output_setting
+
+?value_expression: root_expression
+                 | STRING
+                 | NUMBER
+                 | TRUE                    -> true
+                 | FALSE                   -> false
+                 | list_value
+                 | glob_call
+                 | match_expression
+                 | foreach_expression
+
+match_expression: MATCH root_expression [IN value_expression]
+foreach_expression: FOREACH reference IN value_expression DO value_expression DONE?
+list_value: LSQB [value_expression (COMMA value_expression)*] RSQB
+glob_call: GLOB LPAR STRING RPAR
+
+?root_expression: root_matcher
+                | reference
+
+root_matcher: ROOT_MATCHER_NAME LPAR [arguments] RPAR bind? -> matcher
+
+?arguments: argument (COMMA argument)*
+
+?argument: nested_matcher
+         | reference
+         | nested_qualified_name
+         | STRING
+         | NUMBER
+         | TRUE                           -> true
+         | FALSE                          -> false
+         | list_value
+
+nested_matcher: MATCHER_NAME LPAR [arguments] RPAR bind? -> matcher
+nested_qualified_name: (NAME | MATCHER_NAME) (SCOPE (NAME | MATCHER_NAME))+
+
+bind: BIND LPAR STRING RPAR
+
+?cfg_expression: target_expression
+
+?target_expression: target_matcher
+                  | reference
+                  | qualified_name
+                  | NAME
+                  | STRING
+                  | NUMBER
+
+target_matcher: NAME LPAR [target_arguments] RPAR bind? -> matcher
+
+target_arguments: target_expression (COMMA target_expression)*
+
+reference: DOLLAR NAME (DOT NAME | DOT JOIN_WITH LPAR value_expression RPAR)*
+qualified_name: NAME (SCOPE NAME)+
+
+// Keep the editor lexer lossless, including strings open at end of input.
+editor_start: editor_token*
+
+?editor_token: LET
+             | MATCH
+             | PRINT
+             | FOREACH
+             | IN
+             | DO
+             | DONE
+             | GLOB
+             | TRUE
+             | FALSE
+             | SET
+             | CLEAR
+             | ADD
+             | EXTRA_ARG
+             | EXTRA_ARGS
+             | TRAVERSAL
+             | CACHE_DIR
+             | FILES
+             | OUTPUT
+             | STDOUT
+             | SAVE
+             | LOAD
+             | TO
+             | AS
+             | INTO
+             | USER
+             | HISTORY
+             | SESSION
+             | LABEL
+             | MODE
+             | REPLACE
+             | JOIN_WITH
+             | CFG
+             | CALLGRAPH
+             | HELP
+             | QUIT
+             | EXIT
+             | TRAVERSE
+             | SCRIPT
+             | EDITOR_NAME
+             | NAME
+             | STRING
+             | OPEN_STRING
+             | NUMBER
+             | BIND
+             | DOLLAR
+             | DOT
+             | SCOPE
+             | EQUAL
+             | LPAR
+             | RPAR
+             | LSQB
+             | RSQB
+             | LBRACE
+             | RBRACE
+             | COMMA
+             | WS
+             | ERROR
+
+LET.2: /let(?![a-zA-Z0-9_])/
+MATCH.2: /match(?![a-zA-Z0-9_])/
+PRINT.2: /print(?![a-zA-Z0-9_])/
+FOREACH.2: /foreach(?![a-zA-Z0-9_])/
+IN.2: /in(?![a-zA-Z0-9_])/
+DO.2: /do(?![a-zA-Z0-9_])/
+DONE.2: /done(?![a-zA-Z0-9_])/
+GLOB.3: /glob(?![a-zA-Z0-9_])/
+TRUE.2: /true(?![a-zA-Z0-9_])/
+FALSE.2: /false(?![a-zA-Z0-9_])/
+SET.2: /set(?![a-zA-Z0-9_])/
+CLEAR.2: /clear(?![a-zA-Z0-9_])/
+ADD.2: /add(?![a-zA-Z0-9_])/
+EXTRA_ARG.2: /extra_arg(?![a-zA-Z0-9_])/
+EXTRA_ARGS.2: /extra_args(?![a-zA-Z0-9_])/
+TRAVERSAL.2: /traversal(?![a-zA-Z0-9_])/
+CACHE_DIR.2: /cache_dir(?![a-zA-Z0-9_])/
+FILES.2: /files(?![a-zA-Z0-9_])/
+OUTPUT.2: /output(?![a-zA-Z0-9_])/
+STDOUT.2: /stdout(?![a-zA-Z0-9_])/
+SAVE.2: /save(?![a-zA-Z0-9_])/
+LOAD.2: /load(?![a-zA-Z0-9_])/
+TO.2: /to(?![a-zA-Z0-9_])/
+AS.2: /as(?![a-zA-Z0-9_])/
+INTO.2: /into(?![a-zA-Z0-9_])/
+USER.2: /user(?![a-zA-Z0-9_])/
+HISTORY.2: /history(?![a-zA-Z0-9_])/
+SESSION.2: /session(?![a-zA-Z0-9_])/
+LABEL.2: /label(?![a-zA-Z0-9_])/
+MODE.2: /mode(?![a-zA-Z0-9_])/
+REPLACE.3: /replace(?![a-zA-Z0-9_])/
+JOIN_WITH.3: /joinWith(?![a-zA-Z0-9_])/
+CFG.2: /cfg(?![a-zA-Z0-9_])/
+CALLGRAPH.2: /callgraph(?![a-zA-Z0-9_])/
+HELP.2: /help(?![a-zA-Z0-9_])/
+QUIT.2: /quit(?![a-zA-Z0-9_])/
+EXIT.2: /exit(?![a-zA-Z0-9_])/
+TRAVERSE.2: /traverse(?![a-zA-Z0-9_])/
+SCRIPT.2: /script(?![a-zA-Z0-9_])/
+
+ROOT_MATCHER_NAME: /[a-zA-Z_][a-zA-Z0-9_]*(?=\s*\()/
+MATCHER_NAME: /[a-zA-Z_][a-zA-Z0-9_]*(?=\s*\()/
+NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
+EDITOR_NAME.10: /[a-zA-Z_][a-zA-Z0-9_]*/
+BIND.3: /\.bind(?![a-zA-Z0-9_])/
+STRING.3: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/s
+OPEN_STRING.2: /"(?:\\.|[^"\\])*(?:\\)?$/s | /'(?:\\.|[^'\\])*(?:\\)?$/s
+DOLLAR: "$"
+DOT: "."
+SCOPE: "::"
+EQUAL: "="
+LPAR: "("
+RPAR: ")"
+LSQB: "["
+RSQB: "]"
+LBRACE: "{"
+RBRACE: "}"
+COMMA: ","
+WS: /\s+/
+ERROR: /[\s\S]/
+
+%ignore WS
+
+%import common.NUMBER

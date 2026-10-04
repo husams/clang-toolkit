@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message UsingShadowDecl {
+  NamedDeclInfo named = 1;
+  DeclarationSymbol target_declaration = 2;
+  DeclarationSymbol introducer = 3;
+}

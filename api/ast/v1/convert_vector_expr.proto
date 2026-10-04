@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ConvertVectorExpr {
+  ExprInfo info = 1;
+  ExpressionValue operand = 2;
+  QualType destination_element_type = 3;
+}

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message VarTemplateSpecializationDecl {
+  reserved 5, 6;
+  reserved "point_of_instantiation", "point_of_instantiation_is_valid";
+  VarDeclInfo variable = 1;
+  repeated TemplateArgument template_arguments = 2;
+  DeclarationSymbol specialized_template = 3;
+  optional DeclTemplateSpecializationKind specialization_kind = 4;
+}

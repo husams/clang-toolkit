@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message PredefinedExpr {
+  ExprInfo info = 1;
+  optional PredefinedIdentKind identifier_kind = 2;
+  optional bytes literal_bytes = 3;
+}

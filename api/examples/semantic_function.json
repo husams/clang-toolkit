@@ -1,0 +1,488 @@
+{
+  "values": [
+    {
+      "function_decl": {
+        "function": {
+          "declarator": {
+            "value": {
+              "named": {
+                "declaration": {
+                  "containing_scope": {
+                    "name": "demo",
+                    "qualified_name": "demo",
+                    "kind": "SYMBOL_KIND_NAMESPACE"
+                  }
+                },
+                "name": {
+                  "identifier": "score"
+                },
+                "qualified_name": "demo::score"
+              }
+            }
+          },
+          "return_type": {
+            "type": {
+              "builtin_type": {
+                "info": {
+                  "spelling": "int"
+                },
+                "kind": "BUILTIN_KIND_INT"
+              }
+            }
+          },
+          "parameters": [
+            {
+              "parm_var_decl": {
+                "variable": {
+                  "declarator": {
+                    "value": {
+                      "named": {
+                        "declaration": {
+                          "containing_scope": {
+                            "name": "demo",
+                            "qualified_name": "demo",
+                            "kind": "SYMBOL_KIND_NAMESPACE"
+                          }
+                        },
+                        "name": {
+                          "identifier": "input"
+                        },
+                        "qualified_name": "demo::score::input"
+                      },
+                      "type": {
+                        "type": {
+                          "builtin_type": {
+                            "info": {
+                              "spelling": "int"
+                            },
+                            "kind": "BUILTIN_KIND_INT"
+                          }
+                        }
+                      }
+                    },
+                    "declared_type": {
+                      "type": {
+                        "builtin_type": {
+                          "info": {
+                            "spelling": "int"
+                          },
+                          "kind": "BUILTIN_KIND_INT"
+                        }
+                      }
+                    }
+                  }
+                },
+                "is_parameter_pack": false
+              }
+            }
+          ],
+          "body": {
+            "compound_stmt": {
+              "body": [
+                {
+                  "expression": {
+                    "call_expr": {
+                      "call": {
+                        "expression": {
+                          "type": {
+                            "type": {
+                              "builtin_type": {
+                                "info": {
+                                  "spelling": "int"
+                                },
+                                "kind": "BUILTIN_KIND_INT"
+                              }
+                            }
+                          },
+                          "value_category": "VALUE_CATEGORY_PRVALUE"
+                        },
+                        "callee_expression": {
+                          "implicit_cast_expr": {
+                            "cast": {
+                              "expression": {
+                                "type": {
+                                  "type": {
+                                    "pointer_type": {
+                                      "info": {
+                                        "spelling": "int (*)(int, int)"
+                                      },
+                                      "pointee_type": {
+                                        "type": {
+                                          "function_proto_type": {
+                                            "info": {
+                                              "spelling": "int (int, int)"
+                                            },
+                                            "return_type": {
+                                              "type": {
+                                                "builtin_type": {
+                                                  "info": {
+                                                    "spelling": "int"
+                                                  },
+                                                  "kind": "BUILTIN_KIND_INT"
+                                                }
+                                              }
+                                            },
+                                            "parameter_types": [
+                                              {
+                                                "type": {
+                                                  "builtin_type": {
+                                                    "info": {
+                                                      "spelling": "int"
+                                                    },
+                                                    "kind": "BUILTIN_KIND_INT"
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "type": {
+                                                  "builtin_type": {
+                                                    "info": {
+                                                      "spelling": "int"
+                                                    },
+                                                    "kind": "BUILTIN_KIND_INT"
+                                                  }
+                                                }
+                                              }
+                                            ],
+                                            "is_variadic": false
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "value_category": "VALUE_CATEGORY_PRVALUE"
+                              },
+                              "operand": {
+                                "decl_ref_expr": {
+                                  "info": {
+                                    "type": {
+                                      "type": {
+                                        "function_proto_type": {
+                                          "info": {
+                                            "spelling": "int (int, int)"
+                                          },
+                                          "return_type": {
+                                            "type": {
+                                              "builtin_type": {
+                                                "info": {
+                                                  "spelling": "int"
+                                                },
+                                                "kind": "BUILTIN_KIND_INT"
+                                              }
+                                            }
+                                          },
+                                          "parameter_types": [
+                                            {
+                                              "type": {
+                                                "builtin_type": {
+                                                  "info": {
+                                                    "spelling": "int"
+                                                  },
+                                                  "kind": "BUILTIN_KIND_INT"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "type": {
+                                                "builtin_type": {
+                                                  "info": {
+                                                    "spelling": "int"
+                                                  },
+                                                  "kind": "BUILTIN_KIND_INT"
+                                                }
+                                              }
+                                            }
+                                          ],
+                                          "is_variadic": false
+                                        }
+                                      }
+                                    },
+                                    "value_category": "VALUE_CATEGORY_LVALUE"
+                                  },
+                                  "declaration": {
+                                    "name": "choose",
+                                    "qualified_name": "demo::choose",
+                                    "kind": "SYMBOL_KIND_FUNCTION"
+                                  },
+                                  "name": {
+                                    "identifier": "choose"
+                                  }
+                                }
+                              },
+                              "kind": "CAST_KIND_FUNCTION_TO_POINTER_DECAY"
+                            }
+                          }
+                        },
+                        "direct_callee": {
+                          "name": "choose",
+                          "qualified_name": "demo::choose",
+                          "kind": "SYMBOL_KIND_FUNCTION",
+                          "function": {
+                            "return_type": {
+                              "spelling": "int",
+                              "canonical_spelling": "int",
+                              "is_dependent": false
+                            },
+                            "parameters": [
+                              {
+                                "name": "value",
+                                "type": {
+                                  "spelling": "int",
+                                  "canonical_spelling": "int",
+                                  "is_dependent": false
+                                },
+                                "is_parameter_pack": false
+                              },
+                              {
+                                "name": "adjustment",
+                                "type": {
+                                  "spelling": "int",
+                                  "canonical_spelling": "int",
+                                  "is_dependent": false
+                                },
+                                "is_parameter_pack": false
+                              }
+                            ],
+                            "is_variadic": false
+                          },
+                          "clang_class": "FunctionDecl"
+                        },
+                        "arguments": [
+                          {
+                            "decl_ref_expr": {
+                              "info": {
+                                "type": {
+                                  "type": {
+                                    "builtin_type": {
+                                      "info": {
+                                        "spelling": "int"
+                                      },
+                                      "kind": "BUILTIN_KIND_INT"
+                                    }
+                                  }
+                                },
+                                "value_category": "VALUE_CATEGORY_LVALUE"
+                              },
+                              "declaration": {
+                                "name": "input",
+                                "qualified_name": "demo::score::input",
+                                "kind": "SYMBOL_KIND_PARAMETER",
+                                "type": {
+                                  "spelling": "int",
+                                  "canonical_spelling": "int",
+                                  "is_dependent": false
+                                }
+                              },
+                              "name": {
+                                "identifier": "input"
+                              }
+                            }
+                          },
+                          {
+                            "integer_literal": {
+                              "info": {
+                                "type": {
+                                  "type": {
+                                    "builtin_type": {
+                                      "info": {
+                                        "spelling": "int"
+                                      },
+                                      "kind": "BUILTIN_KIND_INT"
+                                    }
+                                  }
+                                },
+                                "value_category": "VALUE_CATEGORY_PRVALUE"
+                              },
+                              "value": {
+                                "bit_width": 32,
+                                "little_endian_bits": "AwAAAA=="
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "return_stmt": {
+                    "return_value": {
+                      "binary_operator": {
+                        "info": {
+                          "type": {
+                            "type": {
+                              "builtin_type": {
+                                "info": {
+                                  "spelling": "int"
+                                },
+                                "kind": "BUILTIN_KIND_INT"
+                              }
+                            }
+                          },
+                          "value_category": "VALUE_CATEGORY_PRVALUE"
+                        },
+                        "left": {
+                          "decl_ref_expr": {
+                            "info": {
+                              "type": {
+                                "type": {
+                                  "builtin_type": {
+                                    "info": {
+                                      "spelling": "int"
+                                    },
+                                    "kind": "BUILTIN_KIND_INT"
+                                  }
+                                }
+                              },
+                              "value_category": "VALUE_CATEGORY_LVALUE"
+                            },
+                            "declaration": {
+                              "name": "input",
+                              "qualified_name": "demo::score::input",
+                              "kind": "SYMBOL_KIND_PARAMETER",
+                              "type": {
+                                "spelling": "int",
+                                "canonical_spelling": "int",
+                                "is_dependent": false
+                              }
+                            },
+                            "name": {
+                              "identifier": "input"
+                            }
+                          }
+                        },
+                        "right": {
+                          "integer_literal": {
+                            "info": {
+                              "type": {
+                                "type": {
+                                  "builtin_type": {
+                                    "info": {
+                                      "spelling": "int"
+                                    },
+                                    "kind": "BUILTIN_KIND_INT"
+                                  }
+                                }
+                              },
+                              "value_category": "VALUE_CATEGORY_PRVALUE"
+                            },
+                            "value": {
+                              "bit_width": 32,
+                              "little_endian_bits": "AQAAAA=="
+                            }
+                          }
+                        },
+                        "opcode": "BINARY_OPCODE_ADD"
+                      }
+                    }
+                  }
+                }
+              ],
+              "is_statement_expression": false
+            }
+          },
+          "is_this_declaration_a_definition": true,
+          "is_variadic": false
+        }
+      }
+    },
+    {
+      "cxx_record_decl": {
+        "record": {
+          "tag": {
+            "type_declaration": {
+              "named": {
+                "declaration": {
+                  "containing_scope": {
+                    "name": "demo",
+                    "qualified_name": "demo",
+                    "kind": "SYMBOL_KIND_NAMESPACE"
+                  }
+                },
+                "name": {
+                  "identifier": "Node"
+                },
+                "qualified_name": "demo::Node"
+              }
+            },
+            "tag_kind": "TAG_KIND_STRUCT",
+            "is_complete_definition": true
+          },
+          "members": [
+            {
+              "field_decl": {
+                "declarator": {
+                  "value": {
+                    "named": {
+                      "declaration": {
+                        "containing_scope": {
+                          "name": "Node",
+                          "qualified_name": "demo::Node",
+                          "kind": "SYMBOL_KIND_RECORD"
+                        }
+                      },
+                      "name": {
+                        "identifier": "next"
+                      },
+                      "qualified_name": "demo::Node::next"
+                    },
+                    "type": {
+                      "type": {
+                        "pointer_type": {
+                          "info": {
+                            "spelling": "demo::Node *"
+                          },
+                          "pointee_type": {
+                            "type": {
+                              "record_type": {
+                                "info": {
+                                  "spelling": "demo::Node"
+                                },
+                                "declaration": {
+                                  "name": "Node",
+                                  "qualified_name": "demo::Node",
+                                  "kind": "SYMBOL_KIND_RECORD",
+                                  "clang_class": "CXXRecordDecl"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "declared_type": {
+                    "type": {
+                      "pointer_type": {
+                        "info": {
+                          "spelling": "demo::Node *"
+                        },
+                        "pointee_type": {
+                          "type": {
+                            "record_type": {
+                              "info": {
+                                "spelling": "demo::Node"
+                              },
+                              "declaration": {
+                                "name": "Node",
+                                "qualified_name": "demo::Node",
+                                "kind": "SYMBOL_KIND_RECORD",
+                                "clang_class": "CXXRecordDecl"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "is_complete": true
+}

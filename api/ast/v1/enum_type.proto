@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message EnumType {
+  reserved 5;
+  reserved "is_tag_owned";
+  reserved 4;
+  reserved "keyword";
+  TypeInfo info = 1;
+  DeclarationSymbol declaration = 2;
+  NestedNameSpecifier qualifier = 3;
+}

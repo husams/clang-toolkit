@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/operators.proto";
+import "ast/v1/semantic_types.proto";
+
+message CompoundAssignOperator {
+  ExprInfo info = 1;
+  ExpressionValue left = 2;
+  ExpressionValue right = 3;
+  optional BinaryOpcode opcode = 4;
+  QualType computation_lhs_type = 5;
+  QualType computation_result_type = 6;
+}

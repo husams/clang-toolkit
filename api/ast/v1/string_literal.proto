@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message StringLiteral {
+  reserved 6;
+  reserved "source_spelling";
+  ExprInfo info = 1;
+  optional bytes value = 2;
+  optional uint32 code_unit_width = 3;
+  optional StringLiteralKind literal_kind = 4;
+  optional uint64 code_unit_count = 5;
+}

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message EmbedExpr {
+  ExprInfo info = 1;
+  optional string file_name = 2;
+  optional uint32 starting_element_position = 3;
+  optional uint64 data_element_count = 4;
+  ExpressionValue data_string_literal = 5;
+}

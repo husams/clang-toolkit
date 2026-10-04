@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ArrayTypeTraitExpr {
+  ExprInfo info = 1;
+  optional ArrayTypeTrait trait = 2;
+  QualType queried_type = 3;
+  optional uint64 dimension = 4;
+}

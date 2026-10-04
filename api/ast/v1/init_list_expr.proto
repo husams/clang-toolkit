@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message InitListExpr {
+  reserved 6;
+  reserved "is_fully_braced";
+  ExprInfo info = 1;
+  repeated ExpressionValue initializers = 2;
+  repeated ExpressionValue syntactic_initializers = 3;
+  ExpressionValue array_filler = 4;
+  optional bool is_union = 5;
+  optional bool is_semantic_form = 7;
+}

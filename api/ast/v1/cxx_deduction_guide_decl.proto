@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXDeductionGuideDecl {
+  FunctionDeclInfo function = 1;
+  DeclarationSymbol deduced_template = 2;
+  optional DeclDeductionCandidateKind deduction_candidate_kind = 3;
+  DeclarationSymbol corresponding_constructor = 4;
+  DeclarationSymbol source_deduction_guide = 5;
+  optional DeclSourceDeductionGuideKind source_kind = 6;
+}

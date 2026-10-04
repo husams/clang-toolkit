@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message PackExpansionExpr {
+  ExprInfo info = 1;
+  ExpressionValue pattern = 2;
+  optional int64 num_expansions = 3;
+}

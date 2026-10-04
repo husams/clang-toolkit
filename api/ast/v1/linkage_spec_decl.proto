@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message LinkageSpecDecl {
+  reserved 4, 5, 6, 7;
+  reserved "extern_location", "has_braces", "language_location", "right_brace_location";
+  DeclInfo declaration = 1;
+  optional DeclLinkageLanguage language = 2;
+  repeated DeclarationValue declarations = 3;
+}

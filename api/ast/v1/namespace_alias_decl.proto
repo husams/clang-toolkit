@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message NamespaceAliasDecl {
+  reserved 5;
+  reserved "target_name_location";
+  NamedDeclInfo named = 1;
+  DeclarationSymbol namespace_declaration = 2;
+  DeclarationSymbol aliased_namespace = 3;
+  NestedNameSpecifier qualifier = 4;
+}

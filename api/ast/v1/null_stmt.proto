@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+message NullStmt {
+  reserved 1, 2;
+  reserved "has_leading_empty_macro", "statement";
+}

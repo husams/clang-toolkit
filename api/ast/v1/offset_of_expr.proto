@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message OffsetOfExpr {
+  ExprInfo info = 1;
+  QualType queried_type = 2;
+  repeated OffsetOfComponent components = 3;
+  APIntBits byte_offset = 4;
+}

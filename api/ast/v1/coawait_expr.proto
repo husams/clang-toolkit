@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CoawaitExpr {
+  ExprInfo info = 1;
+  ExpressionValue operand = 2;
+  ExpressionValue ready_call = 3;
+  ExpressionValue suspend_call = 4;
+  ExpressionValue resume_call = 5;
+  optional bool is_ready = 6;
+}

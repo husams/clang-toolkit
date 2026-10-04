@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ExportDecl {
+  reserved 3, 4;
+  reserved "has_braces", "right_brace_location";
+  DeclInfo declaration = 1;
+  repeated DeclarationValue declarations = 2;
+}

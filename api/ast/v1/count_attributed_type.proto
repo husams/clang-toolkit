@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CountAttributedType {
+  TypeInfo info = 1;
+  QualType wrapped_type = 2;
+  ExpressionValue count_expression = 3;
+  optional DynamicCountKind count_kind = 4;
+  repeated DeclarationSymbol coupled_declarations = 5;
+}

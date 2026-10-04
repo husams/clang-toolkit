@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message PackIndexingExpr {
+  ExprInfo info = 1;
+  ExpressionValue pack_expression = 2;
+  DeclarationSymbol pack_declaration = 3;
+  ExpressionValue index_expression = 4;
+  optional uint32 selected_index = 5;
+  ExpressionValue selected_expression = 6;
+  repeated ExpressionValue substituted_expressions = 7;
+  optional bool is_fully_substituted = 8;
+}

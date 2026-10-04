@@ -1,0 +1,1614 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+// Shared semantic helper messages and value wrappers. Concrete AST child values
+// travel in google.protobuf.Any so a per-node schema does not import another
+// family schema through recursive declaration, expression, statement, or type
+// fields. Clients must unpack locally after strict family/type URL validation.
+// Canonical URLs use type.googleapis.com/ctk.ast.v1.<Message>; never fetch them.
+// Allowlist, by wrapper family:
+// decl:
+//   type.googleapis.com/ctk.ast.v1.TranslationUnitDecl
+//   type.googleapis.com/ctk.ast.v1.TopLevelStmtDecl
+//   type.googleapis.com/ctk.ast.v1.RequiresExprBodyDecl
+//   type.googleapis.com/ctk.ast.v1.LinkageSpecDecl
+//   type.googleapis.com/ctk.ast.v1.ExternCContextDecl
+//   type.googleapis.com/ctk.ast.v1.ExportDecl
+//   type.googleapis.com/ctk.ast.v1.BlockDecl
+//   type.googleapis.com/ctk.ast.v1.StaticAssertDecl
+//   type.googleapis.com/ctk.ast.v1.PragmaDetectMismatchDecl
+//   type.googleapis.com/ctk.ast.v1.PragmaCommentDecl
+//   type.googleapis.com/ctk.ast.v1.UnresolvedUsingValueDecl
+//   type.googleapis.com/ctk.ast.v1.UnnamedGlobalConstantDecl
+//   type.googleapis.com/ctk.ast.v1.TemplateParamObjectDecl
+//   type.googleapis.com/ctk.ast.v1.MSGuidDecl
+//   type.googleapis.com/ctk.ast.v1.IndirectFieldDecl
+//   type.googleapis.com/ctk.ast.v1.EnumConstantDecl
+//   type.googleapis.com/ctk.ast.v1.FunctionDecl
+//   type.googleapis.com/ctk.ast.v1.CXXMethodDecl
+//   type.googleapis.com/ctk.ast.v1.CXXDestructorDecl
+//   type.googleapis.com/ctk.ast.v1.CXXConversionDecl
+//   type.googleapis.com/ctk.ast.v1.CXXConstructorDecl
+//   type.googleapis.com/ctk.ast.v1.CXXDeductionGuideDecl
+//   type.googleapis.com/ctk.ast.v1.VarDecl
+//   type.googleapis.com/ctk.ast.v1.VarTemplateSpecializationDecl
+//   type.googleapis.com/ctk.ast.v1.VarTemplatePartialSpecializationDecl
+//   type.googleapis.com/ctk.ast.v1.ParmVarDecl
+//   type.googleapis.com/ctk.ast.v1.ImplicitParamDecl
+//   type.googleapis.com/ctk.ast.v1.DecompositionDecl
+//   type.googleapis.com/ctk.ast.v1.NonTypeTemplateParmDecl
+//   type.googleapis.com/ctk.ast.v1.MSPropertyDecl
+//   type.googleapis.com/ctk.ast.v1.FieldDecl
+//   type.googleapis.com/ctk.ast.v1.BindingDecl
+//   type.googleapis.com/ctk.ast.v1.UsingShadowDecl
+//   type.googleapis.com/ctk.ast.v1.ConstructorUsingShadowDecl
+//   type.googleapis.com/ctk.ast.v1.UsingPackDecl
+//   type.googleapis.com/ctk.ast.v1.UsingDirectiveDecl
+//   type.googleapis.com/ctk.ast.v1.UnresolvedUsingIfExistsDecl
+//   type.googleapis.com/ctk.ast.v1.RecordDecl
+//   type.googleapis.com/ctk.ast.v1.CXXRecordDecl
+//   type.googleapis.com/ctk.ast.v1.ClassTemplateSpecializationDecl
+//   type.googleapis.com/ctk.ast.v1.ClassTemplatePartialSpecializationDecl
+//   type.googleapis.com/ctk.ast.v1.EnumDecl
+//   type.googleapis.com/ctk.ast.v1.UnresolvedUsingTypenameDecl
+//   type.googleapis.com/ctk.ast.v1.TypedefDecl
+//   type.googleapis.com/ctk.ast.v1.TypeAliasDecl
+//   type.googleapis.com/ctk.ast.v1.TemplateTypeParmDecl
+//   type.googleapis.com/ctk.ast.v1.TemplateTemplateParmDecl
+//   type.googleapis.com/ctk.ast.v1.VarTemplateDecl
+//   type.googleapis.com/ctk.ast.v1.TypeAliasTemplateDecl
+//   type.googleapis.com/ctk.ast.v1.FunctionTemplateDecl
+//   type.googleapis.com/ctk.ast.v1.ClassTemplateDecl
+//   type.googleapis.com/ctk.ast.v1.ConceptDecl
+//   type.googleapis.com/ctk.ast.v1.BuiltinTemplateDecl
+//   type.googleapis.com/ctk.ast.v1.NamespaceDecl
+//   type.googleapis.com/ctk.ast.v1.NamespaceAliasDecl
+//   type.googleapis.com/ctk.ast.v1.LabelDecl
+//   type.googleapis.com/ctk.ast.v1.UsingEnumDecl
+//   type.googleapis.com/ctk.ast.v1.UsingDecl
+//   type.googleapis.com/ctk.ast.v1.LifetimeExtendedTemporaryDecl
+//   type.googleapis.com/ctk.ast.v1.ImportDecl
+//   type.googleapis.com/ctk.ast.v1.ImplicitConceptSpecializationDecl
+//   type.googleapis.com/ctk.ast.v1.FriendTemplateDecl
+//   type.googleapis.com/ctk.ast.v1.FriendDecl
+//   type.googleapis.com/ctk.ast.v1.FileScopeAsmDecl
+//   type.googleapis.com/ctk.ast.v1.EmptyDecl
+//   type.googleapis.com/ctk.ast.v1.AccessSpecDecl
+// expr:
+//   type.googleapis.com/ctk.ast.v1.VAArgExpr
+//   type.googleapis.com/ctk.ast.v1.UnaryOperator
+//   type.googleapis.com/ctk.ast.v1.UnaryExprOrTypeTraitExpr
+//   type.googleapis.com/ctk.ast.v1.TypeTraitExpr
+//   type.googleapis.com/ctk.ast.v1.SubstNonTypeTemplateParmPackExpr
+//   type.googleapis.com/ctk.ast.v1.SubstNonTypeTemplateParmExpr
+//   type.googleapis.com/ctk.ast.v1.StringLiteral
+//   type.googleapis.com/ctk.ast.v1.StmtExpr
+//   type.googleapis.com/ctk.ast.v1.SourceLocExpr
+//   type.googleapis.com/ctk.ast.v1.SizeOfPackExpr
+//   type.googleapis.com/ctk.ast.v1.ShuffleVectorExpr
+//   type.googleapis.com/ctk.ast.v1.RequiresExpr
+//   type.googleapis.com/ctk.ast.v1.RecoveryExpr
+//   type.googleapis.com/ctk.ast.v1.PseudoObjectExpr
+//   type.googleapis.com/ctk.ast.v1.PredefinedExpr
+//   type.googleapis.com/ctk.ast.v1.ParenListExpr
+//   type.googleapis.com/ctk.ast.v1.ParenExpr
+//   type.googleapis.com/ctk.ast.v1.PackIndexingExpr
+//   type.googleapis.com/ctk.ast.v1.PackExpansionExpr
+//   type.googleapis.com/ctk.ast.v1.UnresolvedMemberExpr
+//   type.googleapis.com/ctk.ast.v1.UnresolvedLookupExpr
+//   type.googleapis.com/ctk.ast.v1.OpaqueValueExpr
+//   type.googleapis.com/ctk.ast.v1.OffsetOfExpr
+//   type.googleapis.com/ctk.ast.v1.NoInitExpr
+//   type.googleapis.com/ctk.ast.v1.MemberExpr
+//   type.googleapis.com/ctk.ast.v1.MatrixSubscriptExpr
+//   type.googleapis.com/ctk.ast.v1.MatrixSingleSubscriptExpr
+//   type.googleapis.com/ctk.ast.v1.MaterializeTemporaryExpr
+//   type.googleapis.com/ctk.ast.v1.MSPropertySubscriptExpr
+//   type.googleapis.com/ctk.ast.v1.MSPropertyRefExpr
+//   type.googleapis.com/ctk.ast.v1.LambdaExpr
+//   type.googleapis.com/ctk.ast.v1.IntegerLiteral
+//   type.googleapis.com/ctk.ast.v1.InitListExpr
+//   type.googleapis.com/ctk.ast.v1.ImplicitValueInitExpr
+//   type.googleapis.com/ctk.ast.v1.ImaginaryLiteral
+//   type.googleapis.com/ctk.ast.v1.GenericSelectionExpr
+//   type.googleapis.com/ctk.ast.v1.GNUNullExpr
+//   type.googleapis.com/ctk.ast.v1.FunctionParmPackExpr
+//   type.googleapis.com/ctk.ast.v1.ExprWithCleanups
+//   type.googleapis.com/ctk.ast.v1.ConstantExpr
+//   type.googleapis.com/ctk.ast.v1.FloatingLiteral
+//   type.googleapis.com/ctk.ast.v1.FixedPointLiteral
+//   type.googleapis.com/ctk.ast.v1.ExtVectorElementExpr
+//   type.googleapis.com/ctk.ast.v1.ExpressionTraitExpr
+//   type.googleapis.com/ctk.ast.v1.EmbedExpr
+//   type.googleapis.com/ctk.ast.v1.DesignatedInitUpdateExpr
+//   type.googleapis.com/ctk.ast.v1.DesignatedInitExpr
+//   type.googleapis.com/ctk.ast.v1.DependentScopeDeclRefExpr
+//   type.googleapis.com/ctk.ast.v1.DependentCoawaitExpr
+//   type.googleapis.com/ctk.ast.v1.DeclRefExpr
+//   type.googleapis.com/ctk.ast.v1.CoyieldExpr
+//   type.googleapis.com/ctk.ast.v1.CoawaitExpr
+//   type.googleapis.com/ctk.ast.v1.ConvertVectorExpr
+//   type.googleapis.com/ctk.ast.v1.ConceptSpecializationExpr
+//   type.googleapis.com/ctk.ast.v1.CompoundLiteralExpr
+//   type.googleapis.com/ctk.ast.v1.ChooseExpr
+//   type.googleapis.com/ctk.ast.v1.CharacterLiteral
+//   type.googleapis.com/ctk.ast.v1.ImplicitCastExpr
+//   type.googleapis.com/ctk.ast.v1.CXXStaticCastExpr
+//   type.googleapis.com/ctk.ast.v1.CXXReinterpretCastExpr
+//   type.googleapis.com/ctk.ast.v1.CXXDynamicCastExpr
+//   type.googleapis.com/ctk.ast.v1.CXXConstCastExpr
+//   type.googleapis.com/ctk.ast.v1.CXXAddrspaceCastExpr
+//   type.googleapis.com/ctk.ast.v1.CXXFunctionalCastExpr
+//   type.googleapis.com/ctk.ast.v1.CStyleCastExpr
+//   type.googleapis.com/ctk.ast.v1.BuiltinBitCastExpr
+//   type.googleapis.com/ctk.ast.v1.CallExpr
+//   type.googleapis.com/ctk.ast.v1.UserDefinedLiteral
+//   type.googleapis.com/ctk.ast.v1.CXXOperatorCallExpr
+//   type.googleapis.com/ctk.ast.v1.CXXMemberCallExpr
+//   type.googleapis.com/ctk.ast.v1.CXXUuidofExpr
+//   type.googleapis.com/ctk.ast.v1.CXXUnresolvedConstructExpr
+//   type.googleapis.com/ctk.ast.v1.CXXTypeidExpr
+//   type.googleapis.com/ctk.ast.v1.CXXThrowExpr
+//   type.googleapis.com/ctk.ast.v1.CXXThisExpr
+//   type.googleapis.com/ctk.ast.v1.CXXStdInitializerListExpr
+//   type.googleapis.com/ctk.ast.v1.CXXScalarValueInitExpr
+//   type.googleapis.com/ctk.ast.v1.CXXRewrittenBinaryOperator
+//   type.googleapis.com/ctk.ast.v1.CXXPseudoDestructorExpr
+//   type.googleapis.com/ctk.ast.v1.CXXParenListInitExpr
+//   type.googleapis.com/ctk.ast.v1.CXXNullPtrLiteralExpr
+//   type.googleapis.com/ctk.ast.v1.CXXNoexceptExpr
+//   type.googleapis.com/ctk.ast.v1.CXXNewExpr
+//   type.googleapis.com/ctk.ast.v1.CXXInheritedCtorInitExpr
+//   type.googleapis.com/ctk.ast.v1.CXXFoldExpr
+//   type.googleapis.com/ctk.ast.v1.CXXDependentScopeMemberExpr
+//   type.googleapis.com/ctk.ast.v1.CXXDeleteExpr
+//   type.googleapis.com/ctk.ast.v1.CXXDefaultInitExpr
+//   type.googleapis.com/ctk.ast.v1.CXXDefaultArgExpr
+//   type.googleapis.com/ctk.ast.v1.CXXConstructExpr
+//   type.googleapis.com/ctk.ast.v1.CXXTemporaryObjectExpr
+//   type.googleapis.com/ctk.ast.v1.CXXBoolLiteralExpr
+//   type.googleapis.com/ctk.ast.v1.CXXBindTemporaryExpr
+//   type.googleapis.com/ctk.ast.v1.BlockExpr
+//   type.googleapis.com/ctk.ast.v1.BinaryOperator
+//   type.googleapis.com/ctk.ast.v1.CompoundAssignOperator
+//   type.googleapis.com/ctk.ast.v1.AtomicExpr
+//   type.googleapis.com/ctk.ast.v1.ArrayTypeTraitExpr
+//   type.googleapis.com/ctk.ast.v1.ArraySubscriptExpr
+//   type.googleapis.com/ctk.ast.v1.ArrayInitLoopExpr
+//   type.googleapis.com/ctk.ast.v1.ArrayInitIndexExpr
+//   type.googleapis.com/ctk.ast.v1.AddrLabelExpr
+//   type.googleapis.com/ctk.ast.v1.ConditionalOperator
+//   type.googleapis.com/ctk.ast.v1.BinaryConditionalOperator
+// stmt:
+//   type.googleapis.com/ctk.ast.v1.WhileStmt
+//   type.googleapis.com/ctk.ast.v1.LabelStmt
+//   type.googleapis.com/ctk.ast.v1.AttributedStmt
+//   type.googleapis.com/ctk.ast.v1.SwitchStmt
+//   type.googleapis.com/ctk.ast.v1.DefaultStmt
+//   type.googleapis.com/ctk.ast.v1.CaseStmt
+//   type.googleapis.com/ctk.ast.v1.SEHTryStmt
+//   type.googleapis.com/ctk.ast.v1.SEHLeaveStmt
+//   type.googleapis.com/ctk.ast.v1.SEHFinallyStmt
+//   type.googleapis.com/ctk.ast.v1.SEHExceptStmt
+//   type.googleapis.com/ctk.ast.v1.ReturnStmt
+//   type.googleapis.com/ctk.ast.v1.NullStmt
+//   type.googleapis.com/ctk.ast.v1.MSDependentExistsStmt
+//   type.googleapis.com/ctk.ast.v1.ContinueStmt
+//   type.googleapis.com/ctk.ast.v1.BreakStmt
+//   type.googleapis.com/ctk.ast.v1.IndirectGotoStmt
+//   type.googleapis.com/ctk.ast.v1.IfStmt
+//   type.googleapis.com/ctk.ast.v1.GotoStmt
+//   type.googleapis.com/ctk.ast.v1.ForStmt
+//   type.googleapis.com/ctk.ast.v1.DoStmt
+//   type.googleapis.com/ctk.ast.v1.DeclStmt
+//   type.googleapis.com/ctk.ast.v1.CoroutineBodyStmt
+//   type.googleapis.com/ctk.ast.v1.CoreturnStmt
+//   type.googleapis.com/ctk.ast.v1.CompoundStmt
+//   type.googleapis.com/ctk.ast.v1.CXXTryStmt
+//   type.googleapis.com/ctk.ast.v1.CXXForRangeStmt
+//   type.googleapis.com/ctk.ast.v1.CXXCatchStmt
+//   type.googleapis.com/ctk.ast.v1.MSAsmStmt
+//   type.googleapis.com/ctk.ast.v1.GCCAsmStmt
+// type:
+//   type.googleapis.com/ctk.ast.v1.AdjustedType
+//   type.googleapis.com/ctk.ast.v1.DecayedType
+//   type.googleapis.com/ctk.ast.v1.ConstantArrayType
+//   type.googleapis.com/ctk.ast.v1.DependentSizedArrayType
+//   type.googleapis.com/ctk.ast.v1.IncompleteArrayType
+//   type.googleapis.com/ctk.ast.v1.VariableArrayType
+//   type.googleapis.com/ctk.ast.v1.AtomicType
+//   type.googleapis.com/ctk.ast.v1.AttributedType
+//   type.googleapis.com/ctk.ast.v1.BTFTagAttributedType
+//   type.googleapis.com/ctk.ast.v1.BitIntType
+//   type.googleapis.com/ctk.ast.v1.BlockPointerType
+//   type.googleapis.com/ctk.ast.v1.CountAttributedType
+//   type.googleapis.com/ctk.ast.v1.BuiltinType
+//   type.googleapis.com/ctk.ast.v1.ComplexType
+//   type.googleapis.com/ctk.ast.v1.DecltypeType
+//   type.googleapis.com/ctk.ast.v1.AutoType
+//   type.googleapis.com/ctk.ast.v1.DeducedTemplateSpecializationType
+//   type.googleapis.com/ctk.ast.v1.DependentAddressSpaceType
+//   type.googleapis.com/ctk.ast.v1.DependentBitIntType
+//   type.googleapis.com/ctk.ast.v1.DependentNameType
+//   type.googleapis.com/ctk.ast.v1.DependentSizedExtVectorType
+//   type.googleapis.com/ctk.ast.v1.DependentVectorType
+//   type.googleapis.com/ctk.ast.v1.FunctionProtoType
+//   type.googleapis.com/ctk.ast.v1.MacroQualifiedType
+//   type.googleapis.com/ctk.ast.v1.ConstantMatrixType
+//   type.googleapis.com/ctk.ast.v1.DependentSizedMatrixType
+//   type.googleapis.com/ctk.ast.v1.MemberPointerType
+//   type.googleapis.com/ctk.ast.v1.PackExpansionType
+//   type.googleapis.com/ctk.ast.v1.PackIndexingType
+//   type.googleapis.com/ctk.ast.v1.ParenType
+//   type.googleapis.com/ctk.ast.v1.PointerType
+//   type.googleapis.com/ctk.ast.v1.PredefinedSugarType
+//   type.googleapis.com/ctk.ast.v1.LValueReferenceType
+//   type.googleapis.com/ctk.ast.v1.RValueReferenceType
+//   type.googleapis.com/ctk.ast.v1.SubstBuiltinTemplatePackType
+//   type.googleapis.com/ctk.ast.v1.SubstTemplateTypeParmPackType
+//   type.googleapis.com/ctk.ast.v1.SubstTemplateTypeParmType
+//   type.googleapis.com/ctk.ast.v1.EnumType
+//   type.googleapis.com/ctk.ast.v1.InjectedClassNameType
+//   type.googleapis.com/ctk.ast.v1.RecordType
+//   type.googleapis.com/ctk.ast.v1.TemplateSpecializationType
+//   type.googleapis.com/ctk.ast.v1.TemplateTypeParmType
+//   type.googleapis.com/ctk.ast.v1.TypeOfExprType
+//   type.googleapis.com/ctk.ast.v1.TypeOfType
+//   type.googleapis.com/ctk.ast.v1.TypedefType
+//   type.googleapis.com/ctk.ast.v1.UnaryTransformType
+//   type.googleapis.com/ctk.ast.v1.UnresolvedUsingType
+//   type.googleapis.com/ctk.ast.v1.UsingType
+//   type.googleapis.com/ctk.ast.v1.VectorType
+//   type.googleapis.com/ctk.ast.v1.ExtVectorType
+//   type.googleapis.com/ctk.ast.v1.DependentTypeOfExprType
+//   type.googleapis.com/ctk.ast.v1.DependentDecltypeType
+// Embedded bytes are semantic values, never handles or IDs. Any reference:
+// https://protobuf.dev/programming-guides/proto3/#any
+
+import "ast/v1/common.proto";
+import "ast/v1/operators.proto";
+import "google/protobuf/any.proto";
+
+enum SymbolKind {
+  SYMBOL_KIND_UNSPECIFIED = 0;
+  SYMBOL_KIND_NAMESPACE = 1;
+  SYMBOL_KIND_RECORD = 2;
+  SYMBOL_KIND_ENUM = 3;
+  SYMBOL_KIND_TYPE_ALIAS = 4;
+  SYMBOL_KIND_FUNCTION = 5;
+  SYMBOL_KIND_METHOD = 6;
+  SYMBOL_KIND_CONSTRUCTOR = 7;
+  SYMBOL_KIND_DESTRUCTOR = 8;
+  SYMBOL_KIND_VARIABLE = 9;
+  SYMBOL_KIND_FIELD = 10;
+  SYMBOL_KIND_PARAMETER = 11;
+  SYMBOL_KIND_TEMPLATE = 12;
+  SYMBOL_KIND_CONCEPT = 13;
+  SYMBOL_KIND_LABEL = 14;
+  SYMBOL_KIND_UNRESOLVED = 15;
+  SYMBOL_KIND_OTHER = 16;
+}
+
+message DeclarationSymbol {
+  optional string name = 1;
+  optional string qualified_name = 2;
+  optional SymbolKind kind = 3;
+  TypeDescription type = 4;
+  FunctionSignature function = 5;
+  optional string clang_class = 6;
+  repeated TemplateArgumentDescription template_arguments = 7;
+  optional bool is_parameter_pack = 8;
+  optional OverloadedOperatorKind overloaded_operator = 9;
+}
+
+message TypeDescription {
+  optional string spelling = 1;
+  optional string canonical_spelling = 2;
+  Qualifiers qualifiers = 3;
+  optional bool is_dependent = 4;
+}
+
+enum TemplateArgumentDescriptionKind {
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_UNSPECIFIED = 0;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_NULL = 1;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_TYPE = 2;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_DECLARATION = 3;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_NULL_POINTER = 4;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_INTEGRAL = 5;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_STRUCTURAL_VALUE = 6;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_TEMPLATE = 7;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_TEMPLATE_EXPANSION = 8;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_EXPRESSION = 9;
+  TEMPLATE_ARGUMENT_DESCRIPTION_KIND_PACK = 10;
+}
+
+message TemplateArgumentDescription {
+  optional TemplateArgumentDescriptionKind kind = 1;
+  optional string semantic_spelling = 2;
+  TypeDescription type = 3;
+  APSIntBits integer = 4;
+  APFloatBits floating = 5;
+  repeated TemplateArgumentDescription pack_elements = 6;
+}
+
+enum TemplateParameterDescriptionKind {
+  TEMPLATE_PARAMETER_DESCRIPTION_KIND_UNSPECIFIED = 0;
+  TEMPLATE_PARAMETER_DESCRIPTION_KIND_TYPE = 1;
+  TEMPLATE_PARAMETER_DESCRIPTION_KIND_NON_TYPE = 2;
+  TEMPLATE_PARAMETER_DESCRIPTION_KIND_TEMPLATE = 3;
+}
+
+message TemplateParameterDescription {
+  optional TemplateParameterDescriptionKind kind = 1;
+  optional string name = 2;
+  TypeDescription type = 3;
+  optional bool is_parameter_pack = 4;
+  repeated TemplateParameterDescription template_parameters = 5;
+}
+
+message ConstraintDescription {
+  optional string semantic_expression = 1;
+  optional bool is_dependent = 2;
+  optional bool is_satisfied = 3;
+}
+
+message ExceptionDescription {
+  optional ExceptionSpecification kind = 1;
+  repeated TypeDescription exception_types = 2;
+  optional bool is_noexcept = 3;
+  ConstraintDescription dependent_condition = 4;
+}
+
+message ParameterValue {
+  reserved 3;
+  reserved "default_argument";
+  optional string name = 1;
+  TypeDescription type = 2;
+  optional bool is_parameter_pack = 4;
+}
+
+message FunctionSignature {
+  TypeDescription return_type = 1;
+  repeated ParameterValue parameters = 2;
+  optional bool is_variadic = 3;
+  optional bool is_const = 4;
+  optional bool is_volatile = 5;
+  optional RefQualifier ref_qualifier = 6;
+  optional bool is_static = 7;
+  FunctionExtInfo calling_convention = 8;
+  ExceptionDescription exception_specification = 9;
+  repeated TemplateParameterDescription template_parameters = 10;
+  repeated ConstraintDescription associated_constraints = 11;
+}
+
+message AttributeValue {
+  optional string clang_class = 1;
+  optional FieldState state = 2;
+  optional string reason = 3;
+}
+
+message CleanupValue {
+  oneof value {
+    DeclarationSymbol block = 1;
+    ExpressionValue compound_literal = 2;
+  }
+}
+
+message QualType {
+  TypeValue type = 1;
+  Qualifiers qualifiers = 2;
+}
+
+enum FloatingSemantics {
+  FLOATING_SEMANTICS_UNSPECIFIED = 0;
+  FLOATING_SEMANTICS_IEEE_HALF = 1;
+  FLOATING_SEMANTICS_BFLOAT = 2;
+  FLOATING_SEMANTICS_IEEE_SINGLE = 3;
+  FLOATING_SEMANTICS_IEEE_DOUBLE = 4;
+  FLOATING_SEMANTICS_IEEE_QUAD = 5;
+  FLOATING_SEMANTICS_X87_DOUBLE_EXTENDED = 6;
+  FLOATING_SEMANTICS_PPC_DOUBLE_DOUBLE = 7;
+  FLOATING_SEMANTICS_PPC_DOUBLE_DOUBLE_LEGACY = 8;
+  FLOATING_SEMANTICS_FLOAT8_E5_M2 = 9;
+  FLOATING_SEMANTICS_FLOAT8_E5_M2_FNUZ = 10;
+  FLOATING_SEMANTICS_FLOAT8_E4_M3 = 11;
+  FLOATING_SEMANTICS_FLOAT8_E4_M3_FN = 12;
+  FLOATING_SEMANTICS_FLOAT8_E4_M3_FNUZ = 13;
+  FLOATING_SEMANTICS_FLOAT8_E4_M3_B11_FNUZ = 14;
+  FLOATING_SEMANTICS_FLOAT8_E3_M4 = 15;
+  FLOATING_SEMANTICS_FLOAT_TF32 = 16;
+  FLOATING_SEMANTICS_FLOAT8_E8_M0_FNU = 17;
+  FLOATING_SEMANTICS_FLOAT6_E3_M2_FN = 18;
+  FLOATING_SEMANTICS_FLOAT6_E2_M3_FN = 19;
+  FLOATING_SEMANTICS_FLOAT4_E2_M1_FN = 20;
+}
+
+enum LambdaCaptureKind {
+  LAMBDA_CAPTURE_KIND_UNSPECIFIED = 0;
+  LAMBDA_CAPTURE_KIND_THIS = 1;
+  LAMBDA_CAPTURE_KIND_STAR_THIS = 2;
+  LAMBDA_CAPTURE_KIND_BY_COPY = 3;
+  LAMBDA_CAPTURE_KIND_BY_REFERENCE = 4;
+  LAMBDA_CAPTURE_KIND_VLA_TYPE = 5;
+}
+
+enum ExprRequirementSatisfactionStatus {
+  EXPR_REQUIREMENT_SATISFACTION_STATUS_UNSPECIFIED = 0;
+  EXPR_REQUIREMENT_SATISFACTION_STATUS_DEPENDENT = 1;
+  EXPR_REQUIREMENT_SATISFACTION_STATUS_EXPR_SUBSTITUTION_FAILURE = 2;
+  EXPR_REQUIREMENT_SATISFACTION_STATUS_NOEXCEPT_NOT_MET = 3;
+  EXPR_REQUIREMENT_SATISFACTION_STATUS_TYPE_REQUIREMENT_SUBSTITUTION_FAILURE = 4;
+  EXPR_REQUIREMENT_SATISFACTION_STATUS_CONSTRAINTS_NOT_SATISFIED = 5;
+  EXPR_REQUIREMENT_SATISFACTION_STATUS_SATISFIED = 6;
+}
+
+message APIntBits {
+  optional uint32 bit_width = 1;
+  optional bytes little_endian_bits = 2;
+  optional string unsigned_decimal = 3;
+}
+
+message APSIntBits {
+  APIntBits value = 1;
+  optional bool is_unsigned = 2;
+  optional string decimal_value = 3;
+}
+
+message APFloatBits {
+  optional FloatingSemantics semantics = 1;
+  APIntBits bit_pattern = 2;
+  optional string decimal_value = 3;
+}
+
+message APFixedPointBits {
+  APIntBits bit_pattern = 1;
+  optional uint32 scale = 2;
+  optional bool is_unsigned = 3;
+  optional bool is_saturated = 4;
+  optional bool has_unsigned_padding = 5;
+}
+
+message DeclarationName {
+  oneof value {
+    string identifier = 1;
+    QualType constructor_type = 2;
+    QualType destructor_type = 3;
+    QualType conversion_type = 4;
+    OverloadedOperatorKind overloaded_operator = 5;
+    string literal_operator_suffix = 6;
+    DeclarationSymbol deduction_guide_template = 7;
+    Empty using_directive = 8;
+    Empty empty_name = 9;
+  }
+}
+
+message NestedNamespaceName {
+  DeclarationSymbol declaration = 1;
+  NestedNameSpecifier prefix = 2;
+}
+
+message NestedNameSpecifier {
+  oneof value {
+    Empty null_specifier = 1;
+    Empty global = 2;
+    NestedNamespaceName namespace_name = 3;
+    QualType type = 4;
+    DeclarationSymbol microsoft_super_record = 5;
+  }
+}
+
+message OverloadedTemplateName {
+  repeated DeclarationSymbol declarations = 1;
+}
+
+message QualifiedTemplateName {
+  reserved 3;
+  reserved "has_template_keyword";
+  NestedNameSpecifier qualifier = 1;
+  TemplateName unqualified = 2;
+}
+
+message DependentTemplateName {
+  NestedNameSpecifier qualifier = 1;
+  DeclarationName name = 2;
+}
+
+message SubstitutedTemplateName {
+  DeclarationSymbol parameter = 1;
+  TemplateName replacement = 2;
+  optional uint32 parameter_index = 3;
+  optional uint32 pack_index = 4;
+  optional bool is_final = 5;
+}
+
+message SubstitutedTemplatePack {
+  DeclarationSymbol parameter = 1;
+  repeated TemplateArgument arguments = 2;
+  optional uint32 parameter_index = 3;
+  optional bool is_final = 4;
+}
+
+message DeducedTemplateName {
+  TemplateName underlying = 1;
+  repeated TemplateArgument default_arguments = 2;
+  optional uint32 default_argument_start = 3;
+}
+
+message TemplateName {
+  oneof value {
+    DeclarationSymbol declaration = 1;
+    OverloadedTemplateName overload = 2;
+    DeclarationName assumed = 3;
+    QualifiedTemplateName qualified = 4;
+    DependentTemplateName dependent = 5;
+    SubstitutedTemplateName substituted = 6;
+    SubstitutedTemplatePack substituted_pack = 7;
+    DeclarationSymbol using_shadow = 8;
+    DeducedTemplateName deduced = 9;
+    Empty null_name = 10;
+  }
+}
+
+message IntegralTemplateArgument {
+  APSIntBits value = 1;
+  QualType type = 2;
+}
+
+message DeclarationTemplateArgument {
+  DeclarationSymbol declaration = 1;
+  QualType parameter_type = 2;
+}
+
+message StructuralTemplateArgument {
+  APValue value = 1;
+  QualType type = 2;
+}
+
+message TemplateExpansionArgument {
+  TemplateName pattern = 1;
+  optional uint32 expansion_count = 2;
+}
+
+message TemplateArgumentPack {
+  repeated TemplateArgument elements = 1;
+}
+
+message TemplateArgument {
+  oneof value {
+    Empty null_argument = 1;
+    QualType type = 2;
+    DeclarationTemplateArgument declaration = 3;
+    QualType null_pointer_type = 4;
+    IntegralTemplateArgument integral = 5;
+    StructuralTemplateArgument structural_value = 6;
+    TemplateName template_name = 7;
+    TemplateExpansionArgument template_expansion = 8;
+    ExpressionValue expression = 9;
+    TemplateArgumentPack pack = 10;
+  }
+}
+
+message TemplateParameterList {
+  reserved 2, 3, 4;
+  reserved "left_angle", "right_angle", "template_keyword";
+  repeated DeclarationValue parameters = 1;
+  ExpressionValue requires_clause = 5;
+}
+
+message CXXBaseSpecifier {
+  reserved 2, 5;
+  reserved "type_source", "written_access";
+  reserved 3, 8;
+  reserved "ellipsis_location", "source_range";
+  QualType type = 1;
+  optional AccessSpecifier access = 4;
+  optional bool is_virtual = 6;
+  optional bool is_pack_expansion = 7;
+}
+
+message CXXCtorInitializer {
+  reserved 6;
+  reserved "type_source";
+  reserved 7, 8, 11;
+  reserved "is_written", "source_order", "source_range";
+  ExpressionValue initializer = 5;
+  optional bool is_virtual_base = 9;
+  optional bool is_pack_expansion = 10;
+  oneof target {
+    QualType base_type = 1;
+    DeclarationSymbol member = 2;
+    DeclarationSymbol indirect_member = 3;
+    QualType delegating_type = 4;
+  }
+}
+
+message LambdaCapture {
+  reserved 3, 6;
+  reserved "ellipsis_location", "location";
+  optional LambdaCaptureKind kind = 1;
+  DeclarationSymbol variable = 2;
+  optional bool is_implicit = 4;
+  optional bool is_pack_expansion = 5;
+}
+
+message CXXTemporary {
+  DeclarationSymbol destructor = 1;
+}
+
+message ConceptReference {
+  reserved 5, 7, 8, 9, 10;
+  reserved "has_explicit_template_arguments", "left_angle", "right_angle", "source_range", "template_keyword";
+  DeclarationSymbol concept_declaration = 1;
+  DeclarationSymbol found_declaration = 2;
+  NestedNameSpecifier qualifier = 3;
+  DeclarationName name = 4;
+  repeated TemplateArgument arguments = 6;
+}
+
+message TypeConstraint {
+  ConceptReference concept = 1;
+  ExpressionValue immediately_declared_constraint = 2;
+  optional uint32 argument_pack_substitution_index = 3;
+}
+
+message SubstitutionDiagnostic {
+  reserved 1;
+  reserved "location";
+  optional string message = 2;
+}
+
+message ConstraintDetail {
+  oneof detail {
+    ExpressionValue substituted_constraint = 1;
+    SubstitutionDiagnostic diagnostic = 2;
+  }
+}
+
+message ConstraintSatisfaction {
+  optional bool is_satisfied = 1;
+  optional bool contains_errors = 2;
+  repeated ConstraintDetail details = 3;
+}
+
+message RequirementInfo {
+  optional bool is_dependent = 1;
+  optional bool contains_unexpanded_parameter_pack = 2;
+  optional bool is_satisfied = 3;
+}
+
+message TypeRequirement {
+  RequirementInfo requirement = 1;
+  oneof result {
+    QualType required_type = 2;
+    SubstitutionDiagnostic substitution_error = 3;
+  }
+}
+
+message ReturnTypeRequirement {
+  optional bool is_dependent = 4;
+  oneof value {
+    Empty unconstrained = 1;
+    TemplateParameterList constraint_parameters = 2;
+    SubstitutionDiagnostic substitution_error = 3;
+  }
+  optional bool contains_unexpanded_parameter_pack = 5;
+}
+
+message ExprRequirement {
+  reserved 5;
+  reserved "noexcept_location";
+  RequirementInfo requirement = 1;
+  optional bool is_simple = 4;
+  ReturnTypeRequirement return_type = 6;
+  optional ExprRequirementSatisfactionStatus satisfaction_status = 7;
+  ExpressionValue substituted_return_type_constraint = 8;
+  oneof result {
+    ExpressionValue expression = 2;
+    SubstitutionDiagnostic substitution_error = 3;
+  }
+}
+
+message NestedRequirement {
+  RequirementInfo requirement = 1;
+  ExpressionValue constraint_expression = 2;
+  ConstraintSatisfaction satisfaction = 3;
+  optional bool has_invalid_constraint = 4;
+  optional string invalid_constraint_entity = 5;
+}
+
+message ConceptRequirement {
+  oneof value {
+    TypeRequirement type = 1;
+    ExprRequirement expression = 2;
+    NestedRequirement nested = 3;
+  }
+}
+
+message ComplexIntValue {
+  APSIntBits real = 1;
+  APSIntBits imaginary = 2;
+}
+
+message ComplexFloatValue {
+  APFloatBits real = 1;
+  APFloatBits imaginary = 2;
+}
+
+message APValueSequence {
+  repeated APValue elements = 1;
+}
+
+message APArrayValue {
+  repeated APValue initialized_elements = 1;
+  APValue filler = 2;
+  optional uint64 size = 3;
+}
+
+message APStructBaseValue {
+  TypeDescription type = 1;
+  APValue value = 2;
+}
+
+message APStructFieldValue {
+  DeclarationSymbol field = 1;
+  APValue value = 2;
+}
+
+message APStructValue {
+  repeated APStructBaseValue base_values = 1;
+  repeated APStructFieldValue field_values = 2;
+}
+
+message APUnionValue {
+  DeclarationSymbol active_field = 1;
+  APValue value = 2;
+}
+
+message APTypeInfoLValue {
+  QualType type = 1;
+}
+
+message APDynamicAllocation {
+  reserved 1;
+  reserved "allocation_index";
+  QualType type = 2;
+}
+
+message APLValueBase {
+  reserved 6, 7;
+  reserved "call_index", "version";
+  oneof value {
+    Empty null_base = 1;
+    DeclarationSymbol declaration = 2;
+    ExpressionValue expression = 3;
+    APTypeInfoLValue type_info = 4;
+    APDynamicAllocation dynamic_allocation = 5;
+  }
+}
+
+message APLValuePathEntry {
+  optional bool is_virtual_base = 3;
+  oneof value {
+    uint64 array_index = 1;
+    DeclarationSymbol declaration = 2;
+  }
+}
+
+message APLValue {
+  APLValueBase base = 1;
+  optional sint64 offset_bytes = 2;
+  repeated APLValuePathEntry path = 3;
+  optional bool is_one_past_end = 4;
+  optional bool is_null_pointer = 5;
+}
+
+message APMemberPointer {
+  DeclarationSymbol declaration = 1;
+  repeated DeclarationSymbol path = 2;
+  optional bool is_derived_member = 3;
+}
+
+message APAddrLabelDiff {
+  ExpressionValue left_expression = 1;
+  ExpressionValue right_expression = 2;
+}
+
+message APValue {
+  oneof value {
+    Empty no_object = 1;
+    Empty indeterminate = 2;
+    APSIntBits integer = 3;
+    APFloatBits floating = 4;
+    APFixedPointBits fixed_point = 5;
+    ComplexIntValue complex_integer = 6;
+    ComplexFloatValue complex_floating = 7;
+    APLValue lvalue = 8;
+    APValueSequence vector = 9;
+    APArrayValue array = 10;
+    APStructValue structure = 11;
+    APUnionValue union_value = 12;
+    APMemberPointer member_pointer = 13;
+    APAddrLabelDiff address_label_difference = 14;
+  }
+}
+
+message DeclInfo {
+  reserved 1, 4, 5;
+  reserved "canonical_declaration", "lexical_context", "previous_declaration";
+  DeclarationSymbol containing_scope = 2;
+  repeated AttributeValue attributes = 3;
+  optional bool is_implicit = 6;
+  optional bool is_invalid = 7;
+}
+
+message NamedDeclInfo {
+  reserved 4;
+  reserved "usr";
+  DeclInfo declaration = 1;
+  DeclarationName name = 2;
+  optional string qualified_name = 3;
+}
+
+message TypeDeclInfo {
+  NamedDeclInfo named = 1;
+  TypeValue declared_type = 2;
+}
+
+message TagDeclInfo {
+  reserved 4;
+  reserved "definition";
+  TypeDeclInfo type_declaration = 1;
+  optional TagKind tag_kind = 2;
+  optional bool is_complete_definition = 3;
+}
+
+message RecordDeclInfo {
+  TagDeclInfo tag = 1;
+  repeated DeclarationValue members = 2;
+}
+
+message ValueDeclInfo {
+  NamedDeclInfo named = 1;
+  QualType type = 2;
+}
+
+message DeclaratorDeclInfo {
+  ValueDeclInfo value = 1;
+  QualType declared_type = 2;
+}
+
+message FunctionDeclInfo {
+  reserved 5, 10, 11, 12;
+  reserved "body_owner_declaration", "canonical_declaration", "definition", "previous_declaration";
+  DeclaratorDeclInfo declarator = 1;
+  QualType return_type = 2;
+  repeated DeclarationValue parameters = 3;
+  StatementValue body = 4;
+  optional bool is_this_declaration_a_definition = 6;
+  optional bool is_variadic = 7;
+  optional bool is_constexpr = 8;
+  optional StorageClass storage_class = 9;
+}
+
+message CXXMethodDeclInfo {
+  FunctionDeclInfo function = 1;
+  DeclarationSymbol parent_record = 2;
+  optional bool is_static = 3;
+  optional bool is_virtual = 4;
+  optional bool is_const = 5;
+  optional bool is_volatile = 6;
+  optional RefQualifier ref_qualifier = 7;
+  repeated DeclarationSymbol overridden_methods = 8;
+}
+
+message VarDeclInfo {
+  DeclaratorDeclInfo declarator = 1;
+  ExpressionValue initializer = 2;
+  optional StorageClass storage_class = 3;
+  optional bool is_constexpr = 4;
+}
+
+message ExprInfo {
+  reserved 1;
+  reserved "statement";
+  QualType type = 2;
+  optional ValueCategory value_category = 3;
+  optional ObjectKind object_kind = 4;
+  optional bool is_type_dependent = 5;
+  optional bool is_value_dependent = 6;
+  optional bool is_instantiation_dependent = 7;
+  optional bool contains_unexpanded_parameter_pack = 8;
+  optional bool contains_errors = 9;
+}
+
+message CallExprInfo {
+  ExprInfo expression = 1;
+  ExpressionValue callee_expression = 2;
+  DeclarationSymbol direct_callee = 3;
+  repeated ExpressionValue arguments = 4;
+}
+
+message CastExprInfo {
+  ExprInfo expression = 1;
+  ExpressionValue operand = 2;
+  optional CastKind kind = 3;
+  repeated CXXBaseSpecifier base_path = 4;
+}
+
+message CXXConstructExprInfo {
+  ExprInfo expression = 1;
+  DeclarationSymbol constructor = 2;
+  repeated ExpressionValue arguments = 3;
+  optional ConstructionKind construction_kind = 4;
+  optional bool is_elidable = 5;
+  optional bool is_list_initialization = 6;
+  optional bool is_std_initializer_list_initialization = 7;
+  optional bool requires_zero_initialization = 8;
+  optional bool had_multiple_candidates = 9;
+}
+
+message TypeInfo {
+  optional string canonical_spelling = 1;
+  optional bool is_dependent = 2;
+  optional bool is_instantiation_dependent = 3;
+  optional bool contains_unexpanded_parameter_pack = 4;
+  optional string spelling = 5;
+}
+
+enum DeclLinkageLanguage {
+  DECL_LINKAGE_LANGUAGE_UNSPECIFIED = 0;
+  DECL_LINKAGE_LANGUAGE_C = 1;
+  DECL_LINKAGE_LANGUAGE_CXX = 2;
+}
+
+enum DeclTemplateSpecializationKind {
+  DECL_TEMPLATE_SPECIALIZATION_KIND_UNSPECIFIED = 0;
+  DECL_TEMPLATE_SPECIALIZATION_KIND_UNDECLARED = 1;
+  DECL_TEMPLATE_SPECIALIZATION_KIND_IMPLICIT_INSTANTIATION = 2;
+  DECL_TEMPLATE_SPECIALIZATION_KIND_EXPLICIT_SPECIALIZATION = 3;
+  DECL_TEMPLATE_SPECIALIZATION_KIND_EXPLICIT_INSTANTIATION_DECLARATION = 4;
+  DECL_TEMPLATE_SPECIALIZATION_KIND_EXPLICIT_INSTANTIATION_DEFINITION = 5;
+}
+
+enum DeclPragmaCommentKind {
+  DECL_PRAGMA_COMMENT_KIND_UNSPECIFIED = 0;
+  DECL_PRAGMA_COMMENT_KIND_UNKNOWN = 1;
+  DECL_PRAGMA_COMMENT_KIND_LINKER = 2;
+  DECL_PRAGMA_COMMENT_KIND_LIB = 3;
+  DECL_PRAGMA_COMMENT_KIND_COMPILER = 4;
+  DECL_PRAGMA_COMMENT_KIND_EXE_STR = 5;
+  DECL_PRAGMA_COMMENT_KIND_USER = 6;
+}
+
+enum DeclBuiltinTemplateKind {
+  DECL_BUILTIN_TEMPLATE_KIND_UNSPECIFIED = 0;
+  DECL_BUILTIN_TEMPLATE_KIND_COMMON_TYPE = 1;
+  DECL_BUILTIN_TEMPLATE_KIND_DEDUP_PACK = 2;
+  DECL_BUILTIN_TEMPLATE_KIND_MAKE_INTEGER_SEQ = 3;
+  DECL_BUILTIN_TEMPLATE_KIND_TYPE_PACK_ELEMENT = 4;
+}
+
+enum DeclVariableTLSKind {
+  DECL_VARIABLE_TLS_KIND_UNSPECIFIED = 0;
+  DECL_VARIABLE_TLS_KIND_NONE = 1;
+  DECL_VARIABLE_TLS_KIND_STATIC = 2;
+  DECL_VARIABLE_TLS_KIND_DYNAMIC = 3;
+}
+
+enum DeclVariableInitializationStyle {
+  DECL_VARIABLE_INITIALIZATION_STYLE_UNSPECIFIED = 0;
+  DECL_VARIABLE_INITIALIZATION_STYLE_C = 1;
+  DECL_VARIABLE_INITIALIZATION_STYLE_CALL = 2;
+  DECL_VARIABLE_INITIALIZATION_STYLE_LIST = 3;
+  DECL_VARIABLE_INITIALIZATION_STYLE_PAREN_LIST = 4;
+}
+
+enum DeclDeductionCandidateKind {
+  DECL_DEDUCTION_CANDIDATE_KIND_UNSPECIFIED = 0;
+  DECL_DEDUCTION_CANDIDATE_KIND_NORMAL = 1;
+  DECL_DEDUCTION_CANDIDATE_KIND_COPY = 2;
+  DECL_DEDUCTION_CANDIDATE_KIND_AGGREGATE = 3;
+}
+
+enum DeclSourceDeductionGuideKind {
+  DECL_SOURCE_DEDUCTION_GUIDE_KIND_UNSPECIFIED = 0;
+  DECL_SOURCE_DEDUCTION_GUIDE_KIND_NONE = 1;
+  DECL_SOURCE_DEDUCTION_GUIDE_KIND_ALIAS = 2;
+}
+
+message BlockCaptureInfo {
+  DeclarationSymbol variable = 1;
+  optional bool is_by_ref = 2;
+  optional bool is_nested = 3;
+  ExpressionValue copy_expression = 4;
+}
+
+enum CharacterKind {
+  CHARACTER_KIND_UNSPECIFIED = 0;
+  CHARACTER_KIND_ASCII = 1;
+  CHARACTER_KIND_UTF8 = 2;
+  CHARACTER_KIND_UTF16 = 3;
+  CHARACTER_KIND_UTF32 = 4;
+  CHARACTER_KIND_WIDE = 5;
+}
+
+enum StringLiteralKind {
+  STRING_LITERAL_KIND_UNSPECIFIED = 0;
+  STRING_LITERAL_KIND_ORDINARY = 1;
+  STRING_LITERAL_KIND_UTF8 = 2;
+  STRING_LITERAL_KIND_UTF16 = 3;
+  STRING_LITERAL_KIND_UTF32 = 4;
+  STRING_LITERAL_KIND_WIDE = 5;
+}
+
+enum UnaryExprTrait {
+  UNARY_EXPR_TRAIT_UNSPECIFIED = 0;
+  UNARY_EXPR_TRAIT_SIZEOF = 1;
+  UNARY_EXPR_TRAIT_ALIGNOF = 2;
+  UNARY_EXPR_TRAIT_OTHER = 3;
+}
+
+enum ConstantExprResult {
+  CONSTANT_EXPR_RESULT_UNSPECIFIED = 0;
+  CONSTANT_EXPR_RESULT_SUCCEEDED = 1;
+  CONSTANT_EXPR_RESULT_FAILED = 2;
+  CONSTANT_EXPR_RESULT_SIDE_EFFECTS = 3;
+  CONSTANT_EXPR_RESULT_NOT_EVALUATED = 4;
+}
+
+enum SourceLocExprKind {
+  SOURCE_LOC_EXPR_KIND_UNSPECIFIED = 0;
+  SOURCE_LOC_EXPR_KIND_LINE = 1;
+  SOURCE_LOC_EXPR_KIND_COLUMN = 2;
+  SOURCE_LOC_EXPR_KIND_FILE = 3;
+  SOURCE_LOC_EXPR_KIND_FUNCTION = 4;
+}
+
+enum PredefinedIdentKind {
+  PREDEFINED_IDENT_KIND_UNSPECIFIED = 0;
+  PREDEFINED_IDENT_KIND_FUNC = 1;
+  PREDEFINED_IDENT_KIND_FUNCTION = 2;
+  PREDEFINED_IDENT_KIND_PRETTY_FUNCTION = 3;
+  PREDEFINED_IDENT_KIND_OTHER = 4;
+}
+
+enum ArrayTypeTrait {
+  ARRAY_TYPE_TRAIT_UNSPECIFIED = 0;
+  ARRAY_TYPE_TRAIT_COUNT = 1;
+}
+
+enum ExpressionTrait {
+  EXPRESSION_TRAIT_UNSPECIFIED = 0;
+  EXPRESSION_TRAIT_IS_LVALUE = 1;
+  EXPRESSION_TRAIT_IS_XVALUE = 2;
+  EXPRESSION_TRAIT_IS_PRVALUE = 3;
+  EXPRESSION_TRAIT_OTHER = 4;
+}
+
+enum AtomicOpcode {
+  ATOMIC_OPCODE_UNSPECIFIED = 0;
+  ATOMIC_OPCODE_LOAD = 1;
+  ATOMIC_OPCODE_STORE = 2;
+  ATOMIC_OPCODE_EXCHANGE = 3;
+  ATOMIC_OPCODE_COMPARE_EXCHANGE = 4;
+  ATOMIC_OPCODE_FETCH = 5;
+  ATOMIC_OPCODE_OTHER = 6;
+}
+
+enum TypeTrait {
+  TYPE_TRAIT_UNSPECIFIED = 0;
+  TYPE_TRAIT_OTHER = 1;
+}
+
+message Designator {
+  reserved 5;
+  reserved "source_range";
+  ExpressionValue array_range_end = 4;
+  oneof kind {
+    DeclarationSymbol field_declaration = 1;
+    ExpressionValue array_index = 2;
+    ExpressionValue array_range_start = 3;
+  }
+}
+
+message GenericAssociation {
+  QualType type = 1;
+  ExpressionValue expression = 2;
+  optional bool is_default = 3;
+  optional bool is_selected = 4;
+}
+
+message OffsetOfComponent {
+  reserved 4;
+  reserved "source_range";
+  oneof kind {
+    DeclarationSymbol field = 1;
+    uint64 array_index = 2;
+    DeclarationSymbol identifier = 3;
+  }
+}
+
+message EmbedParameter {
+  optional string name = 1;
+  optional uint64 value = 2;
+}
+
+message AsmOperand {
+  reserved 4;
+  reserved "source_location";
+  optional string symbolic_name = 1;
+  optional string constraint = 2;
+  ExpressionValue expression = 3;
+}
+
+enum ArraySizeModifier {
+  ARRAY_SIZE_MODIFIER_UNSPECIFIED = 0;
+  ARRAY_SIZE_MODIFIER_NORMAL = 1;
+  ARRAY_SIZE_MODIFIER_STATIC = 2;
+  ARRAY_SIZE_MODIFIER_STAR = 3;
+}
+
+enum TypeOfKind {
+  TYPE_OF_KIND_UNSPECIFIED = 0;
+  TYPE_OF_KIND_QUALIFIED = 1;
+  TYPE_OF_KIND_UNQUALIFIED = 2;
+}
+
+enum AutoKeyword {
+  AUTO_KEYWORD_UNSPECIFIED = 0;
+  AUTO_KEYWORD_AUTO = 1;
+  AUTO_KEYWORD_DECLTYPE_AUTO = 2;
+  AUTO_KEYWORD_GNU_AUTO_TYPE = 3;
+}
+
+enum VectorKind {
+  VECTOR_KIND_UNSPECIFIED = 0;
+  VECTOR_KIND_GENERIC = 1;
+  VECTOR_KIND_ALTIVEC_VECTOR = 2;
+  VECTOR_KIND_ALTIVEC_PIXEL = 3;
+  VECTOR_KIND_ALTIVEC_BOOL = 4;
+  VECTOR_KIND_NEON = 5;
+  VECTOR_KIND_NEON_POLY = 6;
+  VECTOR_KIND_SVE_FIXED_DATA = 7;
+  VECTOR_KIND_SVE_FIXED_PREDICATE = 8;
+  VECTOR_KIND_RVV_FIXED_DATA = 9;
+  VECTOR_KIND_RVV_FIXED_MASK = 10;
+  VECTOR_KIND_RVV_FIXED_MASK_1 = 11;
+  VECTOR_KIND_RVV_FIXED_MASK_2 = 12;
+  VECTOR_KIND_RVV_FIXED_MASK_4 = 13;
+}
+
+enum AttributedTypeKind {
+  ATTRIBUTED_TYPE_KIND_UNSPECIFIED = 0;
+  ATTRIBUTED_TYPE_KIND_ADDRESS_SPACE = 1;
+  ATTRIBUTED_TYPE_KIND_NULLABILITY = 2;
+  ATTRIBUTED_TYPE_KIND_CALLING_CONVENTION = 3;
+  ATTRIBUTED_TYPE_KIND_VECTOR = 4;
+  ATTRIBUTED_TYPE_KIND_FIXED_POINT = 5;
+  ATTRIBUTED_TYPE_KIND_CPP_EXTENSION = 6;
+}
+
+enum PredefinedTypeKind {
+  PREDEFINED_TYPE_KIND_UNSPECIFIED = 0;
+  PREDEFINED_TYPE_KIND_SIZE_T = 1;
+  PREDEFINED_TYPE_KIND_SIGNED_SIZE_T = 2;
+  PREDEFINED_TYPE_KIND_PTRDIFF_T = 3;
+}
+
+enum DynamicCountKind {
+  DYNAMIC_COUNT_KIND_UNSPECIFIED = 0;
+  DYNAMIC_COUNT_KIND_COUNTED_BY = 1;
+  DYNAMIC_COUNT_KIND_SIZED_BY = 2;
+  DYNAMIC_COUNT_KIND_COUNTED_BY_OR_NULL = 3;
+  DYNAMIC_COUNT_KIND_SIZED_BY_OR_NULL = 4;
+}
+
+enum UnaryTransformKind {
+  UNARY_TRANSFORM_KIND_UNSPECIFIED = 0;
+  UNARY_TRANSFORM_KIND_ADD_LVALUE_REFERENCE = 1;
+  UNARY_TRANSFORM_KIND_ADD_POINTER = 2;
+  UNARY_TRANSFORM_KIND_ADD_RVALUE_REFERENCE = 3;
+  UNARY_TRANSFORM_KIND_DECAY = 4;
+  UNARY_TRANSFORM_KIND_MAKE_SIGNED = 5;
+  UNARY_TRANSFORM_KIND_MAKE_UNSIGNED = 6;
+  UNARY_TRANSFORM_KIND_REMOVE_ALL_EXTENTS = 7;
+  UNARY_TRANSFORM_KIND_REMOVE_CONST = 8;
+  UNARY_TRANSFORM_KIND_REMOVE_CV = 9;
+  UNARY_TRANSFORM_KIND_REMOVE_CV_REF = 10;
+  UNARY_TRANSFORM_KIND_REMOVE_EXTENT = 11;
+  UNARY_TRANSFORM_KIND_REMOVE_POINTER = 12;
+  UNARY_TRANSFORM_KIND_REMOVE_REFERENCE = 13;
+  UNARY_TRANSFORM_KIND_REMOVE_RESTRICT = 14;
+  UNARY_TRANSFORM_KIND_REMOVE_VOLATILE = 15;
+  UNARY_TRANSFORM_KIND_ENUM_UNDERLYING_TYPE = 16;
+}
+
+enum BuiltinKind {
+  BUILTIN_KIND_UNSPECIFIED = 0;
+  BUILTIN_KIND_EXTENDED = 1;
+  BUILTIN_KIND_VOID = 2;
+  BUILTIN_KIND_BOOL = 3;
+  BUILTIN_KIND_CHAR_U = 4;
+  BUILTIN_KIND_UCHAR = 5;
+  BUILTIN_KIND_CHAR16 = 6;
+  BUILTIN_KIND_CHAR32 = 7;
+  BUILTIN_KIND_USHORT = 8;
+  BUILTIN_KIND_UINT = 9;
+  BUILTIN_KIND_ULONG = 10;
+  BUILTIN_KIND_ULONGLONG = 11;
+  BUILTIN_KIND_UINT128 = 12;
+  BUILTIN_KIND_CHAR_S = 13;
+  BUILTIN_KIND_SCHAR = 14;
+  BUILTIN_KIND_SHORT = 16;
+  BUILTIN_KIND_INT = 17;
+  BUILTIN_KIND_LONG = 18;
+  BUILTIN_KIND_LONGLONG = 19;
+  BUILTIN_KIND_INT128 = 20;
+  BUILTIN_KIND_HALF = 21;
+  BUILTIN_KIND_FLOAT = 22;
+  BUILTIN_KIND_DOUBLE = 23;
+  BUILTIN_KIND_LONGDOUBLE = 24;
+  BUILTIN_KIND_FLOAT128 = 25;
+  BUILTIN_KIND_NULLPTR = 26;
+  BUILTIN_KIND_OVERLOAD = 27;
+  BUILTIN_KIND_DEPENDENT = 28;
+  BUILTIN_KIND_FLOAT16 = 29;
+  BUILTIN_KIND_BFLOAT16 = 30;
+  BUILTIN_KIND_CHAR8 = 31;
+  BUILTIN_KIND_WCHAR_U = 32;
+  BUILTIN_KIND_WCHAR_S = 33;
+}
+
+enum FunctionCallingConvention {
+  FUNCTION_CALLING_CONVENTION_UNSPECIFIED = 0;
+  FUNCTION_CALLING_CONVENTION_C = 1;
+  FUNCTION_CALLING_CONVENTION_X86_STDCALL = 2;
+  FUNCTION_CALLING_CONVENTION_X86_FASTCALL = 3;
+  FUNCTION_CALLING_CONVENTION_X86_THISCALL = 4;
+  FUNCTION_CALLING_CONVENTION_X86_VECTORCALL = 5;
+  FUNCTION_CALLING_CONVENTION_WIN64 = 6;
+  FUNCTION_CALLING_CONVENTION_X86_64_SYSV = 7;
+  FUNCTION_CALLING_CONVENTION_X86_REGCALL = 8;
+  FUNCTION_CALLING_CONVENTION_AAPCS = 9;
+  FUNCTION_CALLING_CONVENTION_AAPCS_VFP = 10;
+  FUNCTION_CALLING_CONVENTION_SWIFT = 11;
+  FUNCTION_CALLING_CONVENTION_SWIFT_ASYNC = 12;
+  FUNCTION_CALLING_CONVENTION_PRESERVE_MOST = 13;
+  FUNCTION_CALLING_CONVENTION_PRESERVE_ALL = 14;
+  FUNCTION_CALLING_CONVENTION_AARCH64_VECTOR = 15;
+  FUNCTION_CALLING_CONVENTION_AARCH64_SVE = 16;
+  FUNCTION_CALLING_CONVENTION_PRESERVE_NONE = 17;
+  FUNCTION_CALLING_CONVENTION_RISCV_VECTOR = 18;
+  FUNCTION_CALLING_CONVENTION_TARGET_EXTENSION = 19;
+}
+
+enum ExceptionSpecification {
+  EXCEPTION_SPECIFICATION_UNSPECIFIED = 0;
+  EXCEPTION_SPECIFICATION_NONE = 1;
+  EXCEPTION_SPECIFICATION_DYNAMIC = 2;
+  EXCEPTION_SPECIFICATION_COMPUTED_NOEXCEPT = 3;
+  EXCEPTION_SPECIFICATION_NO_THROW = 5;
+  EXCEPTION_SPECIFICATION_MS_ANY = 6;
+  EXCEPTION_SPECIFICATION_MS_BASIC_NOEXCEPT = 7;
+  EXCEPTION_SPECIFICATION_OTHER = 8;
+  EXCEPTION_SPECIFICATION_DYNAMIC_NONE = 9;
+  EXCEPTION_SPECIFICATION_DEPENDENT_NOEXCEPT = 10;
+  EXCEPTION_SPECIFICATION_NOEXCEPT_FALSE = 11;
+  EXCEPTION_SPECIFICATION_NOEXCEPT_TRUE = 12;
+  EXCEPTION_SPECIFICATION_UNPARSED = 13;
+  EXCEPTION_SPECIFICATION_UNINSTANTIATED = 14;
+  EXCEPTION_SPECIFICATION_UNEVALUATED = 15;
+}
+
+message FunctionExtInfo {
+  optional FunctionCallingConvention calling_convention = 1;
+  optional string target_convention_name = 2;
+  optional bool no_return = 3;
+  optional bool produces_result = 4;
+  optional uint32 regparm = 6;
+  optional bool no_caller_saved_registers = 7;
+  optional bool no_cf_check = 8;
+  optional bool cmse_nonsecure_call = 9;
+}
+
+message FunctionProtoExtInfo {
+  reserved 3, 9;
+  reserved "ellipsis_location", "has_trailing_return";
+  optional ExceptionSpecification exception_specification = 1;
+  repeated QualType exception_types = 2;
+  optional RefQualifier ref_qualifier = 4;
+  ExpressionValue noexcept_expression = 5;
+  DeclarationSymbol exception_specification_declaration = 6;
+  DeclarationSymbol exception_specification_template = 7;
+  Qualifiers type_qualifiers = 8;
+  optional bool is_cfi_unchecked_callee = 10;
+}
+
+message DeclarationValue {
+  reserved 1001 to 1066;
+  reserved
+    "access_spec_decl",
+    "binding_decl",
+    "block_decl",
+    "builtin_template_decl",
+    "cxx_constructor_decl",
+    "cxx_conversion_decl",
+    "cxx_deduction_guide_decl",
+    "cxx_destructor_decl",
+    "cxx_method_decl",
+    "cxx_record_decl",
+    "class_template_decl",
+    "class_template_partial_specialization_decl",
+    "class_template_specialization_decl",
+    "concept_decl",
+    "constructor_using_shadow_decl",
+    "decomposition_decl",
+    "empty_decl",
+    "enum_constant_decl",
+    "enum_decl",
+    "export_decl",
+    "extern_c_context_decl",
+    "field_decl",
+    "file_scope_asm_decl",
+    "friend_decl",
+    "friend_template_decl",
+    "function_decl",
+    "function_template_decl",
+    "implicit_concept_specialization_decl",
+    "implicit_param_decl",
+    "import_decl",
+    "indirect_field_decl",
+    "label_decl",
+    "lifetime_extended_temporary_decl",
+    "linkage_spec_decl",
+    "ms_guid_decl",
+    "ms_property_decl",
+    "namespace_alias_decl",
+    "namespace_decl",
+    "non_type_template_parm_decl",
+    "parm_var_decl",
+    "pragma_comment_decl",
+    "pragma_detect_mismatch_decl",
+    "record_decl",
+    "requires_expr_body_decl",
+    "static_assert_decl",
+    "template_param_object_decl",
+    "template_template_parm_decl",
+    "template_type_parm_decl",
+    "top_level_stmt_decl",
+    "translation_unit_decl",
+    "type_alias_decl",
+    "type_alias_template_decl",
+    "typedef_decl",
+    "unnamed_global_constant_decl",
+    "unresolved_using_if_exists_decl",
+    "unresolved_using_typename_decl",
+    "unresolved_using_value_decl",
+    "using_decl",
+    "using_directive_decl",
+    "using_enum_decl",
+    "using_pack_decl",
+    "using_shadow_decl",
+    "var_decl",
+    "var_template_decl",
+    "var_template_partial_specialization_decl",
+    "var_template_specialization_decl";
+  optional bool is_complete = 1;
+  oneof payload {
+    google.protobuf.Any node = 2;
+  }
+}
+
+message ExpressionValue {
+  reserved 3001 to 3104;
+  reserved
+    "addr_label_expr",
+    "array_init_index_expr",
+    "array_init_loop_expr",
+    "array_subscript_expr",
+    "array_type_trait_expr",
+    "atomic_expr",
+    "binary_conditional_operator",
+    "binary_operator",
+    "block_expr",
+    "builtin_bit_cast_expr",
+    "c_style_cast_expr",
+    "cxx_addrspace_cast_expr",
+    "cxx_bind_temporary_expr",
+    "cxx_bool_literal_expr",
+    "cxx_const_cast_expr",
+    "cxx_construct_expr",
+    "cxx_default_arg_expr",
+    "cxx_default_init_expr",
+    "cxx_delete_expr",
+    "cxx_dependent_scope_member_expr",
+    "cxx_dynamic_cast_expr",
+    "cxx_fold_expr",
+    "cxx_functional_cast_expr",
+    "cxx_inherited_ctor_init_expr",
+    "cxx_member_call_expr",
+    "cxx_new_expr",
+    "cxx_noexcept_expr",
+    "cxx_null_ptr_literal_expr",
+    "cxx_operator_call_expr",
+    "cxx_paren_list_init_expr",
+    "cxx_pseudo_destructor_expr",
+    "cxx_reinterpret_cast_expr",
+    "cxx_rewritten_binary_operator",
+    "cxx_scalar_value_init_expr",
+    "cxx_static_cast_expr",
+    "cxx_std_initializer_list_expr",
+    "cxx_temporary_object_expr",
+    "cxx_this_expr",
+    "cxx_throw_expr",
+    "cxx_typeid_expr",
+    "cxx_unresolved_construct_expr",
+    "cxx_uuidof_expr",
+    "call_expr",
+    "character_literal",
+    "choose_expr",
+    "coawait_expr",
+    "compound_assign_operator",
+    "compound_literal_expr",
+    "concept_specialization_expr",
+    "conditional_operator",
+    "constant_expr",
+    "convert_vector_expr",
+    "coyield_expr",
+    "decl_ref_expr",
+    "dependent_coawait_expr",
+    "dependent_scope_decl_ref_expr",
+    "designated_init_expr",
+    "designated_init_update_expr",
+    "embed_expr",
+    "expr_with_cleanups",
+    "expression_trait_expr",
+    "ext_vector_element_expr",
+    "fixed_point_literal",
+    "floating_literal",
+    "function_parm_pack_expr",
+    "gnu_null_expr",
+    "generic_selection_expr",
+    "imaginary_literal",
+    "implicit_cast_expr",
+    "implicit_value_init_expr",
+    "init_list_expr",
+    "integer_literal",
+    "lambda_expr",
+    "ms_property_ref_expr",
+    "ms_property_subscript_expr",
+    "materialize_temporary_expr",
+    "matrix_single_subscript_expr",
+    "matrix_subscript_expr",
+    "member_expr",
+    "no_init_expr",
+    "offset_of_expr",
+    "opaque_value_expr",
+    "pack_expansion_expr",
+    "pack_indexing_expr",
+    "paren_expr",
+    "paren_list_expr",
+    "predefined_expr",
+    "pseudo_object_expr",
+    "recovery_expr",
+    "requires_expr",
+    "shuffle_vector_expr",
+    "size_of_pack_expr",
+    "source_loc_expr",
+    "stmt_expr",
+    "string_literal",
+    "subst_non_type_template_parm_expr",
+    "subst_non_type_template_parm_pack_expr",
+    "type_trait_expr",
+    "unary_expr_or_type_trait_expr",
+    "unary_operator",
+    "unresolved_lookup_expr",
+    "unresolved_member_expr",
+    "user_defined_literal",
+    "va_arg_expr";
+  optional bool is_complete = 1;
+  oneof payload {
+    google.protobuf.Any node = 2;
+  }
+}
+
+message StatementValue {
+  reserved 2001 to 2029;
+  reserved
+    "attributed_stmt",
+    "break_stmt",
+    "cxx_catch_stmt",
+    "cxx_for_range_stmt",
+    "cxx_try_stmt",
+    "case_stmt",
+    "compound_stmt",
+    "continue_stmt",
+    "coreturn_stmt",
+    "coroutine_body_stmt",
+    "decl_stmt",
+    "default_stmt",
+    "do_stmt",
+    "for_stmt",
+    "gcc_asm_stmt",
+    "goto_stmt",
+    "if_stmt",
+    "indirect_goto_stmt",
+    "label_stmt",
+    "ms_asm_stmt",
+    "ms_dependent_exists_stmt",
+    "null_stmt",
+    "return_stmt",
+    "seh_except_stmt",
+    "seh_finally_stmt",
+    "seh_leave_stmt",
+    "seh_try_stmt",
+    "switch_stmt",
+    "while_stmt";
+  optional bool is_complete = 1;
+  oneof payload {
+    ExpressionValue expression = 10;
+    google.protobuf.Any node = 2;
+  }
+}
+
+message TypeValue {
+  reserved 4001 to 4052;
+  reserved
+    "adjusted_type",
+    "atomic_type",
+    "attributed_type",
+    "auto_type",
+    "btf_tag_attributed_type",
+    "bit_int_type",
+    "block_pointer_type",
+    "builtin_type",
+    "complex_type",
+    "constant_array_type",
+    "constant_matrix_type",
+    "count_attributed_type",
+    "decayed_type",
+    "decltype_type",
+    "deduced_template_specialization_type",
+    "dependent_address_space_type",
+    "dependent_bit_int_type",
+    "dependent_decltype_type",
+    "dependent_name_type",
+    "dependent_sized_array_type",
+    "dependent_sized_ext_vector_type",
+    "dependent_sized_matrix_type",
+    "dependent_type_of_expr_type",
+    "dependent_vector_type",
+    "enum_type",
+    "ext_vector_type",
+    "function_proto_type",
+    "incomplete_array_type",
+    "injected_class_name_type",
+    "l_value_reference_type",
+    "macro_qualified_type",
+    "member_pointer_type",
+    "pack_expansion_type",
+    "pack_indexing_type",
+    "paren_type",
+    "pointer_type",
+    "predefined_sugar_type",
+    "r_value_reference_type",
+    "record_type",
+    "subst_builtin_template_pack_type",
+    "subst_template_type_parm_pack_type",
+    "subst_template_type_parm_type",
+    "template_specialization_type",
+    "template_type_parm_type",
+    "type_of_expr_type",
+    "type_of_type",
+    "typedef_type",
+    "unary_transform_type",
+    "unresolved_using_type",
+    "using_type",
+    "variable_array_type",
+    "vector_type";
+  optional bool is_complete = 1;
+  oneof payload {
+    google.protobuf.Any node = 2;
+  }
+}

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message UnresolvedLookupExpr {
+  ExprInfo info = 1;
+  DeclarationName name = 2;
+  NestedNameSpecifier qualifier = 3;
+  repeated DeclarationSymbol candidate_declarations = 4;
+  optional bool requires_adl = 5;
+  repeated TemplateArgument template_arguments = 6;
+}

@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXConstructExpr {
+  CXXConstructExprInfo construction = 1;
+}

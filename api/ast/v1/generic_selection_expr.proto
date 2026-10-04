@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message GenericSelectionExpr {
+  ExprInfo info = 1;
+  ExpressionValue controlling_expression = 2;
+  ExpressionValue result_expression = 3;
+  repeated GenericAssociation associations = 4;
+  optional int32 selected_index = 5;
+}

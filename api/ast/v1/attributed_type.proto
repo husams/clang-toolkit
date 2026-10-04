@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message AttributedType {
+  TypeInfo info = 1;
+  QualType modified_type = 2;
+  QualType equivalent_type = 3;
+  optional AttributedTypeKind attribute_kind = 4;
+  AttributeValue attribute = 5;
+  optional string attribute_kind_name = 6;
+}

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message PseudoObjectExpr {
+  ExprInfo info = 1;
+  ExpressionValue syntax_expression = 2;
+  repeated ExpressionValue semantic_expressions = 3;
+  ExpressionValue result_expression = 4;
+}

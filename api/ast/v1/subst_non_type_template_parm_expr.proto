@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message SubstNonTypeTemplateParmExpr {
+  ExprInfo info = 1;
+  DeclarationSymbol parameter = 2;
+  ExpressionValue replacement = 3;
+  optional uint32 parameter_index = 4;
+}

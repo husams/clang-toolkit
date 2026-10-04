@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXMemberCallExpr {
+  CallExprInfo call = 1;
+  ExpressionValue implicit_object_argument = 2;
+  QualType object_type = 3;
+  DeclarationSymbol method_declaration = 4;
+  DeclarationSymbol record_declaration = 5;
+}

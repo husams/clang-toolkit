@@ -1,0 +1,1115 @@
+{
+  "schema_version": 1,
+  "tags": {
+    "AccessSpecDecl": {
+      "tag": 1001,
+      "family": "decl"
+    },
+    "BindingDecl": {
+      "tag": 1002,
+      "family": "decl"
+    },
+    "BlockDecl": {
+      "tag": 1003,
+      "family": "decl"
+    },
+    "BuiltinTemplateDecl": {
+      "tag": 1004,
+      "family": "decl"
+    },
+    "CXXConstructorDecl": {
+      "tag": 1005,
+      "family": "decl"
+    },
+    "CXXConversionDecl": {
+      "tag": 1006,
+      "family": "decl"
+    },
+    "CXXDeductionGuideDecl": {
+      "tag": 1007,
+      "family": "decl"
+    },
+    "CXXDestructorDecl": {
+      "tag": 1008,
+      "family": "decl"
+    },
+    "CXXMethodDecl": {
+      "tag": 1009,
+      "family": "decl"
+    },
+    "CXXRecordDecl": {
+      "tag": 1010,
+      "family": "decl"
+    },
+    "ClassTemplateDecl": {
+      "tag": 1011,
+      "family": "decl"
+    },
+    "ClassTemplatePartialSpecializationDecl": {
+      "tag": 1012,
+      "family": "decl"
+    },
+    "ClassTemplateSpecializationDecl": {
+      "tag": 1013,
+      "family": "decl"
+    },
+    "ConceptDecl": {
+      "tag": 1014,
+      "family": "decl"
+    },
+    "ConstructorUsingShadowDecl": {
+      "tag": 1015,
+      "family": "decl"
+    },
+    "DecompositionDecl": {
+      "tag": 1016,
+      "family": "decl"
+    },
+    "EmptyDecl": {
+      "tag": 1017,
+      "family": "decl"
+    },
+    "EnumConstantDecl": {
+      "tag": 1018,
+      "family": "decl"
+    },
+    "EnumDecl": {
+      "tag": 1019,
+      "family": "decl"
+    },
+    "ExportDecl": {
+      "tag": 1020,
+      "family": "decl"
+    },
+    "ExternCContextDecl": {
+      "tag": 1021,
+      "family": "decl"
+    },
+    "FieldDecl": {
+      "tag": 1022,
+      "family": "decl"
+    },
+    "FileScopeAsmDecl": {
+      "tag": 1023,
+      "family": "decl"
+    },
+    "FriendDecl": {
+      "tag": 1024,
+      "family": "decl"
+    },
+    "FriendTemplateDecl": {
+      "tag": 1025,
+      "family": "decl"
+    },
+    "FunctionDecl": {
+      "tag": 1026,
+      "family": "decl"
+    },
+    "FunctionTemplateDecl": {
+      "tag": 1027,
+      "family": "decl"
+    },
+    "ImplicitConceptSpecializationDecl": {
+      "tag": 1028,
+      "family": "decl"
+    },
+    "ImplicitParamDecl": {
+      "tag": 1029,
+      "family": "decl"
+    },
+    "ImportDecl": {
+      "tag": 1030,
+      "family": "decl"
+    },
+    "IndirectFieldDecl": {
+      "tag": 1031,
+      "family": "decl"
+    },
+    "LabelDecl": {
+      "tag": 1032,
+      "family": "decl"
+    },
+    "LifetimeExtendedTemporaryDecl": {
+      "tag": 1033,
+      "family": "decl"
+    },
+    "LinkageSpecDecl": {
+      "tag": 1034,
+      "family": "decl"
+    },
+    "MSGuidDecl": {
+      "tag": 1035,
+      "family": "decl"
+    },
+    "MSPropertyDecl": {
+      "tag": 1036,
+      "family": "decl"
+    },
+    "NamespaceAliasDecl": {
+      "tag": 1037,
+      "family": "decl"
+    },
+    "NamespaceDecl": {
+      "tag": 1038,
+      "family": "decl"
+    },
+    "NonTypeTemplateParmDecl": {
+      "tag": 1039,
+      "family": "decl"
+    },
+    "ParmVarDecl": {
+      "tag": 1040,
+      "family": "decl"
+    },
+    "PragmaCommentDecl": {
+      "tag": 1041,
+      "family": "decl"
+    },
+    "PragmaDetectMismatchDecl": {
+      "tag": 1042,
+      "family": "decl"
+    },
+    "RecordDecl": {
+      "tag": 1043,
+      "family": "decl"
+    },
+    "RequiresExprBodyDecl": {
+      "tag": 1044,
+      "family": "decl"
+    },
+    "StaticAssertDecl": {
+      "tag": 1045,
+      "family": "decl"
+    },
+    "TemplateParamObjectDecl": {
+      "tag": 1046,
+      "family": "decl"
+    },
+    "TemplateTemplateParmDecl": {
+      "tag": 1047,
+      "family": "decl"
+    },
+    "TemplateTypeParmDecl": {
+      "tag": 1048,
+      "family": "decl"
+    },
+    "TopLevelStmtDecl": {
+      "tag": 1049,
+      "family": "decl"
+    },
+    "TranslationUnitDecl": {
+      "tag": 1050,
+      "family": "decl"
+    },
+    "TypeAliasDecl": {
+      "tag": 1051,
+      "family": "decl"
+    },
+    "TypeAliasTemplateDecl": {
+      "tag": 1052,
+      "family": "decl"
+    },
+    "TypedefDecl": {
+      "tag": 1053,
+      "family": "decl"
+    },
+    "UnnamedGlobalConstantDecl": {
+      "tag": 1054,
+      "family": "decl"
+    },
+    "UnresolvedUsingIfExistsDecl": {
+      "tag": 1055,
+      "family": "decl"
+    },
+    "UnresolvedUsingTypenameDecl": {
+      "tag": 1056,
+      "family": "decl"
+    },
+    "UnresolvedUsingValueDecl": {
+      "tag": 1057,
+      "family": "decl"
+    },
+    "UsingDecl": {
+      "tag": 1058,
+      "family": "decl"
+    },
+    "UsingDirectiveDecl": {
+      "tag": 1059,
+      "family": "decl"
+    },
+    "UsingEnumDecl": {
+      "tag": 1060,
+      "family": "decl"
+    },
+    "UsingPackDecl": {
+      "tag": 1061,
+      "family": "decl"
+    },
+    "UsingShadowDecl": {
+      "tag": 1062,
+      "family": "decl"
+    },
+    "VarDecl": {
+      "tag": 1063,
+      "family": "decl"
+    },
+    "VarTemplateDecl": {
+      "tag": 1064,
+      "family": "decl"
+    },
+    "VarTemplatePartialSpecializationDecl": {
+      "tag": 1065,
+      "family": "decl"
+    },
+    "VarTemplateSpecializationDecl": {
+      "tag": 1066,
+      "family": "decl"
+    },
+    "AttributedStmt": {
+      "tag": 2001,
+      "family": "stmt"
+    },
+    "BreakStmt": {
+      "tag": 2002,
+      "family": "stmt"
+    },
+    "CXXCatchStmt": {
+      "tag": 2003,
+      "family": "stmt"
+    },
+    "CXXForRangeStmt": {
+      "tag": 2004,
+      "family": "stmt"
+    },
+    "CXXTryStmt": {
+      "tag": 2005,
+      "family": "stmt"
+    },
+    "CaseStmt": {
+      "tag": 2006,
+      "family": "stmt"
+    },
+    "CompoundStmt": {
+      "tag": 2007,
+      "family": "stmt"
+    },
+    "ContinueStmt": {
+      "tag": 2008,
+      "family": "stmt"
+    },
+    "CoreturnStmt": {
+      "tag": 2009,
+      "family": "stmt"
+    },
+    "CoroutineBodyStmt": {
+      "tag": 2010,
+      "family": "stmt"
+    },
+    "DeclStmt": {
+      "tag": 2011,
+      "family": "stmt"
+    },
+    "DefaultStmt": {
+      "tag": 2012,
+      "family": "stmt"
+    },
+    "DoStmt": {
+      "tag": 2013,
+      "family": "stmt"
+    },
+    "ForStmt": {
+      "tag": 2014,
+      "family": "stmt"
+    },
+    "GCCAsmStmt": {
+      "tag": 2015,
+      "family": "stmt"
+    },
+    "GotoStmt": {
+      "tag": 2016,
+      "family": "stmt"
+    },
+    "IfStmt": {
+      "tag": 2017,
+      "family": "stmt"
+    },
+    "IndirectGotoStmt": {
+      "tag": 2018,
+      "family": "stmt"
+    },
+    "LabelStmt": {
+      "tag": 2019,
+      "family": "stmt"
+    },
+    "MSAsmStmt": {
+      "tag": 2020,
+      "family": "stmt"
+    },
+    "MSDependentExistsStmt": {
+      "tag": 2021,
+      "family": "stmt"
+    },
+    "NullStmt": {
+      "tag": 2022,
+      "family": "stmt"
+    },
+    "ReturnStmt": {
+      "tag": 2023,
+      "family": "stmt"
+    },
+    "SEHExceptStmt": {
+      "tag": 2024,
+      "family": "stmt"
+    },
+    "SEHFinallyStmt": {
+      "tag": 2025,
+      "family": "stmt"
+    },
+    "SEHLeaveStmt": {
+      "tag": 2026,
+      "family": "stmt"
+    },
+    "SEHTryStmt": {
+      "tag": 2027,
+      "family": "stmt"
+    },
+    "SwitchStmt": {
+      "tag": 2028,
+      "family": "stmt"
+    },
+    "WhileStmt": {
+      "tag": 2029,
+      "family": "stmt"
+    },
+    "AddrLabelExpr": {
+      "tag": 3001,
+      "family": "expr"
+    },
+    "ArrayInitIndexExpr": {
+      "tag": 3002,
+      "family": "expr"
+    },
+    "ArrayInitLoopExpr": {
+      "tag": 3003,
+      "family": "expr"
+    },
+    "ArraySubscriptExpr": {
+      "tag": 3004,
+      "family": "expr"
+    },
+    "ArrayTypeTraitExpr": {
+      "tag": 3005,
+      "family": "expr"
+    },
+    "AtomicExpr": {
+      "tag": 3006,
+      "family": "expr"
+    },
+    "BinaryConditionalOperator": {
+      "tag": 3007,
+      "family": "expr"
+    },
+    "BinaryOperator": {
+      "tag": 3008,
+      "family": "expr"
+    },
+    "BlockExpr": {
+      "tag": 3009,
+      "family": "expr"
+    },
+    "BuiltinBitCastExpr": {
+      "tag": 3010,
+      "family": "expr"
+    },
+    "CStyleCastExpr": {
+      "tag": 3011,
+      "family": "expr"
+    },
+    "CXXAddrspaceCastExpr": {
+      "tag": 3012,
+      "family": "expr"
+    },
+    "CXXBindTemporaryExpr": {
+      "tag": 3013,
+      "family": "expr"
+    },
+    "CXXBoolLiteralExpr": {
+      "tag": 3014,
+      "family": "expr"
+    },
+    "CXXConstCastExpr": {
+      "tag": 3015,
+      "family": "expr"
+    },
+    "CXXConstructExpr": {
+      "tag": 3016,
+      "family": "expr"
+    },
+    "CXXDefaultArgExpr": {
+      "tag": 3017,
+      "family": "expr"
+    },
+    "CXXDefaultInitExpr": {
+      "tag": 3018,
+      "family": "expr"
+    },
+    "CXXDeleteExpr": {
+      "tag": 3019,
+      "family": "expr"
+    },
+    "CXXDependentScopeMemberExpr": {
+      "tag": 3020,
+      "family": "expr"
+    },
+    "CXXDynamicCastExpr": {
+      "tag": 3021,
+      "family": "expr"
+    },
+    "CXXFoldExpr": {
+      "tag": 3022,
+      "family": "expr"
+    },
+    "CXXFunctionalCastExpr": {
+      "tag": 3023,
+      "family": "expr"
+    },
+    "CXXInheritedCtorInitExpr": {
+      "tag": 3024,
+      "family": "expr"
+    },
+    "CXXMemberCallExpr": {
+      "tag": 3025,
+      "family": "expr"
+    },
+    "CXXNewExpr": {
+      "tag": 3026,
+      "family": "expr"
+    },
+    "CXXNoexceptExpr": {
+      "tag": 3027,
+      "family": "expr"
+    },
+    "CXXNullPtrLiteralExpr": {
+      "tag": 3028,
+      "family": "expr"
+    },
+    "CXXOperatorCallExpr": {
+      "tag": 3029,
+      "family": "expr"
+    },
+    "CXXParenListInitExpr": {
+      "tag": 3030,
+      "family": "expr"
+    },
+    "CXXPseudoDestructorExpr": {
+      "tag": 3031,
+      "family": "expr"
+    },
+    "CXXReinterpretCastExpr": {
+      "tag": 3032,
+      "family": "expr"
+    },
+    "CXXRewrittenBinaryOperator": {
+      "tag": 3033,
+      "family": "expr"
+    },
+    "CXXScalarValueInitExpr": {
+      "tag": 3034,
+      "family": "expr"
+    },
+    "CXXStaticCastExpr": {
+      "tag": 3035,
+      "family": "expr"
+    },
+    "CXXStdInitializerListExpr": {
+      "tag": 3036,
+      "family": "expr"
+    },
+    "CXXTemporaryObjectExpr": {
+      "tag": 3037,
+      "family": "expr"
+    },
+    "CXXThisExpr": {
+      "tag": 3038,
+      "family": "expr"
+    },
+    "CXXThrowExpr": {
+      "tag": 3039,
+      "family": "expr"
+    },
+    "CXXTypeidExpr": {
+      "tag": 3040,
+      "family": "expr"
+    },
+    "CXXUnresolvedConstructExpr": {
+      "tag": 3041,
+      "family": "expr"
+    },
+    "CXXUuidofExpr": {
+      "tag": 3042,
+      "family": "expr"
+    },
+    "CallExpr": {
+      "tag": 3043,
+      "family": "expr"
+    },
+    "CharacterLiteral": {
+      "tag": 3044,
+      "family": "expr"
+    },
+    "ChooseExpr": {
+      "tag": 3045,
+      "family": "expr"
+    },
+    "CoawaitExpr": {
+      "tag": 3046,
+      "family": "expr"
+    },
+    "CompoundAssignOperator": {
+      "tag": 3047,
+      "family": "expr"
+    },
+    "CompoundLiteralExpr": {
+      "tag": 3048,
+      "family": "expr"
+    },
+    "ConceptSpecializationExpr": {
+      "tag": 3049,
+      "family": "expr"
+    },
+    "ConditionalOperator": {
+      "tag": 3050,
+      "family": "expr"
+    },
+    "ConstantExpr": {
+      "tag": 3051,
+      "family": "expr"
+    },
+    "ConvertVectorExpr": {
+      "tag": 3052,
+      "family": "expr"
+    },
+    "CoyieldExpr": {
+      "tag": 3053,
+      "family": "expr"
+    },
+    "DeclRefExpr": {
+      "tag": 3054,
+      "family": "expr"
+    },
+    "DependentCoawaitExpr": {
+      "tag": 3055,
+      "family": "expr"
+    },
+    "DependentScopeDeclRefExpr": {
+      "tag": 3056,
+      "family": "expr"
+    },
+    "DesignatedInitExpr": {
+      "tag": 3057,
+      "family": "expr"
+    },
+    "DesignatedInitUpdateExpr": {
+      "tag": 3058,
+      "family": "expr"
+    },
+    "EmbedExpr": {
+      "tag": 3059,
+      "family": "expr"
+    },
+    "ExprWithCleanups": {
+      "tag": 3060,
+      "family": "expr"
+    },
+    "ExpressionTraitExpr": {
+      "tag": 3061,
+      "family": "expr"
+    },
+    "ExtVectorElementExpr": {
+      "tag": 3062,
+      "family": "expr"
+    },
+    "FixedPointLiteral": {
+      "tag": 3063,
+      "family": "expr"
+    },
+    "FloatingLiteral": {
+      "tag": 3064,
+      "family": "expr"
+    },
+    "FunctionParmPackExpr": {
+      "tag": 3065,
+      "family": "expr"
+    },
+    "GNUNullExpr": {
+      "tag": 3066,
+      "family": "expr"
+    },
+    "GenericSelectionExpr": {
+      "tag": 3067,
+      "family": "expr"
+    },
+    "ImaginaryLiteral": {
+      "tag": 3068,
+      "family": "expr"
+    },
+    "ImplicitCastExpr": {
+      "tag": 3069,
+      "family": "expr"
+    },
+    "ImplicitValueInitExpr": {
+      "tag": 3070,
+      "family": "expr"
+    },
+    "InitListExpr": {
+      "tag": 3071,
+      "family": "expr"
+    },
+    "IntegerLiteral": {
+      "tag": 3072,
+      "family": "expr"
+    },
+    "LambdaExpr": {
+      "tag": 3073,
+      "family": "expr"
+    },
+    "MSPropertyRefExpr": {
+      "tag": 3074,
+      "family": "expr"
+    },
+    "MSPropertySubscriptExpr": {
+      "tag": 3075,
+      "family": "expr"
+    },
+    "MaterializeTemporaryExpr": {
+      "tag": 3076,
+      "family": "expr"
+    },
+    "MatrixSingleSubscriptExpr": {
+      "tag": 3077,
+      "family": "expr"
+    },
+    "MatrixSubscriptExpr": {
+      "tag": 3078,
+      "family": "expr"
+    },
+    "MemberExpr": {
+      "tag": 3079,
+      "family": "expr"
+    },
+    "NoInitExpr": {
+      "tag": 3080,
+      "family": "expr"
+    },
+    "OffsetOfExpr": {
+      "tag": 3081,
+      "family": "expr"
+    },
+    "OpaqueValueExpr": {
+      "tag": 3082,
+      "family": "expr"
+    },
+    "PackExpansionExpr": {
+      "tag": 3083,
+      "family": "expr"
+    },
+    "PackIndexingExpr": {
+      "tag": 3084,
+      "family": "expr"
+    },
+    "ParenExpr": {
+      "tag": 3085,
+      "family": "expr"
+    },
+    "ParenListExpr": {
+      "tag": 3086,
+      "family": "expr"
+    },
+    "PredefinedExpr": {
+      "tag": 3087,
+      "family": "expr"
+    },
+    "PseudoObjectExpr": {
+      "tag": 3088,
+      "family": "expr"
+    },
+    "RecoveryExpr": {
+      "tag": 3089,
+      "family": "expr"
+    },
+    "RequiresExpr": {
+      "tag": 3090,
+      "family": "expr"
+    },
+    "ShuffleVectorExpr": {
+      "tag": 3091,
+      "family": "expr"
+    },
+    "SizeOfPackExpr": {
+      "tag": 3092,
+      "family": "expr"
+    },
+    "SourceLocExpr": {
+      "tag": 3093,
+      "family": "expr"
+    },
+    "StmtExpr": {
+      "tag": 3094,
+      "family": "expr"
+    },
+    "StringLiteral": {
+      "tag": 3095,
+      "family": "expr"
+    },
+    "SubstNonTypeTemplateParmExpr": {
+      "tag": 3096,
+      "family": "expr"
+    },
+    "SubstNonTypeTemplateParmPackExpr": {
+      "tag": 3097,
+      "family": "expr"
+    },
+    "TypeTraitExpr": {
+      "tag": 3098,
+      "family": "expr"
+    },
+    "UnaryExprOrTypeTraitExpr": {
+      "tag": 3099,
+      "family": "expr"
+    },
+    "UnaryOperator": {
+      "tag": 3100,
+      "family": "expr"
+    },
+    "UnresolvedLookupExpr": {
+      "tag": 3101,
+      "family": "expr"
+    },
+    "UnresolvedMemberExpr": {
+      "tag": 3102,
+      "family": "expr"
+    },
+    "UserDefinedLiteral": {
+      "tag": 3103,
+      "family": "expr"
+    },
+    "VAArgExpr": {
+      "tag": 3104,
+      "family": "expr"
+    },
+    "AdjustedType": {
+      "tag": 4001,
+      "family": "type"
+    },
+    "AtomicType": {
+      "tag": 4002,
+      "family": "type"
+    },
+    "AttributedType": {
+      "tag": 4003,
+      "family": "type"
+    },
+    "AutoType": {
+      "tag": 4004,
+      "family": "type"
+    },
+    "BTFTagAttributedType": {
+      "tag": 4005,
+      "family": "type"
+    },
+    "BitIntType": {
+      "tag": 4006,
+      "family": "type"
+    },
+    "BlockPointerType": {
+      "tag": 4007,
+      "family": "type"
+    },
+    "BuiltinType": {
+      "tag": 4008,
+      "family": "type"
+    },
+    "ComplexType": {
+      "tag": 4009,
+      "family": "type"
+    },
+    "ConstantArrayType": {
+      "tag": 4010,
+      "family": "type"
+    },
+    "ConstantMatrixType": {
+      "tag": 4011,
+      "family": "type"
+    },
+    "CountAttributedType": {
+      "tag": 4012,
+      "family": "type"
+    },
+    "DecayedType": {
+      "tag": 4013,
+      "family": "type"
+    },
+    "DecltypeType": {
+      "tag": 4014,
+      "family": "type"
+    },
+    "DeducedTemplateSpecializationType": {
+      "tag": 4015,
+      "family": "type"
+    },
+    "DependentAddressSpaceType": {
+      "tag": 4016,
+      "family": "type"
+    },
+    "DependentBitIntType": {
+      "tag": 4017,
+      "family": "type"
+    },
+    "DependentDecltypeType": {
+      "tag": 4018,
+      "family": "type"
+    },
+    "DependentNameType": {
+      "tag": 4019,
+      "family": "type"
+    },
+    "DependentSizedArrayType": {
+      "tag": 4020,
+      "family": "type"
+    },
+    "DependentSizedExtVectorType": {
+      "tag": 4021,
+      "family": "type"
+    },
+    "DependentSizedMatrixType": {
+      "tag": 4022,
+      "family": "type"
+    },
+    "DependentTypeOfExprType": {
+      "tag": 4023,
+      "family": "type"
+    },
+    "DependentVectorType": {
+      "tag": 4024,
+      "family": "type"
+    },
+    "EnumType": {
+      "tag": 4025,
+      "family": "type"
+    },
+    "ExtVectorType": {
+      "tag": 4026,
+      "family": "type"
+    },
+    "FunctionProtoType": {
+      "tag": 4027,
+      "family": "type"
+    },
+    "IncompleteArrayType": {
+      "tag": 4028,
+      "family": "type"
+    },
+    "InjectedClassNameType": {
+      "tag": 4029,
+      "family": "type"
+    },
+    "LValueReferenceType": {
+      "tag": 4030,
+      "family": "type"
+    },
+    "MacroQualifiedType": {
+      "tag": 4031,
+      "family": "type"
+    },
+    "MemberPointerType": {
+      "tag": 4032,
+      "family": "type"
+    },
+    "PackExpansionType": {
+      "tag": 4033,
+      "family": "type"
+    },
+    "PackIndexingType": {
+      "tag": 4034,
+      "family": "type"
+    },
+    "ParenType": {
+      "tag": 4035,
+      "family": "type"
+    },
+    "PointerType": {
+      "tag": 4036,
+      "family": "type"
+    },
+    "PredefinedSugarType": {
+      "tag": 4037,
+      "family": "type"
+    },
+    "RValueReferenceType": {
+      "tag": 4038,
+      "family": "type"
+    },
+    "RecordType": {
+      "tag": 4039,
+      "family": "type"
+    },
+    "SubstBuiltinTemplatePackType": {
+      "tag": 4040,
+      "family": "type"
+    },
+    "SubstTemplateTypeParmPackType": {
+      "tag": 4041,
+      "family": "type"
+    },
+    "SubstTemplateTypeParmType": {
+      "tag": 4042,
+      "family": "type"
+    },
+    "TemplateSpecializationType": {
+      "tag": 4043,
+      "family": "type"
+    },
+    "TemplateTypeParmType": {
+      "tag": 4044,
+      "family": "type"
+    },
+    "TypeOfExprType": {
+      "tag": 4045,
+      "family": "type"
+    },
+    "TypeOfType": {
+      "tag": 4046,
+      "family": "type"
+    },
+    "TypedefType": {
+      "tag": 4047,
+      "family": "type"
+    },
+    "UnaryTransformType": {
+      "tag": 4048,
+      "family": "type"
+    },
+    "UnresolvedUsingType": {
+      "tag": 4049,
+      "family": "type"
+    },
+    "UsingType": {
+      "tag": 4050,
+      "family": "type"
+    },
+    "VariableArrayType": {
+      "tag": 4051,
+      "family": "type"
+    },
+    "VectorType": {
+      "tag": 4052,
+      "family": "type"
+    }
+  },
+  "reserved_tags": [
+    5001,
+    5002,
+    5003,
+    5004,
+    5005,
+    5006,
+    5007,
+    5008,
+    5009,
+    5010,
+    5011,
+    5012,
+    5013,
+    5014,
+    5015,
+    5016,
+    5017,
+    5018,
+    5019,
+    5020,
+    5021,
+    5022,
+    5023,
+    5024,
+    5025,
+    5026,
+    5027,
+    5028,
+    5029,
+    5030,
+    5031,
+    5032,
+    5033,
+    5034,
+    5035,
+    5036,
+    5037,
+    5038,
+    5039,
+    5040,
+    5041,
+    5042,
+    5043,
+    5044,
+    5045,
+    5046,
+    5047,
+    5048,
+    5049,
+    5050,
+    5051
+  ],
+  "reserved_names": [
+    "AdjustedTypeLoc",
+    "AtomicTypeLoc",
+    "AttributedTypeLoc",
+    "AutoTypeLoc",
+    "BTFTagAttributedTypeLoc",
+    "BitIntTypeLoc",
+    "BlockPointerTypeLoc",
+    "BuiltinTypeLoc",
+    "ComplexTypeLoc",
+    "ConstantArrayTypeLoc",
+    "ConstantMatrixTypeLoc",
+    "CountAttributedTypeLoc",
+    "DecayedTypeLoc",
+    "DecltypeTypeLoc",
+    "DeducedTemplateSpecializationTypeLoc",
+    "DependentAddressSpaceTypeLoc",
+    "DependentBitIntTypeLoc",
+    "DependentNameTypeLoc",
+    "DependentSizedArrayTypeLoc",
+    "DependentSizedExtVectorTypeLoc",
+    "DependentSizedMatrixTypeLoc",
+    "DependentVectorTypeLoc",
+    "EnumTypeLoc",
+    "ExtVectorTypeLoc",
+    "FunctionProtoTypeLoc",
+    "IncompleteArrayTypeLoc",
+    "InjectedClassNameTypeLoc",
+    "LValueReferenceTypeLoc",
+    "MacroQualifiedTypeLoc",
+    "MemberPointerTypeLoc",
+    "PackExpansionTypeLoc",
+    "PackIndexingTypeLoc",
+    "ParenTypeLoc",
+    "PointerTypeLoc",
+    "PredefinedSugarTypeLoc",
+    "QualifiedTypeLoc",
+    "RValueReferenceTypeLoc",
+    "RecordTypeLoc",
+    "SubstBuiltinTemplatePackTypeLoc",
+    "SubstTemplateTypeParmPackTypeLoc",
+    "SubstTemplateTypeParmTypeLoc",
+    "TemplateSpecializationTypeLoc",
+    "TemplateTypeParmTypeLoc",
+    "TypeOfExprTypeLoc",
+    "TypeOfTypeLoc",
+    "TypedefTypeLoc",
+    "UnaryTransformTypeLoc",
+    "UnresolvedUsingTypeLoc",
+    "UsingTypeLoc",
+    "VariableArrayTypeLoc",
+    "VectorTypeLoc"
+  ]
+}

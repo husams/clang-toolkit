@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message MemberExpr {
+  ExprInfo info = 1;
+  ExpressionValue base = 2;
+  DeclarationSymbol member_declaration = 3;
+  DeclarationName member_name = 4;
+  NestedNameSpecifier qualifier = 5;
+  optional bool is_arrow = 6;
+  optional bool is_virtual_call = 7;
+  repeated TemplateArgument template_arguments = 8;
+}

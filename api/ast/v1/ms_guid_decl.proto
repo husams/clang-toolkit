@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message MSGuidDecl {
+  ValueDeclInfo value = 1;
+  optional uint32 data1 = 2;
+  optional uint32 data2 = 3;
+  optional uint32 data3 = 4;
+  optional bytes data4 = 5;
+  APValue value_as_constant = 6;
+}

@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/common.proto";
+import "ast/v1/semantic_types.proto";
+
+message ConstantArrayType {
+  TypeInfo info = 1;
+  QualType element_type = 2;
+  APIntBits size = 3;
+  ExpressionValue size_expression = 4;
+  optional ArraySizeModifier size_modifier = 5;
+  Qualifiers index_qualifiers = 6;
+}

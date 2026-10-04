@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message FieldDecl {
+  DeclaratorDeclInfo declarator = 1;
+  ExpressionValue bit_width = 2;
+  ExpressionValue in_class_initializer = 3;
+  optional bool is_mutable = 4;
+  optional bool is_bit_field = 5;
+  optional bool is_anonymous_struct_or_union = 6;
+}

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXForRangeStmt {
+  reserved 1;
+  reserved "statement";
+  StatementValue init_statement = 2;
+  DeclarationValue loop_variable = 3;
+  StatementValue range_statement = 4;
+  StatementValue begin_statement = 5;
+  StatementValue end_statement = 6;
+  ExpressionValue condition = 7;
+  ExpressionValue increment = 8;
+  StatementValue body = 9;
+  optional bool is_for_range_loop = 10;
+}

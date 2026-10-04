@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message MacroQualifiedType {
+  reserved 3;
+  reserved "macro_identifier";
+  TypeInfo info = 1;
+  QualType underlying_type = 2;
+}

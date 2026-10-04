@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message NamespaceDecl {
+  reserved 4;
+  reserved "canonical_declaration";
+  NamedDeclInfo named = 1;
+  DeclarationSymbol original_namespace = 2;
+  DeclarationSymbol anonymous_namespace = 3;
+  optional bool is_inline = 5;
+  optional bool is_anonymous = 6;
+  repeated DeclarationValue declarations = 7;
+}

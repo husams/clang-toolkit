@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+import "ast/v1/using_shadow_decl.proto";
+
+message ConstructorUsingShadowDecl {
+  UsingShadowDecl using_shadow = 1;
+  DeclarationSymbol nominated_base_class = 2;
+  DeclarationSymbol constructed_base_class = 3;
+  optional bool constructs_virtual_base = 4;
+}

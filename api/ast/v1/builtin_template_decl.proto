@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message BuiltinTemplateDecl {
+  NamedDeclInfo named = 1;
+  optional DeclBuiltinTemplateKind builtin_kind = 2;
+  TemplateParameterList template_parameters = 3;
+}

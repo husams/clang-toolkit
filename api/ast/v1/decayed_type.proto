@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message DecayedType {
+  TypeInfo info = 1;
+  QualType original_type = 2;
+  QualType adjusted_type = 3;
+  QualType pointee_type = 4;
+}

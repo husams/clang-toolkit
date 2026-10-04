@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message DependentAddressSpaceType {
+  reserved 4;
+  reserved "attribute_location";
+  TypeInfo info = 1;
+  QualType pointee_type = 2;
+  ExpressionValue address_space_expression = 3;
+}

@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ImplicitValueInitExpr {
+  ExprInfo info = 1;
+  QualType initialized_type = 2;
+}

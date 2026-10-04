@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXParenListInitExpr {
+  ExprInfo info = 1;
+  repeated ExpressionValue initializers = 2;
+  QualType array_filler_type = 3;
+}

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ArrayInitLoopExpr {
+  ExprInfo info = 1;
+  ExpressionValue common_expression = 2;
+  ExpressionValue initializer_per_element = 3;
+  APIntBits array_size = 4;
+}

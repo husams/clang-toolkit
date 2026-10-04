@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ExternCContextDecl {
+  DeclInfo declaration = 1;
+  repeated DeclarationValue declarations = 2;
+}

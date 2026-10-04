@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package ctk.match.v1;
+
+import "ast/v1/common.proto";
+import "ast/v1/node.proto";
+import "ast/v1/semantic_types.proto";
+
+// Candidate roots available for continuing a query from a prior binding.
+// UNSPECIFIED is a request default only; servers must not advertise it.
+enum BindingMatchScope {
+  BINDING_MATCH_SCOPE_UNSPECIFIED = 0;
+  // Test the bound node itself.
+  BINDING_MATCH_SCOPE_ROOT_ONLY = 1;
+  // Test the bound node and eligible descendants. Supported only for Decl
+  // and Stmt roots and top-level Decl/Stmt matcher categories. Expr is a Stmt.
+  BINDING_MATCH_SCOPE_SUBTREE = 2;
+}
+
+// One named value copied from a native BoundNodes tuple.
+// supported_scopes describes continuation capabilities for this value:
+// Decl/Stmt support ROOT_ONLY and SUBTREE; Type/QualType support ROOT_ONLY;
+// unsupported values support no scope. No native pointer or node ID is sent.
+message MatchBinding {
+  // Exactly one value is set by the server, including for unsupported kinds.
+  oneof value {
+    ctk.ast.v1.AstNode node = 1;
+    ctk.ast.v1.QualType qualified_type = 2;
+    ctk.ast.v1.UnsupportedValue unsupported = 3;
+  }
+  repeated ctk.ast.v1.FieldAvailability availability = 4;
+  // Always set by the server; false means the semantic payload is incomplete.
+  // An unsupported value always has is_complete = false.
+  optional bool is_complete = 5;
+  repeated BindingMatchScope supported_scopes = 6;
+}
+
+// A successful matcher callback tuple. An empty bindings map is a valid
+// unbound tuple; the service never inserts an implicit root binding.
+message MatchResult {
+  map<string, MatchBinding> bindings = 1;
+  // Present only for binding-target queries; identifies the source row in the
+  // previous response and preserves multiplicity across repeated selections.
+  optional uint64 source_match_index = 2;
+}

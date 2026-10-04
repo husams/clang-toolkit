@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message PragmaDetectMismatchDecl {
+  DeclInfo declaration = 1;
+  optional string name = 2;
+  optional string value = 3;
+}

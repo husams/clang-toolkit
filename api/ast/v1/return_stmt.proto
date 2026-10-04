@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ReturnStmt {
+  reserved 1;
+  reserved "statement";
+  ExpressionValue return_value = 2;
+  ExpressionValue return_value_init = 3;
+  DeclarationSymbol nrvo_candidate = 4;
+  optional bool is_noreturn = 5;
+}

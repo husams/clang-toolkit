@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message VarTemplatePartialSpecializationDecl {
+  VarDeclInfo variable = 1;
+  repeated TemplateArgument template_arguments = 2;
+  TemplateParameterList template_parameters = 3;
+  DeclarationSymbol specialized_template = 4;
+  DeclarationSymbol specialized_template_or_partial = 5;
+}

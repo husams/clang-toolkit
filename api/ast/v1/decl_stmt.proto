@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message DeclStmt {
+  reserved 1;
+  reserved "statement";
+  repeated DeclarationValue declarations = 2;
+}

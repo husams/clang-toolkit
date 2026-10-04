@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXDynamicCastExpr {
+  CastExprInfo cast = 1;
+  QualType target_type = 2;
+  optional bool is_always_null = 3;
+  optional bool is_always_success = 4;
+}

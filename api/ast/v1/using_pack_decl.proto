@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message UsingPackDecl {
+  NamedDeclInfo named = 1;
+  DeclarationSymbol using_declaration = 2;
+  repeated DeclarationSymbol expansions = 3;
+}

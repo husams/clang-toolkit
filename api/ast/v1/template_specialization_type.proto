@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message TemplateSpecializationType {
+  TypeInfo info = 1;
+  TemplateName template_name = 2;
+  repeated TemplateArgument arguments = 3;
+  QualType aliased_type = 4;
+  optional bool has_alias = 5;
+}

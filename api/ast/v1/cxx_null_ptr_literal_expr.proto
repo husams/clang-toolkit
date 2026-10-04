@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CXXNullPtrLiteralExpr {
+  ExprInfo info = 1;
+  optional bool is_null_pointer_constant = 2;
+}

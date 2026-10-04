@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message MSPropertyDecl {
+  DeclaratorDeclInfo declarator = 1;
+  optional string getter_identifier = 2;
+  optional string setter_identifier = 3;
+}

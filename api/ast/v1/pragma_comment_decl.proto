@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message PragmaCommentDecl {
+  DeclInfo declaration = 1;
+  optional DeclPragmaCommentKind comment_kind = 2;
+  optional string text = 3;
+}

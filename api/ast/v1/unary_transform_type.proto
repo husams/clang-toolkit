@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message UnaryTransformType {
+  TypeInfo info = 1;
+  QualType base_type = 2;
+  QualType transformed_type = 3;
+  optional UnaryTransformKind transform_kind = 4;
+}

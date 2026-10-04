@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message CaseStmt {
+  reserved 1, 5;
+  reserved "next_switch_case", "statement";
+  ExpressionValue left_expression = 2;
+  ExpressionValue right_expression = 3;
+  StatementValue substatement = 4;
+  optional bool is_case_range = 6;
+}

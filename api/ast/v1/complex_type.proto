@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message ComplexType {
+  TypeInfo info = 1;
+  QualType element_type = 2;
+}

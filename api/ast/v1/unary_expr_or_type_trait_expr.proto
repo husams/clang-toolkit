@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message UnaryExprOrTypeTraitExpr {
+  ExprInfo info = 1;
+  optional UnaryExprTrait trait = 2;
+  ExpressionValue argument_expression = 3;
+  QualType argument_type = 4;
+  optional bool is_type_argument = 5;
+}

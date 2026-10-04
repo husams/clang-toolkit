@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message BTFTagAttributedType {
+  TypeInfo info = 1;
+  QualType wrapped_type = 2;
+  AttributeValue attribute = 3;
+}

@@ -8,8 +8,8 @@
 
 namespace ctk::cache {
 
-// Hash-table backed LRU cache. A radix-tree variant (prefix lookups on
-// file paths / USRs) will sit alongside this one.
+// Generic value cache retained for non-path uses. SnapshotCache uses the radix
+// as its sole path registry and ReusePolicy for non-owning generation tokens.
 template <typename K, typename V>
 class LruCache {
  public:

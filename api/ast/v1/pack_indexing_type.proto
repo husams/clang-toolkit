@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message PackIndexingType {
+  TypeInfo info = 1;
+  QualType pattern_type = 2;
+  ExpressionValue index_expression = 3;
+  optional uint32 selected_index = 5;
+  optional QualType selected_type = 6;
+}

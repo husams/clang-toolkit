@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+import "ast/v1/semantic_types.proto";
+
+message FunctionProtoType {
+  TypeInfo info = 1;
+  QualType return_type = 2;
+  repeated QualType parameter_types = 3;
+  optional bool is_variadic = 4;
+  FunctionExtInfo ext_info = 5;
+  FunctionProtoExtInfo prototype_info = 6;
+}
