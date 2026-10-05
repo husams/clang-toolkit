@@ -9,8 +9,16 @@ add_executable(ctk_tests
   test_cache_identity.cpp
   test_cache_contract.cpp
   test_snapshot_cache.cpp
+  test_storage_store.cpp
 )
-target_link_libraries(ctk_tests PRIVATE ctk_core GTest::gtest_main)
+target_link_libraries(ctk_tests PRIVATE ctk_core GTest::gtest_main SQLite3::SQLite3)
+if(CTK_BUILD_NETWORK)
+  target_sources(ctk_tests PRIVATE test_network_config.cpp test_query_controller.cpp test_network_transport.cpp)
+  target_link_libraries(ctk_tests PRIVATE ctk_network)
+  if(CTK_WITH_CLANG)
+    target_sources(ctk_tests PRIVATE test_clang_query.cpp)
+  endif()
+endif()
 
 include(GoogleTest)
 gtest_discover_tests(ctk_tests)

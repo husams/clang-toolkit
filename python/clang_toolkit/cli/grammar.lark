@@ -10,6 +10,7 @@ reference_start: reference
 assignment: LET NAME EQUAL value_expression
 
 ?command: MATCH root_expression [IN value_expression] -> match
+        | BACKGROUND root_expression [IN value_expression] -> background
         | PRINT value_expression         -> print
         | SET USER? setting              -> set_command
         | CLEAR USER? NAME               -> clear_command
@@ -19,6 +20,12 @@ assignment: LET NAME EQUAL value_expression
         | HISTORY SAVE STRING            -> history_save
         | HISTORY CLEAR                  -> history_clear
         | SESSION LABEL STRING           -> session_label
+        | SESSION START STRING           -> session_start
+        | SESSION ADD STRING             -> session_add
+        | SESSION MATCH                  -> session_match
+        | SESSION PAUSE                  -> session_pause
+        | SESSION RESUME                 -> session_resume
+        | SESSION CLOSE                  -> session_close
         | CFG cfg_expression            -> cfg
         | CALLGRAPH [target_expression]  -> callgraph
         | HELP                           -> help
@@ -90,6 +97,7 @@ editor_start: editor_token*
 
 ?editor_token: LET
              | MATCH
+             | BACKGROUND
              | PRINT
              | FOREACH
              | IN
@@ -117,6 +125,10 @@ editor_start: editor_token*
              | HISTORY
              | SESSION
              | LABEL
+             | START
+             | PAUSE
+             | RESUME
+             | CLOSE
              | MODE
              | REPLACE
              | JOIN_WITH
@@ -149,6 +161,7 @@ editor_start: editor_token*
 
 LET.2: /let(?![a-zA-Z0-9_])/
 MATCH.2: /match(?![a-zA-Z0-9_])/
+BACKGROUND.2: /background(?![a-zA-Z0-9_])/
 PRINT.2: /print(?![a-zA-Z0-9_])/
 FOREACH.2: /foreach(?![a-zA-Z0-9_])/
 IN.2: /in(?![a-zA-Z0-9_])/
@@ -176,6 +189,10 @@ USER.2: /user(?![a-zA-Z0-9_])/
 HISTORY.2: /history(?![a-zA-Z0-9_])/
 SESSION.2: /session(?![a-zA-Z0-9_])/
 LABEL.2: /label(?![a-zA-Z0-9_])/
+START.2: /start(?![a-zA-Z0-9_])/
+PAUSE.2: /pause(?![a-zA-Z0-9_])/
+RESUME.2: /resume(?![a-zA-Z0-9_])/
+CLOSE.2: /close(?![a-zA-Z0-9_])/
 MODE.2: /mode(?![a-zA-Z0-9_])/
 REPLACE.3: /replace(?![a-zA-Z0-9_])/
 JOIN_WITH.3: /joinWith(?![a-zA-Z0-9_])/

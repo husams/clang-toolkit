@@ -6,6 +6,7 @@ FROM docker.io/rockylinux/rockylinux:9
 RUN dnf -y install dnf-plugins-core epel-release \
  && dnf config-manager --set-enabled crb \
  && dnf -y install clang clang-devel llvm-devel cmake ninja-build git \
+        grpc-devel protobuf-devel protobuf-compiler libyaml-devel sqlite-devel openssl-devel \
         zlib-devel libzstd-devel libxml2-devel ncurses-devel libffi-devel \
  && dnf clean all
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh

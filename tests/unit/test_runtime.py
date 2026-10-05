@@ -27,7 +27,10 @@ def test_matcher_composition_is_typed_and_assignment_is_quiet(tmp_path):
     assert dispatch(client, "let f = varDecl($m)", session) == ""
     assert isinstance(session.bindings["m"], MatcherExpr)
     assert dispatch(client, "let r = match $f", session) == ""
-    client.match.assert_called_once_with("varDecl(hasType(pointerType()))")
+    client.match.assert_called_once_with(
+        "varDecl(hasType(pointerType()))", files=None,
+        working_directory=session.cwd, compile_arguments=[],
+    )
     assert isinstance(session.bindings["r"], MatchSet)
     assert dispatch(client, "$r", session) == "matched"
 
@@ -91,7 +94,8 @@ def test_glob_is_sorted_and_match_receives_absolute_files(tmp_path):
     assert [str(entry) for entry in session.bindings["files"]] == ["a.cpp", "b.cpp"]
     assert dispatch(client, "match varDecl() in $files", session) == "matched"
     client.match.assert_called_once_with(
-        "varDecl()", files=[str(tmp_path / "a.cpp"), str(tmp_path / "b.cpp")]
+        "varDecl()", files=[str(tmp_path / "a.cpp"), str(tmp_path / "b.cpp")],
+        working_directory=session.cwd, compile_arguments=[],
     )
 
 
@@ -99,7 +103,9 @@ def test_literal_matcher_preserves_multiline_source(tmp_path):
     client, session = runtime(tmp_path)
     expression = 'functionDecl(\n  hasName("f[()]")\n).bind("fn")'
     assert dispatch(client, "match\n" + expression, session) == "matched"
-    client.match.assert_called_once_with(expression)
+    client.match.assert_called_once_with(
+        expression, files=None, working_directory=session.cwd, compile_arguments=[],
+    )
 
 
 def test_strings_with_brackets_and_interpolation(tmp_path):
@@ -183,6 +189,12 @@ def test_direct_match_respects_quote_interpolation_rules(tmp_path):
     client, session = runtime(tmp_path)
     dispatch(client, 'let name = "target"', session)
     assert dispatch(client, 'match varDecl(hasName("$name"))', session) == "matched"
-    client.match.assert_called_with('varDecl(hasName("target"))')
+    client.match.assert_called_with(
+        'varDecl(hasName("target"))', files=None,
+        working_directory=session.cwd, compile_arguments=[],
+    )
     assert dispatch(client, "match varDecl(hasName('$name'))", session) == "matched"
-    client.match.assert_called_with("varDecl(hasName('$name'))")
+    client.match.assert_called_with(
+        "varDecl(hasName('$name'))", files=None,
+        working_directory=session.cwd, compile_arguments=[],
+    )

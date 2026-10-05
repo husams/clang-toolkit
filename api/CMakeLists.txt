@@ -6,6 +6,32 @@ if(NOT Protobuf_FOUND)
 endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+if(CTK_BUILD_NETWORK)
+  find_package(gRPC CONFIG REQUIRED)
+  set(_query_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/query-generated")
+  set(_query_proto "${CMAKE_CURRENT_SOURCE_DIR}/query/v1/query.proto")
+  add_custom_command(
+    OUTPUT "${_query_generated_dir}/query/v1/query.pb.cc"
+           "${_query_generated_dir}/query/v1/query.pb.h"
+           "${_query_generated_dir}/query/v1/query.grpc.pb.cc"
+           "${_query_generated_dir}/query/v1/query.grpc.pb.h"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_query_generated_dir}"
+    COMMAND protobuf::protoc "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}"
+            "--cpp_out=${_query_generated_dir}"
+            "--grpc_out=${_query_generated_dir}"
+            "--plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
+            "${_query_proto}"
+    DEPENDS "${_query_proto}" VERBATIM)
+  add_library(ctk_query_api STATIC
+    "${_query_generated_dir}/query/v1/query.pb.cc"
+    "${_query_generated_dir}/query/v1/query.grpc.pb.cc")
+  target_include_directories(ctk_query_api PUBLIC "${_query_generated_dir}")
+  target_link_libraries(ctk_query_api PUBLIC protobuf::libprotobuf gRPC::grpc++)
+endif()
+if(NOT CTK_BUILD_APIS)
+  return()
+endif()
+
 file(GLOB _api_protos CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ast/v1/*.proto")
 set(_api_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(_api_generated_sources)

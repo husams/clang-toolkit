@@ -7,6 +7,8 @@ dependencies = [
     "lark>=1.3.1",
     "prompt_toolkit>=3.0",
     "pyyaml>=6",
+    "grpcio>=1.84",
+    "protobuf>=7.35",
 ]
 
 [project.scripts]
@@ -14,7 +16,7 @@ ctk = "clang_toolkit.cli.app:main"
 
 [dependency-groups]
 dev = [
-    "protobuf>=6",
+    "grpcio-tools>=1.84",
     "pytest>=8",
     "pytest-bdd>=7",
 ]

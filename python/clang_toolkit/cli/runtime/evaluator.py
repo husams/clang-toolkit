@@ -72,10 +72,21 @@ class Runtime:
         if kind in {"quit", "exit"}:
             return None
         if kind == "help":
-            return "commands: match, let, print, foreach, set, clear, save, load, cfg, callgraph, help, quit"
+            return "commands: match, background, let, print, foreach, set, clear, save, load, cfg, callgraph, session start/add/match/pause/resume/close, help, quit"
         if kind == "session_label":
             self.label = self._string(str(statement.children[2]))
             return ""
+        if kind in {"session_start", "session_add", "session_match", "session_pause", "session_resume", "session_close"}:
+            if getattr(self.client, "_query_session", None) is None:
+                raise EvaluationError("enable --session before using bidi session commands")
+            send = getattr(self.client, "send_session_command", None)
+            if send is None:
+                raise EvaluationError("bidirectional query session is not enabled")
+            value = self._string(str(statement.children[2])) if len(statement.children) > 2 else None
+            return send(
+                kind.removeprefix("session_"), value, working_directory=self.cwd,
+                compile_arguments=self.config_store.effective["extra_args"],
+            )
         if kind == "history_save":
             if self.history is None:
                 raise EvaluationError("history is not enabled")
@@ -128,6 +139,38 @@ class Runtime:
         if kind == "match":
             return self.output.emit(
                 render(self._execute_match(statement, source=source))
+            )
+        if kind == "background":
+            matcher_node = statement.children[1]
+            matcher = self._evaluate(matcher_node)
+            if not isinstance(matcher, MatcherExpr):
+                raise EvaluationError("background requires a matcher expression")
+            if matcher.name in _KNOWN_NON_ROOT:
+                raise EvaluationError(f"{matcher.name} cannot be used as a top-level matcher")
+            expression = matcher_text(matcher)
+            if source is not None and isinstance(matcher_node, Tree) and not self._has_dynamic_part(matcher_node):
+                expression = source[matcher_node.meta.start_pos : matcher_node.meta.end_pos]
+            selected_files = None
+            if len(statement.children) > 3 and statement.children[3] is not None:
+                selected = self._evaluate(statement.children[3])
+                if not isinstance(selected, list):
+                    raise EvaluationError("background files must be a list of files")
+                selected_files = []
+                for entry in selected:
+                    if isinstance(entry, File):
+                        selected_files.append(entry.absolute)
+                    elif isinstance(entry, str):
+                        selected_files.append(str((self.cwd / entry).resolve()))
+                    else:
+                        raise EvaluationError("background files cannot include directories or other values")
+            if selected_files is None and self.config_store.effective["files"]:
+                selected_files = [str((self.cwd / path).resolve()) for path in self.config_store.effective["files"]]
+            start = getattr(self.client, "start_background_query", None)
+            if start is None:
+                raise EvaluationError("background queries are unavailable")
+            return start(
+                expression, selected_files or (), working_directory=self.cwd,
+                compile_arguments=self.config_store.effective["extra_args"],
             )
         if kind == "print":
             return self.output.emit(render(self._evaluate(statement.children[1])))
@@ -394,10 +437,10 @@ class Runtime:
                 str((self.cwd / path).resolve())
                 for path in self.config_store.effective["files"]
             ]
-        if files is None:
-            rows = self.client.match(text)
-        else:
-            rows = self.client.match(text, files=files)
+        rows = self.client.match(
+            text, files=files, working_directory=self.cwd,
+            compile_arguments=self.config_store.effective["extra_args"],
+        )
         return MatchSet(tuple(rows))
 
     @staticmethod

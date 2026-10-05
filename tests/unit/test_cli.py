@@ -21,7 +21,10 @@ def test_multiline_matcher_reaches_client_unchanged():
     client.match.return_value = ["matched"]
     expression = 'functionDecl(\n  hasName("f[()]")\n).bind("fn")'
     assert dispatch(client, "match\n" + expression) == "matched"
-    client.match.assert_called_once_with(expression)
+    client.match.assert_called_once_with(
+        expression, files=None, working_directory=__import__("pathlib").Path.cwd(),
+        compile_arguments=[],
+    )
 
 
 def test_invalid_matcher_is_not_dispatched():
@@ -94,4 +97,88 @@ def test_main_preserves_bindings_between_prompt_commands(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     monkeypatch.setattr("sys.argv", ["ctk"])
     app.main()
-    client.match.assert_called_once_with("varDecl(hasType(pointerType()))")
+    client.match.assert_called_once_with(
+        "varDecl(hasType(pointerType()))", files=None,
+        working_directory=__import__("pathlib").Path.cwd(), compile_arguments=[],
+    )
+
+
+def test_background_command_uses_lark_matcher_and_selected_files():
+    from pathlib import Path
+    from unittest.mock import Mock
+    from clang_toolkit.cli.runtime import Runtime
+
+    client = Mock(spec=Client)
+    runtime = Runtime(client, cwd=Path("/workspace"))
+    runtime.config_store.effective["extra_args"] = ["-std=c++20"]
+    assert dispatch(client, 'background varDecl(hasName("f")) in ["src/a.cpp"]', runtime) == client.start_background_query.return_value
+    client.start_background_query.assert_called_once_with(
+        'varDecl(hasName("f"))', ["/workspace/src/a.cpp"],
+        working_directory=Path("/workspace"), compile_arguments=["-std=c++20"],
+    )
+
+
+def test_bidi_commands_require_and_forward_to_opted_in_session():
+    from unittest.mock import Mock
+    from clang_toolkit.cli.runtime import Runtime
+
+    client = Mock(spec=Client)
+    runtime = Runtime(client)
+    assert dispatch(client, 'session start "varDecl()"', runtime) == client.send_session_command.return_value
+    client.send_session_command.assert_called_once_with(
+        "start", "varDecl()", working_directory=runtime.cwd, compile_arguments=[],
+    )
+
+
+def test_session_add_uses_runtime_directory_and_compile_arguments():
+    from pathlib import Path
+    from unittest.mock import Mock
+    from clang_toolkit.cli.runtime import Runtime
+
+    client = Mock(spec=Client)
+    runtime = Runtime(client, cwd=Path("/workspace"))
+    runtime.config_store.effective["extra_args"] = ["-std=c++20"]
+    dispatch(client, 'session add "src/query.cpp"', runtime)
+    client.send_session_command.assert_called_once_with(
+        "add", "src/query.cpp", working_directory=Path("/workspace"),
+        compile_arguments=["-std=c++20"],
+    )
+
+
+def test_background_stream_is_consumed_while_prompt_accepts_next_command(monkeypatch, tmp_path):
+    import asyncio
+    from clang_toolkit.cli import app
+
+    consumed = None
+
+    class BackgroundClient:
+        def __init__(self, *_args):
+            pass
+
+        async def __aenter__(self):
+            nonlocal consumed
+            consumed = asyncio.Event()
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def start_background_query(self, *_args, **_kwargs):
+            async def consume():
+                await asyncio.sleep(0)
+                consumed.set()
+            return asyncio.create_task(consume())
+
+        async def wait_background(self):
+            await asyncio.sleep(0)
+
+    class Prompt:
+        async def prompt_async(self, _message):
+            await consumed.wait()
+            return "quit"
+
+    monkeypatch.setattr(app, "AsyncClient", BackgroundClient)
+    monkeypatch.setattr(app, "create_session", lambda **_kwargs: Prompt())
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["ctk", "--query", "varDecl()", "--background"])
+    app.main()

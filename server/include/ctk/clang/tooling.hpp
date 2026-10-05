@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -12,8 +16,45 @@ struct Project {
   std::vector<std::string> files;
 };
 
-std::vector<std::string> match(const Project& project, const std::string& matcher);
-std::string cfg(const Project& project, const std::string& function);
-std::string callgraph(const Project& project);
+struct FileInput {
+  std::string path;
+  std::vector<std::string> compile_arguments;
+  std::string working_directory;
+};
 
-}  // namespace ctk::clang_layer
+struct SemanticBinding {
+  std::string kind;
+  std::string name;
+  std::string type;
+};
+
+struct QueryResult {
+  bool ok = false;
+  bool cancelled = false;
+  bool snapshot_retained = false;
+  std::string profile;
+  std::string message;
+  std::uint64_t native_memory_bytes = 0;
+  bool snapshot_evicted = false;
+};
+
+class IQueryEngine {
+public:
+  using Bindings = std::map<std::string, SemanticBinding>;
+  using Checkpoint = std::function<bool()>;
+  using MatchCallback = std::function<void(const Bindings &)>;
+
+  virtual ~IQueryEngine() = default;
+  virtual QueryResult match(const FileInput &file, const std::string &query,
+                            const Checkpoint &checkpoint,
+                            const MatchCallback &on_match) = 0;
+};
+
+std::shared_ptr<IQueryEngine> make_query_engine();
+
+std::vector<std::string> match(const Project &project,
+                               const std::string &matcher);
+std::string cfg(const Project &project, const std::string &function);
+std::string callgraph(const Project &project);
+
+} // namespace ctk::clang_layer
