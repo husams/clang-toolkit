@@ -647,7 +647,7 @@ message ConceptReference {
 }
 
 message TypeConstraint {
-  ConceptReference concept = 1;
+  ConceptReference concept_reference = 1 [json_name = "concept"];
   ExpressionValue immediately_declared_constraint = 2;
   optional uint32 argument_pack_substitution_index = 3;
 }

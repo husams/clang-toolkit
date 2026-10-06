@@ -119,11 +119,13 @@ EventEncoder::encode(const application::QueryEvent &event) {
     auto *value = result.mutable_match();
     value->set_file(event.file);
     value->set_profile(event.profile);
+    auto *semantic_result = value->mutable_semantic_result();
     for (const auto &[name, binding] : event.bindings) {
       auto &target = (*value->mutable_bindings())[name];
       target.set_kind(binding.kind);
       target.set_name(binding.name);
       target.set_type(binding.type);
+      (*semantic_result->mutable_bindings())[name].CopyFrom(binding.value);
     }
     break;
   }

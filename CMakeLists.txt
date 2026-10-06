@@ -17,7 +17,7 @@ find_package(SQLite3 REQUIRED)
 if(NOT TARGET SQLite3::SQLite3)
   add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
 endif()
-if(CTK_BUILD_APIS OR CTK_BUILD_NETWORK)
+if(CTK_BUILD_APIS OR CTK_BUILD_NETWORK OR CTK_WITH_CLANG)
   add_subdirectory(api)
 endif()
 

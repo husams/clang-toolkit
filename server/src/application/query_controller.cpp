@@ -522,7 +522,8 @@ void run_files(QueryController::Impl *impl,
               for (const auto &[name, binding] : bindings) {
                 found.bindings.emplace(
                     name,
-                    SemanticBinding{binding.kind, binding.name, binding.type});
+                    SemanticBinding{binding.kind, binding.name, binding.type,
+                                    binding.value});
               }
               {
                 std::lock_guard lock(session->mutex);

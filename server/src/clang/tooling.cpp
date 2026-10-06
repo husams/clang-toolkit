@@ -1,4 +1,5 @@
 #include "ctk/clang/tooling.hpp"
+#include "serialization/node_serializers.hpp"
 
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Decl.h>
@@ -28,6 +29,7 @@
 #include <utility>
 
 namespace ctk::clang_layer {
+std::shared_ptr<IQueryEngine> make_cached_query_engine();
 namespace {
 
 template <typename Function> class ScopeExit {
@@ -140,7 +142,8 @@ bool dependencies_current(const DependencyBuffers &buffers,
 }
 
 SemanticBinding serialize(const clang::DynTypedNode &node,
-                          const clang::PrintingPolicy &policy) {
+                          const clang::PrintingPolicy &policy,
+                          clang::ASTContext &ast_context) {
   SemanticBinding binding;
   binding.kind = node.getNodeKind().asStringRef().str();
   if (const auto *named = node.get<clang::NamedDecl>()) {
@@ -160,6 +163,9 @@ SemanticBinding serialize(const clang::DynTypedNode &node,
   } else if (const auto *type = node.get<clang::Type>()) {
     binding.type = clang::QualType(type, 0).getAsString(policy);
   }
+  serialization::SerializationContext context{ast_context};
+  serialization::NodeSerializerDispatcher::serialize(node, binding.value,
+                                                       context);
   return binding;
 }
 
@@ -187,7 +193,7 @@ class NativeQueryEngine final : public IQueryEngine {
       clang::PrintingPolicy policy(result.Context->getLangOpts());
       Bindings bindings;
       for (const auto &[id, node] : result.Nodes.getMap()) {
-        bindings.emplace(id, serialize(node, policy));
+        bindings.emplace(id, serialize(node, policy, *result.Context));
       }
       callback(bindings);
     }
@@ -465,7 +471,7 @@ private:
 } // namespace
 
 std::shared_ptr<IQueryEngine> make_query_engine() {
-  return std::make_shared<NativeQueryEngine>();
+  return make_cached_query_engine();
 }
 
 std::vector<std::string> match(const Project &, const std::string &) {

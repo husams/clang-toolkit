@@ -22,55 +22,21 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
+from . import commands_pb2 as query_dot_v1_dot_commands__pb2  # noqa: E402, F401
+from . import errors_pb2 as query_dot_v1_dot_errors__pb2  # noqa: E402, F401
+from . import events_pb2 as query_dot_v1_dot_events__pb2  # noqa: E402, F401
 
+from .commands_pb2 import *  # noqa: E402, F403
+from .errors_pb2 import *  # noqa: E402, F403
+from .events_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14query/v1/query.proto\x12\x0c\x63tk.query.v1\"O\n\tFileInput\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\t\"E\n\x0cQueryRequest\x12\r\n\x05query\x18\x01 \x01(\t\x12&\n\x05\x66iles\x18\x02 \x03(\x0b\x32\x17.ctk.query.v1.FileInput\"\x1b\n\nStartQuery\x12\r\n\x05query\x18\x01 \x01(\t\"2\n\x08\x41\x64\x64\x46iles\x12&\n\x05\x66iles\x18\x01 \x03(\x0b\x32\x17.ctk.query.v1.FileInput\"\x07\n\x05Match\"\x07\n\x05Pause\"\x08\n\x06Resume\"\xff\x01\n\x0cQueryCommand\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12/\n\x0bstart_query\x18\x02 \x01(\x0b\x32\x18.ctk.query.v1.StartQueryH\x00\x12+\n\tadd_files\x18\x03 \x01(\x0b\x32\x16.ctk.query.v1.AddFilesH\x00\x12$\n\x05match\x18\x04 \x01(\x0b\x32\x13.ctk.query.v1.MatchH\x00\x12$\n\x05pause\x18\x05 \x01(\x0b\x32\x13.ctk.query.v1.PauseH\x00\x12&\n\x06resume\x18\x06 \x01(\x0b\x32\x14.ctk.query.v1.ResumeH\x00\x42\t\n\x07\x63ommand\"\"\n\x06Queued\x12\x18\n\x10pending_requests\x18\x01 \x01(\x04\"\t\n\x07Started\"Z\n\x08Progress\x12\x0c\n\x04\x66ile\x18\x01 \x01(\t\x12\x0f\n\x07profile\x18\x02 \x01(\t\x12\x17\n\x0f\x63ompleted_files\x18\x03 \x01(\x04\x12\x16\n\x0e\x61\x63\x63\x65pted_files\x18\x04 \x01(\x04\";\n\x0fSemanticBinding\x12\x0c\n\x04kind\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x0c\n\x04type\x18\x03 \x01(\t\"\xb5\x01\n\nMatchEvent\x12\x0c\n\x04\x66ile\x18\x01 \x01(\t\x12\x0f\n\x07profile\x18\x02 \x01(\t\x12\x38\n\x08\x62indings\x18\x03 \x03(\x0b\x32&.ctk.query.v1.MatchEvent.BindingsEntry\x1aN\n\rBindingsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12,\n\x05value\x18\x02 \x01(\x0b\x32\x1d.ctk.query.v1.SemanticBinding:\x02\x38\x01\"9\n\tCompleted\x12\x17\n\x0f\x63ompleted_files\x18\x01 \x01(\x04\x12\x13\n\x0bmatch_count\x18\x02 \x01(\x04\"\x8b\x01\n\x0eLimitViolation\x12\x12\n\nlimit_name\x18\x01 \x01(\t\x12\x15\n\rcurrent_value\x18\x02 \x01(\x04\x12\x18\n\x10\x63onfigured_limit\x18\x03 \x01(\x04\x12\x1b\n\x13requested_increment\x18\x04 \x01(\x04\x12\x17\n\x0fprojected_value\x18\x05 \x01(\x04\"[\n\x08Rejected\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x30\n\nviolations\x18\x03 \x03(\x0b\x32\x1c.ctk.query.v1.LimitViolation\"\x19\n\x07\x43ontrol\x12\x0e\n\x06\x61\x63tion\x18\x01 \x01(\t\"\xd6\x02\n\nQueryEvent\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12&\n\x06queued\x18\x02 \x01(\x0b\x32\x14.ctk.query.v1.QueuedH\x00\x12(\n\x07started\x18\x03 \x01(\x0b\x32\x15.ctk.query.v1.StartedH\x00\x12*\n\x08progress\x18\x04 \x01(\x0b\x32\x16.ctk.query.v1.ProgressH\x00\x12)\n\x05match\x18\x05 \x01(\x0b\x32\x18.ctk.query.v1.MatchEventH\x00\x12,\n\tcompleted\x18\x06 \x01(\x0b\x32\x17.ctk.query.v1.CompletedH\x00\x12*\n\x08rejected\x18\x07 \x01(\x0b\x32\x16.ctk.query.v1.RejectedH\x00\x12(\n\x07\x63ontrol\x18\x08 \x01(\x0b\x32\x15.ctk.query.v1.ControlH\x00\x42\x07\n\x05\x65vent2\x99\x01\n\x0cQueryService\x12?\n\x05Query\x12\x1a.ctk.query.v1.QueryRequest\x1a\x18.ctk.query.v1.QueryEvent0\x01\x12H\n\x0cQuerySession\x12\x1a.ctk.query.v1.QueryCommand\x1a\x18.ctk.query.v1.QueryEvent(\x01\x30\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14query/v1/query.proto\x12\x0c\x63tk.query.v1\x1a\x17query/v1/commands.proto\x1a\x15query/v1/errors.proto\x1a\x15query/v1/events.proto2\x99\x01\n\x0cQueryService\x12?\n\x05Query\x12\x1a.ctk.query.v1.QueryRequest\x1a\x18.ctk.query.v1.QueryEvent0\x01\x12H\n\x0cQuerySession\x12\x1a.ctk.query.v1.QueryCommand\x1a\x18.ctk.query.v1.QueryEvent(\x01\x30\x01P\x00P\x01P\x02\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'query.v1.query_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_MATCHEVENT_BINDINGSENTRY']._loaded_options = None
-  _globals['_MATCHEVENT_BINDINGSENTRY']._serialized_options = b'8\001'
-  _globals['_FILEINPUT']._serialized_start=38
-  _globals['_FILEINPUT']._serialized_end=117
-  _globals['_QUERYREQUEST']._serialized_start=119
-  _globals['_QUERYREQUEST']._serialized_end=188
-  _globals['_STARTQUERY']._serialized_start=190
-  _globals['_STARTQUERY']._serialized_end=217
-  _globals['_ADDFILES']._serialized_start=219
-  _globals['_ADDFILES']._serialized_end=269
-  _globals['_MATCH']._serialized_start=271
-  _globals['_MATCH']._serialized_end=278
-  _globals['_PAUSE']._serialized_start=280
-  _globals['_PAUSE']._serialized_end=287
-  _globals['_RESUME']._serialized_start=289
-  _globals['_RESUME']._serialized_end=297
-  _globals['_QUERYCOMMAND']._serialized_start=300
-  _globals['_QUERYCOMMAND']._serialized_end=555
-  _globals['_QUEUED']._serialized_start=557
-  _globals['_QUEUED']._serialized_end=591
-  _globals['_STARTED']._serialized_start=593
-  _globals['_STARTED']._serialized_end=602
-  _globals['_PROGRESS']._serialized_start=604
-  _globals['_PROGRESS']._serialized_end=694
-  _globals['_SEMANTICBINDING']._serialized_start=696
-  _globals['_SEMANTICBINDING']._serialized_end=755
-  _globals['_MATCHEVENT']._serialized_start=758
-  _globals['_MATCHEVENT']._serialized_end=939
-  _globals['_MATCHEVENT_BINDINGSENTRY']._serialized_start=861
-  _globals['_MATCHEVENT_BINDINGSENTRY']._serialized_end=939
-  _globals['_COMPLETED']._serialized_start=941
-  _globals['_COMPLETED']._serialized_end=998
-  _globals['_LIMITVIOLATION']._serialized_start=1001
-  _globals['_LIMITVIOLATION']._serialized_end=1140
-  _globals['_REJECTED']._serialized_start=1142
-  _globals['_REJECTED']._serialized_end=1233
-  _globals['_CONTROL']._serialized_start=1235
-  _globals['_CONTROL']._serialized_end=1260
-  _globals['_QUERYEVENT']._serialized_start=1263
-  _globals['_QUERYEVENT']._serialized_end=1605
-  _globals['_QUERYSERVICE']._serialized_start=1608
-  _globals['_QUERYSERVICE']._serialized_end=1761
+  _globals['_QUERYSERVICE']._serialized_start=110
+  _globals['_QUERYSERVICE']._serialized_end=263
 # @@protoc_insertion_point(module_scope)

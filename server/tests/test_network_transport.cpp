@@ -14,6 +14,29 @@
 namespace {
 namespace app = ctk::application;
 namespace wire = ctk::query::v1;
+
+TEST(EventEncoder, CopiesTypedMatchBindingAlongsideLegacySummary) {
+  app::QueryEvent event{app::EventKind::Match};
+  event.request_id = "query-1";
+  auto &binding = event.bindings["literal"];
+  binding.kind = "IntegerLiteral";
+  binding.name = "42";
+  binding.type = "int";
+  binding.value.mutable_node()
+      ->mutable_integer_literal()
+      ->mutable_value()
+      ->set_unsigned_decimal("42");
+
+  const auto encoded = ctk::net::EventEncoder::encode(event);
+  ASSERT_TRUE(encoded.has_match());
+  EXPECT_EQ(encoded.match().bindings().at("literal").name(), "42");
+  const auto &semantic =
+      encoded.match().semantic_result().bindings().at("literal");
+  ASSERT_TRUE(semantic.has_node());
+  ASSERT_TRUE(semantic.node().has_integer_literal());
+  EXPECT_EQ(semantic.node().integer_literal().value().unsigned_decimal(), "42");
+}
+
 struct FakeHandle : app::IQueryHandle {
   std::shared_ptr<app::IQueryEventSink> sink;
   std::atomic<bool> cancelled{false}, completed{false};

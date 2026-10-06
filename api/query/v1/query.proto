@@ -1,80 +1,21 @@
 syntax = "proto3";
 package ctk.query.v1;
 
-// Fixed-file foreground/background calls and interactive incremental calls
-// share one application analysis session. Completion is a stream event;
-// successful collection also requires an OK terminal transport status.
+// Public imports preserve the original single-header/module message API.
+import public "query/v1/commands.proto";
+import public "query/v1/errors.proto";
+import public "query/v1/events.proto";
+
+// All calls share the application's retained analysis session. Completing a
+// query does not release that session's retained file/profile resources.
 service QueryService {
+  // Fixed-file query. Foreground and background clients use the same RPC;
+  // background execution is client scheduling, not a separate server job API.
   rpc Query(QueryRequest) returns (stream QueryEvent);
+
+  // Incremental query: StartQuery, AddFiles, Match, Pause and Resume.
+  // Native client half-close ends input; it does not cancel or resume work.
+  // A paused call must be resumed before half-close to finish, or cancelled
+  // through gRPC. The server drains accepted work and writes before finishing.
   rpc QuerySession(stream QueryCommand) returns (stream QueryEvent);
-}
-message FileInput {
-  string path = 1;
-  repeated string compile_arguments = 2;
-  string working_directory = 3;
-}
-message QueryRequest {
-  string query = 1;
-  repeated FileInput files = 2;
-}
-message StartQuery { string query = 1; }
-message AddFiles { repeated FileInput files = 1; }
-message Match {}
-message Pause {}
-message Resume {}
-message QueryCommand {
-  string request_id = 1;
-  oneof command {
-    StartQuery start_query = 2;
-    AddFiles add_files = 3;
-    Match match = 4;
-    Pause pause = 5;
-    Resume resume = 6;
-  }
-}
-message Queued { uint64 pending_requests = 1; }
-message Started {}
-message Progress {
-  string file = 1;
-  string profile = 2;
-  uint64 completed_files = 3;
-  uint64 accepted_files = 4;
-}
-// Direct semantic values copied from a native callback, never native handles.
-// These summary values do not replace the versioned AST MatchResult contract.
-message SemanticBinding {
-  string kind = 1;
-  string name = 2;
-  string type = 3;
-}
-message MatchEvent {
-  string file = 1;
-  string profile = 2;
-  map<string, SemanticBinding> bindings = 3;
-}
-message Completed { uint64 completed_files = 1; uint64 match_count = 2; }
-message LimitViolation {
-  string limit_name = 1;
-  uint64 current_value = 2;
-  uint64 configured_limit = 3;
-  uint64 requested_increment = 4;
-  uint64 projected_value = 5;
-}
-message Rejected {
-  string code = 1;
-  string message = 2;
-  repeated LimitViolation violations = 3;
-}
-message Control { string action = 1; }
-message QueryEvent {
-  string request_id = 1;
-  oneof event {
-    Queued queued = 2;
-    Started started = 3;
-    Progress progress = 4;
-    MatchEvent match = 5;
-    Completed completed = 6;
-    Rejected rejected = 7;
-    Control control = 8;
-  }
 }

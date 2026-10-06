@@ -1,4 +1,7 @@
-add_library(ctk_core
+find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+
+add_library(ctk_cache
   src/cache/cache_state.cpp
   src/cache/compilation_context.cpp
   src/cache/path_policy.cpp
@@ -7,6 +10,11 @@ add_library(ctk_core
   src/cache/snapshot.cpp
   src/cache/snapshot_acquisition.cpp
   src/cache/snapshot_cache.cpp
+)
+target_include_directories(ctk_cache PUBLIC include)
+target_compile_features(ctk_cache PUBLIC cxx_std_23)
+
+add_library(ctk_storage
   src/storage/blob_store.cpp
   src/storage/canonical_encoder.cpp
   src/storage/metadata_repository.cpp
@@ -18,13 +26,18 @@ add_library(ctk_core
   src/storage/store.cpp
   src/storage/store_lifecycle.cpp
   src/storage/store_publication.cpp
+)
+target_include_directories(ctk_storage PUBLIC include)
+target_compile_features(ctk_storage PUBLIC cxx_std_23)
+target_link_libraries(ctk_storage PRIVATE SQLite3::SQLite3 OpenSSL::Crypto)
+
+add_library(ctk_core
   src/script/engine.cpp
 )
 target_include_directories(ctk_core PUBLIC include)
 target_compile_features(ctk_core PUBLIC cxx_std_23)
-find_package(Threads REQUIRED)
-find_package(OpenSSL REQUIRED COMPONENTS Crypto)
-target_link_libraries(ctk_core PRIVATE Threads::Threads SQLite3::SQLite3 OpenSSL::Crypto)
+target_link_libraries(ctk_core PUBLIC ctk_cache ctk_storage)
+target_link_libraries(ctk_core PRIVATE Threads::Threads)
 
 if(CTK_BUILD_NETWORK)
   find_path(CTK_YAML_INCLUDE_DIR yaml.h REQUIRED)
@@ -44,12 +57,24 @@ if(CTK_BUILD_NETWORK)
     src/net/query_call_state.cpp
     src/net/network_service.cpp)
   target_include_directories(ctk_network PUBLIC include)
+  target_link_libraries(ctk_core PUBLIC ctk_query_api)
   target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api Threads::Threads)
 endif()
 
 if(CTK_WITH_CLANG)
   find_package(Clang REQUIRED CONFIG)
-  add_library(ctk_clang src/clang/tooling.cpp)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_custom_target(ctk_node_serializer_coverage
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/scripts/check_node_serializer_coverage.py"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    VERBATIM)
+  add_library(ctk_clang
+    src/platform/temporary_directory.cpp
+    src/clang/tooling.cpp
+    src/clang/cached_query_engine.cpp
+    src/clang/serialization/node_serializers.cpp)
+  add_dependencies(ctk_clang ctk_node_serializer_coverage)
   target_include_directories(ctk_clang PUBLIC include ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
   target_compile_definitions(ctk_clang PUBLIC ${LLVM_DEFINITIONS})
   execute_process(COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
@@ -69,6 +94,7 @@ if(CTK_WITH_CLANG)
     target_link_libraries(ctk_clang PUBLIC clangTooling clangDynamicASTMatchers clangASTMatchers clangAnalysis clangFrontend clangAST clangBasic)
   endif()
   target_link_libraries(ctk_core PUBLIC ctk_clang)
+  target_link_libraries(ctk_clang PUBLIC ctk_match_api ctk_cache ctk_storage)
   target_compile_definitions(ctk_core PUBLIC CTK_WITH_CLANG=1)
 endif()
 

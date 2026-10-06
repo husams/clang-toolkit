@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "match/v1/match_result.pb.h"
+
 namespace ctk::clang_layer {
 
 // Thin wrapper over Clang C++ APIs: AST matchers, RecursiveASTVisitor
@@ -26,6 +28,7 @@ struct SemanticBinding {
   std::string kind;
   std::string name;
   std::string type;
+  ctk::match::v1::MatchBinding value;
 };
 
 struct QueryResult {
@@ -36,6 +39,8 @@ struct QueryResult {
   std::string message;
   std::uint64_t native_memory_bytes = 0;
   bool snapshot_evicted = false;
+  bool storage_hit = false;
+  std::string storage_message;
 };
 
 class IQueryEngine {

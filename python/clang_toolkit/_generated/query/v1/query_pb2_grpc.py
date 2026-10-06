@@ -2,7 +2,8 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from . import query_pb2 as query_dot_v1_dot_query__pb2
+from . import commands_pb2 as query_dot_v1_dot_commands__pb2  # noqa: E402, F401
+from . import events_pb2 as query_dot_v1_dot_events__pb2  # noqa: E402, F401
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -25,9 +26,8 @@ if _version_not_supported:
 
 
 class QueryServiceStub:
-    """Fixed-file foreground/background calls and interactive incremental calls
-    share one application analysis session. Completion is a stream event;
-    successful collection also requires an OK terminal transport status.
+    """All calls share the application's retained analysis session. Completing a
+    query does not release that session's retained file/profile resources.
     """
 
     def __init__(self, channel):
@@ -38,30 +38,35 @@ class QueryServiceStub:
         """
         self.Query = channel.unary_stream(
                 '/ctk.query.v1.QueryService/Query',
-                request_serializer=query_dot_v1_dot_query__pb2.QueryRequest.SerializeToString,
-                response_deserializer=query_dot_v1_dot_query__pb2.QueryEvent.FromString,
+                request_serializer=query_dot_v1_dot_commands__pb2.QueryRequest.SerializeToString,
+                response_deserializer=query_dot_v1_dot_events__pb2.QueryEvent.FromString,
                 _registered_method=True)
         self.QuerySession = channel.stream_stream(
                 '/ctk.query.v1.QueryService/QuerySession',
-                request_serializer=query_dot_v1_dot_query__pb2.QueryCommand.SerializeToString,
-                response_deserializer=query_dot_v1_dot_query__pb2.QueryEvent.FromString,
+                request_serializer=query_dot_v1_dot_commands__pb2.QueryCommand.SerializeToString,
+                response_deserializer=query_dot_v1_dot_events__pb2.QueryEvent.FromString,
                 _registered_method=True)
 
 
 class QueryServiceServicer:
-    """Fixed-file foreground/background calls and interactive incremental calls
-    share one application analysis session. Completion is a stream event;
-    successful collection also requires an OK terminal transport status.
+    """All calls share the application's retained analysis session. Completing a
+    query does not release that session's retained file/profile resources.
     """
 
     def Query(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Fixed-file query. Foreground and background clients use the same RPC;
+        background execution is client scheduling, not a separate server job API.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def QuerySession(self, request_iterator, context):
-        """Missing associated documentation comment in .proto file."""
+        """Incremental query: StartQuery, AddFiles, Match, Pause and Resume.
+        Native client half-close ends input; it does not cancel or resume work.
+        A paused call must be resumed before half-close to finish, or cancelled
+        through gRPC. The server drains accepted work and writes before finishing.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -71,13 +76,13 @@ def add_QueryServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Query': grpc.unary_stream_rpc_method_handler(
                     servicer.Query,
-                    request_deserializer=query_dot_v1_dot_query__pb2.QueryRequest.FromString,
-                    response_serializer=query_dot_v1_dot_query__pb2.QueryEvent.SerializeToString,
+                    request_deserializer=query_dot_v1_dot_commands__pb2.QueryRequest.FromString,
+                    response_serializer=query_dot_v1_dot_events__pb2.QueryEvent.SerializeToString,
             ),
             'QuerySession': grpc.stream_stream_rpc_method_handler(
                     servicer.QuerySession,
-                    request_deserializer=query_dot_v1_dot_query__pb2.QueryCommand.FromString,
-                    response_serializer=query_dot_v1_dot_query__pb2.QueryEvent.SerializeToString,
+                    request_deserializer=query_dot_v1_dot_commands__pb2.QueryCommand.FromString,
+                    response_serializer=query_dot_v1_dot_events__pb2.QueryEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -88,9 +93,8 @@ def add_QueryServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class QueryService:
-    """Fixed-file foreground/background calls and interactive incremental calls
-    share one application analysis session. Completion is a stream event;
-    successful collection also requires an OK terminal transport status.
+    """All calls share the application's retained analysis session. Completing a
+    query does not release that session's retained file/profile resources.
     """
 
     @staticmethod
@@ -108,8 +112,8 @@ class QueryService:
             request,
             target,
             '/ctk.query.v1.QueryService/Query',
-            query_dot_v1_dot_query__pb2.QueryRequest.SerializeToString,
-            query_dot_v1_dot_query__pb2.QueryEvent.FromString,
+            query_dot_v1_dot_commands__pb2.QueryRequest.SerializeToString,
+            query_dot_v1_dot_events__pb2.QueryEvent.FromString,
             options,
             channel_credentials,
             insecure,
@@ -135,8 +139,8 @@ class QueryService:
             request_iterator,
             target,
             '/ctk.query.v1.QueryService/QuerySession',
-            query_dot_v1_dot_query__pb2.QueryCommand.SerializeToString,
-            query_dot_v1_dot_query__pb2.QueryEvent.FromString,
+            query_dot_v1_dot_commands__pb2.QueryCommand.SerializeToString,
+            query_dot_v1_dot_events__pb2.QueryEvent.FromString,
             options,
             channel_credentials,
             insecure,

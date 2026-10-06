@@ -51,6 +51,9 @@ when configured, and null clears an inherited override.
 
 ## Python API
 
+The [protobuf command contract](../api/query/v1/README.md) defines both RPCs,
+incremental commands, streamed events and structured rejection details.
+
 ```python
 from clang_toolkit.client import AsyncClient
 

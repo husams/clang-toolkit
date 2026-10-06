@@ -6,33 +6,68 @@ if(NOT Protobuf_FOUND)
 endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+file(GLOB _api_protos CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ast/v1/*.proto")
+
+if(CTK_WITH_CLANG OR CTK_BUILD_NETWORK)
+  set(_match_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/query-generated")
+  add_custom_command(
+    OUTPUT "${_match_generated_dir}/match/v1/match_result.pb.cc"
+           "${_match_generated_dir}/match/v1/match_result.pb.h"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_match_generated_dir}"
+    COMMAND protobuf::protoc "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}"
+            "--cpp_out=${_match_generated_dir}"
+            --experimental_allow_proto3_optional
+            "${CMAKE_CURRENT_SOURCE_DIR}/match/v1/match_result.proto"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/match/v1/match_result.proto"
+            ${_api_protos}
+    VERBATIM)
+  add_library(ctk_match_api STATIC
+    "${_match_generated_dir}/match/v1/match_result.pb.cc"
+    "${_match_generated_dir}/match/v1/match_result.pb.h")
+  target_include_directories(ctk_match_api PUBLIC "${_match_generated_dir}")
+  target_link_libraries(ctk_match_api PUBLIC ctk_ast_api protobuf::libprotobuf)
+endif()
+
 if(CTK_BUILD_NETWORK)
   find_package(gRPC CONFIG REQUIRED)
   set(_query_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/query-generated")
   set(_query_proto "${CMAKE_CURRENT_SOURCE_DIR}/query/v1/query.proto")
+  set(_query_message_protos)
+  set(_query_message_sources)
+  set(_query_message_headers)
+  foreach(_module IN ITEMS commands errors events)
+    list(APPEND _query_message_protos "${CMAKE_CURRENT_SOURCE_DIR}/query/v1/${_module}.proto")
+    list(APPEND _query_message_sources "${_query_generated_dir}/query/v1/${_module}.pb.cc")
+    list(APPEND _query_message_headers "${_query_generated_dir}/query/v1/${_module}.pb.h")
+  endforeach()
   add_custom_command(
-    OUTPUT "${_query_generated_dir}/query/v1/query.pb.cc"
+    OUTPUT ${_query_message_sources} ${_query_message_headers}
+           "${_query_generated_dir}/query/v1/query.pb.cc"
            "${_query_generated_dir}/query/v1/query.pb.h"
            "${_query_generated_dir}/query/v1/query.grpc.pb.cc"
            "${_query_generated_dir}/query/v1/query.grpc.pb.h"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${_query_generated_dir}"
     COMMAND protobuf::protoc "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}"
             "--cpp_out=${_query_generated_dir}"
+            --experimental_allow_proto3_optional
+            ${_query_message_protos} "${_query_proto}"
+    COMMAND protobuf::protoc "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}"
+            --experimental_allow_proto3_optional
             "--grpc_out=${_query_generated_dir}"
             "--plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
             "${_query_proto}"
-    DEPENDS "${_query_proto}" VERBATIM)
+    DEPENDS ${_query_message_protos} "${_query_proto}" VERBATIM)
   add_library(ctk_query_api STATIC
+    ${_query_message_sources}
     "${_query_generated_dir}/query/v1/query.pb.cc"
     "${_query_generated_dir}/query/v1/query.grpc.pb.cc")
   target_include_directories(ctk_query_api PUBLIC "${_query_generated_dir}")
-  target_link_libraries(ctk_query_api PUBLIC protobuf::libprotobuf gRPC::grpc++)
+  target_link_libraries(ctk_query_api PUBLIC ctk_match_api protobuf::libprotobuf gRPC::grpc++)
 endif()
-if(NOT CTK_BUILD_APIS)
+if(NOT CTK_BUILD_APIS AND NOT CTK_WITH_CLANG AND NOT CTK_BUILD_NETWORK)
   return()
 endif()
 
-file(GLOB _api_protos CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ast/v1/*.proto")
 set(_api_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(_api_generated_sources)
 set(_api_generated_headers)
@@ -52,6 +87,7 @@ add_custom_command(
   COMMAND protobuf::protoc
           "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}"
           "--cpp_out=${_api_generated_dir}"
+          --experimental_allow_proto3_optional
           "--descriptor_set_out=${_api_generated_dir}/ast.pb"
           --include_imports ${_api_protos}
   DEPENDS ${_api_protos} "${CMAKE_CURRENT_SOURCE_DIR}/catalog.json"

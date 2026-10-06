@@ -1,0 +1,26 @@
+syntax = "proto3";
+package ctk.query.v1;
+
+// Accounted usage/reservations, not a guarantee of native process RSS.
+// Memory values are bytes; file values count main-file/compiler-profile inputs.
+message LimitViolation {
+  // session.max_files, session.max_memory_bytes or
+  // session.overhead_memory_bytes (the separate shared overhead allowance).
+  string limit_name = 1;
+  uint64 current_value = 2;
+  uint64 configured_limit = 3;
+  uint64 requested_increment = 4;
+  uint64 projected_value = 5;
+}
+
+// QuerySession command rejection preserves the stream and accepted work.
+// Terminal RPC failures may carry this message in grpc-status-details-bin
+// metadata (the current transport encodes Rejected directly, not google.rpc.Status).
+message Rejected {
+  // LIMIT_REACHED for resource/queue exhaustion; otherwise INVALID_ARGUMENT,
+  // NOT_FOUND, INTERNAL, CANCELLED or FAILED_PRECONDITION.
+  string code = 1;
+  string message = 2;
+  // Every violated admission limit. Queue exhaustion has no limit entries.
+  repeated LimitViolation violations = 3;
+}

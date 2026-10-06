@@ -15,9 +15,13 @@ target_link_libraries(ctk_tests PRIVATE ctk_core GTest::gtest_main SQLite3::SQLi
 if(CTK_BUILD_NETWORK)
   target_sources(ctk_tests PRIVATE test_network_config.cpp test_query_controller.cpp test_network_transport.cpp)
   target_link_libraries(ctk_tests PRIVATE ctk_network)
-  if(CTK_WITH_CLANG)
-    target_sources(ctk_tests PRIVATE test_clang_query.cpp)
-  endif()
+endif()
+if(CTK_WITH_CLANG)
+  target_sources(ctk_tests PRIVATE
+    test_clang_query.cpp
+    test_clang_query_regressions.cpp
+    test_clang_serializer_regressions.cpp
+    test_temporary_directory.cpp)
 endif()
 
 include(GoogleTest)

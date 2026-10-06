@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "match/v1/match_result.pb.h"
+
 namespace ctk::clang_layer {
 class IQueryEngine;
 }
@@ -51,6 +53,7 @@ struct Outcome {
 };
 struct SemanticBinding {
   std::string kind, name, type;
+  ctk::match::v1::MatchBinding value;
 };
 enum class EventKind {
   Queued,
