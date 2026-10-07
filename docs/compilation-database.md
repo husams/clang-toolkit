@@ -64,3 +64,9 @@ refresh the imported commands; a refresh failure rejects the request instead of
 returning old flags. Response files are expanded for each parse on the private
 captured filesystem. Effective commands participate in AST cache identity, so
 changed flags acquire a new AST while previously retained trees stay immutable.
+
+When parsing fails, the SDK and console include Clang's compiler diagnostics
+after the AST error, with source file, line, and column when available. This
+reports missing headers, invalid compiler options, and source/preprocessor
+errors directly. Each parse reports at most eight errors and bounds the
+diagnostic text to about 8 KiB.

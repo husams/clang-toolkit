@@ -257,6 +257,7 @@ public:
     owner->environment = context.environment;
     owner->filesystem = snapshot::CapturedFileSystem::physical();
     auto unit = try_load_stored(file, context, *owner);
+    std::string diagnostic_text;
     auto parse_source = [&] {
       unit = snapshot::build_snapshot(path, arguments,
 #ifdef CTK_CLANG_TOOL_PATH
@@ -265,12 +266,14 @@ public:
                                       "clang-tool",
 #endif
                                       owner->filesystem, owner->volatile_input,
-                                      owner->writer);
+                                      owner->writer, diagnostic_text);
     };
     if (!unit)
       parse_source();
     if (!unit || unit->getDiagnostics().hasErrorOccurred())
-      throw std::runtime_error("Clang could not build an AST for " + path);
+      throw std::runtime_error(
+          "Clang could not build an AST for " + path +
+          (diagnostic_text.empty() ? "" : "\n" + diagnostic_text));
 
     try {
       owner->artifact_closure = snapshot::capture_native_artifacts(
@@ -290,7 +293,9 @@ public:
       owner->filesystem = snapshot::CapturedFileSystem::physical();
       parse_source();
       if (!unit || unit->getDiagnostics().hasErrorOccurred())
-        throw std::runtime_error("Clang could not build an AST for " + path);
+        throw std::runtime_error(
+            "Clang could not build an AST for " + path +
+            (diagnostic_text.empty() ? "" : "\n" + diagnostic_text));
       owner->artifact_closure = snapshot::capture_native_artifacts(
           *unit, *owner->filesystem, context.working_directory);
     }

@@ -24,6 +24,39 @@ pytestmark = pytest.mark.e2e
 scenarios("network.feature")
 
 
+@given("a C++ file with a missing project header", target_fixture="invalid_source")
+def invalid_source(tmp_path: Path) -> Path:
+    source = tmp_path / "invalid.cc"
+    source.write_text('#include <ctk_missing_project_header.hpp>\nint value;\n')
+    return source
+
+
+@when("I parse the invalid source through the SDK and real console", target_fixture="parse_errors")
+def parse_invalid_source(server: RunningServer, invalid_source: Path):
+    import sys
+    from clang_toolkit import Client
+
+    with Client(server.endpoint) as client:
+        with pytest.raises(CursorError) as failure:
+            client.parse(invalid_source)
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+        input=f'let tree = parse "{invalid_source}"\nquit\n',
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+        check=False,
+    )
+    assert console.returncode == 0, console.stdout
+    return str(failure.value), console.stdout
+
+
+@then("both report the missing header and its source location")
+def parse_error_diagnostics(parse_errors):
+    for output in parse_errors:
+        assert "ctk_missing_project_header.hpp" in output
+        assert "file not found" in output
+        assert "invalid.cc:1:10:" in output
+
+
 @given(parsers.parse("a project with a compilation database selected by {selection}"), target_fixture="database_project")
 def database_project(tmp_path: Path, selection: str):
     import json

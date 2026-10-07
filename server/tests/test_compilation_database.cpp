@@ -139,4 +139,52 @@ TEST(CompilationDatabase, ExplicitMissingFilesAndCommandsAreErrors) {
   input.compilation_database.clear();
   EXPECT_EQ(resolve_compilation_command(input).path, input.path);
 }
+
+TEST(CompilationDatabase, ParseFailureReportsMissingHeaderAndSourceLocation) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-diagnostics"};
+  std::ofstream(project.path() / "file.cc")
+      << "#include <ctk_missing_project_header.hpp>\nint value;\n";
+  write_database(project.path() / "compile_commands.json", project.path(),
+                 "file.cc", {"clang++", "-std=c++20", "file.cc"});
+  FileInput input{"file.cc", {}, project.path().string()};
+  auto engine = make_query_engine();
+  try {
+    engine->acquire_snapshot(input);
+    FAIL() << "missing header must fail parsing";
+  } catch (const std::exception &error) {
+    const std::string message = error.what();
+    EXPECT_NE(message.find("file.cc:1:10:"), std::string::npos) << message;
+    EXPECT_NE(message.find("ctk_missing_project_header.hpp"), std::string::npos)
+        << message;
+    EXPECT_NE(message.find("file not found"), std::string::npos) << message;
+  }
+  // Failed snapshots must remain retryable after the build inputs are fixed.
+  std::ofstream(project.path() / "file.cc") << "int recovered(){return 1;}";
+  EXPECT_EQ(match_count(engine, input, "recovered"), 1);
+}
+
+TEST(CompilationDatabase, ParseFailureReportsDriverAndPreprocessorErrors) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-driver-diagnostics"};
+  std::ofstream(project.path() / "file.cc")
+      << "#error project_profile_missing\n";
+  FileInput input{"file.cc", {}, project.path().string()};
+  auto engine = make_query_engine();
+  auto result = engine->match(
+      input, "varDecl().bind(\"v\")", [] { return true; }, [](const auto &) {});
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.message.find("project_profile_missing"), std::string::npos)
+      << result.message;
+  input.compile_arguments = {"-ctk-invalid-driver-option"};
+  result = engine->match(
+      input, "varDecl().bind(\"v\")", [] { return true; }, [](const auto &) {});
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.message.find("-ctk-invalid-driver-option"),
+            std::string::npos)
+      << result.message;
+  input.compile_arguments = {"-include"};
+  result = engine->match(
+      input, "varDecl().bind(\"v\")", [] { return true; }, [](const auto &) {});
+  EXPECT_FALSE(result.ok);
+  EXPECT_FALSE(result.message.empty());
+}
 } // namespace ctk::clang_layer

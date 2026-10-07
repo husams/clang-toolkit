@@ -1,4 +1,10 @@
 Feature: gRPC network client
+  Scenario: Parse failures expose Clang diagnostics through the SDK and console
+    Given a query server using unix
+    And a C++ file with a missing project header
+    When I parse the invalid source through the SDK and real console
+    Then both report the missing header and its source location
+
   Scenario Outline: Compilation database commands supply and refresh per-file flags
     Given a query server using unix
     And a project with a compilation database selected by <selection>

@@ -8,5 +8,6 @@ build_snapshot(const std::string &path,
                const std::vector<std::string> &arguments,
                const std::string &tool,
                llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> filesystem,
-               bool &volatile_input, std::unique_ptr<NativeAstWriter> &writer);
+               bool &volatile_input, std::unique_ptr<NativeAstWriter> &writer,
+               std::string &diagnostic_text);
 }
