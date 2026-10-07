@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from pathlib import Path
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.document import Document
@@ -38,6 +39,7 @@ def create_session(
     references: Mapping[str, Iterable[str]]
     | Callable[[], Mapping[str, Iterable[str]]]
     | None = None,
+    cwd: Path | None = None,
 ) -> PromptSession[str]:
     bindings = KeyBindings()
 
@@ -52,7 +54,7 @@ def create_session(
             buffer.validate_and_handle()
 
     return PromptSession(
-        completer=ReplCompleter(references=references),
+        completer=ReplCompleter(references=references, cwd=cwd),
         lexer=ReplLexer(),
         style=STYLE,
         multiline=True,

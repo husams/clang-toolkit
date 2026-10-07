@@ -12,6 +12,7 @@ from clang_toolkit.cli.completion_cursor import CursorContext
 from clang_toolkit.cli.language import parser
 
 _REGEX_LITERALS = {
+    "BACKGROUND": "background",
     "PARSE": "parse",
     "YIELD": "yield",
     "CURSOR": "cursor",
@@ -58,6 +59,9 @@ _REGEX_LITERALS = {
     "USER": "user",
     "HISTORY": "history",
     "SESSION": "session",
+    "START": "start",
+    "PAUSE": "pause",
+    "RESUME": "resume",
     "LABEL": "label",
     "MODE": "mode",
     "REPLACE": "replace",

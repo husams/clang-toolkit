@@ -8,6 +8,14 @@ input. A mismatched closing delimiter is shown as an error that can be edited.
 Ctrl+C cancels the current input and returns to a fresh prompt; Ctrl+D exits.
 Bracketed paste preserves a multiline command for editing before submission.
 
+`help` lists commands and expression forms with their purpose. `help match` and
+`match?` show equivalent local usage, arguments, defaults and examples, without
+a running server. Multiword forms also work: `help cursor open` / `cursor open?`.
+Unknown help topics and commands produce local errors. Help remains on the
+console even when values are redirected to a file. The complete
+[command reference](console-command-reference.md) includes declarative
+`parse`/`match`/`let`/`in`/`yield` and the supported legacy controls.
+
 ```text
 ctk> match functionDecl(
 ...>     hasName("Service::run")
@@ -31,6 +39,23 @@ Tab completion follows the Lark parser's expected token roles at the cursor:
   fields. It does not invent names or scalar values.
 - Ordinary command targets, assignment names, strings, and `.bind` string
   arguments do not receive unrelated matcher suggestions.
+
+- In filesystem argument positions, Tab offers existing files and navigation
+  directories. `set cache_dir to` offers directories only; `glob` accepts
+  relative patterns and offers both files and directories. Source-file, load,
+  save, history-save and output arguments offer files plus directory navigation.
+  `session add`, `cursor open`, `script ... in` and file-list
+  arguments receive the same contextual completion.
+- Relative paths use the session directory. Absolute paths are supported;
+  `~/` expands to an absolute path on insertion. Spaces, quotes, backslashes
+  and dollar signs in filenames are escaped for the console's string syntax.
+  Completion closes unfinished quotes. Directory candidates end in `/`; press
+  Tab again to list children, or type the next basename prefix and press Tab.
+  A closing quote already to the right of the cursor is preserved. Missing or
+  inaccessible directories produce no filesystem suggestions.
+- Matcher strings, `.bind` names, script source, compiler arguments and ordinary
+  string/list values receive no filesystem suggestions. Variable/field and
+  matcher completion remain available in their own grammar roles.
 
 The grammar declares root and nested matcher-name roles separately from ordinary
 identifiers. Candidate providers select the appropriate catalog from those

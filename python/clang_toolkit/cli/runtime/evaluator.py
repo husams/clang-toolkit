@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from lark import Token, Tree
 
 from clang_toolkit.cli.language import parser
+from clang_toolkit.cli.help import HAS_NATIVE_ANALYSIS_GRAMMAR, render_help
 from clang_toolkit.cli.matcher_catalog import NESTED_MATCHERS, ROOT_MATCHERS
 from clang_toolkit.client import Client
 from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, MatchValueError, ParsedTree
@@ -90,8 +91,8 @@ class Runtime:
         kind = str(statement.data)
         if kind in {"quit", "exit"}:
             return None
-        if kind == "help":
-            return "commands: match, background, let, print, foreach, set, clear, save, load, traverse, cfg, callgraph, script, cursor open/continue/restart/close, session start/add/match/pause/resume/close, help, quit"
+        if kind in {"help", "help_shortcut"}:
+            return render_help(statement)
         if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
             return self.output.emit(execute_cursor(self, statement))
         if kind == "session_label":
@@ -196,15 +197,16 @@ class Runtime:
         if kind == "display":
             return self.output.emit(render(self._evaluate(statement.children[0])))
         if kind == "cfg":
-            argument = source[statement.children[0].end_pos :].strip()
-            return self.output.emit(self.client.cfg(argument))
+            message = ('cfg requires a file: cfg FUNCTION in "file.cc"; see help cfg'
+                if HAS_NATIVE_ANALYSIS_GRAMMAR else 'cfg native execution is not implemented in this build; see help cfg')
+            raise EvaluationError(message)
         if kind == "script":
             from .scripting import execute_script
             return self.output.emit(execute_script(self, statement))
         if kind == "callgraph":
-            if len(statement.children) > 1 and statement.children[1] is not None:
-                raise EvaluationError("callgraph selection is not implemented yet")
-            return self.output.emit(self.client.callgraph())
+            message = ('callgraph requires a file: callgraph "file.cc"; see help callgraph'
+                if HAS_NATIVE_ANALYSIS_GRAMMAR else 'callgraph native execution is not implemented in this build; see help callgraph')
+            raise EvaluationError(message)
         raise EvaluationError(f"{kind} execution is not implemented yet")
 
     def completion_references(self) -> dict[str, tuple[str, ...]]:
@@ -327,7 +329,7 @@ class Runtime:
 
     def _evaluate(self, node: Any) -> Any:
         if isinstance(node, Token):
-            if node.type == "STRING":
+            if node.type in {"STRING", "FILE_STRING", "DIRECTORY_STRING", "PATH_STRING"}:
                 return self._string(str(node))
             if node.type == "NUMBER":
                 raw = str(node)

@@ -32,6 +32,13 @@ def test_blank_and_partial_input_offer_commands_only():
     assert complete("quitNow") == []
 
 
+def test_legacy_command_and_session_keywords_remain_available():
+    assert "background" in complete("")
+    assert set(complete("session ")) == {"start", "add", "match", "pause", "resume", "close", "label"}
+    assert complete("session pa") == ["pause"]
+    assert complete("session res") == ["resume"]
+
+
 def test_match_uses_roots_and_let_offers_nested_matcher_constructors():
     root = complete("match ")
     assignment = complete("let selected = ")
@@ -62,9 +69,9 @@ def test_nested_matcher_arguments_use_nested_catalog_without_commands():
     assert "hasReturnType(" not in nested
 
 
-def test_cfg_and_callgraph_targets_do_not_offer_matcher_catalog():
-    assert complete("cfg ") == []
-    assert complete("callgraph ") == []
+def test_cfg_and_callgraph_targets_do_not_offer_matcher_catalog(tmp_path):
+    assert complete("cfg ", cwd=tmp_path) == []
+    assert complete("callgraph ", cwd=tmp_path) == []
 
 
 def test_references_are_injected_and_fields_follow_dot():

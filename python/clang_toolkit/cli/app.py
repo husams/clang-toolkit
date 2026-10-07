@@ -8,7 +8,8 @@ import inspect
 
 from lark.exceptions import UnexpectedInput
 
-from clang_toolkit.cli.language import lex
+from clang_toolkit.cli.language import lex, parser as command_parser
+from clang_toolkit.cli.help import COMMANDS, render_help
 from clang_toolkit.cli.prompt import create_session
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
 from clang_toolkit.cli.runtime.config import ConfigError
@@ -21,35 +22,18 @@ from clang_toolkit.match_values import MatchValueError
 from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.configuration import ConfigurationError, load_network_config
 
-COMMANDS = [
-    "parse",
-    "match",
-    "background",
-    "let",
-    "print",
-    "foreach",
-    "set",
-    "clear",
-    "save",
-    "load",
-    "add",
-    "history",
-    "session",
-    "cursor",
-    "cfg",
-    "callgraph",
-    "script",
-    "help",
-    "quit",
-]
-
 
 def dispatch(client: Client, line: str, runtime: Runtime | None = None) -> str | None:
     """Validate one sentence and evaluate it in the active REPL runtime."""
     if not line.strip():
-        return "commands: " + ", ".join(COMMANDS)
-    runtime = runtime or Runtime(client)
+        line = "help"
     try:
+        statement = command_parser().parse(line).children[0]
+        if statement.data in {"help", "help_shortcut"}:
+            if runtime is not None and runtime.history is not None:
+                runtime.history.append(line, runtime.session_id, runtime.label)
+            return render_help(statement)
+        runtime = runtime or Runtime(client)
         return runtime.execute(line)
     except UnexpectedInput as exc:
         first = next(token for token in lex(line) if token.type != "WS")
@@ -109,7 +93,7 @@ async def _run() -> int:
     except (ConfigError, OutputError) as exc:
         print(f"error: {exc}")
         return 1
-    session = create_session(references=runtime.completion_references)
+    session = create_session(references=runtime.completion_references, cwd=runtime.cwd)
     query_session = None
     session_reader = None
     exit_code = 0

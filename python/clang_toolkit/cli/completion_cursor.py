@@ -11,6 +11,7 @@ from clang_toolkit.cli.input_state import input_state
 from clang_toolkit.cli.language import lex
 
 _WORD_TYPES = {
+    "HELP_WORD",
     "NAME",
     "ROOT_MATCHER_NAME",
     "MATCHER_NAME",
