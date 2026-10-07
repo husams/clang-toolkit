@@ -13,18 +13,42 @@ TCP. Source paths and compilation arguments refer to the server's filesystem.
 
 - Clang/LLVM development libraries and a compiler supporting C++23.
 - CMake 3.25 or later (for the supplied presets) and Ninja.
-- gRPC, protobuf, libyaml, SQLite, and OpenSSL development libraries.
+- gRPC, protobuf, libyaml, and OpenSSL development libraries.
 - Python 3.14 or later and [uv](https://docs.astral.sh/uv/).
-- Internet access on the first build to fetch the ANTLR4 runtime and GoogleTest.
+- Internet access on the first build to fetch SQLite, the ANTLR4 runtime, and GoogleTest.
 
 On macOS, install the dependencies with Homebrew:
 
 ```sh
-brew install llvm cmake ninja grpc protobuf libyaml sqlite openssl@3 uv
+brew install llvm cmake ninja grpc protobuf libyaml openssl@3 uv
 ```
 
-For Rocky Linux / RHEL 9, use the dependency list and container validation
-instructions in [packaging/rhel9.Containerfile](packaging/rhel9.Containerfile).
+On RHEL 9, Rocky Linux 9, AlmaLinux 9, or CentOS Stream 9, install host dependencies,
+build the native server and Python environment, and run all tests with:
+
+```sh
+./scripts/build-rhel9.sh
+```
+
+Like facts-tool, SQLite is built from the pinned 3.53.4 amalgamation and linked
+statically on every platform; Clang/LLVM and other system libraries retain their
+normal linkage. The RHEL script checks that `ldd` reports no shared SQLite dependency.
+Downloads are cached under `.deps/`. `SQLITE_SOURCE_DIR=/path/to/amalgamation`
+selects a local SQLite source directory. Direct CMake builds accept the equivalent
+`-DCTK_SQLITE_SOURCE_DIR=/path/to/amalgamation`; `-DCTK_SYSTEM_SQLITE=ON` requires
+an installed static SQLite archive of version 3.35 or later and rejects shared libraries.
+
+`DEPS_ONLY=1` installs host dependencies without building the project;
+`SKIP_DEPS=1` reuses installed host dependencies; `SKIP_TESTS=1` omits tests.
+`BUILD_DIR` and `JOBS` select the build directory and parallel build count.
+To install the server after building and testing:
+
+```sh
+INSTALL=1 INSTALL_PREFIX=/usr/local ./scripts/build-rhel9.sh
+```
+
+Container validation uses the same script through
+[packaging/rhel9.Containerfile](packaging/rhel9.Containerfile).
 The build discovers Homebrew LLVM on macOS and system LLVM on RHEL; use
 `-DCTK_LLVM_ROOT=/path/to/llvm` to select another installation.
 

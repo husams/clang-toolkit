@@ -1,0 +1,53 @@
+# Match facts-tool's pinned SQLite amalgamation and require static linkage.
+option(CTK_SYSTEM_SQLITE "Use an installed static SQLite >= 3.35" OFF)
+set(CTK_SQLITE_SOURCE_DIR "" CACHE PATH "Offline SQLite amalgamation directory")
+find_package(Threads REQUIRED)
+
+if(CTK_SYSTEM_SQLITE)
+  # Limit this lookup to archives without changing other dependency discovery.
+  set(_ctk_library_suffixes "${CMAKE_FIND_LIBRARY_SUFFIXES}")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+  find_package(SQLite3 3.35 REQUIRED)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${_ctk_library_suffixes}")
+  get_filename_component(_ctk_sqlite_suffix "${SQLite3_LIBRARY}" LAST_EXT)
+  if(NOT _ctk_sqlite_suffix STREQUAL CMAKE_STATIC_LIBRARY_SUFFIX)
+    message(FATAL_ERROR "CTK_SYSTEM_SQLITE requires a static SQLite archive; clear SQLite3_LIBRARY or use bundled SQLite")
+  endif()
+  add_library(ctk_sqlite INTERFACE)
+  target_include_directories(ctk_sqlite SYSTEM INTERFACE "${SQLite3_INCLUDE_DIRS}")
+  target_link_libraries(ctk_sqlite INTERFACE "${SQLite3_LIBRARIES}")
+  set(_ctk_sqlite_link_scope INTERFACE)
+else()
+  if(CTK_SQLITE_SOURCE_DIR)
+    set(_ctk_sqlite_source "${CTK_SQLITE_SOURCE_DIR}")
+  else()
+    include(FetchContent)
+    FetchContent_Declare(ctk_sqlite_source
+      URL https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip
+      URL_HASH SHA256=1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(ctk_sqlite_source)
+    set(_ctk_sqlite_source "${ctk_sqlite_source_SOURCE_DIR}")
+  endif()
+  if(NOT EXISTS "${_ctk_sqlite_source}/sqlite3.c" OR
+     NOT EXISTS "${_ctk_sqlite_source}/sqlite3.h")
+    message(FATAL_ERROR "CTK_SQLITE_SOURCE_DIR must contain sqlite3.c and sqlite3.h")
+  endif()
+  file(STRINGS "${_ctk_sqlite_source}/sqlite3.h" _ctk_sqlite_version_line
+       REGEX "^#define SQLITE_VERSION_NUMBER +[0-9]+$")
+  string(REGEX MATCH "[0-9]+$" _ctk_sqlite_version "${_ctk_sqlite_version_line}")
+  if(NOT _ctk_sqlite_version OR _ctk_sqlite_version LESS 3035000)
+    message(FATAL_ERROR "SQLite >= 3.35 is required")
+  endif()
+  add_library(ctk_sqlite STATIC "${_ctk_sqlite_source}/sqlite3.c")
+  target_include_directories(ctk_sqlite SYSTEM PUBLIC "${_ctk_sqlite_source}")
+  target_compile_definitions(ctk_sqlite PRIVATE
+    SQLITE_THREADSAFE=1 SQLITE_USE_URI=1 SQLITE_OMIT_LOAD_EXTENSION=1)
+  set_target_properties(ctk_sqlite PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  set(_ctk_sqlite_link_scope PUBLIC)
+endif()
+target_link_libraries(ctk_sqlite ${_ctk_sqlite_link_scope} Threads::Threads)
+if(UNIX)
+  target_link_libraries(ctk_sqlite ${_ctk_sqlite_link_scope} ${CMAKE_DL_LIBS} m)
+endif()
+add_library(ctk::sqlite ALIAS ctk_sqlite)

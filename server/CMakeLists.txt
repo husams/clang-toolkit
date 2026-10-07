@@ -29,7 +29,7 @@ add_library(ctk_storage
 )
 target_include_directories(ctk_storage PUBLIC include)
 target_compile_features(ctk_storage PUBLIC cxx_std_23)
-target_link_libraries(ctk_storage PRIVATE SQLite3::SQLite3 OpenSSL::Crypto)
+target_link_libraries(ctk_storage PRIVATE ctk::sqlite OpenSSL::Crypto)
 
 add_library(ctk_core
   src/script/engine.cpp
@@ -150,4 +150,6 @@ endif()
 if(CTK_BUILD_NETWORK)
   add_executable(ctk-server src/main.cpp)
   target_link_libraries(ctk-server PRIVATE ctk_network)
+  include(GNUInstallDirs)
+  install(TARGETS ctk-server RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT ctk-server)
 endif()

@@ -3,19 +3,13 @@
 # podman run --rm ctk-rhel9
 FROM docker.io/rockylinux/rockylinux:9
 
-RUN dnf -y install dnf-plugins-core epel-release \
- && dnf config-manager --set-enabled crb \
- && dnf -y install clang clang-devel llvm-devel cmake ninja-build git \
-        grpc-devel protobuf-devel protobuf-compiler libyaml-devel sqlite-devel openssl-devel \
-        zlib-devel libzstd-devel libxml2-devel ncurses-devel libffi-devel \
+COPY scripts/build-rhel9.sh /tmp/ctk-dependencies/scripts/build-rhel9.sh
+RUN DEPS_ONLY=1 bash /tmp/ctk-dependencies/scripts/build-rhel9.sh \
  && dnf clean all
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}" UV_PYTHON=3.14
-RUN uv python install 3.14
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /src
 COPY . .
 RUN rm -rf build .venv
 
-CMD cmake --preset dev && cmake --build --preset dev && ctest --preset dev \
- && uv sync && uv run pytest
+CMD ["bash", "-c", "SKIP_DEPS=1 BUILD_DIR=/src/build/dev bash scripts/build-rhel9.sh"]

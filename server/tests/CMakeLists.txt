@@ -11,7 +11,7 @@ add_executable(ctk_tests
   test_snapshot_cache.cpp
   test_storage_store.cpp
 )
-target_link_libraries(ctk_tests PRIVATE ctk_core GTest::gtest_main SQLite3::SQLite3)
+target_link_libraries(ctk_tests PRIVATE ctk_core GTest::gtest_main ctk::sqlite)
 if(CTK_BUILD_NETWORK)
   target_sources(ctk_tests PRIVATE test_network_config.cpp test_query_controller.cpp test_network_transport.cpp)
   target_link_libraries(ctk_tests PRIVATE ctk_network)

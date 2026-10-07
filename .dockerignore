@@ -1,4 +1,5 @@
 build/
+.deps/
 .venv/
 .git/
 typescript/node_modules/
