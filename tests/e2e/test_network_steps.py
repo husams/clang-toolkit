@@ -103,7 +103,7 @@ def database_project(tmp_path: Path, selection: str):
     database = root / "build" / ("compile_commands.json" if selection == "automatic" else "selected.json")
     command = {"directory": str(root / "build"), "file": "../src/profile.cc",
                "arguments": ["clang++", "-std=c++20", "-Iinclude with spaces", "-DPROFILE=1",
-                             "-c", "../src/profile.cc", "-o", "profile.o", "-MMD", "-MF", "profile.d"]}
+                             "-c", "-o", "profile.o", "-MMD", "-MF", "profile.d", "--", "../src/profile.cc"]}
     database.write_text(json.dumps([command]))
     return root, source, database, command, selection
 

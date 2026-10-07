@@ -1,5 +1,6 @@
 #include "build_snapshot.hpp"
 #include "ast_builder_action.hpp"
+#include <algorithm>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/SourceManager.h>
 #if __has_include(<clang/Options/Options.h>)
@@ -78,12 +79,25 @@ build_snapshot(const std::string &path,
                       cwd.getError().message();
     return {};
   }
-  auto database = clang::tooling::expandResponseFiles(
-      std::make_unique<clang::tooling::FixedCompilationDatabase>(*cwd,
-                                                                 arguments),
-      filesystem);
-  auto expanded = database->getCompileCommands(path).front().CommandLine;
-  expanded.erase(expanded.begin());
+  std::vector<std::string> expanded;
+  for (const auto &argument : arguments) {
+    if (!argument.starts_with('@')) {
+      expanded.push_back(argument);
+      continue;
+    }
+    auto database = clang::tooling::expandResponseFiles(
+        std::make_unique<clang::tooling::FixedCompilationDatabase>(
+            *cwd, std::vector<std::string>{argument}),
+        filesystem);
+    auto response = database->getCompileCommands(path).front().CommandLine;
+    // FixedCompilationDatabase adds a driver and the requested source. Source
+    // operands following '--' inside a response file also belong to the build
+    // command, not to this single-file AST invocation.
+    response.erase(response.begin());
+    response.pop_back();
+    const auto separator = std::find(response.begin(), response.end(), "--");
+    expanded.insert(expanded.end(), response.begin(), separator);
+  }
   auto adjusted =
       clang::tooling::getClangStripDependencyFileAdjuster()(expanded, path);
   adjusted = clang::tooling::getClangStripOutputAdjuster()(adjusted, path);
@@ -95,9 +109,11 @@ build_snapshot(const std::string &path,
 #if __has_include(<clang/Options/Options.h>)
   const auto &options = clang::getDriverOptTable();
   const auto input_option = clang::options::OPT_INPUT;
+  const auto separator_option = clang::options::OPT__DASH_DASH;
 #else
   const auto &options = clang::driver::getDriverOptTable();
   const auto input_option = clang::driver::options::OPT_INPUT;
+  const auto separator_option = clang::driver::options::OPT__DASH_DASH;
 #endif
   const auto parsed = options.ParseArgs(argv, missing_index, missing_count);
   if (missing_count) {
@@ -107,7 +123,8 @@ build_snapshot(const std::string &path,
   }
   llvm::opt::ArgStringList rendered;
   for (const auto *argument : parsed) {
-    if (argument->getOption().getID() == input_option)
+    if (argument->getOption().getID() == input_option ||
+        argument->getOption().getID() == separator_option)
       continue;
     argument->render(parsed, rendered);
   }

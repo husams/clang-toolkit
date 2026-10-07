@@ -55,6 +55,11 @@ resource-directory default still applies. Multiple commands for a file use the
 first database entry; configuration selection and header-command inference are
 not currently exposed.
 
+The server runs one compiler job for the requested source. Database source
+operands, including those following `--` or inside response files, are removed
+before that source is supplied once. Include-file option values are retained;
+request overrides remain compiler options before the database's input separator.
+
 The server imports the database once into an indexed SQLite cache at
 `$CTK_STORAGE_ROOT/compile_commands.sqlite3`, or beside the default snapshot
 storage under `$XDG_CACHE_HOME/clang-toolkit/storage` or

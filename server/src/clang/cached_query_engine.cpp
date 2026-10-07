@@ -197,14 +197,16 @@ std::string resource_content_identity() {
 }
 
 std::vector<std::string> effective_arguments(const FileInput &file) {
-  auto arguments = file.compile_arguments;
-  if (std::none_of(arguments.begin(), arguments.end(), [](const auto &arg) {
-        return arg == "-x" || arg.starts_with("-x=") || arg.starts_with("-x");
-      })) {
+  std::vector<std::string> arguments;
+  if (std::none_of(file.compile_arguments.begin(), file.compile_arguments.end(),
+                   [](const auto &arg) {
+                     return arg == "-x" || arg.starts_with("-x=") ||
+                            arg.starts_with("-x");
+                   })) {
     arguments.emplace_back("-x");
     arguments.emplace_back("c++");
   }
-  if (std::none_of(arguments.begin(), arguments.end(),
+  if (std::none_of(file.compile_arguments.begin(), file.compile_arguments.end(),
                    [](const auto &arg) { return arg.starts_with("-std="); }))
     arguments.emplace_back("-std=c++20");
 #ifdef CTK_CLANG_RESOURCE_DIR
@@ -213,6 +215,10 @@ std::vector<std::string> effective_arguments(const FileInput &file) {
 #endif
   if (!file.working_directory.empty())
     arguments.push_back("-working-directory=" + file.working_directory);
+  // Defaults must precede response files and '--'; explicit compiler options
+  // remain able to override defaults instead of becoming positional inputs.
+  arguments.insert(arguments.end(), file.compile_arguments.begin(),
+                   file.compile_arguments.end());
   return arguments;
 }
 

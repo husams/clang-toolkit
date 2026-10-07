@@ -85,6 +85,35 @@ TEST(CompilationDatabase,
   EXPECT_EQ(match_count(make_query_engine(), input, "selected"), 1);
 }
 
+TEST(CompilationDatabase, InputSeparatorDoesNotCreateExtraCompilerJobs) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-input-separator"};
+  std::ofstream(project.path() / "optional")
+      << "#ifndef PROFILE\n#define PROFILE 17\n#endif\n";
+  std::ofstream(project.path() / "file.cc")
+      << "static_assert(PROFILE == 23); int selected(){return PROFILE;}";
+  write_database(
+      project.path() / "compile_commands.json", project.path(), "file.cc",
+      {"clang++", "-std=c++20", "-include", "optional", "-c", "--", "file.cc"});
+  FileInput input{
+      "file.cc", {"-UPROFILE", "-DPROFILE=23"}, project.path().string()};
+  EXPECT_EQ(match_count(make_query_engine(), input, "selected"), 1);
+}
+
+TEST(CompilationDatabase, ResponseInputSeparatorPreservesOuterOverrideOptions) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-response-separator"};
+  std::ofstream(project.path() / "optional") << "#define HEADER_PRESENT 1\n";
+  std::ofstream(project.path() / "flags.rsp")
+      << "-std=c++20 -include optional -DPROFILE=17 -c -- file.cc";
+  std::ofstream(project.path() / "file.cc")
+      << "static_assert(HEADER_PRESENT && PROFILE == 23); int "
+         "selected(){return PROFILE;}";
+  write_database(project.path() / "compile_commands.json", project.path(),
+                 "file.cc", {"clang++", "@flags.rsp"});
+  FileInput input{
+      "file.cc", {"-UPROFILE", "-DPROFILE=23"}, project.path().string()};
+  EXPECT_EQ(match_count(make_query_engine(), input, "selected"), 1);
+}
+
 TEST(CompilationDatabase, ChangedDatabaseSelectsNewAstRatherThanStaleFlags) {
   ctk::platform::TemporaryDirectory project{"ctk-compdb-refresh"};
   std::ofstream(project.path() / "file.cc")

@@ -6,6 +6,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -266,8 +267,11 @@ FileInput resolve_compilation_command(const FileInput &input) {
     first = 2;
   for (std::size_t i = first; i < raw.size(); ++i)
     command->compile_arguments.push_back(raw[i]);
-  command->compile_arguments.insert(command->compile_arguments.end(),
-                                    input.compile_arguments.begin(),
+  // Overrides are options, even when the database terminates its options with
+  // '--' before the source filename.
+  const auto separator = std::find(command->compile_arguments.begin(),
+                                   command->compile_arguments.end(), "--");
+  command->compile_arguments.insert(separator, input.compile_arguments.begin(),
                                     input.compile_arguments.end());
   command->compilation_database = database->string();
   return *command;
