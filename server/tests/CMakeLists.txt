@@ -19,6 +19,7 @@ endif()
 if(CTK_WITH_CLANG)
   string(REGEX MATCH "^[0-9]+" CTK_TEST_CLANG_VERSION_MAJOR "${CMAKE_CXX_COMPILER_VERSION}")
   target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_VERSION_MAJOR=${CTK_TEST_CLANG_VERSION_MAJOR})
+  target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_TOOL_PATH="${CMAKE_CXX_COMPILER}")
   target_sources(ctk_tests PRIVATE
     test_clang_query.cpp
     test_clang_query_regressions.cpp
@@ -27,9 +28,9 @@ if(CTK_WITH_CLANG)
     test_declaration_semantics.cpp
     test_expression_semantics.cpp
     test_type_semantics.cpp
-    test_temporary_directory.cpp)
+    test_temporary_directory.cpp test_project_facade.cpp test_snapshot_closure.cpp)
   if(CTK_BUILD_NETWORK)
-    target_sources(ctk_tests PRIVATE test_match_cursors.cpp)
+    target_sources(ctk_tests PRIVATE test_match_cursors.cpp test_ast_traversal.cpp test_cfg.cpp test_call_graph.cpp)
   endif()
 endif()
 

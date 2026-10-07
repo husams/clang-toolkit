@@ -75,6 +75,9 @@ NativeScriptEnvironment::NativeScriptEnvironment(
       engine ? std::move(engine) : ctk::clang_layer::make_query_engine(),
       settings.max_memory_bytes);
   matches_ = ctk::clang_layer::make_match_backend(pinned_);
+  traversal_ = ctk::clang_layer::make_traversal_backend(pinned_);
+  cfg_ = ctk::clang_layer::make_cfg_backend(pinned_);
+  calls_ = ctk::clang_layer::make_call_graph_backend(pinned_);
 #endif
 }
 ctk::match::v1::FileMatchTarget
@@ -235,10 +238,63 @@ ctk::script::Value NativeScriptEnvironment::matching(
 ctk::script::Value NativeScriptEnvironment::call(
     const std::string &name, const std::vector<ctk::script::Value> &arguments,
     const std::map<std::string, ctk::script::Value> &options) {
-  if (name != "match" && name != "continue" && name != "restart")
+  if (name != "match" && name != "continue" && name != "restart" &&
+      name != "traverse" && name != "cfg" && name != "callgraph")
     throw Error(Code::InvalidArgument, "unknown script function: " + name);
   if (!checkpoint_())
     throw Error(Code::Cancelled, "script cancelled");
-  return matching(name, arguments, options);
+  if (name == "match" || name == "continue" || name == "restart")
+    return matching(name, arguments, options);
+  if (!request_.has_file())
+    throw Error(Code::InvalidArgument,
+                "native script operations require a file target");
+  const auto file = file_target(request_.file().file_path());
+  acquire_file(file);
+  auto wire = std::make_shared<ctk::analysis::v1::ScriptValue>();
+  if (name == "cfg") {
+    if (arguments.size() != 1)
+      throw Error(Code::InvalidArgument, "cfg requires a function name");
+    ctk::analysis::v1::CfgRequest request;
+    *request.mutable_file() = file;
+    request.set_function(script_text(arguments[0]));
+    if (request.function().empty())
+      throw Error(Code::InvalidArgument, "function name is required");
+    for (const auto &[key, value] : options)
+      if (key.starts_with("max_"))
+        script_option(request, key, value);
+      else
+        script_option(*request.mutable_options(), key, value);
+    auto result =
+        cfg_->build(request, checkpoint_,
+                    {1000, 100000, 1000000, settings_.results.max_bytes});
+    if (result.code != Code::Ok)
+      throw Error(result.code, result.message);
+    wire->mutable_cfg()->Swap(&result.response);
+  } else {
+    if (!arguments.empty())
+      throw Error(Code::InvalidArgument, name + " takes only named options");
+    if (name == "traverse") {
+      ctk::analysis::v1::TraverseRequest request;
+      *request.mutable_file() = file;
+      for (const auto &[key, value] : options)
+        script_option(request, key, value);
+      auto result = traversal_->traverse(request, checkpoint_,
+                                         {100000, settings_.results.max_bytes});
+      if (result.code != Code::Ok)
+        throw Error(result.code, result.message);
+      wire->mutable_traversal()->Swap(&result.response);
+    } else {
+      ctk::analysis::v1::CallGraphRequest request;
+      *request.mutable_file() = file;
+      for (const auto &[key, value] : options)
+        script_option(request, key, value);
+      auto result = calls_->build(
+          request, checkpoint_, {100000, 1000000, settings_.results.max_bytes});
+      if (result.code != Code::Ok)
+        throw Error(result.code, result.message);
+      wire->mutable_call_graph()->Swap(&result.response);
+    }
+  }
+  return {wire, {}, {}};
 }
 } // namespace ctk::application::detail

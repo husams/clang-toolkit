@@ -39,12 +39,11 @@ Tab completion follows the Lark parser's expected token roles at the cursor:
   fields. It does not invent names or scalar values.
 - Ordinary command targets, assignment names, strings, and `.bind` string
   arguments do not receive unrelated matcher suggestions.
-
 - In filesystem argument positions, Tab offers existing files and navigation
   directories. `set cache_dir to` offers directories only; `glob` accepts
   relative patterns and offers both files and directories. Source-file, load,
   save, history-save and output arguments offer files plus directory navigation.
-  `session add`, `cursor open`, `script ... in` and file-list
+  `session add`, `cursor open`, `script ... in`, `cfg ... in` and file-list
   arguments receive the same contextual completion.
 - Relative paths use the session directory. Absolute paths are supported;
   `~/` expands to an absolute path on insertion. Spaces, quotes, backslashes
@@ -139,11 +138,19 @@ detected from the extension (or a unique matching extension if omitted).
 History is saved automatically to `$XDG_STATE_HOME/clang_tools/history.jsonl`
 (or `~/.local/state/clang_tools/history.jsonl`) with a session UUID.
 
-Matching executes through the native server over Unix or TCP. Use the
-[parse/match expressions](parse-match-expressions.md) and their scoped results
-for declarative composition. The legacy `cursor open`, `cursor continue`,
-`cursor restart` and `cursor close` commands remain available; see
-[result cursors](result-cursors.md) for revision, selection and cleanup semantics.
+Matching executes through the native server over Unix or TCP. Retained matching
+uses the formal `cursor open`, `cursor continue`, `cursor restart` and
+`cursor close` commands; see [result cursors](result-cursors.md) for revision,
+selection, scope and cleanup semantics. Standalone traversal runs through
+`traverse "file.cc" depth 12 nodes 10000`; see [AST traversal](ast-traversal.md).
 
-`script "emit 7;"` runs the bounded server DSL. Add `in "file.cc"` for native
-matching composition; see [server scripting](server-scripting.md).
+Legacy `cfg FUNCTION` and bare `callgraph` are recognized but now report a local
+missing-file error; supply the explicit file forms below.
+
+`cfg ns::function in "file.cc" option add_implicit_dtors true blocks 10000`
+returns typed native CFG graphs; see [CFG options](control-flow.md).
+
+`callgraph "file.cc" nodes 10000 edges 100000 implicit true instantiations true`
+returns the typed native AST call graph; see [native semantics](call-graphs.md).
+
+`script "emit 7;"` runs the bounded server DSL. Add `in "file.cc"` for native query composition; see [server scripting](server-scripting.md).

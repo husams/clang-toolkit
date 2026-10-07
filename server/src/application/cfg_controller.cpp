@@ -1,0 +1,83 @@
+#include "ctk/application/cfg_controller.hpp"
+#include "file_target_validation.hpp"
+#include "query_executor.hpp"
+#include <future>
+
+namespace ctk::application {
+using ctk::clang_layer::CfgResult;
+using ctk::clang_layer::MatchCode;
+struct CfgController::Impl {
+  std::shared_ptr<ctk::clang_layer::ICfgBackend> backend;
+  ctk::clang_layer::CfgLimits limits;
+  std::shared_ptr<OperationExecutor> executor;
+  Impl(CursorSettings settings,
+       std::shared_ptr<ctk::clang_layer::ICfgBackend> native,
+       std::shared_ptr<OperationExecutor> work)
+      : backend(std::move(native)),
+        limits{1000, 100000, 1000000, settings.results.max_bytes},
+        executor(work ? std::move(work)
+                      : make_operation_executor(settings.workers,
+                                                settings.pending_requests)) {}
+};
+CfgController::CfgController(
+    CursorSettings settings,
+    std::shared_ptr<ctk::clang_layer::ICfgBackend> backend,
+    std::shared_ptr<OperationExecutor> executor) {
+  if (settings.results.max_bytes == 0)
+    throw std::invalid_argument("CFG byte limit must be positive");
+#ifdef CTK_WITH_CLANG
+  if (!backend)
+    backend = ctk::clang_layer::make_cfg_backend();
+#endif
+  impl_ =
+      std::make_unique<Impl>(settings, std::move(backend), std::move(executor));
+}
+CfgController::~CfgController() = default;
+CfgResult CfgController::build(
+    const ctk::analysis::v1::CfgRequest &request,
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+  const auto invalid = detail::invalid_file_target(request.file());
+  if (!request.has_file() || !invalid.empty())
+    return {MatchCode::InvalidArgument,
+            invalid.empty() ? "file target is required" : invalid,
+            {}};
+  if (request.function().empty())
+    return {MatchCode::InvalidArgument, "function name is required", {}};
+  if ((request.has_max_functions() &&
+       (request.max_functions() == 0 ||
+        request.max_functions() > impl_->limits.max_functions)) ||
+      (request.has_max_blocks() &&
+       (request.max_blocks() == 0 ||
+        request.max_blocks() > impl_->limits.max_blocks)) ||
+      (request.has_max_elements() &&
+       (request.max_elements() == 0 ||
+        request.max_elements() > impl_->limits.max_elements)))
+    return {MatchCode::InvalidArgument,
+            "CFG limits must be positive and within server bounds",
+            {}};
+  if (!impl_->backend)
+    return {MatchCode::FailedPrecondition, "Clang analysis is disabled", {}};
+  auto promise = std::make_shared<std::promise<CfgResult>>();
+  auto future = promise->get_future();
+  if (!impl_->executor->enqueue([this, promise, request, checkpoint] {
+        try {
+          auto result =
+              impl_->backend->build(request, checkpoint, impl_->limits);
+          if (result.code == MatchCode::Ok && !checkpoint())
+            result = {MatchCode::Cancelled,
+                      "CFG analysis cancelled before publication",
+                      {}};
+          promise->set_value(std::move(result));
+        } catch (const std::exception &error) {
+          promise->set_value({MatchCode::Internal, error.what(), {}});
+        } catch (...) {
+          promise->set_value({MatchCode::Internal, "CFG analysis failed", {}});
+        }
+      }))
+    return {MatchCode::ResourceExhausted,
+            "CFG executor queue is full or stopped",
+            {}};
+  return future.get();
+}
+void CfgController::stop_admission() { impl_->executor->stop_admission(); }
+} // namespace ctk::application

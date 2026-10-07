@@ -29,6 +29,9 @@ private:
   std::shared_ptr<ctk::clang_layer::IQueryEngine> native_engine_;
   application::MatchController matches_;
   MatchServiceAdapter match_service_;
+  application::TraversalController traversals_;
+  application::CfgController cfg_;
+  application::CallGraphController calls_;
   application::ScriptController scripts_;
   AnalysisServiceAdapter analysis_service_;
   std::unique_ptr<platform::EndpointLease> lease_;

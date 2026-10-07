@@ -1,8 +1,10 @@
 # Native AST storage implementation
 
+Current native-adapter delivery and platform verification are tracked in [functionality progress](../functionality-progress.md) and [native snapshot reuse](native-snapshot-reuse.md). The storage record below preserves its original delivery state.
+
 Design contract: [persistence specification](https://chatgpt.com/space/page_3e89aff64e2c819194fe8ea862c459cd), [schema v1](https://chatgpt.com/space/page_864e098739988191b7bbc19a5adc0dea), [C++ technical design](https://chatgpt.com/space/page_3f75548a9ba08191b70bcd533c5212e7), [cache design](https://chatgpt.com/space/page_2e571754ca3081919967899081ebaf73), and [radix/binding model](https://chatgpt.com/space/page_77f518388f748191b08749f838b780fa).
 
-## Requirements and status
+## Original storage requirements and status
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
@@ -17,7 +19,7 @@ Design contract: [persistence specification](https://chatgpt.com/space/page_3e89
 | Native TU/PCH/module adapter with safe unsupported fallback | Pending | Native adapter evidence; simple TU roundtrip is insufficient |
 | macOS + RHEL 9 build/test validation; independent design/lifetime review | Pending | Recorded commands and review findings |
 
-## Live starting state
+## Original starting state
 
 - Checkout HEAD: `5702f26c653fb694a219648c3eba6880a4b2115e` (`main`, one commit ahead of `origin/main`).
 - Existing unrelated user file preserved: `docs/cpp-technical-design.md` (untracked before this work).
@@ -25,6 +27,6 @@ Design contract: [persistence specification](https://chatgpt.com/space/page_3e89
 - Existing Clang entry points in `server/src/clang/tooling.cpp` are empty stubs.
 - Host has SQLite 3.51.0 and OpenSSL 3.6.4; native format probe evidence covers a simple TU roundtrip only. PCH/module relocation, lazy dependency capture and stable VFS views are not established.
 
-## Implementation log
+## Original implementation log
 
 Implemented the typed Store API, v1 metadata repository, canonical profile/toolchain/manifest encoding, durable content-addressed blob store, ownership lock, validation, leases, retention, quota and bounded recovery. Recovery waits for active publications; non-reusable profiles cannot be published or acquired. macOS dev and dev-noclang pass 66/66 C++ tests; Python unit (91) and E2E (1) pass. RHEL validation is blocked because the local Podman socket is unavailable. Independent review confirms there is still no production native-artifact adapter or server integration; safe cache fallback therefore remains necessary. Broader crash-boundary tests are still outstanding.

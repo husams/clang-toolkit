@@ -18,23 +18,25 @@ assignment: LET NAME EQUAL value_expression
         | CLEAR USER? NAME               -> clear_command
         | ADD EXTRA_ARG STRING           -> add_arg
         | SAVE reference TO FILE_STRING [AS NAME] -> save_command
-        | LOAD FILE_STRING INTO reference     -> load_command
-        | HISTORY SAVE FILE_STRING            -> history_save
+        | LOAD FILE_STRING INTO reference -> load_command
+        | HISTORY SAVE FILE_STRING       -> history_save
         | HISTORY CLEAR                  -> history_clear
         | SESSION LABEL STRING           -> session_label
         | SESSION START STRING           -> session_start
-        | SESSION ADD FILE_STRING             -> session_add
+        | SESSION ADD FILE_STRING        -> session_add
         | SESSION MATCH                  -> session_match
         | SESSION PAUSE                  -> session_pause
         | SESSION RESUME                 -> session_resume
         | SESSION CLOSE                  -> session_close
         | CFG cfg_expression            -> cfg
-        | CALLGRAPH [path_target_expression]  -> callgraph
+        | CFG cfg_expression IN path_target_expression cfg_option* -> cfg_file
+        | CALLGRAPH -> callgraph
+        | CALLGRAPH path_target_expression call_graph_option* -> callgraph_file
         | HELP help_topic?               -> help
         | HELP_SHORT_TOPIC QUESTION      -> help_shortcut
         | QUIT                           -> quit
         | EXIT                           -> exit
-        | TRAVERSE path_target_expression    -> traverse
+        | TRAVERSE path_target_expression traverse_option* -> traverse
         | SCRIPT target_expression (IN path_target_expression)? -> script
         | CURSOR OPEN FILE_STRING root_expression cursor_option* -> cursor_open
         | CURSOR CONTINUE STRING STRING root_expression cursor_option* -> cursor_continue
@@ -47,10 +49,25 @@ cursor_option: ROW NUMBER -> cursor_row
              | CURSOR_SCOPE NAME -> cursor_scope
              | REVISION NUMBER -> cursor_revision
 
+call_graph_option: NODES NUMBER -> call_graph_nodes
+                 | EDGES NUMBER -> call_graph_edges
+                 | IMPLICIT (TRUE | FALSE) -> call_graph_implicit
+                 | INSTANTIATIONS (TRUE | FALSE) -> call_graph_instantiations
+
+cfg_option: OPTION NAME (TRUE | FALSE) -> cfg_build_option
+          | FUNCTIONS NUMBER -> cfg_functions
+          | BLOCKS NUMBER -> cfg_blocks
+          | ELEMENTS NUMBER -> cfg_elements
+
+traverse_option: DEPTH NUMBER -> traverse_depth
+               | NODES NUMBER -> traverse_nodes
+               | IMPLICIT (TRUE | FALSE) -> traverse_implicit
+               | INSTANTIATIONS (TRUE | FALSE) -> traverse_instantiations
+
 ?setting: TRAVERSAL NAME                 -> traversal_setting
         | EXTRA_ARGS list_value          -> args_setting
-        | CACHE_DIR TO DIRECTORY_STRING            -> cache_setting
-        | FILES TO path_value_expression      -> files_setting
+        | CACHE_DIR TO DIRECTORY_STRING  -> cache_setting
+        | FILES TO path_value_expression -> files_setting
         | OUTPUT TO (FILE_STRING | STDOUT) [MODE REPLACE] -> output_setting
 
 ?value_expression: root_expression
@@ -180,6 +197,10 @@ editor_start: editor_token*
              | QUIT
              | EXIT
              | TRAVERSE
+             | DEPTH
+             | NODES
+             | IMPLICIT
+             | INSTANTIATIONS
              | SCRIPT
              | CURSOR
              | OPEN
@@ -194,10 +215,10 @@ editor_start: editor_token*
              | FILE_STRING
              | DIRECTORY_STRING
              | PATH_STRING
+             | OPEN_STRING
              | HELP_WORD
              | HELP_SHORT_TOPIC
              | QUESTION
-             | OPEN_STRING
              | NUMBER
              | BIND
              | DOLLAR
@@ -260,6 +281,10 @@ HELP.2: /help(?![a-zA-Z0-9_])/
 QUIT.2: /quit(?![a-zA-Z0-9_])/
 EXIT.2: /exit(?![a-zA-Z0-9_])/
 TRAVERSE.2: /traverse(?![a-zA-Z0-9_])/
+DEPTH.2: /depth(?![a-zA-Z0-9_])/
+NODES.2: /nodes(?![a-zA-Z0-9_])/
+IMPLICIT.2: /implicit(?![a-zA-Z0-9_])/
+INSTANTIATIONS.2: /instantiations(?![a-zA-Z0-9_])/
 SCRIPT.2: /script(?![a-zA-Z0-9_])/
 CURSOR.2: /cursor(?![a-zA-Z0-9_])/
 OPEN.2: /open(?![a-zA-Z0-9_])/
@@ -300,3 +325,10 @@ ERROR: /[\s\S]/
 %ignore WS
 
 %import common.NUMBER
+
+OPTION.2: /option(?![a-zA-Z0-9_])/
+FUNCTIONS.2: /functions(?![a-zA-Z0-9_])/
+BLOCKS.2: /blocks(?![a-zA-Z0-9_])/
+ELEMENTS.2: /elements(?![a-zA-Z0-9_])/
+
+EDGES.2: /edges(?![a-zA-Z0-9_])/

@@ -11,6 +11,9 @@ emit count(functions);
 foreach function in functions {
   emit continue(function, "f", "integerLiteral().bind(\"n\")");
 }
+emit cfg("f", always_add_statements=true, add_implicit_dtors=true);
+emit callgraph(visit_template_instantiations=false);
+emit traverse(max_depth=2);
 ```
 
 `let` binds an immutable value in the current lexical scope. Duplicate local
@@ -26,13 +29,18 @@ bools retain their protobuf kind. Comments start with `//`.
 | `continue` | matched rows, binding name, matcher string | traversal; `scope="subtree"` or `"root"` |
 | `restart` | matched rows, matcher string | traversal |
 | `row` | matched rows, zero-based integer index | none |
-| `count` | matched rows | none |
+| `count` | matched rows, traversal, CFG, or call graph | none |
+| `traverse` | none | fields from TraverseRequest except file |
+| `cfg` | exact qualified function name | CfgOptions booleans and max_functions/max_blocks/max_elements |
+| `callgraph` | none | CallGraphRequest fields except file |
 
 Continuations branch from captured native bindings without consuming a cursor
 revision. `row` and loop variables select one original row. Restart covers the
 whole pinned AST. Empty matches remain an explicit empty collection. Native
-matching respects configured result and snapshot bounds. Count measures result
-rows. Native bindings and snapshot ownership are released at request
+analysis limitations and bounds are the same as their standalone operations;
+call graphs remain per translation unit, with static dispatch and finite symbols.
+Count measures rows, traversal nodes, CFG graphs, or call graph nodes including
+its virtual root. Native bindings and snapshot ownership are released at request
 completion; responses contain semantic values without session handles.
 
 All syntax is parsed before evaluation. Defaults: 100 execution steps (statements,
@@ -55,7 +63,7 @@ CLI (formal Lark outer grammar):
 
 ```text
 script "emit 7;"
-script "emit match(\"functionDecl().bind(\\\"f\\\")\");" in "file.cc"
+script "emit cfg(\"f\");" in "file.cc"
 ```
 
 The C++ `ctk::script::Engine::eval` now returns JSON of evaluated pure emissions;

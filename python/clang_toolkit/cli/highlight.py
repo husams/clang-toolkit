@@ -22,7 +22,11 @@ KEYWORDS = {
     "QUIT",
     "EXIT",
     "TRAVERSE",
-
+    "OPTION", "FUNCTIONS", "BLOCKS", "ELEMENTS", "EDGES",
+    "DEPTH",
+    "NODES",
+    "IMPLICIT",
+    "INSTANTIATIONS",
     "SCRIPT",
     "PRINT",
     "FOREACH",

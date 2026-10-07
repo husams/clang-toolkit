@@ -474,10 +474,5 @@ std::shared_ptr<IQueryEngine> make_query_engine() {
   return make_cached_query_engine();
 }
 
-std::vector<std::string> match(const Project &, const std::string &) {
-  return {};
-}
-std::string cfg(const Project &, const std::string &) { return {}; }
-std::string callgraph(const Project &) { return {}; }
 
 } // namespace ctk::clang_layer

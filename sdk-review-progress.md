@@ -175,3 +175,28 @@ Evidence: `/tmp/ctk-sdk-integration-plan.json`,
 `/tmp/ctk-sdk-integration-precommit-preservation.json`. These are local validation
 artifacts. The human explicitly authorized local main integration and its
 non-force publication to the existing GitHub repository.
+
+## Complete feature integration — 7 October 2026
+
+The human subsequently authorized committing and pushing all remaining native
+analyses, project facade, snapshot reuse/persistence and console integration.
+The complete candidate builds on published SDK commit `59e8ad7` and console
+commit `aa3a924`; it restores the full standalone analysis handlers, Python
+wrappers, grammar and runtime together while retaining the SDK review fixes.
+The earlier lean-scope exclusions above are historical.
+
+Final full native suites passed 249/249 and Python unit/BDD passed 390/390 on
+both macOS Clang 22.1.8 and Rocky Clang 21.1.8. Clang-only passed 151/151;
+Clang-disabled passed 109/109. TypeScript's strict/lint/build gates, 41 unit and
+20 live transport cases passed. Source and extracted-wheel strict Python
+consumers passed; the invalid fixture still produced the expected five errors.
+All 643 final wheel package files matched, including py.typed, and all 2,572
+candidate source hashes matched Rocky after testing. Schema/serializer and
+include-boundary checks passed.
+
+Snapshot review fixed successful fresh parses failing admission above 16,384
+headers, with a regression matching a declaration in the last header. The full
+scope uses exact isolated-index staging and preserves only the pre-existing swap
+deletion. Final wheel SHA-256:
+`296bd1d84cc8ccfd032f5597c730d1fbd9a702fd6e54ff246cc0fc4c04ddb74f`.
+See `functionality-progress.md` for final validation artifacts.

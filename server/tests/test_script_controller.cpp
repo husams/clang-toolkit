@@ -44,7 +44,7 @@ TEST(ScriptController, RejectsInvalidCompilationProfilesBeforeExecution) {
 TEST(ScriptController, NativeOperationsFailExplicitlyWhenClangIsDisabled) {
   ScriptController controller;
   ctk::analysis::v1::ScriptRequest request;
-  request.set_source("emit match(\"functionDecl()\");");
+  request.set_source("emit callgraph();");
   request.mutable_file()->set_file_path("file.cc");
   request.mutable_file()->set_working_directory(
       std::filesystem::current_path().string());
@@ -63,7 +63,7 @@ protected:
     request.mutable_file()->set_working_directory(directory.path().string());
   }
 };
-TEST_F(ScriptNative, ComposesMatchingOperationsOnOneWorker) {
+TEST_F(ScriptNative, ComposesEveryNativeOperationOnOneWorker) {
   CursorSettings settings;
   settings.workers = 1;
   ScriptController controller(settings);
@@ -74,15 +74,21 @@ TEST_F(ScriptNative, ComposesMatchingOperationsOnOneWorker) {
     item in rows { emit continue(item, "f", "integerLiteral().bind(\"n\")"); }
   emit continue(rows, "f", "functionDecl().bind(\"f\")", scope = "root");
   emit restart(rows, "callExpr().bind(\"call\")");
+  emit traverse(max_depth = 0);
+  emit cfg("f", always_add_statements = true);
+  emit callgraph();
   )script");
   auto result = controller.run(request, [] { return true; });
   ASSERT_EQ(result.code, Code::Ok) << result.message;
-  ASSERT_EQ(result.response.emissions_size(), 5);
+  ASSERT_EQ(result.response.emissions_size(), 8);
   EXPECT_EQ(result.response.emissions(0).value().scalar().integer(), 2);
   EXPECT_EQ(result.response.emissions(1).value().matches().rows_size(), 1);
   EXPECT_EQ(result.response.emissions(2).value().matches().rows_size(), 1);
   EXPECT_EQ(result.response.emissions(3).value().matches().rows_size(), 2);
   EXPECT_EQ(result.response.emissions(4).value().matches().rows_size(), 1);
+  EXPECT_EQ(result.response.emissions(5).value().traversal().nodes_size(), 1);
+  EXPECT_EQ(result.response.emissions(6).value().cfg().graphs_size(), 1);
+  EXPECT_EQ(result.response.emissions(7).value().call_graph().nodes_size(), 3);
 }
 TEST_F(ScriptNative, BranchesFromImmutableRowsAndPreservesRowSelection) {
   ScriptController controller;
@@ -101,9 +107,12 @@ TEST_F(ScriptNative, BranchesFromImmutableRowsAndPreservesRowSelection) {
 TEST_F(ScriptNative, NativeAndScopeFailuresAreAtomic) {
   ScriptController controller;
   for (const auto &source :
-       {"emit 7; emit match(\"imaginaryMatcher()\");",
+       {"emit 7; emit cfg(\"missing\");",
         "let rows=match(\"functionDecl()\"); foreach item in rows {let "
-        "local=1;} emit local;"}) {
+        "local=1;} emit local;",
+        "emit 7; emit traverse(max_nodes=1);", "emit cfg(\"f\",max_blocks=0);",
+        "emit cfg(\"f\",add_scopes=1);", "emit callgraph(unknown=true);",
+        "emit traverse(max_depth=257);"}) {
     request.set_source(source);
     auto result = controller.run(request, [] { return true; });
     EXPECT_NE(result.code, Code::Ok) << source;
@@ -129,11 +138,33 @@ public:
     return inner->match(input, query, check, callback);
   }
 };
+TEST_F(ScriptNative, AllOperationsPinTheSameGenerationDespiteFileChanges) {
+  auto engine = std::make_shared<MutatingQueryEngine>();
+  engine->file = directory.path() / "fixture.cc";
+  ScriptController controller({}, engine);
+  request.set_source(R"script(emit match("functionDecl().bind(\"f\")");
+  emit cfg("f");
+  emit callgraph();)script");
+  auto result = controller.run(request, [] { return true; });
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  EXPECT_EQ(engine->acquisitions, 1);
+  EXPECT_EQ(result.response.emissions(1)
+                .value()
+                .cfg()
+                .graphs(0)
+                .function()
+                .qualified_name(),
+            "f");
+  ctk::analysis::v1::ScriptRequest second = request;
+  second.set_source("emit cfg(\"replacement\");");
+  EXPECT_EQ(controller.run(second, [] { return true; }).code, Code::Ok);
+  EXPECT_EQ(engine->acquisitions, 2);
+}
 TEST_F(ScriptNative, SnapshotAndResponseBoundsPublishNoEmissions) {
   CursorSettings settings;
   settings.max_memory_bytes = 1;
   ScriptController tiny_snapshot(settings);
-  request.set_source("emit match(\"functionDecl()\");");
+  request.set_source("emit callgraph();");
   auto result = tiny_snapshot.run(request, [] { return true; });
   EXPECT_EQ(result.code, Code::ResourceExhausted) << result.message;
   settings = {};

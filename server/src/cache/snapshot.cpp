@@ -44,7 +44,7 @@ SnapshotEntry::SnapshotEntry(std::uint64_t id, std::string identity,
     : generation(id), profile_identity(std::move(identity)),
       canonical_manifest(manifest(profile_identity, loaded.inputs)),
       inputs(std::move(loaded.inputs)), owner(std::move(loaded.owner)),
-      estimated_bytes(loaded.estimated_bytes) {
+      estimated_bytes(loaded.estimated_bytes), reusable(loaded.reusable) {
   if (!owner || inputs.empty())
     throw std::invalid_argument(
         "snapshot requires native ownership and inputs");

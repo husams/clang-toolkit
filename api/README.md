@@ -7,6 +7,11 @@ whole-tree restarts, binding continuations and idempotent `CloseSession`; see
 [result cursor semantics](../docs/result-cursors.md). Its existing v1 field
 numbers and typed matcher-result contract are preserved.
 
+`ctk.analysis.v1.AnalysisService.Traverse` returns owned declaration/statement
+occurrences with preorder parent structure and native visitor options; see
+[standalone traversal](../docs/ast-traversal.md). Each traversal message has
+its own source schema under `analysis/v1/`.
+
 The contract returns directly usable names, qualified names, types, signatures, constants, operators, arguments, initializers, bodies, members and constraints. Opaque node IDs, lookup tables, snapshot handles, source locations and TypeLoc contracts have been removed. This replaces the unreleased graph draft and is incompatible with that draft's changed field types.
 
 | File | Contents |
@@ -60,6 +65,12 @@ Generated bindings and descriptors stay in `build/dev/api/generated`; assembled 
 `node_tags.json` owns protobuf payload field tags, not AST object identifiers. Surviving tags remain fixed; removed TypeLoc names/numbers are reserved. Regenerate or check the generated union with `uv run python api/generate_nodes.py` and `uv run python api/generate_nodes.py --check`.
 
 See the [design Page](https://chatgpt.com/space/page_4b91284d97d88191a4fe1463e732cc17) and [catalog Page](https://chatgpt.com/space/page_9ad19ee5b3bc8191a754557451c0e565) for the reviewed design and node inventory. Update both alongside intentional contract changes.
+
+Native CFG: `analysis/v1/AnalysisService.Cfg`, with dedicated graph/block/element
+and construction-context messages; see [control-flow](../docs/control-flow.md).
+
+Native call graphs: `analysis/v1/AnalysisService.CallGraph`; see
+[call graph semantics and limits](../docs/call-graphs.md).
 
 Server query composition: see [server scripting](../docs/server-scripting.md).
 

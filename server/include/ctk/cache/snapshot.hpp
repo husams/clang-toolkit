@@ -34,6 +34,7 @@ struct LoadedSnapshot {
   std::shared_ptr<const NativeSnapshotOwner> owner;
   std::vector<InputObservation> inputs;
   std::size_t estimated_bytes = 0;
+  bool reusable = true;
 };
 
 class SnapshotEntry final {
@@ -47,6 +48,7 @@ public:
   const std::vector<InputObservation> inputs;
   const std::shared_ptr<const NativeSnapshotOwner> owner;
   const std::size_t estimated_bytes;
+  const bool reusable;
 
   // Hold this lane for every native operation; never acquire it under the
   // cache metadata lock. Immutable ownership does not make Clang thread-safe.

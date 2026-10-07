@@ -121,3 +121,7 @@ single-flight races, validation publication fences, cancellation, pinned evictio
 metadata limits, value-vector lifetimes and native destruction outside locking.
 The root build explicitly requests C++23 for all server targets, including
 `dev-noclang`. See `cache-implementation-progress.md` for actual gate results.
+
+The integrated native adapter now captures header and precompiled dependency
+closures; see [native snapshot reuse](native-snapshot-reuse.md) for its validation,
+artifact ownership, supported proofs and fresh-parse fallback.

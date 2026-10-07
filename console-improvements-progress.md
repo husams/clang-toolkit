@@ -2,9 +2,10 @@
 
 Scope: console help/completion, related grammar/runtime integration, documentation,
 and tests. Base HEAD: `59e8ad7150551a9da0e9406530ffb70a9db506a3`.
-Existing native analysis/cache changes and swap-file deletion are preserved.
-The user subsequently authorized a scoped commit and local main integration;
-remote pushing remains unauthorized.
+The scoped console implementation was committed as `aa3a924`. The human later
+authorized committing and pushing all remaining native analysis/cache integration
+and console work. Earlier scoped validation and publication notes below are
+historical; the final aggregate verification supersedes them.
 
 ## Story 1 — Detailed local help
 
@@ -99,3 +100,24 @@ HEAD. Native extension hunks and generated native-help overlays remain in the
 working tree with the unrelated native work. The commit containing this record
 integrates the validated console changes directly into existing local main;
 there is no branch switch or remote push.
+
+## Final aggregate integration — 7 October 2026
+
+The complete candidate includes `aa3a924`, the reviewed SDK, and the previously
+uncommitted native traversal/CFG/callgraph/project/snapshot implementations.
+Console help, formal grammar, Python wrappers and command reference now describe
+the complete published surface. The reference matches generated help exactly
+(20,481 bytes, 842 lines), and the manual launcher passes shell syntax checks.
+
+Fresh complete validation passed 249 native and 390 Python/BDD tests on both
+macOS Clang 22.1.8 and Rocky Clang 21.1.8, plus 151 Clang-only and 109 Clang-disabled
+cases. TypeScript passed 41 unit and 20 live transport cases and its strict/lint/
+build gates. All six historical persistence assertions pass with isolated,
+writable storage. An intentionally unavailable storage root reproduces those
+six failures; the earlier console root's exact cause was not determined.
+
+Independent snapshot review additionally fixed a fresh-parse admission failure
+with more than 16,384 headers and added its regression. Source, wheel, schema,
+serializer, include-boundary and whitespace checks passed. The complete scope is
+authorized for non-force publication; only the existing swap-file deletion is
+excluded. See `functionality-progress.md` for final aggregate evidence.

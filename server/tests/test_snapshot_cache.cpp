@@ -783,3 +783,20 @@ TEST(SnapshotCache,
 }
 
 } // namespace
+
+TEST(SnapshotCache, LoaderCanReturnFreshNonReusableSnapshotWithoutRetention) {
+  auto loader = std::make_shared<FunctionLoader>(
+      [](const std::string &path, const CompilationContext &) {
+        auto result = loaded({file_input(path)});
+        result.reusable = false;
+        return result;
+      });
+  SnapshotCache cache(loader);
+  auto context = context_for();
+  const auto first = cache.acquire("/src/unsafe.cpp", context);
+  const auto second = cache.acquire("/src/unsafe.cpp", context);
+  EXPECT_FALSE(first->reusable);
+  EXPECT_FALSE(second->reusable);
+  EXPECT_NE(first, second);
+  EXPECT_EQ(loader->loads, 2);
+}

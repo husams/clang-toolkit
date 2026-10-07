@@ -25,6 +25,7 @@ from .output import OutputSink
 from .persistence import load, save
 from .values import MatchSet, MatcherExpr, QualifiedName, matcher_text, render
 from .cursors import execute_cursor
+from .traversal import execute_traversal
 
 
 class EvaluationError(ValueError):
@@ -95,6 +96,8 @@ class Runtime:
             return render_help(statement)
         if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
             return self.output.emit(execute_cursor(self, statement))
+        if kind == "traverse":
+            return self.output.emit(execute_traversal(self, statement))
         if kind == "session_label":
             self.label = self._string(str(statement.children[2]))
             return ""
@@ -196,6 +199,9 @@ class Runtime:
             return self.output.emit(render(self._evaluate(statement.children[1])))
         if kind == "display":
             return self.output.emit(render(self._evaluate(statement.children[0])))
+        if kind == "cfg_file":
+            from .control_flow import execute_cfg
+            return self.output.emit(execute_cfg(self, statement, source))
         if kind == "cfg":
             message = ('cfg requires a file: cfg FUNCTION in "file.cc"; see help cfg'
                 if HAS_NATIVE_ANALYSIS_GRAMMAR else 'cfg native execution is not implemented in this build; see help cfg')
@@ -203,6 +209,9 @@ class Runtime:
         if kind == "script":
             from .scripting import execute_script
             return self.output.emit(execute_script(self, statement))
+        if kind == "callgraph_file":
+            from .call_graph import execute_call_graph
+            return self.output.emit(execute_call_graph(self, statement))
         if kind == "callgraph":
             message = ('callgraph requires a file: callgraph "file.cc"; see help callgraph'
                 if HAS_NATIVE_ANALYSIS_GRAMMAR else 'callgraph native execution is not implemented in this build; see help callgraph')

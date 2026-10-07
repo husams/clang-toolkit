@@ -24,7 +24,6 @@ pytestmark = pytest.mark.e2e
 scenarios("network.feature")
 
 
-
 @given("a C++ file controlled by a client compilation profile", target_fixture="profile_source")
 def client_profile_source(tmp_path: Path) -> Path:
     directory = tmp_path / "client-profile"
@@ -36,6 +35,7 @@ def client_profile_source(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
 
 @when("I run native parse blocks through the SDKs and real console without a default file", target_fixture="profile_results")
 def native_client_profile(server: RunningServer, profile_source: Path, tmp_path: Path):
@@ -70,6 +70,7 @@ def native_client_profile(server: RunningServer, profile_source: Path, tmp_path:
     assert console.returncode == 0, console.stdout
     return synchronous, asynchronous, console.stdout
 
+
 @then("the client working directory and compiler flags select the profile function")
 def native_client_profile_matches(profile_results):
     synchronous, asynchronous, console = profile_results
@@ -80,11 +81,42 @@ def native_client_profile_matches(profile_results):
     assert "PROFILE_COMPLETE" in console and "profile_function" in console
     assert "error:" not in console and "syntax error" not in console
 
+
+@when("I traverse the file and enforce a node limit", target_fixture="traversal_result")
+def traverse_native_file(server: RunningServer, cursor_source: Path):
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            result = await client.traverse(cursor_source)
+            root = await client.traverse(cursor_source, max_depth=0)
+            assert root.depth_limited and len(root.nodes) == 1
+            with pytest.raises(AnalysisError) as limited:
+                await client.traverse(cursor_source, max_nodes=1)
+            assert limited.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+            return result
+    return asyncio.run(run())
+
+
+@then("traversal contains the typed literal and a valid parent structure")
+def valid_native_preorder(traversal_result):
+    records = traversal_result.nodes
+    assert records[0].value.node.HasField("translation_unit_decl")
+    assert not records[0].HasField("parent_index")
+    literals = []
+    for index, record in enumerate(records):
+        if index:
+            assert record.HasField("parent_index") and record.parent_index < index
+            assert record.depth == records[record.parent_index].depth + 1
+        if record.value.node.HasField("integer_literal"):
+            literals.append(record.value.node.integer_literal.value.unsigned_decimal)
+    assert "7" in literals
+
+
 @given("a C++ file containing a cursor workflow", target_fixture="cursor_source")
 def cursor_source(tmp_path: Path) -> Path:
     path = tmp_path / "cursor.cc"
     path.write_text("int target(int x){return x;} int f(){return target(7);}", encoding="utf-8")
     return path
+
 
 @when("I continue, restart and close the matching cursor", target_fixture="cursor_result")
 def cursor_workflow(server: RunningServer, cursor_source: Path):
@@ -116,17 +148,20 @@ def cursor_workflow(server: RunningServer, cursor_source: Path):
             return first, continuation, restarted
     return asyncio.run(run())
 
+
 @then("the cursor preserved its bindings on failure and advanced only successful revisions")
 def verify_cursor_workflow(cursor_result):
     first, continued, restarted = cursor_result
     assert first.session_id == continued.session_id == restarted.session_id
     assert [first.result_revision, continued.result_revision, restarted.result_revision] == [1, 2, 3]
 
+
 @dataclass
 class RunningServer:
     process: subprocess.Popen[str]
     endpoint: str
     config: Path
+
 
 def _launch_server(transport: str, tmp_path: Path, request, *, max_files: int = 100,
                    max_send_bytes: int | None = None) -> RunningServer:
@@ -201,17 +236,21 @@ def _launch_server(transport: str, tmp_path: Path, request, *, max_files: int = 
         pytest.fail(f"ctk-server did not become ready: {output}")
     return RunningServer(process, endpoint, config)
 
+
 @given(parsers.parse("a query server using {transport}"), target_fixture="server")
 def start_server(transport: str, tmp_path: Path, request) -> RunningServer:
     return _launch_server(transport, tmp_path, request)
+
 
 @given("a query server with a one-file limit", target_fixture="server")
 def start_limited_server(tmp_path: Path, request) -> RunningServer:
     return _launch_server("unix", tmp_path, request, max_files=1)
 
+
 @given("a cursor server with a 128-byte response limit", target_fixture="server")
 def start_cursor_byte_limited_server(tmp_path: Path, request) -> RunningServer:
     return _launch_server("unix", tmp_path, request, max_send_bytes=128)
+
 
 @when("I request an oversized cursor replacement", target_fixture="cursor_limited_result")
 def oversized_cursor_replacement(server: RunningServer, cursor_source: Path):
@@ -228,15 +267,18 @@ def oversized_cursor_replacement(server: RunningServer, cursor_source: Path):
             return preserved
     return asyncio.run(run())
 
+
 @then("the oversized response leaves revision one available for replacement")
 def cursor_wire_limit_preserves_revision(cursor_limited_result):
     assert cursor_limited_result.result_revision == 2
+
 
 @given("a C++ file containing a declaration", target_fixture="source")
 def create_cpp_source(tmp_path: Path) -> Path:
     source = tmp_path / "query.cpp"
     source.write_text("int network_client_marker = 1;\n", encoding="utf-8")
     return source
+
 
 @when("I run the declaration query", target_fixture="events")
 def run_declaration_query(server: RunningServer, source: Path):
@@ -248,6 +290,7 @@ def run_declaration_query(server: RunningServer, source: Path):
             )
     return asyncio.run(run())
 
+
 @then("the stream contains a match and successful completion")
 def has_match_and_completion(events) -> None:
     kinds = [event.WhichOneof("event") for event in events]
@@ -255,6 +298,7 @@ def has_match_and_completion(events) -> None:
     assert kinds[-1] == "completed"
     completed = next(event.completed for event in events if event.WhichOneof("event") == "completed")
     assert completed.match_count >= 1
+
 
 @when("I run the query through a bidirectional session", target_fixture="session_events")
 def run_bidi_query(server: RunningServer, source: Path):
@@ -270,11 +314,13 @@ def run_bidi_query(server: RunningServer, source: Path):
             return events
     return asyncio.run(run())
 
+
 @then("the session stream contains a match and completion")
 def has_session_match_and_completion(session_events) -> None:
     kinds = [event.WhichOneof("event") for event in session_events]
     assert "match" in kinds
     assert "completed" in kinds
+
 
 @when("I define two queries in one bidirectional session", target_fixture="rejection")
 def define_two_queries(server: RunningServer):
@@ -290,10 +336,12 @@ def define_two_queries(server: RunningServer):
             return events
     return asyncio.run(run())
 
+
 @then("the session reports a command rejection")
 def has_command_rejection(rejection) -> None:
     assert any(event.WhichOneof("event") == "rejected" for event in rejection)
     assert any(event.WhichOneof("event") == "completed" for event in rejection)
+
 
 @when("I cancel an active bidirectional session", target_fixture="cancellation")
 def cancel_bidi_session(server: RunningServer):
@@ -311,10 +359,12 @@ def cancel_bidi_session(server: RunningServer):
                 await session.aclose()
     return asyncio.run(run())
 
+
 @then("the session reports cancellation")
 def has_cancellation(cancellation) -> None:
     assert isinstance(cancellation, QueryError)
     assert "CANCELLED" in str(cancellation)
+
 
 @when("I match the first file and add a second file", target_fixture="limited_events")
 def run_limited_batch(server: RunningServer, source: Path, tmp_path: Path):
@@ -335,6 +385,7 @@ def run_limited_batch(server: RunningServer, source: Path, tmp_path: Path):
             await session.aclose()
             return events, match_request_id, rejected_request_id
     return asyncio.run(run())
+
 
 @then("the second batch is rejected while the first file completes")
 def checks_limited_batch(limited_events, source: Path) -> None:
@@ -359,6 +410,7 @@ def checks_limited_batch(limited_events, source: Path) -> None:
     assert "paused" in actions
     assert "resumed" in actions
 
+
 @then("the declaration contains a complete typed initializer and exact type")
 def has_typed_semantic_declaration(events) -> None:
     match = next(event.match for event in events if event.WhichOneof("event") == "match")
@@ -374,6 +426,147 @@ def has_typed_semantic_declaration(events) -> None:
     assert variable.initializer.integer_literal.value.unsigned_decimal == "1"
     assert variable.initializer.integer_literal.info.type.type.builtin_type.info.spelling == "int"
 
+
+@when("I build the function CFG and reject a limited result", target_fixture="cfg_result")
+def cfg_native_file(server: RunningServer, cursor_source: Path):
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            result = await client.cfg(cursor_source, "f")
+            with pytest.raises(AnalysisError) as limited:
+                await client.cfg(cursor_source, "f", max_blocks=1)
+            assert limited.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+            with pytest.raises(AnalysisError) as missing:
+                await client.cfg(cursor_source, "unknown")
+            assert missing.value.code == grpc.StatusCode.NOT_FOUND
+            return result
+    return asyncio.run(run())
+
+
+@then("the graph contains typed statements and valid block edges")
+def cfg_typed_blocks(cfg_result):
+    assert len(cfg_result.graphs) == 1
+    graph = cfg_result.graphs[0]
+    assert graph.function.qualified_name == "f"
+    indices = {block.block_index for block in graph.blocks}
+    assert graph.entry_block in indices and graph.exit_block in indices
+    assert any(element.HasField("statement") and element.statement.statement.expression.HasField("call_expr")
+               for block in graph.blocks for element in block.elements)
+    for block in graph.blocks:
+        for edge in block.successors:
+            if edge.HasField("reachable_block"):
+                assert edge.reachable_block in indices
+
+
+@when("I build the native call graph and enforce its node limit", target_fixture="call_graph_result")
+def native_call_graph(server: RunningServer, cursor_source: Path):
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            result = await client.callgraph(cursor_source)
+            with pytest.raises(AnalysisError) as limited:
+                await client.callgraph(cursor_source, max_nodes=1)
+            assert limited.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+            return result
+    return asyncio.run(run())
+
+
+@then("the call graph connects the functions with a typed call")
+def typed_call_graph(call_graph_result):
+    result = call_graph_result
+    assert result.nodes[result.root_node].is_virtual_root
+    functions = {node.function.qualified_name: node.node_index for node in result.nodes if node.HasField("function")}
+    calls = [edge for edge in result.edges if edge.caller_node == functions["f"] and edge.callee_node == functions["target"]]
+    assert len(calls) == 1
+    assert calls[0].call.call_expr.call.direct_callee.qualified_name == "target"
+    assert calls[0].call.call_expr.call.arguments[0].integer_literal.value.unsigned_decimal == "7"
+
+
+@when("I compose native analyses in a server script and exhaust its step budget", target_fixture="script_result")
+def native_script(server: RunningServer, cursor_source: Path):
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            source = r'''let rows=match("functionDecl(isDefinition()).bind(\"f\")");
+                emit count(rows);
+                foreach item in rows {emit continue(item,"f","integerLiteral().bind(\"n\")");}
+                emit cfg("f"); emit callgraph(); emit traverse(max_depth=0);'''
+            result = await client.run_script(source,path=cursor_source)
+            with pytest.raises(AnalysisError) as limited:
+                await client.run_script(source,path=cursor_source,max_steps=1)
+            assert limited.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+            with pytest.raises(AnalysisError) as malformed:
+                await client.run_script("emit 7; emit missing;",path=cursor_source)
+            assert malformed.value.code == grpc.StatusCode.INVALID_ARGUMENT
+            return result
+    return asyncio.run(run())
+
+
+@then("the script contains typed query values and no native cursor handles")
+def typed_script(script_result):
+    assert script_result.emissions[0].value.scalar.integer >= 2
+    assert any(item.value.HasField("matches") and item.value.matches.rows for item in script_result.emissions)
+    assert any(item.value.HasField("cfg") and item.value.cfg.graphs[0].function.qualified_name == "f" for item in script_result.emissions)
+    assert any(item.value.HasField("call_graph") and item.value.call_graph.nodes[0].is_virtual_root for item in script_result.emissions)
+    assert any(item.value.HasField("traversal") and len(item.value.traversal.nodes) == 1 for item in script_result.emissions)
+    assert "session_id" not in str(script_result)
+
+
+@when(parsers.parse("I replace a {kind} dependency after pinning its native snapshot"),
+      target_fixture="dependency_generations")
+def replace_native_dependency(kind: str, server: RunningServer, tmp_path: Path):
+    root = Path(__file__).parents[2]
+    tool_path = root / "build/dev/ctk-clang-tool-path.txt"
+    compiler = os.environ.get("CTK_TEST_CLANG")
+    if compiler is None and tool_path.is_file():
+        compiler = tool_path.read_text().strip()
+    assert compiler is not None, "set CTK_TEST_CLANG to the server's configured Clang compiler"
+    source = tmp_path / "dependency-main.cc"
+    dependency = tmp_path / ("numbers.cppm" if kind == "module" else "values.hpp")
+    artifact = tmp_path / ("numbers.pcm" if kind == "module" else "values.pch")
+    flags = ["-std=c++20"]
+    if kind == "module":
+        source.write_text("import numbers; int f(){return value();}\n", encoding="utf-8")
+        flags.append(f"-fmodule-file=numbers={artifact}")
+    elif kind == "pch":
+        source.write_text("int f(){return value();}\n", encoding="utf-8")
+        flags.extend(["-include-pch", str(artifact)])
+    else:
+        source.write_text('#include "values.hpp"\nint f(){return value();}\n', encoding="utf-8")
+
+    def build(value: int):
+        prefix = "export module numbers; export " if kind == "module" else "inline "
+        dependency.write_text(prefix + f"int value(){{return {value};}}\n", encoding="utf-8")
+        if kind != "header":
+            action = ["--precompile"] if kind == "module" else ["-x", "c++-header"]
+            completed = subprocess.run(
+                [compiler, "-std=c++20", "-Xclang", "-fvalidate-ast-input-files-content", *action,
+                 str(dependency), "-o", str(artifact)], capture_output=True, text=True,
+            )
+            assert completed.returncode == 0, completed.stderr
+
+    async def run():
+        build(7)
+        async with AsyncClient(server.endpoint) as client:
+            pinned = await client.match_file(source, 'functionDecl(hasName("f")).bind("f")',
+                                             working_directory=tmp_path, compile_arguments=flags)
+            build(9)
+            current = await client.match_file(source, 'integerLiteral().bind("n")',
+                                              working_directory=tmp_path, compile_arguments=flags)
+            old = await client.restart_match(pinned.session_id, 'integerLiteral().bind("n")')
+            await client.close_match(pinned.session_id)
+            await client.close_match(current.session_id)
+            return current, old
+    return asyncio.run(run())
+
+
+@then("new queries see nine and the pinned snapshot still sees seven")
+def verify_native_generations(dependency_generations):
+    current, old = dependency_generations
+    for result, expected in ((current, "9"), (old, "7")):
+        literals = [row.bindings["n"].node.integer_literal.value.unsigned_decimal
+                    for row in result.results]
+        assert expected in literals
+        assert ("7" if expected == "9" else "9") not in literals
+
+
 @given("a C++ file containing multiple expression roots", target_fixture="expression_source")
 def expression_source(tmp_path: Path) -> Path:
     path = tmp_path / "expressions.cc"
@@ -383,6 +576,7 @@ def expression_source(tmp_path: Path) -> Path:
         "int two(){return target(9);}\n", encoding="utf-8",
     )
     return path
+
 
 @when("I parse and match independent tree and binding values", target_fixture="expression_values")
 def immutable_expression_values(server: RunningServer, expression_source: Path):
@@ -422,9 +616,11 @@ def immutable_expression_values(server: RunningServer, expression_source: Path):
 
     return asyncio.run(run())
 
+
 @then("every result remains selectable after continuations and tree release")
 def expression_values_preserved(expression_values):
     assert expression_values == (2, 2, 2, 2)
+
 
 @when("I run the approved scoped expressions in the interactive runtime", target_fixture="console_expressions")
 def scoped_console_expression_values(server: RunningServer, expression_source: Path, tmp_path: Path):
@@ -462,9 +658,11 @@ def scoped_console_expression_values(server: RunningServer, expression_source: P
         finally:
             runtime.close()
 
+
 @then("the yielded value survives lexical cleanup and failed assignments")
 def console_values_preserved(console_expressions):
     assert console_expressions == (2, 1, 2, 2, 2, 2)
+
 
 @when("I evaluate scoped parse and match expressions in the native script", target_fixture="native_expressions")
 def native_scoped_expression_values(server: RunningServer, expression_source: Path):
@@ -497,11 +695,13 @@ def native_scoped_expression_values(server: RunningServer, expression_source: Pa
 
     return asyncio.run(run())
 
+
 @then("native continuation uses all rows and keeps yielded results usable")
 def native_script_values_preserved(native_expressions):
     assert [len(item.value.matches.rows) for item in native_expressions.emissions] == [3, 2, 2, 1, 2, 0]
     assert [row.bindings["n"].node.integer_literal.value.unsigned_decimal
             for row in native_expressions.emissions[4].value.matches.rows] == ["7", "9"]
+
 
 @when("I enter parse and match expressions through the real console", target_fixture="real_console_output")
 def real_expression_console(server: RunningServer, expression_source: Path, tmp_path: Path):
@@ -532,6 +732,7 @@ quit
     assert result.returncode == 0, result.stdout
     return result.stdout
 
+
 @then("the console prints both yielded literals and exits cleanly")
 def real_console_completed(real_console_output):
     assert "CONSOLE_COMPLETE" in real_console_output
@@ -540,6 +741,7 @@ def real_console_completed(real_console_output):
     assert "error:" not in real_console_output
     assert "'7'" in real_console_output or '"7"' in real_console_output
     assert "'9'" in real_console_output or '"9"' in real_console_output
+
 
 @when("I use configured synchronous and asynchronous result contexts", target_fixture="context_values")
 def configured_result_contexts(server: RunningServer, expression_source: Path, tmp_path: Path, monkeypatch):
@@ -587,9 +789,11 @@ def configured_result_contexts(server: RunningServer, expression_source: Path, t
 
     return (sync_calls, sync_numbers), asyncio.run(run())
 
+
 @then("context cleanup preserves children and invalidates closed aliases")
 def result_contexts_preserved(context_values):
     assert context_values == ((2, ["7", "9"]), (2, ["7", "9"]))
+
 
 @when("I parse with a configured 16-byte receive limit", target_fixture="configured_receive_error")
 def configured_receive_limit(server: RunningServer, expression_source: Path, tmp_path: Path, monkeypatch):
@@ -604,6 +808,7 @@ def configured_receive_limit(server: RunningServer, expression_source: Path, tmp
             return rejected.value.code
 
     return asyncio.run(run())
+
 
 @then("the configured client rejects the oversized response")
 def configured_response_rejected(configured_receive_error):

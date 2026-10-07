@@ -71,6 +71,50 @@ Feature: gRPC network client
       | unix      |
       | tcp       |
 
+  Scenario Outline: Server script composes native queries and publishes atomically
+    Given a query server using <transport>
+    And a C++ file containing a cursor workflow
+    When I compose native analyses in a server script and exhaust its step budget
+    Then the script contains typed query values and no native cursor handles
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
+  Scenario Outline: Native call graph returns finite functions and typed calls
+    Given a query server using <transport>
+    And a C++ file containing a cursor workflow
+    When I build the native call graph and enforce its node limit
+    Then the call graph connects the functions with a typed call
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
+  Scenario Outline: CFG returns owned typed blocks and bounded overloads
+    Given a query server using <transport>
+    And a C++ file containing a cursor workflow
+    When I build the function CFG and reject a limited result
+    Then the graph contains typed statements and valid block edges
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
+  Scenario Outline: Standalone traversal returns a typed preorder tree
+    Given a query server using <transport>
+    And a C++ file containing a cursor workflow
+    When I traverse the file and enforce a node limit
+    Then traversal contains the typed literal and a valid parent structure
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
   Scenario: Oversized cursor response does not commit a new revision
     Given a cursor server with a 128-byte response limit
     And a C++ file containing a cursor workflow
@@ -126,3 +170,14 @@ Feature: gRPC network client
       | transport |
       | unix      |
       | tcp       |
+
+  Scenario Outline: Native dependency changes preserve pinned cursor snapshots
+    Given a query server using unix
+    When I replace a <kind> dependency after pinning its native snapshot
+    Then new queries see nine and the pinned snapshot still sees seven
+
+    Examples:
+      | kind   |
+      | header |
+      | pch    |
+      | module |

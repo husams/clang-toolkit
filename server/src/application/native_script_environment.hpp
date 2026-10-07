@@ -1,6 +1,9 @@
 #pragma once
 #include "analysis/v1/script_request.pb.h"
 #include "ctk/application/match_controller.hpp"
+#include "ctk/clang/call_graph_backend.hpp"
+#include "ctk/clang/cfg_backend.hpp"
+#include "ctk/clang/traversal_backend.hpp"
 #include "ctk/script/environment.hpp"
 namespace ctk::application::detail {
 class NativeScriptEnvironment final : public ctk::script::Environment {
@@ -33,5 +36,8 @@ private:
   ctk::clang_layer::IMatchBackend::Checkpoint checkpoint_;
   std::shared_ptr<ctk::clang_layer::IQueryEngine> pinned_;
   std::shared_ptr<ctk::clang_layer::IMatchBackend> matches_;
+  std::shared_ptr<ctk::clang_layer::ITraversalBackend> traversal_;
+  std::shared_ptr<ctk::clang_layer::ICfgBackend> cfg_;
+  std::shared_ptr<ctk::clang_layer::ICallGraphBackend> calls_;
 };
 } // namespace ctk::application::detail

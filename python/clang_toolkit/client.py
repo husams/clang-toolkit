@@ -24,8 +24,11 @@ from clang_toolkit.configuration import NetworkConfig, load_network_config
 from clang_toolkit.cursors import CursorError, file_request, retained_request
 from clang_toolkit._generated.match.v1 import match_service_pb2, match_service_pb2_grpc
 from clang_toolkit._generated.match.v1 import match_result_pb2
-from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc
+from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2
 from clang_toolkit.analysis_error import AnalysisError
+from clang_toolkit.traversal import traversal_request
+from clang_toolkit.control_flow import CfgOptions, cfg_request
+from clang_toolkit.call_graph import call_graph_request
 from clang_toolkit.match_values import (
     BindingSelection, MatchTarget, MatchValue, MatchValueError, ParsedTree,
 )
@@ -439,6 +442,40 @@ class AsyncClient:
             lease.close()
             self._end_value_operation()
 
+    async def traverse(
+        self, path: str | Path, *, working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (), visit_implicit_code: bool = False,
+        visit_template_instantiations: bool = False, max_depth: int | None = None,
+        max_nodes: int | None = None,
+    ) -> traverse_response_pb2.TraverseResponse:
+        request = traversal_request(path, working_directory=working_directory,
+            compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
+            visit_template_instantiations=visit_template_instantiations, max_depth=max_depth,
+            max_nodes=max_nodes)
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        try:
+            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).Traverse(
+                request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+
+    async def cfg(self, path: str | Path, function: str, *,
+                  working_directory: str | Path | None = None,
+                  compile_arguments: Sequence[str] = (), options: CfgOptions | None = None,
+                  max_functions: int | None = None, max_blocks: int | None = None,
+                  max_elements: int | None = None) -> cfg_response_pb2.CfgResponse:
+        request = cfg_request(path, function, working_directory=working_directory,
+            compile_arguments=compile_arguments, options=options, max_functions=max_functions,
+            max_blocks=max_blocks, max_elements=max_elements)
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        try:
+            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).Cfg(
+                request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+
     async def run_script(self, source: str, *, path: str | Path | None = None,
                          working_directory: str | Path | None = None,
                          compile_arguments: Sequence[str] = (), max_steps: int | None = None
@@ -449,6 +486,23 @@ class AsyncClient:
         assert self._channel is not None and self.config is not None
         try:
             return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).RunScript(
+                request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+
+    async def callgraph(self, path: str | Path, *,
+                        working_directory: str | Path | None = None,
+                        compile_arguments: Sequence[str] = (), visit_implicit_code: bool | None = None,
+                        visit_template_instantiations: bool | None = None, max_nodes: int | None = None,
+                        max_edges: int | None = None) -> call_graph_response_pb2.CallGraphResponse:
+        request = call_graph_request(path, working_directory=working_directory,
+            compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
+            visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
+            max_edges=max_edges)
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        try:
+            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).CallGraph(
                 request, timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
@@ -891,6 +945,8 @@ class Client:
     def close_match(self, session_id: str) -> None:
         self._cursor_call("close_match", session_id)
 
+    def traverse(self, path: str | Path, **kwargs: Any) -> traverse_response_pb2.TraverseResponse:
+        return self._cursor_call("traverse", path, **kwargs)
 
     def bind_async_client(self, client: AsyncClient) -> None:
         """Attach the active CLI loop for commands submitted by worker threads."""
@@ -1022,8 +1078,11 @@ class Client:
 
         return asyncio.run(run())
 
-    def cfg(self, function: str) -> str:
-        raise NotImplementedError("CFG queries are not yet exposed by the server")
+    def cfg(self, function: str, *, path: str | Path | None = None,
+            **kwargs: Any) -> cfg_response_pb2.CfgResponse:
+        if path is None:
+            raise ValueError("CFG requires a file path; pass path=...")
+        return self._cursor_call("cfg", path, function, **kwargs)
 
     def run_script(self, source: str, *, path: str | Path | None = None,
                    working_directory: str | Path | None = None,
@@ -1033,8 +1092,11 @@ class Client:
             working_directory=working_directory, compile_arguments=compile_arguments,
             max_steps=max_steps)
 
-    def callgraph(self) -> str:
-        raise NotImplementedError("call graph queries are not yet exposed by the server")
+    def callgraph(self, path: str | Path | None = None,
+                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse:
+        if path is None:
+            raise ValueError("callgraph requires a file path")
+        return self._cursor_call("callgraph", path, **kwargs)
 
 
 def _raise_cleanup_errors(errors: Sequence[BaseException]) -> None:

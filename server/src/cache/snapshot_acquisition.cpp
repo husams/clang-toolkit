@@ -208,6 +208,8 @@ SnapshotPtr SnapshotCache::Impl::publish_generation(
   std::lock_guard lock(mutex);
   if (!can_publish_locked(request, attempt))
     return {};
+  if (!prepared.snapshot->reusable)
+    return prepared.snapshot;
   register_inputs_locked(prepared);
   retain_generation_locked(attempt.profile, prepared, retired);
   return prepared.snapshot;

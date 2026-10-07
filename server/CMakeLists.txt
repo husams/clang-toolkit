@@ -63,6 +63,7 @@ if(CTK_BUILD_NETWORK)
     src/application/operation_executor.cpp
     src/application/cursor_registry.cpp
     src/application/file_target_validation.cpp
+    src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/call_graph_controller.cpp
     src/application/script_controller.cpp src/application/native_script_environment.cpp src/application/script_options.cpp)
   target_include_directories(ctk_core PRIVATE "${CTK_YAML_INCLUDE_DIR}")
   target_link_libraries(ctk_core PRIVATE "${CTK_YAML_LIBRARY}")
@@ -92,9 +93,20 @@ if(CTK_WITH_CLANG)
   add_library(ctk_clang
     src/platform/temporary_directory.cpp
     src/clang/tooling.cpp
+    src/clang/project_inputs.cpp
+    src/clang/match_project.cpp
+    src/clang/cfg_project.cpp
+    src/clang/call_graph_project.cpp
     src/clang/cached_query_engine.cpp
+    src/clang/snapshot/compilation_environment.cpp
+    src/clang/snapshot/captured_filesystem.cpp
+    src/clang/snapshot/build_snapshot.cpp
+    src/clang/snapshot/input_identity.cpp
+    src/clang/snapshot/native_artifact_closure.cpp
     src/clang/cursor_match_backend.cpp
     src/clang/match_row_collector.cpp
+    src/clang/semantic_ast_visitor.cpp
+    src/clang/traversal_backend.cpp
     src/clang/serialization/node_serializers.cpp)
   file(GLOB_RECURSE _node_serializer_sources CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/decl/*.cpp"
@@ -103,7 +115,9 @@ if(CTK_WITH_CLANG)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/type/*.cpp")
   file(GLOB _semantic_helper_sources CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/*helpers.cpp")
-  target_sources(ctk_clang PRIVATE ${_node_serializer_sources} ${_semantic_helper_sources}
+  file(GLOB_RECURSE _call_graph_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/call_graph/*.cpp")
+  file(GLOB_RECURSE _cfg_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/cfg/*.cpp")
+  target_sources(ctk_clang PRIVATE ${_call_graph_sources} ${_cfg_sources} ${_node_serializer_sources} ${_semantic_helper_sources}
     src/clang/serialization/constant_values.cpp)
   target_precompile_headers(ctk_clang PRIVATE src/clang/serialization/node_serializers.hpp)
   set_source_files_properties(src/platform/temporary_directory.cpp

@@ -536,47 +536,54 @@ cursor close "CURSOR_ID"
 
 ## traverse
 
-Inspect the legacy AST traversal command's current implementation boundary.
+Visit a file's AST and display typed semantic nodes.
 
 ```text
-traverse PATH
+traverse PATH [depth NUMBER] [nodes NUMBER] [implicit BOOL] [instantiations BOOL]
 ```
 
-- PATH: quoted source file or reference. The grammar accepts this form, but execution is not implemented in this build.
-- Native visitor options and execution require the native analysis extension.
+- PATH: quoted source file or path/File reference. BOOL: true or false.
+- depth: 0..256, default 64. nodes: 1..100000, default 10000.
+- implicit/instantiations: false by default. Each option may occur once.
+- Uses configured extra_args and the session directory.
 
 ```text
-traverse "examples/parse_match.cc"
+traverse "examples/parse_match.cc" depth 12 nodes 10000
 ```
 
 ## cfg
 
-Inspect the legacy control-flow command's current implementation boundary.
+Build control-flow graphs for an exact qualified function name in a file.
 
 ```text
-cfg FUNCTION
+cfg FUNCTION in PATH [option NAME BOOL] [functions NUMBER] [blocks NUMBER] [elements NUMBER]
 ```
 
-- FUNCTION: bare or qualified name. The legacy client hook is not implemented in this build.
-- Native file selection and build options require the native analysis extension; no usable graph is returned here.
+- FUNCTION: bare, qualified or quoted exact name. PATH: quoted file or path/File reference.
+- option NAME BOOL: a CfgOptions boolean field. prune_trivially_false_edges defaults to true; others to false.
+- Option names: prune_trivially_false_edges, add_eh_edges, add_initializers, add_implicit_dtors, add_temporary_dtors, add_lifetime, add_scopes, add_loop_exit, add_static_init_branches, add_cxx_new_allocator, add_cxx_default_init_expr_in_ctors, add_cxx_default_init_expr_in_aggregates, add_rich_cxx_constructors, mark_elided_cxx_constructors, add_virtual_base_branches, omit_implicit_value_initializers, assume_reachable_default_in_switch_statements, always_add_statements
+- functions: 1..1000 (default 100); blocks: 1..100000 (default 10000); elements: 1..1000000 (default 100000).
+- Options may occur once. Uses configured extra_args. Legacy cfg FUNCTION is recognized but reports a local error requiring in PATH.
 
 ```text
-cfg one
+cfg one in "examples/parse_match.cc" option add_implicit_dtors true blocks 10000
 ```
 
 ## callgraph
 
-Inspect the legacy call-graph command's current implementation boundary.
+Build the native AST call graph for a file.
 
 ```text
-callgraph [PATH]
+callgraph PATH [nodes NUMBER] [edges NUMBER] [implicit BOOL] [instantiations BOOL]
 ```
 
-- The legacy call-graph client hook is not implemented in this build.
-- File selection parses, but the runtime rejects it until the native analysis extension is available.
+- PATH: quoted file or path/File reference. nodes: 1..100000 (default 10000).
+- edges: 1..1000000 (default 100000). Options may occur once.
+- Omitted implicit/instantiations use Clang CallGraph defaults (both true).
+- Uses configured extra_args. Bare legacy callgraph is recognized but reports a local error requiring a path.
 
 ```text
-callgraph
+callgraph "examples/parse_match.cc" nodes 10000 edges 100000
 ```
 
 ## script

@@ -12,4 +12,34 @@ grpc::Status AnalysisServiceAdapter::RunScript(
     response->Swap(&result.response);
   return match_status(result.code, result.message, *context);
 }
+grpc::Status AnalysisServiceAdapter::Traverse(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::TraverseRequest *request,
+    ctk::analysis::v1::TraverseResponse *response) {
+  auto result = controller_.traverse(
+      *request, [context] { return !context->IsCancelled(); });
+  if (result.code == ctk::clang_layer::MatchCode::Ok)
+    response->Swap(&result.response);
+  return match_status(result.code, result.message, *context);
+}
+grpc::Status
+AnalysisServiceAdapter::Cfg(grpc::ServerContext *context,
+                            const ctk::analysis::v1::CfgRequest *request,
+                            ctk::analysis::v1::CfgResponse *response) {
+  auto result =
+      cfg_.build(*request, [context] { return !context->IsCancelled(); });
+  if (result.code == ctk::clang_layer::MatchCode::Ok)
+    response->Swap(&result.response);
+  return match_status(result.code, result.message, *context);
+}
+grpc::Status AnalysisServiceAdapter::CallGraph(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::CallGraphRequest *request,
+    ctk::analysis::v1::CallGraphResponse *response) {
+  auto result =
+      calls_.build(*request, [context] { return !context->IsCancelled(); });
+  if (result.code == ctk::clang_layer::MatchCode::Ok)
+    response->Swap(&result.response);
+  return match_status(result.code, result.message, *context);
+}
 } // namespace ctk::net

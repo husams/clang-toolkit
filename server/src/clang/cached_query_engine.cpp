@@ -6,6 +6,9 @@
 #include "native_snapshot_owner.hpp"
 #include "native_temporary_artifact.hpp"
 #include "serialization/node_serializers.hpp"
+#include "snapshot/build_snapshot.hpp"
+#include "snapshot/compilation_environment.hpp"
+#include "snapshot/input_identity.hpp"
 
 #include <clang/AST/ASTContext.h>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
@@ -20,6 +23,8 @@
 #include <clang/Lex/Preprocessor.h>
 #include <clang/Serialization/PCHContainerOperations.h>
 #include <clang/Tooling/Tooling.h>
+#include <google/protobuf/struct.pb.h>
+#include <google/protobuf/util/json_util.h>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/StringExtras.h>
@@ -43,11 +48,6 @@
 
 namespace ctk::clang_layer {
 namespace {
-
-llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> isolated_physical_filesystem() {
-  auto filesystem = llvm::vfs::createPhysicalFileSystem();
-  return llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(filesystem.release());
-}
 
 std::filesystem::path storage_root() {
   if (const auto *configured = std::getenv("CTK_STORAGE_ROOT");
@@ -114,8 +114,7 @@ DependencyBuffers dependency_buffers(const clang::ASTUnit &unit,
     std::filesystem::path path(file->first.getName().str());
     if (path.is_relative() && !working_directory.empty())
       path = std::filesystem::path(working_directory) / path;
-    buffers.try_emplace(path.lexically_normal().string(),
-                        file->second->getBufferDataIfLoaded());
+    buffers.try_emplace(path.string(), file->second->getBufferDataIfLoaded());
   }
   return buffers;
 }
@@ -125,30 +124,17 @@ bool reusable_file_candidate(const FileInput &file) {
   if (!input)
     return false;
   const std::string source((std::istreambuf_iterator<char>(input)), {});
-  if (source.find('#') != std::string::npos ||
-      source.find("%:") != std::string::npos ||
-      source.find("?"
-                  "?=") != std::string::npos ||
-      source.find('\\') != std::string::npos ||
-      source.find("?"
-                  "?/") != std::string::npos ||
-      source.find("__has_include") != std::string::npos ||
-      source.find("__has_embed") != std::string::npos ||
-      source.find("import") != std::string::npos)
-    return false;
   return std::none_of(file.compile_arguments.begin(),
                       file.compile_arguments.end(), [](const auto &argument) {
                         return argument.starts_with("@") ||
                                argument == "-Xclang" ||
                                argument.starts_with("-Wp,") ||
-                               argument.starts_with("-include") ||
-                               argument.starts_with("-imacros") ||
                                argument.starts_with("-fplugin") ||
                                argument == "-load" ||
                                argument.starts_with("-ivfsoverlay") ||
-                               argument.starts_with("-fmodule") ||
-                               argument.starts_with("-fprebuilt-module") ||
-                               argument.ends_with(".pch");
+                               argument.starts_with("-fno-validate-pch") ||
+                               argument.starts_with(
+                                   "-fmodules-validate-once-per-build-session");
                       });
 }
 
@@ -240,6 +226,7 @@ ctk::cache::CompilationContext cache_context(const FileInput &file) {
   context.resource_directory = CTK_CLANG_RESOURCE_DIR;
 #endif
   context.arguments = effective_arguments(file);
+  context.environment = snapshot::compilation_environment();
   context.reusable = reusable_file_candidate(file);
   for (const auto &arg : context.arguments) {
     if (arg.starts_with("--target="))
@@ -266,23 +253,46 @@ public:
     FileInput file{path, context.arguments, context.working_directory};
     auto arguments = effective_arguments(file);
     auto owner = std::make_shared<AstSnapshotOwner>();
+    owner->environment = context.environment;
+    owner->filesystem = snapshot::CapturedFileSystem::physical();
     auto unit = try_load_stored(file, context, *owner);
-    if (!unit) {
-      unit = clang::tooling::buildASTFromCodeWithArgs(
-          source.str(), arguments, path,
+    auto parse_source = [&] {
+      unit = snapshot::build_snapshot(path, arguments,
 #ifdef CTK_CLANG_TOOL_PATH
-          CTK_CLANG_TOOL_PATH
+                                      CTK_CLANG_TOOL_PATH,
 #else
-          "clang-tool"
+                                      "clang-tool",
 #endif
-          ,
-          std::make_shared<clang::PCHContainerOperations>(),
-          clang::tooling::getClangStripDependencyFileAdjuster(), {}, nullptr,
-          isolated_physical_filesystem());
-    }
+                                      owner->filesystem, owner->volatile_input,
+                                      owner->writer);
+    };
+    if (!unit)
+      parse_source();
     if (!unit || unit->getDiagnostics().hasErrorOccurred())
       throw std::runtime_error("Clang could not build an AST for " + path);
 
+    try {
+      owner->artifact_closure = snapshot::capture_native_artifacts(
+          *unit, *owner->filesystem, context.working_directory);
+    } catch (const std::exception &error) {
+      if (!owner->storage_loaded)
+        throw;
+      owner->storage_message = error.what();
+      try {
+        store_->mark_stale(owner->storage_lease->descriptor().id);
+      } catch (...) {
+      }
+      unit.reset();
+      owner->storage_lease.reset();
+      owner->native_artifact.reset();
+      owner->storage_loaded = false;
+      owner->filesystem = snapshot::CapturedFileSystem::physical();
+      parse_source();
+      if (!unit || unit->getDiagnostics().hasErrorOccurred())
+        throw std::runtime_error("Clang could not build an AST for " + path);
+      owner->artifact_closure = snapshot::capture_native_artifacts(
+          *unit, *owner->filesystem, context.working_directory);
+    }
     owner->dependencies = dependency_buffers(*unit, context.working_directory);
     bool invalid_main_buffer = false;
     const auto main_buffer = unit->getSourceManager().getBufferData(
@@ -290,20 +300,43 @@ public:
     if (!invalid_main_buffer)
       owner->dependencies.insert_or_assign(normalized_path(file), main_buffer);
     auto loaded = ctk::cache::LoadedSnapshot{};
-    for (const auto &[input_path, buffer] : owner->dependencies) {
-      if (!buffer)
-        continue;
-      ctk::cache::InputObservation observation;
-      observation.path = input_path;
-      observation.kind = ctk::cache::InputKind::File;
-      observation.content_digest = sha256_hex(*buffer);
-      observation.validation_context = "native-source-buffer-v1";
-      loaded.inputs.push_back(std::move(observation));
-    }
-    loaded.estimated_bytes = static_cast<std::size_t>(ast_memory(*unit));
+    for (const auto &[input_path, buffer] : owner->dependencies)
+      if (buffer)
+        owner->filesystem->add_buffer(input_path, *buffer);
+    owner->reusable = context.reusable && owner->filesystem->reusable() &&
+                      owner->artifact_closure.reusable &&
+                      !owner->volatile_input;
     owner->unit = std::move(unit);
-    if (context.reusable && !owner->storage_lease)
+    if (owner->reusable && !owner->storage_lease)
       publish_stored(file, context, *owner);
+    // Serialization may consume additional compiler metadata (for example,
+    // SDKSettings.json on Clang 21). Capture those lookups before freezing the
+    // native view and copying its complete freshness observations.
+    owner->reusable = owner->reusable && owner->filesystem->reusable();
+    if (owner->filesystem->reusable() && owner->artifact_closure.reusable)
+      owner->filesystem->seal();
+    for (const auto &[input_path, input] : owner->filesystem->inputs())
+      if (!input.staged)
+        loaded.inputs.push_back(snapshot::cache_observation(input));
+    // A noncapturable native view remains a fresh parse and is never retained.
+    // Preserve actual consumed main bytes even when broader capture is
+    // disabled.
+    if (!owner->reusable) {
+      loaded.inputs.clear();
+      if (!invalid_main_buffer) {
+        loaded.inputs.push_back(
+            {normalized_path(file),
+             ctk::cache::InputKind::File,
+             sha256_hex(main_buffer),
+             "native-source-buffer-v1",
+             {}});
+      }
+    }
+    loaded.reusable = owner->reusable;
+    loaded.estimated_bytes =
+        static_cast<std::size_t>(ast_memory(*owner->unit)) +
+        owner->filesystem->estimated_bytes() +
+        (owner->writer ? owner->writer->estimated_bytes() : 0);
     loaded.owner = std::move(owner);
     return loaded;
   }
@@ -311,13 +344,18 @@ public:
   bool validate(const ctk::cache::SnapshotEntry &snapshot) override {
     const auto owner =
         std::static_pointer_cast<const AstSnapshotOwner>(snapshot.owner);
-    if (!owner || !owner->unit || owner->dependencies.empty())
+    if (!owner || !owner->unit || owner->dependencies.empty() ||
+        owner->environment != snapshot::compilation_environment())
       return false;
+    // Uncapturable views are freshly parsed and never admitted for reuse.
+    // Their owned native buffers describe the parse, including virtual remaps.
+    if (!owner->reusable)
+      return true;
     for (const auto &[path, buffer] : owner->dependencies) {
       if (!buffer || !file_matches(path, *buffer))
         return false;
     }
-    return true;
+    return !owner->reusable || owner->filesystem->validate();
   }
 
 private:
@@ -342,12 +380,18 @@ private:
     profile.working_directory = context.working_directory;
     profile.sysroot = context.sysroot;
     profile.arguments = context.arguments;
+    profile.environment = context.environment;
     profile.reusable = context.reusable;
     return profile;
   }
 
   std::unique_ptr<clang::ASTUnit>
-  load_ast_file(const std::filesystem::path &path) const {
+  load_ast_file(const std::filesystem::path &path,
+                llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> filesystem,
+                const std::string &working_directory,
+                const clang::HeaderSearchOptions &header_options) const {
+    clang::FileSystemOptions file_options;
+    file_options.WorkingDir = working_directory;
     auto diagnostic_options = std::make_shared<clang::DiagnosticOptions>();
     auto diagnostic_ids = llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs>(
         new clang::DiagnosticIDs());
@@ -358,16 +402,14 @@ private:
 #if CLANG_VERSION_MAJOR >= 22
     return clang::ASTUnit::LoadFromASTFile(
         path.string(), containers.getRawReader(),
-        clang::ASTUnit::LoadEverything, isolated_physical_filesystem(),
-        diagnostic_options, diagnostics, clang::FileSystemOptions(),
-        clang::HeaderSearchOptions());
+        clang::ASTUnit::LoadEverything, filesystem, diagnostic_options,
+        diagnostics, file_options, header_options);
 #else
     return clang::ASTUnit::LoadFromASTFile(
         path.string(), containers.getRawReader(),
         clang::ASTUnit::LoadEverything, diagnostic_options, diagnostics,
-        clang::FileSystemOptions(), clang::HeaderSearchOptions(), nullptr,
-        false, clang::CaptureDiagsKind::None, false, false,
-        isolated_physical_filesystem());
+        file_options, header_options, nullptr, false,
+        clang::CaptureDiagsKind::None, false, false, filesystem);
 #endif
   }
 
@@ -392,31 +434,32 @@ private:
       for (const auto &lease :
            store_->acquire_ready(storage_profile(file, context))) {
         const auto &descriptor = lease->descriptor();
-        bool inputs_match = !descriptor.inputs.empty();
-        for (const auto &input : descriptor.inputs) {
-          if (input.kind != ctk::storage::ObservationKind::Content ||
-              input.path != normalized_path(file)) {
-            inputs_match = false;
-            break;
-          }
-          std::ifstream current(input.path, std::ios::binary);
-          if (!current) {
-            inputs_match = false;
-            break;
-          }
-          const std::string contents((std::istreambuf_iterator<char>(current)),
-                                     {});
-          if (sha256_hex(contents) != input.digest_sha256.value_or("")) {
-            inputs_match = false;
-            break;
-          }
-        }
-        if (!inputs_match) {
+        auto filesystem =
+            snapshot::CapturedFileSystem::restore(descriptor.inputs);
+        if (!filesystem) {
           try {
             store_->mark_stale(descriptor.id);
           } catch (const std::exception &error) {
             owner.storage_message = error.what();
           }
+          continue;
+        }
+        filesystem->setCurrentWorkingDirectory(context.working_directory);
+        bool complete = true;
+        for (std::size_t index = 0; index < descriptor.artifacts.size();
+             ++index) {
+          if (descriptor.artifacts[index].kind ==
+              ctk::storage::ArtifactKind::TranslationUnit)
+            continue;
+          const auto bytes = lease->read_artifact(index);
+          if (!filesystem->add_buffer(descriptor.artifacts[index].logical_path,
+                                      bytes)) {
+            complete = false;
+            break;
+          }
+        }
+        if (!complete) {
+          store_->mark_stale(descriptor.id);
           continue;
         }
         for (std::size_t index = 0; index < descriptor.artifacts.size();
@@ -427,7 +470,28 @@ private:
           try {
             const auto artifact = lease->read_artifact(index);
             auto staged = write_artifact(artifact);
-            auto unit = load_ast_file(staged->path());
+            if (!filesystem->add_buffer(staged->path().string(), artifact))
+              throw std::runtime_error(
+                  "native root staging could not be captured");
+            clang::HeaderSearchOptions header_options;
+            for (const auto &input : descriptor.inputs) {
+              if (input.role != ctk::storage::InputRole::ModuleInput)
+                continue;
+              google::protobuf::Struct metadata;
+              if (!google::protobuf::util::JsonStringToMessage(
+                       input.validation_context, &metadata)
+                       .ok())
+                throw std::runtime_error("invalid module observation");
+              const auto name = metadata.fields().find("module_name");
+              if (name != metadata.fields().end() &&
+                  !name->second.string_value().empty())
+                header_options
+                    .PrebuiltModuleFiles[name->second.string_value()] =
+                    input.path;
+            }
+            auto unit =
+                load_ast_file(staged->path(), filesystem,
+                              context.working_directory, header_options);
             if (!unit) {
               owner.storage_message = "Clang rejected the stored AST artifact";
               try {
@@ -437,6 +501,33 @@ private:
               }
               break;
             }
+            // A readable root must still import the closure that was published.
+            // Reject roots with missing imports before lazy declaration access.
+            const auto closure = snapshot::capture_native_artifacts(
+                *unit, *filesystem, context.working_directory);
+            const auto expected_count = std::ranges::count_if(
+                descriptor.artifacts, [](const auto &item) {
+                  return item.kind !=
+                         ctk::storage::ArtifactKind::TranslationUnit;
+                });
+            if (!closure.reusable || closure.artifacts.size() != expected_count)
+              throw std::runtime_error(
+                  "stored native root has an incomplete artifact closure");
+            for (const auto &expected : descriptor.artifacts) {
+              if (expected.kind == ctk::storage::ArtifactKind::TranslationUnit)
+                continue;
+              const auto found =
+                  std::ranges::find(closure.artifacts, expected.logical_path,
+                                    &snapshot::NativeArtifact::path);
+              if (found == closure.artifacts.end() ||
+                  found->kind != expected.kind)
+                throw std::runtime_error("stored native root imports disagree "
+                                         "with its artifact closure");
+            }
+            // Staging is owned transport for the TU bytes, not a source
+            // freshness input.
+            filesystem->exclude_staged(staged->path().string());
+            owner.filesystem = std::move(filesystem);
             owner.native_artifact = std::move(staged);
             owner.storage_lease = lease;
             owner.storage_loaded = true;
@@ -464,43 +555,66 @@ private:
   void publish_stored(const FileInput &file,
                       const ctk::cache::CompilationContext &context,
                       AstSnapshotOwner &owner) const {
-    if (!store_ || !context.reusable || owner.dependencies.size() != 1)
+    if (!store_ || !context.reusable || !owner.reusable ||
+        !owner.filesystem->validate())
       return;
     try {
-      detail::NativeTemporaryArtifact temporary("ctk-native-save");
-      if (owner.unit->Save(temporary.path().string())) {
-        owner.storage_message = "ASTUnit::Save failed";
+      if (!owner.writer)
         return;
-      }
-      std::ifstream input(temporary.path(), std::ios::binary);
-      if (!input) {
-        owner.storage_message = "saved AST artifact could not be read";
-        return;
-      }
-      std::string bytes((std::istreambuf_iterator<char>(input)), {});
-      const auto main = owner.dependencies.find(normalized_path(file));
-      if (main == owner.dependencies.end() || !main->second)
-        return;
+      auto bytes = owner.writer->serialize(owner.unit->getSema());
       ctk::storage::SnapshotDraft draft;
       draft.profile = storage_profile(file, context);
-      ctk::storage::InputObservation observation;
-      observation.path = normalized_path(file);
-      observation.role = ctk::storage::InputRole::MainSource;
-      observation.kind = ctk::storage::ObservationKind::Content;
-      observation.digest_sha256 = sha256_hex(*main->second);
-      observation.size_bytes = main->second->size();
-      std::error_code time_error;
-      const auto modified =
-          std::filesystem::last_write_time(observation.path, time_error);
-      if (time_error)
-        return;
-      observation.mtime_ns =
-          std::chrono::duration_cast<std::chrono::nanoseconds>(
-              modified.time_since_epoch())
-              .count();
-      draft.inputs.push_back(std::move(observation));
+      std::map<std::string, ctk::storage::InputRole> roles;
+      for (const auto &artifact : owner.artifact_closure.artifacts)
+        roles.emplace(artifact.path,
+                      artifact.kind == ctk::storage::ArtifactKind::Module
+                          ? ctk::storage::InputRole::ModuleInput
+                          : ctk::storage::InputRole::PchInput);
+      for (const auto &[path, captured] : owner.filesystem->inputs()) {
+        if (captured.staged)
+          continue;
+        const auto role = path == normalized_path(file)
+                              ? ctk::storage::InputRole::MainSource
+                          : roles.contains(path) ? roles.at(path)
+                          : captured.error || captured.status.isDirectory()
+                              ? ctk::storage::InputRole::Lookup
+                              : ctk::storage::InputRole::Header;
+        auto observation = snapshot::stored_observation(captured, role);
+        if (role == ctk::storage::InputRole::ModuleInput) {
+          const auto artifact =
+              std::ranges::find(owner.artifact_closure.artifacts, path,
+                                &snapshot::NativeArtifact::path);
+          google::protobuf::Struct metadata;
+          if (!google::protobuf::util::JsonStringToMessage(
+                   observation.validation_context, &metadata)
+                   .ok())
+            throw std::runtime_error("invalid module observation");
+          (*metadata.mutable_fields())["module_name"].set_string_value(
+              artifact->module_name);
+          observation.validation_context.clear();
+          if (!google::protobuf::util::MessageToJsonString(
+                   metadata, &observation.validation_context)
+                   .ok())
+            throw std::runtime_error("module observation encoding failed");
+        }
+        draft.inputs.push_back(std::move(observation));
+      }
       draft.artifacts.push_back({ctk::storage::ArtifactKind::TranslationUnit,
                                  normalized_path(file), std::move(bytes)});
+      for (std::size_t index = 0;
+           index < owner.artifact_closure.artifacts.size(); ++index) {
+        const auto &artifact = owner.artifact_closure.artifacts[index];
+        const auto &captured = owner.filesystem->inputs().at(artifact.path);
+        draft.artifacts.push_back(
+            {artifact.kind, artifact.path, *captured.bytes});
+        draft.dependencies.push_back(
+            {0, static_cast<std::uint32_t>(index + 1)});
+        for (const auto child : artifact.dependencies)
+          draft.dependencies.push_back({static_cast<std::uint32_t>(index + 1),
+                                        static_cast<std::uint32_t>(child + 1)});
+      }
+      if (!owner.filesystem->validate())
+        return;
       draft.created_at_ms = 0;
       store_->publish(draft);
     } catch (const std::exception &error) {
@@ -601,7 +715,9 @@ public:
       result.snapshot_retained = true;
       result.storage_hit = owner->storage_loaded;
       result.storage_message = owner->storage_message;
-      result.native_memory_bytes = ast_memory(*owner->unit);
+      result.native_memory_bytes =
+          ast_memory(*owner->unit) + owner->filesystem->estimated_bytes() +
+          (owner->writer ? owner->writer->estimated_bytes() : 0);
       if (!checkpoint()) {
         result.cancelled = true;
         result.message = "query cancelled";
@@ -619,7 +735,9 @@ public:
             result.message = "query cancelled";
         }
       }
-      result.native_memory_bytes = ast_memory(*owner->unit);
+      result.native_memory_bytes =
+          ast_memory(*owner->unit) + owner->filesystem->estimated_bytes() +
+          (owner->writer ? owner->writer->estimated_bytes() : 0);
     } catch (const std::exception &error) {
       result.message = error.what();
     }
