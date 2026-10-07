@@ -105,8 +105,10 @@ TEST(TypeSemantics, RecordQualifierAvailabilityMatchesNativeVersion) {
 }
 
 TEST(TypeSemantics, ArraysPreserveExactSizeAndElementValues) {
-  auto values = query_types("int values[17];", "constantArrayType().bind(\"type\")");
-  ASSERT_FALSE(values.empty());
+  auto values = query_types("int values[17];",
+      "varDecl(hasName(\"values\"), hasType(constantArrayType().bind(\"type\")))");
+  ASSERT_EQ(values.size(), 1U);
+  ASSERT_TRUE(values.front().node().has_constant_array_type());
   const auto &array = values.front().node().constant_array_type();
   EXPECT_EQ(array.size().unsigned_decimal(), "17");
   EXPECT_GT(array.size().bit_width(), 0U);
@@ -116,6 +118,22 @@ TEST(TypeSemantics, ArraysPreserveExactSizeAndElementValues) {
   ASSERT_TRUE(array.element_type().type().has_builtin_type());
   EXPECT_EQ(array.element_type().type().builtin_type().kind(), ctk::ast::v1::BUILTIN_KIND_INT);
   EXPECT_TRUE(array.index_qualifiers().has_is_restrict());
+}
+
+TEST(TypeSemantics, ArraysSelectFixtureTypeAcrossTargetArchitectures) {
+  for (const auto *target : {"x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"}) {
+    SCOPED_TRACE(target);
+    auto values = query_types("int decoy[1]; int values[17];",
+        "varDecl(hasName(\"values\"), hasType(constantArrayType().bind(\"type\")))",
+        {"-std=c++20", std::string("--target=") + target});
+    ASSERT_EQ(values.size(), 1U);
+    ASSERT_TRUE(values.front().node().has_constant_array_type());
+    const auto &array = values.front().node().constant_array_type();
+    EXPECT_EQ(array.size().unsigned_decimal(), "17");
+    ASSERT_TRUE(array.element_type().type().has_builtin_type());
+    EXPECT_EQ(array.element_type().type().builtin_type().kind(),
+              ctk::ast::v1::BUILTIN_KIND_INT);
+  }
 }
 
 TEST(TypeSemantics, FunctionPrototypePreservesParametersFlagsAndExceptionSpec) {
