@@ -11,6 +11,7 @@ from clang_toolkit._generated.query.v1 import (
     query_pb2,
 )
 from clang_toolkit._generated.ast.v1 import semantic_types_pb2
+from clang_toolkit._generated.ast.v1 import integer_literal_pb2, node_pb2
 
 
 def original_contract() -> descriptor_pb2.FileDescriptorProto:
@@ -69,3 +70,28 @@ def test_type_constraint_preserves_wire_tag_and_json_name():
     field = semantic_types_pb2.TypeConstraint.DESCRIPTOR.fields_by_number[1]
     assert field.name == "concept_reference"
     assert field.json_name == "concept"
+
+
+def test_owned_ast_values_use_stable_typed_union_cases():
+    """A nested expression uses the same concrete type/tag as a bound root."""
+    owned = semantic_types_pb2.ExpressionValue(is_complete=True)
+    owned.integer_literal.value.bit_width = 127
+    owned.integer_literal.value.little_endian_bits = ((1 << 126) + 19).to_bytes(16, "little")
+    decoded = semantic_types_pb2.ExpressionValue.FromString(owned.SerializeToString())
+    assert decoded.WhichOneof("payload") == "integer_literal"
+    assert isinstance(decoded.integer_literal, integer_literal_pb2.IntegerLiteral)
+    assert decoded.integer_literal.value == owned.integer_literal.value
+    field = decoded.DESCRIPTOR.fields_by_name["integer_literal"]
+    assert field.number == node_pb2.AstNode.DESCRIPTOR.fields_by_name["integer_literal"].number
+    assert "node" not in decoded.DESCRIPTOR.fields_by_name
+
+
+def test_recursive_type_values_remain_readable_without_unpacking():
+    qualified = semantic_types_pb2.QualType()
+    pointer = qualified.type.pointer_type
+    pointer.pointee_type.qualifiers.is_const = True
+    pointer.pointee_type.type.builtin_type.kind = semantic_types_pb2.BUILTIN_KIND_INT
+    decoded = semantic_types_pb2.QualType.FromString(qualified.SerializeToString())
+    assert decoded.type.WhichOneof("payload") == "pointer_type"
+    assert decoded.type.pointer_type.pointee_type.qualifiers.is_const
+    assert decoded.type.pointer_type.pointee_type.type.WhichOneof("payload") == "builtin_type"

@@ -13,7 +13,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:24",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/translation_unit_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -26,7 +26,7 @@
       "status": "included",
       "reason": "Clang incremental interpreter extension, flag-gated by -fincremental-extensions; not standard/GNU C++ source grammar. Decl.h:4629-4634.",
       "source": "clang/AST/DeclNodes.inc:30",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/top_level_stmt_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -39,7 +39,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:36",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/requires_expr_body_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -65,7 +65,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:48",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/linkage_spec_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -78,7 +78,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:54",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/extern_c_context_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -91,7 +91,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:60",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/export_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -117,7 +117,7 @@
       "status": "included",
       "reason": "Clang Blocks extension is usable from C++ with -fblocks; not Objective-C-only.",
       "source": "clang/AST/DeclNodes.inc:72",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/block_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -130,7 +130,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:78",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/static_assert_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -143,7 +143,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:84",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/pragma_detect_mismatch_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -156,7 +156,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:90",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/pragma_comment_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -397,7 +397,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:216",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unresolved_using_value_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -412,7 +412,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:222",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unnamed_global_constant_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -427,7 +427,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:228",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/template_param_object_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -442,7 +442,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/DeclNodes.inc:234",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/ms_guid_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -457,7 +457,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:240",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/indirect_field_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -472,7 +472,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:246",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/enum_constant_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -488,7 +488,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:256",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/function_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -505,7 +505,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:260",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_method_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -523,7 +523,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:264",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_destructor_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -541,7 +541,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:270",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_conversion_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -559,7 +559,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:276",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_constructor_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -576,7 +576,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:286",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_deduction_guide_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -592,7 +592,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:296",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/var_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -609,7 +609,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:300",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/var_template_specialization_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -627,7 +627,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:304",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/var_template_partial_specialization_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -644,7 +644,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:314",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/parm_var_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -678,7 +678,7 @@
       "status": "included",
       "reason": "Shared C++ kind with mixed-language subkinds/attributes; filter payload subkinds using LanguageProfile, never only the outer class.",
       "source": "clang/AST/DeclNodes.inc:326",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/implicit_param_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -695,7 +695,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:332",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/decomposition_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -711,7 +711,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:342",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/non_type_template_parm_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -727,7 +727,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/DeclNodes.inc:348",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/ms_property_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -743,7 +743,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:354",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/field_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -792,7 +792,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:378",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/binding_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -806,7 +806,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:388",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/using_shadow_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -821,7 +821,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:392",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/constructor_using_shadow_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -835,7 +835,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:402",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/using_pack_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -849,7 +849,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:408",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/using_directive_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -863,7 +863,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/DeclNodes.inc:414",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unresolved_using_if_exists_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -879,7 +879,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:428",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/record_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -896,7 +896,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:432",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_record_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -914,7 +914,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:436",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/class_template_specialization_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -933,7 +933,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:440",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/class_template_partial_specialization_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -949,7 +949,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:458",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/enum_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -964,7 +964,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:468",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unresolved_using_typename_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -980,7 +980,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:478",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/typedef_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -996,7 +996,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:484",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/type_alias_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1027,7 +1027,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:500",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/template_type_parm_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1042,7 +1042,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:514",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/template_template_parm_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1058,7 +1058,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:524",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/var_template_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1074,7 +1074,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:530",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/type_alias_template_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1090,7 +1090,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:536",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/function_template_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1106,7 +1106,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:542",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/class_template_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1121,7 +1121,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:552",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/concept_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1136,7 +1136,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:558",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/builtin_template_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1179,7 +1179,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:584",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/namespace_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1194,7 +1194,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:590",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/namespace_alias_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1208,7 +1208,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:600",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/label_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1237,7 +1237,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:616",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/using_enum_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1252,7 +1252,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:622",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/using_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1265,7 +1265,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:636",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/lifetime_extended_temporary_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1278,7 +1278,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:642",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/import_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1291,7 +1291,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:648",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/implicit_concept_specialization_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1304,7 +1304,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:654",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/friend_template_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1317,7 +1317,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:660",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/friend_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1330,7 +1330,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:666",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/file_scope_asm_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1343,7 +1343,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:672",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/empty_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1356,7 +1356,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/DeclNodes.inc:678",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/access_spec_decl.proto",
       "contract_status": "draft"
     },
     {
@@ -1369,7 +1369,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:24",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/while_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -1383,7 +1383,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:34",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/label_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -1398,7 +1398,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:44",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/va_arg_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1413,7 +1413,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:50",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unary_operator.proto",
       "contract_status": "draft"
     },
     {
@@ -1428,7 +1428,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:56",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unary_expr_or_type_trait_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1443,7 +1443,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:62",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/type_trait_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1458,7 +1458,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:68",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/subst_non_type_template_parm_pack_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1473,7 +1473,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:74",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/subst_non_type_template_parm_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1488,7 +1488,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:80",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/string_literal.proto",
       "contract_status": "draft"
     },
     {
@@ -1503,7 +1503,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:86",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/stmt_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1518,7 +1518,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:92",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/source_loc_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1533,7 +1533,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:98",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/size_of_pack_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1548,7 +1548,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:104",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/shuffle_vector_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1578,7 +1578,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:116",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/requires_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1593,7 +1593,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:122",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/recovery_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1608,7 +1608,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:128",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/pseudo_object_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1623,7 +1623,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:134",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/predefined_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1638,7 +1638,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:140",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/paren_list_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1653,7 +1653,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:146",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/paren_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1668,7 +1668,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:152",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/pack_indexing_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1683,7 +1683,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:158",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/pack_expansion_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1699,7 +1699,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:168",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unresolved_member_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1715,7 +1715,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:174",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unresolved_lookup_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1745,7 +1745,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:190",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/opaque_value_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -1760,7 +1760,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:196",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/offset_of_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2030,7 +2030,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:304",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/no_init_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2045,7 +2045,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:310",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/member_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2060,7 +2060,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:316",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/matrix_subscript_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2075,7 +2075,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:322",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/matrix_single_subscript_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2090,7 +2090,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:328",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/materialize_temporary_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2105,7 +2105,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:334",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/ms_property_subscript_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2120,7 +2120,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:340",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/ms_property_ref_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2135,7 +2135,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:346",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/lambda_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2150,7 +2150,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:352",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/integer_literal.proto",
       "contract_status": "draft"
     },
     {
@@ -2165,7 +2165,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:358",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/init_list_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2180,7 +2180,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:364",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/implicit_value_init_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2195,7 +2195,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:370",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/imaginary_literal.proto",
       "contract_status": "draft"
     },
     {
@@ -2225,7 +2225,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:382",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/generic_selection_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2240,7 +2240,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:388",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/gnu_null_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2255,7 +2255,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:394",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/function_parm_pack_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2271,7 +2271,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:404",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/expr_with_cleanups.proto",
       "contract_status": "draft"
     },
     {
@@ -2287,7 +2287,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:410",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/constant_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2302,7 +2302,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:420",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/floating_literal.proto",
       "contract_status": "draft"
     },
     {
@@ -2317,7 +2317,7 @@
       "status": "included",
       "reason": "Clang fixed-point extension: _Accum a=1.0k compiles as gnu++23 with -ffixed-point in installed toolchain.",
       "source": "clang/AST/StmtNodes.inc:426",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/fixed_point_literal.proto",
       "contract_status": "draft"
     },
     {
@@ -2332,7 +2332,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:432",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/ext_vector_element_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2347,7 +2347,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:438",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/expression_trait_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2362,7 +2362,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:444",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/embed_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2377,7 +2377,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:450",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/designated_init_update_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2392,7 +2392,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:456",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/designated_init_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2407,7 +2407,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:462",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_scope_decl_ref_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2422,7 +2422,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:468",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_coawait_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2437,7 +2437,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:474",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/decl_ref_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2453,7 +2453,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:484",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/coyield_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2469,7 +2469,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:490",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/coawait_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2484,7 +2484,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:500",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/convert_vector_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2499,7 +2499,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:506",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/concept_specialization_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2514,7 +2514,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:512",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/compound_literal_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2529,7 +2529,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:518",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/choose_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2544,7 +2544,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:524",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/character_literal.proto",
       "contract_status": "draft"
     },
     {
@@ -2560,7 +2560,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:534",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/implicit_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2595,7 +2595,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:554",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_static_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2613,7 +2613,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:560",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_reinterpret_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2631,7 +2631,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:566",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_dynamic_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2649,7 +2649,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:572",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_const_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2667,7 +2667,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:578",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_addrspace_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2684,7 +2684,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:588",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_functional_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2701,7 +2701,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:594",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/c_style_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2718,7 +2718,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:600",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/builtin_bit_cast_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2733,7 +2733,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:614",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/call_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2749,7 +2749,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:618",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/user_defined_literal.proto",
       "contract_status": "draft"
     },
     {
@@ -2765,7 +2765,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:624",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_operator_call_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2781,7 +2781,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:630",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_member_call_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2812,7 +2812,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:646",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_uuidof_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2827,7 +2827,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:652",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_unresolved_construct_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2842,7 +2842,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:658",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_typeid_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2857,7 +2857,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:664",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_throw_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2872,7 +2872,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:670",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_this_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2887,7 +2887,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:676",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_std_initializer_list_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2902,7 +2902,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:682",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_scalar_value_init_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2917,7 +2917,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:688",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_rewritten_binary_operator.proto",
       "contract_status": "draft"
     },
     {
@@ -2932,7 +2932,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:694",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_pseudo_destructor_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2947,7 +2947,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:700",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_paren_list_init_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2962,7 +2962,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:706",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_null_ptr_literal_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2977,7 +2977,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:712",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_noexcept_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -2992,7 +2992,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:718",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_new_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3007,7 +3007,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:724",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_inherited_ctor_init_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3022,7 +3022,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:730",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_fold_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3037,7 +3037,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:736",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_dependent_scope_member_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3052,7 +3052,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:742",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_delete_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3067,7 +3067,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:748",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_default_init_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3082,7 +3082,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:754",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_default_arg_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3097,7 +3097,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:760",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_construct_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3113,7 +3113,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:764",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_temporary_object_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3128,7 +3128,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:774",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_bool_literal_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3143,7 +3143,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:780",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_bind_temporary_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3158,7 +3158,7 @@
       "status": "included",
       "reason": "Clang Blocks extension is usable from C++ with -fblocks; not Objective-C-only.",
       "source": "clang/AST/StmtNodes.inc:786",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/block_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3173,7 +3173,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:792",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/binary_operator.proto",
       "contract_status": "draft"
     },
     {
@@ -3189,7 +3189,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:796",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/compound_assign_operator.proto",
       "contract_status": "draft"
     },
     {
@@ -3204,7 +3204,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:806",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/atomic_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3234,7 +3234,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:818",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/array_type_trait_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3249,7 +3249,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:824",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/array_subscript_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3279,7 +3279,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:836",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/array_init_loop_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3294,7 +3294,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:842",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/array_init_index_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3309,7 +3309,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:848",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/addr_label_expr.proto",
       "contract_status": "draft"
     },
     {
@@ -3325,7 +3325,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:858",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/conditional_operator.proto",
       "contract_status": "draft"
     },
     {
@@ -3341,7 +3341,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:864",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/binary_conditional_operator.proto",
       "contract_status": "draft"
     },
     {
@@ -3355,7 +3355,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:878",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/attributed_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -3368,7 +3368,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:888",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/switch_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -3382,7 +3382,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:898",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/default_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -3396,7 +3396,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:904",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/case_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -3422,7 +3422,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:920",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/seh_try_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -3435,7 +3435,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:926",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/seh_leave_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -3448,7 +3448,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:932",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/seh_finally_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -3461,7 +3461,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:938",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/seh_except_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -3474,7 +3474,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:944",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/return_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -4950,7 +4950,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1600",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/null_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -4963,7 +4963,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:1606",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/ms_dependent_exists_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -4977,7 +4977,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1616",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/continue_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -4991,7 +4991,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1622",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/break_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5004,7 +5004,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1632",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/indirect_goto_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5017,7 +5017,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1638",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/if_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5030,7 +5030,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1644",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/goto_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5043,7 +5043,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1650",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/for_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5056,7 +5056,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1656",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/do_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5082,7 +5082,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1668",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/decl_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5095,7 +5095,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1674",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/coroutine_body_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5108,7 +5108,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1680",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/coreturn_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5121,7 +5121,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1686",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/compound_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5147,7 +5147,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1698",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_try_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5160,7 +5160,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1704",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_for_range_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5173,7 +5173,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1710",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/cxx_catch_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5187,7 +5187,7 @@
       "status": "included",
       "reason": "Clang Microsoft C++ extension; target/flag-gated, not standard C++; retain in catalog and mark required extension.",
       "source": "clang/AST/StmtNodes.inc:1720",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/ms_asm_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5201,7 +5201,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/StmtNodes.inc:1726",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/gcc_asm_stmt.proto",
       "contract_status": "draft"
     },
     {
@@ -5214,7 +5214,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:22",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/adjusted_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5228,7 +5228,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:23",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/decayed_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5242,7 +5242,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:25",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/constant_array_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5271,7 +5271,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:27",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_sized_array_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5285,7 +5285,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:28",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/incomplete_array_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5299,7 +5299,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:29",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/variable_array_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5312,7 +5312,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:30",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/atomic_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5325,7 +5325,7 @@
       "status": "included",
       "reason": "Shared C++ kind with mixed-language subkinds/attributes; filter payload subkinds using LanguageProfile, never only the outer class.",
       "source": "clang/AST/TypeNodes.inc:31",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/attributed_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5338,7 +5338,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:32",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/btf_tag_attributed_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5351,7 +5351,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:33",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/bit_int_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5364,7 +5364,7 @@
       "status": "included",
       "reason": "Clang Blocks extension is usable from C++ with -fblocks; not Objective-C-only.",
       "source": "clang/AST/TypeNodes.inc:34",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/block_pointer_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5378,7 +5378,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:36",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/count_attributed_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5391,7 +5391,7 @@
       "status": "included",
       "reason": "Shared C++ kind with mixed-language subkinds/attributes; filter payload subkinds using LanguageProfile, never only the outer class.",
       "source": "clang/AST/TypeNodes.inc:37",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/builtin_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5404,7 +5404,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:38",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/complex_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5417,7 +5417,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:39",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/decltype_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5431,7 +5431,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:41",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/auto_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5445,7 +5445,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:42",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/deduced_template_specialization_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5458,7 +5458,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:43",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_address_space_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5471,7 +5471,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:44",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_bit_int_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5484,7 +5484,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:45",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_name_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5497,7 +5497,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:46",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_sized_ext_vector_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5510,7 +5510,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:47",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_vector_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5538,7 +5538,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:50",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/function_proto_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5577,7 +5577,7 @@
       "status": "included",
       "reason": "Shared C++ kind with mixed-language subkinds/attributes; filter payload subkinds using LanguageProfile, never only the outer class.",
       "source": "clang/AST/TypeNodes.inc:53",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/macro_qualified_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5591,7 +5591,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:55",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/constant_matrix_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5605,7 +5605,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:56",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_sized_matrix_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5618,7 +5618,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:57",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/member_pointer_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5684,7 +5684,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:62",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/pack_expansion_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5697,7 +5697,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:63",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/pack_indexing_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5710,7 +5710,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:64",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/paren_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5736,7 +5736,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:66",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/pointer_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5749,7 +5749,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:67",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/predefined_sugar_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5763,7 +5763,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:69",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/l_value_reference_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5777,7 +5777,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:70",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/r_value_reference_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5791,7 +5791,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:72",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/subst_builtin_template_pack_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5805,7 +5805,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:73",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/subst_template_type_parm_pack_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5818,7 +5818,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:74",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/subst_template_type_parm_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5832,7 +5832,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:76",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/enum_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5846,7 +5846,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:77",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/injected_class_name_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5860,7 +5860,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:78",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/record_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5873,7 +5873,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:79",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/template_specialization_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5886,7 +5886,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:80",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/template_type_parm_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5899,7 +5899,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:81",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/type_of_expr_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5912,7 +5912,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:82",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/type_of_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5925,7 +5925,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:83",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/typedef_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5938,7 +5938,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:84",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unary_transform_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5951,7 +5951,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:85",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/unresolved_using_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5964,7 +5964,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:86",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/using_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5977,7 +5977,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:87",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/vector_type.proto",
       "contract_status": "draft"
     },
     {
@@ -5991,7 +5991,7 @@
       "status": "included",
       "reason": "Standard C++ kind or shared C-family kind available in C++ (including GNU/Clang C++ extensions and implicit semantic nodes); per-kind fields and production fixtures are pending.",
       "source": "clang/AST/TypeNodes.inc:88",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/ext_vector_type.proto",
       "contract_status": "draft"
     },
     {
@@ -6808,7 +6808,7 @@
       "status": "included",
       "reason": "Concrete implementation subclass sharing its parent runtime TypeClass; field contract is distinct.",
       "source": "clang/AST/TypeBase.h:6213",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_type_of_expr_type.proto",
       "contract_status": "draft",
       "shares_runtime_kind_with": "TypeOfExprType"
     },
@@ -6823,7 +6823,7 @@
       "status": "included",
       "reason": "Concrete implementation subclass sharing its parent runtime TypeClass; field contract is distinct.",
       "source": "clang/AST/TypeBase.h:6285",
-      "protobuf_file": "ast/v1/semantic.proto",
+      "protobuf_file": "ast/v1/dependent_decltype_type.proto",
       "contract_status": "draft",
       "shares_runtime_kind_with": "DecltypeType"
     }

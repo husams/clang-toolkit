@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18\x61st/v1/friend_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xd3\x01\n\nFriendDecl\x12)\n\x0b\x64\x65\x63laration\x18\x01 \x01(\x0b\x32\x14.ctk.ast.v1.DeclInfo\x12\x39\n\x12\x66riend_declaration\x18\x02 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12)\n\x0b\x66riend_type\x18\x03 \x01(\x0b\x32\x14.ctk.ast.v1.QualType\x12\x1e\n\x11is_pack_expansion\x18\x04 \x01(\x08H\x00\x88\x01\x01\x42\x14\n\x12_is_pack_expansionb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18\x61st/v1/friend_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.friend_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_FRIENDDECL']._serialized_start=70
-  _globals['_FRIENDDECL']._serialized_end=281
 # @@protoc_insertion_point(module_scope)

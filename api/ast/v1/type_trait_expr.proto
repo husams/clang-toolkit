@@ -9,4 +9,6 @@ message TypeTraitExpr {
   optional TypeTrait trait = 2;
   repeated QualType queried_types = 3;
   optional bool trait_value = 4;
+  APValue result_value = 5;
+  optional string trait_name = 6;
 }

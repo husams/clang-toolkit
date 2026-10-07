@@ -8,10 +8,12 @@ The contract returns directly usable names, qualified names, types, signatures, 
 | --- | --- |
 | `ast/v1/common.proto` | Qualifiers, semantic flags, availability and shared enums. |
 | `ast/v1/operators.proto` | Cast, binary, unary and overloaded-operator enums. |
-| `ast/v1/semantic.proto` | 251 named concrete payloads, shared semantic information, exact values, names, templates and recursive value wrappers. |
+| `ast/v1/<node>.proto` | One source schema for each of the 251 named concrete payloads. |
+| `ast/v1/semantic_types.proto` | Shared semantic information, exact values, names, templates and typed recursive wrappers. |
+| `ast/v1/semantic.proto` | Source-schema umbrella; replaced by the assembled recursive compilation unit during generation. |
 | `ast/v1/node.proto` | `AstNode` union and `SemanticResult` batch, generated from the tag registry. |
 
-Coverage is 66 declarations, 29 statements, 104 expressions and 52 types. The previous 51 TypeLoc payloads describe source occurrences and were removed. `catalog.json` retains the LLVM 22.1.8 scope/evidence inventory. Attributes and further implementation subclasses require an audit; the server and Clang serializer remain subsequent work.
+Coverage is 66 declarations, 29 statements, 104 expressions and 52 types. Each catalog node now has a dedicated native serializer header/source under `server/src/clang/serialization/<family>/`; dispatch and shared semantic helpers remain separate. `scripts/check_node_serializer_coverage.py` checks the concrete mappings and field extraction/availability paths; native declaration, expression, statement and type fixtures validate semantic values through the query engine. The source gate alone does not establish runtime completeness. The previous 51 TypeLoc payloads describe source occurrences and were removed. `catalog.json` retains the LLVM 22.1.8 scope/evidence inventory. Attribute arguments lack a typed contract and are reported unavailable; types introduced after the installed Clang version and older native type qualifiers can also be explicitly unavailable. Expansion limits produce explicit truncation. Further implementation subclasses remain outside the catalog pending an audit.
 
 ## Direct values
 
@@ -19,7 +21,15 @@ Owned children are embedded in `DeclarationValue`, `ExpressionValue`, `Statement
 
 A referenced declaration is a finite `DeclarationSymbol` containing its name, qualified name, kind, type and applicable function signature. Overloaded functions and methods carry parameter/return types, qualifiers, calling convention and exception information. Symbols do not recursively expand another definition's body or members. Symbol type/signature descriptions contain normalized type names and qualifiers rather than full AST values; template arguments and constraints have finite descriptions. Named record types therefore remain finite.
 
-Mutually recursive declarations, expressions and types share `semantic.proto` to avoid circular protobuf imports. Constants preserve widths, signedness, floating semantics and exact bits. Optional decimal strings are convenient numeric representations; raw bits remain authoritative for precision and NaN payloads. Bytes are little-endian, have length `ceil(bit_width/8)`, and unused high bits are zero.
+Each concrete node stays maintained in its dedicated source schema. `assemble_ast.py` places the mutually recursive definitions and helpers in the generated `semantic.proto` compilation unit, then emits public-import facades at the original paths. This permits typed recursion without cyclic imports. C++ include paths and Python module imports remain available; reflection descriptors for the concrete messages now report `ast/v1/semantic.proto`. `catalog.json` records the dedicated source paths, and the checker verifies that every source defines exactly its one catalog node. [Protobuf public imports](https://protobuf.dev/programming-guides/proto3/#importing-definitions) provide the forwarding mechanism.
+
+Constants preserve widths, signedness, floating semantics and exact bits. Optional decimal strings are convenient numeric representations; raw bits remain authoritative for precision and NaN payloads. Bytes are little-endian, have length `ceil(bit_width/8)`, and unused high bits are zero.
+
+## Draft contract migration (6 October 2026)
+
+The intermediate split used `google.protobuf.Any node = 2` for owned children and reserved the original typed discriminators. That draft failed the semantic contract checker. The four owned-value wrappers now expose concrete `payload` oneof cases with the stable tags from `node_tags.json`; `is_complete = 1` and `StatementValue.expression = 10` remain. Removed `node = 2` is reserved. Typed draft consumers can again read `value.integer_literal` or `qualified.type.pointer_type` directly. Any-draft consumers must regenerate server and Python bindings together; their packed tag-2 values are not interpreted as typed children. Persisted Any-draft result payloads require recomputation. Native AST cache artifacts do not contain these protobuf rows.
+
+`BindingDecl.binding = 3` now contains its actual bound expression (`ExpressionValue`) rather than a declaration symbol. This correction is incompatible with that field's draft message encoding; old BindingDecl result payloads require recomputation. `FriendTemplateDecl.template_parameters = 2` is repeated so nested template parameter lists survive; older singular consumers merge repeated messages and cannot preserve every list. `friend_type = 5` is additive. Offset components gain typed base, dependent identifier-name and index-expression alternatives; signed shuffle masks, typed substituted template arguments and type-form generic selections use new tags. Language address spaces use named `AddressSpace.language_space = 3`. Existing tags and legacy fields otherwise remain. Query operation envelopes, RPC names and streaming directions remain covered by the published contract fixture.
 
 Scalar presence distinguishes absence from false/zero. Availability uses response field paths. A serializer must bound expansion and explicitly report truncation; it must never substitute an opaque handle. `NullStmt`, `BreakStmt`, `ContinueStmt` and `SEHLeaveStmt` are unit variants whose kind supplies the control-flow meaning. Attribute arguments without typed contracts are explicitly unavailable. Semantic descriptions preserve meaning and values; they do not preserve AST object or evaluator allocation identity. Constant structures include base types and named fields rather than unlabeled value arrays.
 
@@ -31,7 +41,7 @@ The [function example](examples/semantic_function.json) is a validated contract 
 uv run python api/check.py
 ```
 
-The checker requires `protoc` and Python's `google.protobuf`; `protobuf>=6` is included in the toolkit development dependency group. Checks cover catalog/tag/union coverage, absence of handles/source contracts, self-contained semantic values, presence, exact bits, ordering, template packs and unknown binary variants.
+The checker requires `protoc` and Python's `google.protobuf`; `protobuf>=6` is included in the toolkit development dependency group. It assembles the dedicated schemas in a temporary directory before compiling. Checks cover source ownership, catalog/tag/union coverage, absence of handles/source contracts, the unchanged Any/Struct prohibition, self-contained semantic values, presence, exact bits, ordering, template packs and unknown binary variants.
 
 Build the opt-in static API library from the toolkit root:
 
@@ -40,7 +50,7 @@ cmake --preset dev -DCTK_BUILD_APIS=ON
 cmake --build --preset dev --target ctk_ast_api
 ```
 
-Generated bindings and descriptors stay in `build/dev/api/generated`. `CTK_BUILD_APIS` defaults to `OFF`; this target only builds the schema library and does not implement server operations or link it into the server.
+Generated bindings and descriptors stay in `build/dev/api/generated`; assembled compiler inputs stay in `build/dev/api/schema`. `CTK_BUILD_APIS` defaults to `OFF`; Clang or network builds also generate and link their required contract libraries. The schema target itself implements no server operations.
 
 `node_tags.json` owns protobuf payload field tags, not AST object identifiers. Surviving tags remain fixed; removed TypeLoc names/numbers are reserved. Regenerate or check the generated union with `uv run python api/generate_nodes.py` and `uv run python api/generate_nodes.py --check`.
 

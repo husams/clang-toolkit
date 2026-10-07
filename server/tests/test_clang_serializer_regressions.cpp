@@ -40,31 +40,25 @@ TEST(ClangSerializerRegressions,
           ++matches;
           const auto &call = bindings.at("call").value.node();
           ASSERT_TRUE(call.has_cxx_member_call_expr());
-          const auto &object_type =
-              call.cxx_member_call_expr().object_type().type().node();
-          ASSERT_FALSE(object_type.type_url().empty());
-
-          if (alias_object &&
-              object_type.type_url().ends_with("/ctk.ast.v1.TypedefType")) {
+          const auto &object_type = call.cxx_member_call_expr().object_type().type();
+          if (alias_object && object_type.has_typedef_type()) {
+            EXPECT_EQ(object_type.typedef_type().declaration().name(), "Alias");
             saw_expected_type = true;
             return;
           }
-          if (!alias_object &&
-              object_type.type_url().ends_with("/ctk.ast.v1.RecordType")) {
-            ctk::ast::v1::RecordType record;
-            ASSERT_TRUE(object_type.UnpackTo(&record));
-            EXPECT_EQ(record.info().spelling(), "Box");
+          if (!alias_object && object_type.has_record_type()) {
+            EXPECT_EQ(object_type.record_type().info().spelling(), "Box");
+            EXPECT_EQ(object_type.record_type().declaration().name(), "Box");
             saw_expected_type = true;
             return;
           }
-
-          ASSERT_TRUE(
-              object_type.type_url().ends_with("/ctk.ast.v1.UnsupportedValue"));
-          ctk::ast::v1::UnsupportedValue unsupported;
-          ASSERT_TRUE(object_type.UnpackTo(&unsupported));
-          EXPECT_EQ(unsupported.clang_class(), "ElaboratedType");
-          EXPECT_EQ(unsupported.reason(),
-                    ctk::ast::v1::UNSUPPORTED_REASON_DEFERRED_CONTRACT);
+          // LLVM 21 retains ElaboratedType, outside the LLVM 22 catalog.
+          EXPECT_FALSE(object_type.is_complete());
+          EXPECT_EQ(object_type.payload_case(),ctk::ast::v1::TypeValue::PAYLOAD_NOT_SET);
+          bool explained=false;
+          for (const auto &entry:bindings.at("call").value.availability())
+            if (entry.field_path()=="ElaboratedType") explained=true;
+          EXPECT_TRUE(explained);
           saw_expected_type = true;
         });
 

@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n,ast/v1/cxx_dependent_scope_member_expr.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\x80\x03\n\x1b\x43XXDependentScopeMemberExpr\x12\"\n\x04info\x18\x01 \x01(\x0b\x32\x14.ctk.ast.v1.ExprInfo\x12)\n\x04\x62\x61se\x18\x02 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12\x32\n\tqualifier\x18\x03 \x01(\x0b\x32\x1f.ctk.ast.v1.NestedNameSpecifier\x12\x30\n\x0bmember_name\x18\x04 \x01(\x0b\x32\x1b.ctk.ast.v1.DeclarationName\x12\x15\n\x08is_arrow\x18\x05 \x01(\x08H\x00\x88\x01\x01\x12+\n\x1eis_explicit_template_arguments\x18\x06 \x01(\x08H\x01\x88\x01\x01\x12\x38\n\x12template_arguments\x18\x07 \x03(\x0b\x32\x1c.ctk.ast.v1.TemplateArgumentB\x0b\n\t_is_arrowB!\n\x1f_is_explicit_template_argumentsb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n,ast/v1/cxx_dependent_scope_member_expr.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.cxx_dependent_scope_member_expr_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CXXDEPENDENTSCOPEMEMBEREXPR']._serialized_start=90
-  _globals['_CXXDEPENDENTSCOPEMEMBEREXPR']._serialized_end=474
 # @@protoc_insertion_point(module_scope)

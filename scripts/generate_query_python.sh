@@ -11,19 +11,22 @@ if [[ -n "${CTK_PYTHON:-}" ]]; then
 else
   python_command=(uv run python)
 fi
+schema_directory="$(mktemp -d "${TMPDIR:-/tmp}/ctk-python-schema.XXXXXX")"
+trap 'rm -rf "$schema_directory"' EXIT
+"${python_command[@]}" "$repo_root/api/assemble_ast.py" --output "$schema_directory"
 "${python_command[@]}" -m grpc_tools.protoc \
-  -I "$repo_root/api" \
+  -I "$schema_directory" \
   --python_out="$output" \
-  "$repo_root/api/match/v1/match_result.proto" \
-  "$repo_root/api/ast/v1"/*.proto \
-  "$repo_root/api/query/v1/commands.proto" \
-  "$repo_root/api/query/v1/errors.proto" \
-  "$repo_root/api/query/v1/events.proto" \
-  "$repo_root/api/query/v1/query.proto"
+  "$schema_directory/match/v1/match_result.proto" \
+  "$schema_directory/ast/v1"/*.proto \
+  "$schema_directory/query/v1/commands.proto" \
+  "$schema_directory/query/v1/errors.proto" \
+  "$schema_directory/query/v1/events.proto" \
+  "$schema_directory/query/v1/query.proto"
 "${python_command[@]}" -m grpc_tools.protoc \
-  -I "$repo_root/api" \
+  -I "$schema_directory" \
   --grpc_python_out="$output" \
-  "$repo_root/api/query/v1/query.proto"
+  "$schema_directory/query/v1/query.proto"
 for package in ast ast/v1 match match/v1 query query/v1; do
   mkdir -p "$output/$package"
   touch "$output/$package/__init__.py"
@@ -34,6 +37,7 @@ for module in "$output/ast/v1/"*_pb2.py; do
     -e 's/^from ast\.v1 import /from . import /' \
     -e 's/^from ast\.v1\./from ./' \
     -e '/^from \. import .* as /s/$/  # noqa: E402, F401/' \
+    -e '/^from \..* import \*$/s/$/  # noqa: E402, F403/' \
     "$module"
   rm -f "$module.bak"
 done

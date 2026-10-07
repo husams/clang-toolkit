@@ -22,17 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import operators_pb2 as ast_dot_v1_dot_operators__pb2  # noqa: E402, F401
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x61st/v1/unary_operator.proto\x12\nctk.ast.v1\x1a\x16\x61st/v1/operators.proto\x1a\x1b\x61st/v1/semantic_types.proto\"\xc2\x01\n\rUnaryOperator\x12\"\n\x04info\x18\x01 \x01(\x0b\x32\x14.ctk.ast.v1.ExprInfo\x12,\n\x07operand\x18\x02 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12,\n\x06opcode\x18\x03 \x01(\x0e\x32\x17.ctk.ast.v1.UnaryOpcodeH\x00\x88\x01\x01\x12\x17\n\nis_postfix\x18\x04 \x01(\x08H\x01\x88\x01\x01\x42\t\n\x07_opcodeB\r\n\x0b_is_postfixb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x61st/v1/unary_operator.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.unary_operator_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_UNARYOPERATOR']._serialized_start=97
-  _globals['_UNARYOPERATOR']._serialized_end=291
 # @@protoc_insertion_point(module_scope)

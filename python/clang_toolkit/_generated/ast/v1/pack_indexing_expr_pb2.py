@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1f\x61st/v1/pack_indexing_expr.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xc0\x03\n\x10PackIndexingExpr\x12\"\n\x04info\x18\x01 \x01(\x0b\x32\x14.ctk.ast.v1.ExprInfo\x12\x34\n\x0fpack_expression\x18\x02 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12\x37\n\x10pack_declaration\x18\x03 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12\x35\n\x10index_expression\x18\x04 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12\x1b\n\x0eselected_index\x18\x05 \x01(\rH\x00\x88\x01\x01\x12\x38\n\x13selected_expression\x18\x06 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12<\n\x17substituted_expressions\x18\x07 \x03(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12!\n\x14is_fully_substituted\x18\x08 \x01(\x08H\x01\x88\x01\x01\x42\x11\n\x0f_selected_indexB\x17\n\x15_is_fully_substitutedb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1f\x61st/v1/pack_indexing_expr.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.pack_indexing_expr_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_PACKINDEXINGEXPR']._serialized_start=77
-  _globals['_PACKINDEXINGEXPR']._serialized_end=525
 # @@protoc_insertion_point(module_scope)

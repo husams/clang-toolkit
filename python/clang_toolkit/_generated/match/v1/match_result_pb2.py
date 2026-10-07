@@ -25,6 +25,10 @@ _sym_db = _symbol_database.Default()
 from ...ast.v1 import common_pb2 as ast_dot_v1_dot_common__pb2
 from ...ast.v1 import node_pb2 as ast_dot_v1_dot_node__pb2
 from ...ast.v1 import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2
+try:
+  ast_dot_v1_dot_semantic__pb2 = ast_dot_v1_dot_semantic__types__pb2.ast_dot_v1_dot_semantic__pb2
+except AttributeError:
+  ast_dot_v1_dot_semantic__pb2 = ast_dot_v1_dot_semantic__types__pb2.ast.v1.semantic_pb2
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1bmatch/v1/match_result.proto\x12\x0c\x63tk.match.v1\x1a\x13\x61st/v1/common.proto\x1a\x11\x61st/v1/node.proto\x1a\x1b\x61st/v1/semantic_types.proto\"\xbb\x02\n\x0cMatchBinding\x12#\n\x04node\x18\x01 \x01(\x0b\x32\x13.ctk.ast.v1.AstNodeH\x00\x12.\n\x0equalified_type\x18\x02 \x01(\x0b\x32\x14.ctk.ast.v1.QualTypeH\x00\x12\x33\n\x0bunsupported\x18\x03 \x01(\x0b\x32\x1c.ctk.ast.v1.UnsupportedValueH\x00\x12\x33\n\x0c\x61vailability\x18\x04 \x03(\x0b\x32\x1d.ctk.ast.v1.FieldAvailability\x12\x18\n\x0bis_complete\x18\x05 \x01(\x08H\x01\x88\x01\x01\x12\x39\n\x10supported_scopes\x18\x06 \x03(\x0e\x32\x1f.ctk.match.v1.BindingMatchScopeB\x07\n\x05valueB\x0e\n\x0c_is_complete\"\xcd\x01\n\x0bMatchResult\x12\x39\n\x08\x62indings\x18\x01 \x03(\x0b\x32\'.ctk.match.v1.MatchResult.BindingsEntry\x12\x1f\n\x12source_match_index\x18\x02 \x01(\x04H\x00\x88\x01\x01\x1aK\n\rBindingsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12)\n\x05value\x18\x02 \x01(\x0b\x32\x1a.ctk.match.v1.MatchBinding:\x02\x38\x01\x42\x15\n\x13_source_match_index*|\n\x11\x42indingMatchScope\x12#\n\x1f\x42INDING_MATCH_SCOPE_UNSPECIFIED\x10\x00\x12!\n\x1d\x42INDING_MATCH_SCOPE_ROOT_ONLY\x10\x01\x12\x1f\n\x1b\x42INDING_MATCH_SCOPE_SUBTREE\x10\x02\x62\x06proto3')

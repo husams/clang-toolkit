@@ -6,7 +6,8 @@ import "ast/v1/semantic_types.proto";
 
 message FriendTemplateDecl {
   DeclInfo declaration = 1;
-  TemplateParameterList template_parameters = 2;
+  repeated TemplateParameterList template_parameters = 2;
   DeclarationSymbol friend_declaration = 3;
   optional bool is_described_template = 4;
+  QualType friend_type = 5;
 }

@@ -53,7 +53,44 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
-    print(f"validated {len(expected)} concrete node serializers and payloads")
+    directory = ROOT / "server/src/clang/serialization"
+    shared = {"DeclInfo", "NamedDeclInfo", "ValueDeclInfo", "DeclaratorDeclInfo",
+              "FunctionDeclInfo", "CXXMethodDeclInfo", "VarDeclInfo", "TypeDeclInfo",
+              "TagDeclInfo", "RecordDeclInfo", "ExprInfo", "TypeInfo"}
+    fields = 0
+    failures = []
+    for entry in catalog["classes"]:
+        if entry["status"] != "included":
+            continue
+        name, family = entry["name"], entry["family"]
+        stem = directory / family / field_name(name)
+        header, source_path = stem.with_suffix(".hpp"), stem.with_suffix(".cpp")
+        if not header.is_file() or not source_path.is_file():
+            failures.append(f"{name}: dedicated source/header missing")
+            continue
+        declaration, implementation = header.read_text(), source_path.read_text()
+        if not re.search(rf"class\s+{name}Serializer\s+final\s*:\s*public\s+NodeSerializer", declaration):
+            failures.append(f"{name}: dedicated serializer class missing")
+        if not re.search(rf"bool\s+{name}Serializer::serialize\s*\(", implementation):
+            failures.append(f"{name}: dedicated field extraction definition missing")
+        if f"mutable_{field_name(name)}()" not in implementation:
+            failures.append(f"{name}: incorrect concrete payload selection")
+        proto = (ROOT / "api" / entry["protobuf_file"]).read_text()
+        declared_fields = re.findall(
+            r"^\s*(?:(?:optional|repeated)\s+)?(\w+)\s+(\w+)\s*=\s*\d+;",
+            proto, re.MULTILINE)
+        for message_type, field in declared_fields:
+            fields += 1
+            direct = re.search(rf"(?:mutable_|set_|add_){field}\s*\(", implementation)
+            common = message_type in shared and "helpers::write_common(" in implementation
+            unavailable = re.search(rf'"(?:[^"\n]*\.)?{field}"', implementation) and "unavailable(" in implementation
+            if not (direct or common or unavailable):
+                failures.append(f"{name}.{field}: no field extraction or availability evidence")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        return 1
+    print(f"validated {len(expected)} dedicated concrete serializers and {fields} payload field extraction paths")
+    print("This source gate checks mapping/extraction evidence; native fixtures verify values and presence.")
     return 0
 
 

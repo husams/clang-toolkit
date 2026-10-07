@@ -2,12 +2,8 @@ syntax = "proto3";
 
 package ctk.ast.v1;
 
-// Import-public umbrella for split semantic schemas. node.proto and its generated
-// catalog envelope remain unchanged. catalog.json and check.py still identify
-// semantic.proto as the monolithic payload source; they require a later update.
-// This Any-wrapper wire revision is draft-incompatible with the typed oneofs.
-// Consumers must unpack locally using the strict family/type URL allowlists in
-// semantic_types.proto.
+// Source-schema umbrella. api/assemble_ast.py builds the recursive compilation
+// unit from semantic_types.proto and the dedicated node schemas below.
 import public "ast/v1/semantic_types.proto";
 import public "ast/v1/translation_unit_decl.proto";
 import public "ast/v1/top_level_stmt_decl.proto";

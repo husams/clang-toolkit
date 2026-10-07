@@ -15,7 +15,8 @@ import tempfile
 from google.protobuf import descriptor_pb2, descriptor_pool, json_format, message_factory
 
 sys.dont_write_bytecode = True
-from generate_nodes import ROOT, field_name, render
+from assemble_ast import ASSEMBLED_FILE, assemble
+from generate_nodes import ROOT, field_name, render, render_wrappers
 
 
 EXPECTED_INCLUDED = 251
@@ -92,6 +93,7 @@ def check_catalog_and_wrappers(
     files: descriptor_pb2.FileDescriptorSet,
     included: dict[str, dict],
     registry: dict[str, dict],
+    source_ownership: dict[str, str],
 ) -> None:
     messages = {message.name: (file, message)
                 for file in files.file for message in file.message_type}
@@ -113,7 +115,9 @@ def check_catalog_and_wrappers(
     for name, entry in included.items():
         require(name in messages, f"Missing concrete message {name}")
         file, message = messages[name]
-        require(file.name == entry["protobuf_file"], f"{name} is in the wrong contract file")
+        require(source_ownership.get(name) == entry["protobuf_file"],
+                f"{name} is in the wrong dedicated source schema")
+        require(file.name == ASSEMBLED_FILE, f"{name} is outside the recursive compilation unit")
         if name not in UNIT_VARIANTS:
             require(bool(message.field), f"{name} is an empty placeholder")
         else:
@@ -130,6 +134,9 @@ def check_catalog_and_wrappers(
 
     for family, wrapper_name in WRAPPER_BY_FAMILY.items():
         wrapper = messages[wrapper_name][1]
+        require(any(interval.start <= 2 < interval.end for interval in wrapper.reserved_range) and
+                "node" in wrapper.reserved_name,
+                f"{wrapper_name} must reserve the removed generic child field")
         require(wrapper.oneof_decl, f"{wrapper_name} has no payload oneof")
         oneof_name = wrapper.oneof_decl[0].name
         actual = {field.type_name.rsplit(".", 1)[-1]: field for field in wrapper.field
@@ -550,11 +557,17 @@ def check_semantic_function_fixture(cls, roundtrip) -> None:
 def main() -> None:
     require(shutil.which("protoc") is not None, "protoc is required")
     require((ROOT / "ast/v1/node.proto").read_text() == render(), "node.proto is stale")
-    protos = sorted(ROOT.glob("ast/v1/*.proto"))
+    helpers = (ROOT / "ast/v1/semantic_types.proto").read_text()
+    require(helpers[helpers.index("message DeclarationValue {"):] == render_wrappers(),
+            "Typed wrappers are stale or do not match the stable tag registry")
     with tempfile.TemporaryDirectory(prefix="ctk-api-check-") as temp:
+        staged = Path(temp) / "schema"
+        source_ownership = assemble(staged)
+        protos = sorted(staged.glob("ast/v1/*.proto"))
         descriptor = Path(temp) / "ast.pb"
         subprocess.run(
-            ["protoc", "-I", str(ROOT), "--include_imports", f"--descriptor_set_out={descriptor}",
+            ["protoc", "-I", str(staged), "--experimental_allow_proto3_optional",
+             "--include_imports", f"--descriptor_set_out={descriptor}",
              *map(str, protos)],
             check=True,
         )
@@ -566,7 +579,7 @@ def main() -> None:
     decisions = [entry["name"] for entry in catalog["classes"]]
     require(len(decisions) == len(set(decisions)), "Duplicate catalog classes")
     assert_no_handles_or_source_locations(files)
-    check_catalog_and_wrappers(files, included, registry)
+    check_catalog_and_wrappers(files, included, registry, source_ownership)
     pool = make_pool(files)
     assert_finite_symbol_contract(pool)
     check_wire(pool, files)

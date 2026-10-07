@@ -74,6 +74,18 @@ if(CTK_WITH_CLANG)
     src/clang/tooling.cpp
     src/clang/cached_query_engine.cpp
     src/clang/serialization/node_serializers.cpp)
+  file(GLOB_RECURSE _node_serializer_sources CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/decl/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/stmt/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/expr/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/type/*.cpp")
+  file(GLOB _semantic_helper_sources CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/*helpers.cpp")
+  target_sources(ctk_clang PRIVATE ${_node_serializer_sources} ${_semantic_helper_sources}
+    src/clang/serialization/constant_values.cpp)
+  target_precompile_headers(ctk_clang PRIVATE src/clang/serialization/node_serializers.hpp)
+  set_source_files_properties(src/platform/temporary_directory.cpp
+    PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
   add_dependencies(ctk_clang ctk_node_serializer_coverage)
   target_include_directories(ctk_clang PUBLIC include ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
   target_compile_definitions(ctk_clang PUBLIC ${LLVM_DEFINITIONS})

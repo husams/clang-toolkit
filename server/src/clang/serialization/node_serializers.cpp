@@ -1,430 +1,293 @@
 #include "node_serializers.hpp"
-
-#include "ast/v1/record_type.pb.h"
-
-#include <llvm/ADT/SmallString.h>
-
-#include <algorithm>
-#include <deque>
-#include <type_traits>
-#include <unordered_set>
-#include <vector>
+#include "decl/access_spec_decl.hpp"
+#include "decl/binding_decl.hpp"
+#include "decl/block_decl.hpp"
+#include "decl/builtin_template_decl.hpp"
+#include "decl/class_template_decl.hpp"
+#include "decl/class_template_partial_specialization_decl.hpp"
+#include "decl/class_template_specialization_decl.hpp"
+#include "decl/concept_decl.hpp"
+#include "decl/constructor_using_shadow_decl.hpp"
+#include "decl/cxx_constructor_decl.hpp"
+#include "decl/cxx_conversion_decl.hpp"
+#include "decl/cxx_deduction_guide_decl.hpp"
+#include "decl/cxx_destructor_decl.hpp"
+#include "decl/cxx_method_decl.hpp"
+#include "decl/cxx_record_decl.hpp"
+#include "decl/decomposition_decl.hpp"
+#include "decl/empty_decl.hpp"
+#include "decl/enum_constant_decl.hpp"
+#include "decl/enum_decl.hpp"
+#include "decl/export_decl.hpp"
+#include "decl/extern_c_context_decl.hpp"
+#include "decl/field_decl.hpp"
+#include "decl/file_scope_asm_decl.hpp"
+#include "decl/friend_decl.hpp"
+#include "decl/friend_template_decl.hpp"
+#include "decl/function_decl.hpp"
+#include "decl/function_template_decl.hpp"
+#include "decl/implicit_concept_specialization_decl.hpp"
+#include "decl/implicit_param_decl.hpp"
+#include "decl/import_decl.hpp"
+#include "decl/indirect_field_decl.hpp"
+#include "decl/label_decl.hpp"
+#include "decl/lifetime_extended_temporary_decl.hpp"
+#include "decl/linkage_spec_decl.hpp"
+#include "decl/ms_guid_decl.hpp"
+#include "decl/ms_property_decl.hpp"
+#include "decl/namespace_alias_decl.hpp"
+#include "decl/namespace_decl.hpp"
+#include "decl/non_type_template_parm_decl.hpp"
+#include "decl/parm_var_decl.hpp"
+#include "decl/pragma_comment_decl.hpp"
+#include "decl/pragma_detect_mismatch_decl.hpp"
+#include "decl/record_decl.hpp"
+#include "decl/requires_expr_body_decl.hpp"
+#include "decl/static_assert_decl.hpp"
+#include "decl/template_param_object_decl.hpp"
+#include "decl/template_template_parm_decl.hpp"
+#include "decl/template_type_parm_decl.hpp"
+#include "decl/top_level_stmt_decl.hpp"
+#include "decl/translation_unit_decl.hpp"
+#include "decl/type_alias_decl.hpp"
+#include "decl/type_alias_template_decl.hpp"
+#include "decl/typedef_decl.hpp"
+#include "decl/unnamed_global_constant_decl.hpp"
+#include "decl/unresolved_using_if_exists_decl.hpp"
+#include "decl/unresolved_using_typename_decl.hpp"
+#include "decl/unresolved_using_value_decl.hpp"
+#include "decl/using_decl.hpp"
+#include "decl/using_directive_decl.hpp"
+#include "decl/using_enum_decl.hpp"
+#include "decl/using_pack_decl.hpp"
+#include "decl/using_shadow_decl.hpp"
+#include "decl/var_decl.hpp"
+#include "decl/var_template_decl.hpp"
+#include "decl/var_template_partial_specialization_decl.hpp"
+#include "decl/var_template_specialization_decl.hpp"
+#include "expr/matrix_subscript_expr.hpp"
+#include "expr/member_expr.hpp"
+#include "expr/no_init_expr.hpp"
+#include "expr/offset_of_expr.hpp"
+#include "expr/opaque_value_expr.hpp"
+#include "expr/pack_expansion_expr.hpp"
+#include "expr/pack_indexing_expr.hpp"
+#include "expr/paren_expr.hpp"
+#include "expr/paren_list_expr.hpp"
+#include "expr/predefined_expr.hpp"
+#include "expr/pseudo_object_expr.hpp"
+#include "expr/recovery_expr.hpp"
+#include "expr/requires_expr.hpp"
+#include "expr/shuffle_vector_expr.hpp"
+#include "expr/size_of_pack_expr.hpp"
+#include "expr/source_loc_expr.hpp"
+#include "expr/stmt_expr.hpp"
+#include "expr/string_literal.hpp"
+#include "expr/subst_non_type_template_parm_expr.hpp"
+#include "expr/subst_non_type_template_parm_pack_expr.hpp"
+#include "expr/type_trait_expr.hpp"
+#include "expr/unary_expr_or_type_trait_expr.hpp"
+#include "expr/unary_operator.hpp"
+#include "expr/unresolved_lookup_expr.hpp"
+#include "expr/unresolved_member_expr.hpp"
+#include "expr/va_arg_expr.hpp"
+#include "semantic_helpers.hpp"
+#include "stmt/attributed_stmt.hpp"
+#include "stmt/break_stmt.hpp"
+#include "stmt/case_stmt.hpp"
+#include "stmt/compound_stmt.hpp"
+#include "stmt/continue_stmt.hpp"
+#include "stmt/coreturn_stmt.hpp"
+#include "stmt/coroutine_body_stmt.hpp"
+#include "stmt/cxx_catch_stmt.hpp"
+#include "stmt/cxx_for_range_stmt.hpp"
+#include "stmt/cxx_try_stmt.hpp"
+#include "stmt/decl_stmt.hpp"
+#include "stmt/default_stmt.hpp"
+#include "stmt/do_stmt.hpp"
+#include "stmt/for_stmt.hpp"
+#include "stmt/gcc_asm_stmt.hpp"
+#include "stmt/goto_stmt.hpp"
+#include "stmt/if_stmt.hpp"
+#include "stmt/indirect_goto_stmt.hpp"
+#include "stmt/label_stmt.hpp"
+#include "stmt/ms_asm_stmt.hpp"
+#include "stmt/ms_dependent_exists_stmt.hpp"
+#include "stmt/null_stmt.hpp"
+#include "stmt/return_stmt.hpp"
+#include "stmt/seh_except_stmt.hpp"
+#include "stmt/seh_finally_stmt.hpp"
+#include "stmt/seh_leave_stmt.hpp"
+#include "stmt/seh_try_stmt.hpp"
+#include "stmt/switch_stmt.hpp"
+#include "stmt/while_stmt.hpp"
+#if CLANG_VERSION_MAJOR >= 22
+#include "expr/matrix_single_subscript_expr.hpp"
+#endif
+#include "expr/addr_label_expr.hpp"
+#include "expr/array_init_index_expr.hpp"
+#include "expr/array_init_loop_expr.hpp"
+#include "expr/array_subscript_expr.hpp"
+#include "expr/array_type_trait_expr.hpp"
+#include "expr/atomic_expr.hpp"
+#include "expr/binary_conditional_operator.hpp"
+#include "expr/binary_operator.hpp"
+#include "expr/block_expr.hpp"
+#include "expr/builtin_bit_cast_expr.hpp"
+#include "expr/c_style_cast_expr.hpp"
+#include "expr/call_expr.hpp"
+#include "expr/character_literal.hpp"
+#include "expr/choose_expr.hpp"
+#include "expr/coawait_expr.hpp"
+#include "expr/compound_assign_operator.hpp"
+#include "expr/compound_literal_expr.hpp"
+#include "expr/concept_specialization_expr.hpp"
+#include "expr/conditional_operator.hpp"
+#include "expr/constant_expr.hpp"
+#include "expr/convert_vector_expr.hpp"
+#include "expr/coyield_expr.hpp"
+#include "expr/cxx_addrspace_cast_expr.hpp"
+#include "expr/cxx_bind_temporary_expr.hpp"
+#include "expr/cxx_bool_literal_expr.hpp"
+#include "expr/cxx_const_cast_expr.hpp"
+#include "expr/cxx_construct_expr.hpp"
+#include "expr/cxx_default_arg_expr.hpp"
+#include "expr/cxx_default_init_expr.hpp"
+#include "expr/cxx_delete_expr.hpp"
+#include "expr/cxx_dependent_scope_member_expr.hpp"
+#include "expr/cxx_dynamic_cast_expr.hpp"
+#include "expr/cxx_fold_expr.hpp"
+#include "expr/cxx_functional_cast_expr.hpp"
+#include "expr/cxx_inherited_ctor_init_expr.hpp"
+#include "expr/cxx_member_call_expr.hpp"
+#include "expr/cxx_new_expr.hpp"
+#include "expr/cxx_noexcept_expr.hpp"
+#include "expr/cxx_null_ptr_literal_expr.hpp"
+#include "expr/cxx_operator_call_expr.hpp"
+#include "expr/cxx_paren_list_init_expr.hpp"
+#include "expr/cxx_pseudo_destructor_expr.hpp"
+#include "expr/cxx_reinterpret_cast_expr.hpp"
+#include "expr/cxx_rewritten_binary_operator.hpp"
+#include "expr/cxx_scalar_value_init_expr.hpp"
+#include "expr/cxx_static_cast_expr.hpp"
+#include "expr/cxx_std_initializer_list_expr.hpp"
+#include "expr/cxx_temporary_object_expr.hpp"
+#include "expr/cxx_this_expr.hpp"
+#include "expr/cxx_throw_expr.hpp"
+#include "expr/cxx_typeid_expr.hpp"
+#include "expr/cxx_unresolved_construct_expr.hpp"
+#include "expr/cxx_uuidof_expr.hpp"
+#include "expr/decl_ref_expr.hpp"
+#include "expr/dependent_coawait_expr.hpp"
+#include "expr/dependent_scope_decl_ref_expr.hpp"
+#include "expr/designated_init_expr.hpp"
+#include "expr/designated_init_update_expr.hpp"
+#include "expr/embed_expr.hpp"
+#include "expr/expr_with_cleanups.hpp"
+#include "expr/expression_trait_expr.hpp"
+#include "expr/ext_vector_element_expr.hpp"
+#include "expr/fixed_point_literal.hpp"
+#include "expr/floating_literal.hpp"
+#include "expr/function_parm_pack_expr.hpp"
+#include "expr/generic_selection_expr.hpp"
+#include "expr/gnu_null_expr.hpp"
+#include "expr/imaginary_literal.hpp"
+#include "expr/implicit_cast_expr.hpp"
+#include "expr/implicit_value_init_expr.hpp"
+#include "expr/init_list_expr.hpp"
+#include "expr/integer_literal.hpp"
+#include "expr/lambda_expr.hpp"
+#include "expr/materialize_temporary_expr.hpp"
+#include "expr/ms_property_ref_expr.hpp"
+#include "expr/ms_property_subscript_expr.hpp"
+#include "expr/user_defined_literal.hpp"
+#include "type/adjusted_type.hpp"
+#include "type/atomic_type.hpp"
+#include "type/attributed_type.hpp"
+#include "type/auto_type.hpp"
+#include "type/bit_int_type.hpp"
+#include "type/block_pointer_type.hpp"
+#include "type/btf_tag_attributed_type.hpp"
+#include "type/builtin_type.hpp"
+#include "type/complex_type.hpp"
+#include "type/constant_array_type.hpp"
+#include "type/constant_matrix_type.hpp"
+#include "type/count_attributed_type.hpp"
+#include "type/decayed_type.hpp"
+#include "type/decltype_type.hpp"
+#include "type/deduced_template_specialization_type.hpp"
+#include "type/dependent_address_space_type.hpp"
+#include "type/dependent_bit_int_type.hpp"
+#include "type/dependent_name_type.hpp"
+#include "type/dependent_sized_array_type.hpp"
+#include "type/dependent_sized_ext_vector_type.hpp"
+#include "type/dependent_sized_matrix_type.hpp"
+#include "type/dependent_vector_type.hpp"
+#include "type/function_proto_type.hpp"
+#include "type/incomplete_array_type.hpp"
+#include "type/macro_qualified_type.hpp"
+#include "type/member_pointer_type.hpp"
+#include "type/pack_expansion_type.hpp"
+#include "type/pack_indexing_type.hpp"
+#include "type/paren_type.hpp"
+#include "type/pointer_type.hpp"
+#include "type/variable_array_type.hpp"
+#if CLANG_VERSION_MAJOR >= 22
+#include "type/predefined_sugar_type.hpp"
+#endif
+#include "type/l_value_reference_type.hpp"
+#include "type/r_value_reference_type.hpp"
+#if CLANG_VERSION_MAJOR >= 22
+#include "type/subst_builtin_template_pack_type.hpp"
+#endif
+#include "type/dependent_decltype_type.hpp"
+#include "type/dependent_type_of_expr_type.hpp"
+#include "type/enum_type.hpp"
+#include "type/ext_vector_type.hpp"
+#include "type/injected_class_name_type.hpp"
+#include "type/record_type.hpp"
+#include "type/subst_template_type_parm_pack_type.hpp"
+#include "type/subst_template_type_parm_type.hpp"
+#include "type/template_specialization_type.hpp"
+#include "type/template_type_parm_type.hpp"
+#include "type/type_of_expr_type.hpp"
+#include "type/type_of_type.hpp"
+#include "type/typedef_type.hpp"
+#include "type/unary_transform_type.hpp"
+#include "type/unresolved_using_type.hpp"
+#include "type/using_type.hpp"
+#include "type/vector_type.hpp"
 
 namespace ctk::clang_layer::serialization {
 namespace {
-
-using google::protobuf::Descriptor;
-using google::protobuf::Message;
-
-Message *find_message(Message &root, const std::string &name) {
-  using Path = std::vector<const google::protobuf::FieldDescriptor *>;
-  std::deque<std::pair<const Descriptor *, Path>> pending;
-  std::unordered_set<const Descriptor *> visited;
-  pending.emplace_back(root.GetDescriptor(), Path{});
-  while (!pending.empty()) {
-    auto [descriptor, path] = std::move(pending.front());
-    pending.pop_front();
-    if (!visited.insert(descriptor).second)
-      continue;
-    if (descriptor->name() == name) {
-      Message *message = &root;
-      for (const auto *field : path)
-        message = message->GetReflection()->MutableMessage(message, field);
-      return message;
-    }
-    if (path.size() >= 10)
-      continue;
-    for (int index = 0; index < descriptor->field_count(); ++index) {
-      const auto *field = descriptor->field(index);
-      if (field->cpp_type() !=
-              google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE ||
-          field->is_repeated())
-        continue;
-      auto next_path = path;
-      next_path.push_back(field);
-      pending.emplace_back(field->message_type(), std::move(next_path));
-    }
-  }
-  return nullptr;
-}
-
-void set_optional_bool(Message &message, const char *name, bool value) {
-  const auto *field = message.GetDescriptor()->FindFieldByName(name);
-  if (field == nullptr ||
-      field->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_BOOL ||
-      !field->has_presence())
-    return;
-  message.GetReflection()->SetBool(&message, field, value);
-}
-
-void set_optional_string(Message &message, const char *name,
-                         const std::string &value) {
-  const auto *field = message.GetDescriptor()->FindFieldByName(name);
-  if (field == nullptr ||
-      field->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_STRING ||
-      !field->has_presence())
-    return;
-  message.GetReflection()->SetString(&message, field, value);
-}
-
-void set_name(Message &payload, const clang::NamedDecl &native) {
-  auto *named = find_message(payload, "NamedDeclInfo");
-  if (named == nullptr)
-    return;
-  auto *name = find_message(*named, "DeclarationName");
-  if (name != nullptr && native.getIdentifier() != nullptr) {
-    const auto *field = name->GetDescriptor()->FindFieldByName("identifier");
-    name->GetReflection()->SetString(name, field, native.getNameAsString());
-  }
-  set_optional_string(*named, "qualified_name",
-                      native.getQualifiedNameAsString());
-}
-
-void set_decl_flags(Message &payload, const clang::Decl &native) {
-  if (auto *decl = find_message(payload, "DeclInfo")) {
-    set_optional_bool(*decl, "is_implicit", native.isImplicit());
-    set_optional_bool(*decl, "is_invalid", native.isInvalidDecl());
-  }
-}
-
-void set_expr_flags(Message &payload, const clang::Expr &native) {
-  if (auto *expr = find_message(payload, "ExprInfo")) {
-    const auto *descriptor = expr->GetDescriptor();
-    const auto *reflection = expr->GetReflection();
-    const auto set_enum = [&](const char *field_name, const char *value_name) {
-      const auto *field = descriptor->FindFieldByName(field_name);
-      if (field == nullptr ||
-          field->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_ENUM)
-        return;
-      const auto *value = field->enum_type()->FindValueByName(value_name);
-      if (value != nullptr)
-        reflection->SetEnum(expr, field, value);
-    };
-    switch (native.getValueKind()) {
-    case clang::VK_PRValue:
-      set_enum("value_category", "VALUE_CATEGORY_PRVALUE");
-      break;
-    case clang::VK_LValue:
-      set_enum("value_category", "VALUE_CATEGORY_LVALUE");
-      break;
-    case clang::VK_XValue:
-      set_enum("value_category", "VALUE_CATEGORY_XVALUE");
-      break;
-    }
-    switch (native.getObjectKind()) {
-    case clang::OK_Ordinary:
-      set_enum("object_kind", "OBJECT_KIND_ORDINARY");
-      break;
-    case clang::OK_BitField:
-      set_enum("object_kind", "OBJECT_KIND_BIT_FIELD");
-      break;
-    case clang::OK_VectorComponent:
-      set_enum("object_kind", "OBJECT_KIND_VECTOR_COMPONENT");
-      break;
-    case clang::OK_MatrixComponent:
-      set_enum("object_kind", "OBJECT_KIND_MATRIX_COMPONENT");
-      break;
-    case clang::OK_ObjCProperty:
-    case clang::OK_ObjCSubscript:
-      break;
-    }
-    set_optional_bool(*expr, "is_type_dependent", native.isTypeDependent());
-    set_optional_bool(*expr, "is_value_dependent", native.isValueDependent());
-    set_optional_bool(*expr, "is_instantiation_dependent",
-                      native.isInstantiationDependent());
-    set_optional_bool(*expr, "contains_unexpanded_parameter_pack",
-                      native.containsUnexpandedParameterPack());
-    set_optional_bool(*expr, "contains_errors", native.containsErrors());
-  }
-}
-
-void set_symbol(Message &symbol, const clang::NamedDecl &native,
-                const clang::ASTContext &context) {
-  (void)context;
-  set_optional_string(symbol, "name", native.getNameAsString());
-  set_optional_string(symbol, "qualified_name",
-                      native.getQualifiedNameAsString());
-  const auto *kind_field = symbol.GetDescriptor()->FindFieldByName("kind");
-  if (kind_field != nullptr &&
-      kind_field->cpp_type() ==
-          google::protobuf::FieldDescriptor::CPPTYPE_ENUM) {
-    const char *kind = "SYMBOL_KIND_OTHER";
-    if (llvm::isa<clang::CXXConstructorDecl>(native))
-      kind = "SYMBOL_KIND_CONSTRUCTOR";
-    else if (llvm::isa<clang::CXXDestructorDecl>(native))
-      kind = "SYMBOL_KIND_DESTRUCTOR";
-    else if (llvm::isa<clang::CXXMethodDecl>(native))
-      kind = "SYMBOL_KIND_METHOD";
-    else if (llvm::isa<clang::FunctionDecl>(native))
-      kind = "SYMBOL_KIND_FUNCTION";
-    else if (llvm::isa<clang::RecordDecl>(native))
-      kind = "SYMBOL_KIND_RECORD";
-    else if (llvm::isa<clang::EnumDecl>(native))
-      kind = "SYMBOL_KIND_ENUM";
-    else if (llvm::isa<clang::NamespaceDecl>(native))
-      kind = "SYMBOL_KIND_NAMESPACE";
-    else if (llvm::isa<clang::FieldDecl>(native))
-      kind = "SYMBOL_KIND_FIELD";
-    else if (llvm::isa<clang::ParmVarDecl>(native))
-      kind = "SYMBOL_KIND_PARAMETER";
-    else if (llvm::isa<clang::VarDecl>(native))
-      kind = "SYMBOL_KIND_VARIABLE";
-    if (const auto *enum_value = kind_field->enum_type()->FindValueByName(kind))
-      symbol.GetReflection()->SetEnum(&symbol, kind_field, enum_value);
-  }
-  if (auto *description = find_message(symbol, "TypeDescription")) {
-    if (const auto *value = llvm::dyn_cast<clang::ValueDecl>(&native)) {
-      const auto type = value->getType();
-      set_optional_string(*description, "spelling", type.getAsString());
-      set_optional_string(*description, "canonical_spelling",
-                          type.getCanonicalType().getAsString());
-    } else if (const auto *function =
-                   llvm::dyn_cast<clang::FunctionDecl>(&native)) {
-      const auto type = function->getType();
-      set_optional_string(*description, "spelling", type.getAsString());
-      set_optional_string(*description, "canonical_spelling",
-                          type.getCanonicalType().getAsString());
-    }
-  }
-}
-
-void pack_any(const Message &payload, Message &any) {
-  const auto type_url = std::string("type.googleapis.com/") +
-                        std::string(payload.GetDescriptor()->full_name());
-  const auto *type_url_field = any.GetDescriptor()->FindFieldByName("type_url");
-  if (type_url_field != nullptr)
-    any.GetReflection()->SetString(&any, type_url_field, type_url);
-  const auto *bytes_field = any.GetDescriptor()->FindFieldByName("value");
-  if (bytes_field != nullptr)
-    any.GetReflection()->SetString(&any, bytes_field,
-                                   payload.SerializeAsString());
-}
-
-void write_node_any(const clang::DynTypedNode &native, Message &any,
-                    SerializationContext &context) {
-  ctk::match::v1::MatchBinding binding;
-  if (!NodeSerializerDispatcher::serialize(native, binding, context) ||
-      !binding.has_node()) {
-    if (binding.has_unsupported())
-      pack_any(binding.unsupported(), any);
-    return;
-  }
-  const auto &node = binding.node();
-  const auto *oneof = node.GetDescriptor()->FindOneofByName("payload");
-  const auto *payload_field =
-      node.GetReflection()->GetOneofFieldDescriptor(node, oneof);
-  if (payload_field == nullptr)
-    return;
-  const auto &payload = node.GetReflection()->GetMessage(node, payload_field);
-  pack_any(payload, any);
-}
-
-void write_expression_value(const clang::Expr &native, Message &value,
-                            SerializationContext &context) {
-  set_optional_bool(value, "is_complete", false);
-  if (auto *any = find_message(value, "Any"))
-    write_node_any(clang::DynTypedNode::create(native), *any, context);
-}
-
-void write_qual_type(clang::QualType native, Message &value,
-                     SerializationContext &context) {
-  if (native.isNull())
-    return;
-  auto *type_value = find_message(value, "TypeValue");
-  if (type_value == nullptr)
-    return;
-  const auto *field = type_value->GetDescriptor()->FindFieldByName("node");
-  if (field == nullptr)
-    return;
-  auto *any = type_value->GetReflection()->MutableMessage(type_value, field);
-  if (const auto *record =
-          llvm::dyn_cast<clang::RecordType>(native.getTypePtr())) {
-    ctk::ast::v1::RecordType payload;
-    auto *info = payload.mutable_info();
-    set_optional_string(*info, "spelling", native.getAsString());
-    set_optional_string(*info, "canonical_spelling",
-                        native.getCanonicalType().getAsString());
-    set_optional_bool(*info, "is_dependent", record->isDependentType());
-    if (record->getDecl() != nullptr)
-      set_symbol(*payload.mutable_declaration(), *record->getDecl(),
-                 context.ast_context);
-    pack_any(payload, *any);
-    return;
-  }
-  write_node_any(clang::DynTypedNode::create(*native.getTypePtr()), *any,
-                 context);
-}
-
-void write_call_fields(const clang::CallExpr &native, Message &payload,
-                       SerializationContext &context) {
-  if (auto *info = find_message(payload, "CallExprInfo")) {
-    const auto *callee_field =
-        info->GetDescriptor()->FindFieldByName("callee_expression");
-    if (callee_field != nullptr)
-      write_expression_value(
-          *native.getCallee(),
-          *info->GetReflection()->MutableMessage(info, callee_field), context);
-    if (const auto *callee = native.getDirectCallee()) {
-      const auto *field =
-          info->GetDescriptor()->FindFieldByName("direct_callee");
-      if (field != nullptr)
-        set_symbol(*info->GetReflection()->MutableMessage(info, field), *callee,
-                   context.ast_context);
-    }
-    const auto *arguments = info->GetDescriptor()->FindFieldByName("arguments");
-    if (arguments != nullptr) {
-      for (const auto *argument : native.arguments()) {
-        auto *slot = info->GetReflection()->AddMessage(info, arguments);
-        write_expression_value(*argument, *slot, context);
-      }
-    }
-  }
-}
-
-std::string apint_little_endian(const llvm::APInt &integer) {
-  std::string bytes;
-  bytes.reserve((integer.getBitWidth() + 7U) / 8U);
-  for (unsigned bit = 0; bit < integer.getBitWidth(); bit += 8) {
-    const auto width = std::min(8U, integer.getBitWidth() - bit);
-    bytes.push_back(
-        static_cast<char>(integer.extractBitsAsZExtValue(width, bit)));
-  }
-  return bytes;
-}
-
 template <class Serializer>
-bool try_serialize(const clang::DynTypedNode &node,
-                   ctk::match::v1::MatchBinding &binding,
-                   SerializationContext &context) {
+bool select(const clang::DynTypedNode &node,
+            ctk::match::v1::MatchBinding &binding,
+            SerializationContext &context) {
   static const Serializer serializer;
   return serializer.serialize(node, binding, context);
 }
-
-} // namespace
-
-void SemanticFieldWriters::write(const clang::Decl &native, Message &payload,
-                                 SerializationContext &) {
-  if (const auto *named = llvm::dyn_cast<clang::NamedDecl>(&native))
-    set_name(payload, *named);
-  set_decl_flags(payload, native);
-}
-
-void SemanticFieldWriters::write(const clang::Stmt &native, Message &payload,
-                                 SerializationContext &) {
-  if (const auto *expression = llvm::dyn_cast<clang::Expr>(&native))
-    set_expr_flags(payload, *expression);
-}
-
-void SemanticFieldWriters::write(const clang::Type &, Message &,
-                                 SerializationContext &) {}
-
-void SemanticFieldWriters::write(const clang::FunctionDecl &native,
-                                 ctk::ast::v1::FunctionDecl &payload,
-                                 SerializationContext &context) {
-  write(static_cast<const clang::Decl &>(native), payload, context);
-  auto *function = payload.mutable_function();
-  set_optional_bool(*function, "is_this_declaration_a_definition",
-                    native.isThisDeclarationADefinition());
-  set_optional_bool(*function, "is_variadic", native.isVariadic());
-  set_optional_bool(*function, "is_constexpr", native.isConstexpr());
-  payload.set_is_deleted(native.isDeleted());
-  payload.set_is_defaulted(native.isDefaulted());
-  payload.set_is_explicitly_defaulted(native.isExplicitlyDefaulted());
-  payload.set_is_pure_virtual(native.isPureVirtual());
-  payload.set_is_trivial(native.isTrivial());
-  payload.set_is_trivial_for_call(native.isTrivialForCall());
-  payload.set_is_inline_specified(native.isInlineSpecified());
-  context.complete = false;
-}
-
-void SemanticFieldWriters::write(const clang::VarDecl &native,
-                                 ctk::ast::v1::VarDecl &payload,
-                                 SerializationContext &context) {
-  write(static_cast<const clang::Decl &>(native), payload, context);
-  auto *variable = payload.mutable_variable();
-  set_optional_bool(*variable, "is_constexpr", native.isConstexpr());
-  context.complete = false;
-}
-
-void SemanticFieldWriters::write(const clang::IntegerLiteral &native,
-                                 ctk::ast::v1::IntegerLiteral &payload,
-                                 SerializationContext &context) {
-  write(static_cast<const clang::Stmt &>(native), payload, context);
-  const auto &value = native.getValue();
-  auto *bits = payload.mutable_value();
-  bits->set_bit_width(value.getBitWidth());
-  bits->set_little_endian_bits(apint_little_endian(value));
-  llvm::SmallString<64> decimal;
-  value.toString(decimal, 10, false);
-  bits->set_unsigned_decimal(decimal.str().str());
-  context.complete = false;
-}
-
-void SemanticFieldWriters::write(const clang::StringLiteral &native,
-                                 ctk::ast::v1::StringLiteral &payload,
-                                 SerializationContext &context) {
-  write(static_cast<const clang::Stmt &>(native), payload, context);
-  payload.set_value(native.getBytes().str());
-  payload.set_code_unit_width(native.getCharByteWidth() * 8U);
-  payload.set_code_unit_count(native.getLength());
-  context.complete = false;
-}
-
-void SemanticFieldWriters::write(const clang::CallExpr &native,
-                                 ctk::ast::v1::CallExpr &payload,
-                                 SerializationContext &context) {
-  write(static_cast<const clang::Stmt &>(native), payload, context);
-  write_call_fields(native, *payload.mutable_call(), context);
-  context.complete = false;
-}
-
-void SemanticFieldWriters::write(const clang::CXXMemberCallExpr &native,
-                                 ctk::ast::v1::CXXMemberCallExpr &payload,
-                                 SerializationContext &context) {
-  write(static_cast<const clang::Stmt &>(native), payload, context);
-  write_call_fields(static_cast<const clang::CallExpr &>(native), payload,
-                    context);
-  const auto object_type_field =
-      payload.GetDescriptor()->FindFieldByName("object_type");
-  if (object_type_field != nullptr)
-    write_qual_type(
-        native.getObjectType(),
-        *payload.GetReflection()->MutableMessage(&payload, object_type_field),
-        context);
-  if (const auto *object = native.getImplicitObjectArgument()) {
-    const auto *field =
-        payload.GetDescriptor()->FindFieldByName("implicit_object_argument");
-    if (field != nullptr)
-      write_expression_value(
-          *object, *payload.GetReflection()->MutableMessage(&payload, field),
-          context);
+bool dispatch(const clang::DynTypedNode &node,
+              ctk::match::v1::MatchBinding &binding,
+              SerializationContext &context) {
+  if (const auto *qualified = node.get<clang::QualType>()) {
+    helpers::write_type(*qualified, *binding.mutable_qualified_type(), context);
+    helpers::finish_binding(binding, context);
+    return true;
   }
-  if (const auto *method = native.getMethodDecl()) {
-    const auto *method_field =
-        payload.GetDescriptor()->FindFieldByName("method_declaration");
-    if (method_field != nullptr)
-      set_symbol(
-          *payload.GetReflection()->MutableMessage(&payload, method_field),
-          *method, context.ast_context);
-    if (const auto *record = method->getParent()) {
-      const auto *record_field =
-          payload.GetDescriptor()->FindFieldByName("record_declaration");
-      if (record_field != nullptr)
-        set_symbol(
-            *payload.GetReflection()->MutableMessage(&payload, record_field),
-            *record, context.ast_context);
-    }
+  // These semantic subclasses share a native ASTNodeKind with their bases.
+  if (const auto *type = node.get<clang::Type>()) {
+    if (type->getTypeClass() == clang::Type::Decltype &&
+        type->isDependentType() && type->isCanonicalUnqualified())
+      return select<DependentDecltypeTypeSerializer>(node, binding, context);
+    if (type->getTypeClass() == clang::Type::TypeOfExpr &&
+        type->isDependentType() && type->isCanonicalUnqualified())
+      return select<DependentTypeOfExprTypeSerializer>(node, binding, context);
   }
-  context.complete = false;
-}
-
-bool NodeSerializerDispatcher::serialize(const clang::DynTypedNode &node,
-                                         ctk::match::v1::MatchBinding &binding,
-                                         SerializationContext &context) {
   const auto kind = node.getNodeKind().asStringRef();
 #define CTK_AST_NODE(Type, field)                                              \
   if (kind == #Type)                                                           \
-    return try_serialize<Type##Serializer>(node, binding, context);
+    return select<Type##Serializer>(node, binding, context);
 #define CTK_AST_NODE_DECL(Type, field) CTK_AST_NODE(Type, field)
 #define CTK_AST_NODE_STMT(Type, field) CTK_AST_NODE(Type, field)
 #define CTK_AST_NODE_EXPR(Type, field) CTK_AST_NODE(Type, field)
@@ -439,9 +302,56 @@ bool NodeSerializerDispatcher::serialize(const clang::DynTypedNode &node,
   unsupported->set_clang_kind(kind.str());
   unsupported->set_clang_class(kind.str());
   unsupported->set_reason(ctk::ast::v1::UNSUPPORTED_REASON_DEFERRED_CONTRACT);
-  unsupported->set_detail("no concrete AST node serializer was selected");
-  binding.set_is_complete(false);
+  unsupported->set_detail(
+      "native node has no supported semantic payload in this catalog");
+  helpers::unavailable(kind.str(), unsupported->detail(), context);
+  helpers::finish_binding(binding, context);
   return false;
 }
-
+} // namespace
+bool NodeSerializerDispatcher::serialize(const clang::DynTypedNode &node,
+                                         ctk::match::v1::MatchBinding &binding,
+                                         SerializationContext &context) {
+  if (context.depth == 0) {
+    context.complete = true;
+    context.nodes = 0;
+    context.availability.clear();
+    context.availability_starts.clear();
+  }
+  if (context.depth >= context.max_depth ||
+      context.nodes >= context.max_nodes) {
+    auto &a = context.availability.emplace_back();
+    a.set_field_path(node.getNodeKind().asStringRef().str());
+    a.set_state(ctk::ast::v1::FIELD_STATE_TRUNCATED);
+    a.set_reason("owned semantic child expansion limit reached");
+    context.complete = false;
+    binding.set_is_complete(false);
+    *binding.add_availability() = a;
+    return false;
+  }
+  const bool parent_complete = context.complete;
+  context.complete = true;
+  context.availability_starts.push_back(context.availability.size());
+  ++context.depth;
+  ++context.nodes;
+  bool result;
+  try {
+    result = dispatch(node, binding, context);
+  } catch (...) {
+    --context.depth;
+    context.availability_starts.pop_back();
+    context.complete = false;
+    throw;
+  }
+  if (result) {
+    binding.add_supported_scopes(ctk::match::v1::BINDING_MATCH_SCOPE_ROOT_ONLY);
+    if (node.get<clang::Decl>() || node.get<clang::Stmt>())
+      binding.add_supported_scopes(ctk::match::v1::BINDING_MATCH_SCOPE_SUBTREE);
+  }
+  const bool child_complete = context.complete;
+  --context.depth;
+  context.availability_starts.pop_back();
+  context.complete = parent_complete && child_complete;
+  return result;
+}
 } // namespace ctk::clang_layer::serialization

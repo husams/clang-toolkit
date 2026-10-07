@@ -17,6 +17,23 @@ def field_name(name: str) -> str:
     return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value).lower()
 
 
+def render_wrappers() -> str:
+    """Typed owned edges use the same stable discriminators as AstNode."""
+    tags = json.loads((ROOT / "node_tags.json").read_text())["tags"]
+    lines = []
+    for family, wrapper in (("decl", "DeclarationValue"), ("expr", "ExpressionValue"),
+                            ("stmt", "StatementValue"), ("type", "TypeValue")):
+        lines.extend([f"message {wrapper} {{", "  reserved 2;", '  reserved "node";',
+                      "  optional bool is_complete = 1;", "  oneof payload {"])
+        if family == "stmt":
+            lines.append("    ExpressionValue expression = 10;")
+        for name, entry in sorted(tags.items(), key=lambda item: item[1]["tag"]):
+            if entry["family"] == family:
+                lines.append(f"    {name} {field_name(name)} = {entry['tag']};")
+        lines.extend(["  }", "}", ""])
+    return "\n".join(lines)
+
+
 def render() -> str:
     catalog = json.loads((ROOT / "catalog.json").read_text())
     registry = json.loads((ROOT / "node_tags.json").read_text())

@@ -31,3 +31,9 @@ Feature: gRPC network client
     And a C++ file containing a declaration
     When I match the first file and add a second file
     Then the second batch is rejected while the first file completes
+
+  Scenario: Nested semantic values arrive as complete typed payloads
+    Given a query server using unix
+    And a C++ file containing a declaration
+    When I run the declaration query
+    Then the declaration contains a complete typed initializer and exact type

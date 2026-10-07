@@ -246,3 +246,19 @@ def checks_limited_batch(limited_events, source: Path) -> None:
     actions = [event.control.action for event in events if event.WhichOneof("event") == "control"]
     assert "paused" in actions
     assert "resumed" in actions
+
+
+@then("the declaration contains a complete typed initializer and exact type")
+def has_typed_semantic_declaration(events) -> None:
+    match = next(event.match for event in events if event.WhichOneof("event") == "match")
+    binding = match.semantic_result.bindings["decl"]
+    assert binding.is_complete
+    assert not binding.availability
+    assert binding.node.WhichOneof("payload") == "var_decl"
+    variable = binding.node.var_decl.variable
+    assert variable.declarator.value.named.qualified_name == "network_client_marker"
+    assert variable.declarator.value.type.type.WhichOneof("payload") == "builtin_type"
+    assert variable.initializer.WhichOneof("payload") == "integer_literal"
+    assert variable.initializer.is_complete
+    assert variable.initializer.integer_literal.value.unsigned_decimal == "1"
+    assert variable.initializer.integer_literal.info.type.type.builtin_type.info.spelling == "int"

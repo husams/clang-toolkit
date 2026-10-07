@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1c\x61st/v1/cxx_record_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xf6\x01\n\rCXXRecordDecl\x12*\n\x06record\x18\x01 \x01(\x0b\x32\x1a.ctk.ast.v1.RecordDeclInfo\x12\x36\n\x10\x64\x65\x66inition_bases\x18\x02 \x03(\x0b\x32\x1c.ctk.ast.v1.CXXBaseSpecifier\x12-\n\x07\x66riends\x18\x03 \x03(\x0b\x32\x1c.ctk.ast.v1.DeclarationValue\x12\x16\n\tis_lambda\x18\x04 \x01(\x08H\x00\x88\x01\x01\x12\x1a\n\ris_structural\x18\x05 \x01(\x08H\x01\x88\x01\x01\x42\x0c\n\n_is_lambdaB\x10\n\x0e_is_structuralb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1c\x61st/v1/cxx_record_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.cxx_record_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CXXRECORDDECL']._serialized_start=74
-  _globals['_CXXRECORDDECL']._serialized_end=320
 # @@protoc_insertion_point(module_scope)

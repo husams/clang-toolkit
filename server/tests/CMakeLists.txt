@@ -17,10 +17,16 @@ if(CTK_BUILD_NETWORK)
   target_link_libraries(ctk_tests PRIVATE ctk_network)
 endif()
 if(CTK_WITH_CLANG)
+  string(REGEX MATCH "^[0-9]+" CTK_TEST_CLANG_VERSION_MAJOR "${CMAKE_CXX_COMPILER_VERSION}")
+  target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_VERSION_MAJOR=${CTK_TEST_CLANG_VERSION_MAJOR})
   target_sources(ctk_tests PRIVATE
     test_clang_query.cpp
     test_clang_query_regressions.cpp
     test_clang_serializer_regressions.cpp
+    test_statement_semantics.cpp
+    test_declaration_semantics.cpp
+    test_expression_semantics.cpp
+    test_type_semantics.cpp
     test_temporary_directory.cpp)
 endif()
 

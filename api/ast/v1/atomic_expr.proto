@@ -8,4 +8,5 @@ message AtomicExpr {
   ExprInfo info = 1;
   optional AtomicOpcode opcode = 2;
   repeated ExpressionValue arguments = 3;
+  optional string opcode_name = 4;
 }

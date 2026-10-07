@@ -122,7 +122,7 @@ TEST(ClangQuery, BaseMatcherDispatchesToDerivedMemberCallSerializer) {
           EXPECT_EQ(member.method_declaration().name(), "get");
           EXPECT_EQ(member.record_declaration().name(), "Box");
           EXPECT_TRUE(member.has_implicit_object_argument());
-          EXPECT_FALSE(member.object_type().type().node().type_url().empty());
+          EXPECT_TRUE(member.object_type().type().payload_case() != ctk::ast::v1::TypeValue::PAYLOAD_NOT_SET || !member.object_type().type().is_complete());
           EXPECT_EQ(member.call().direct_callee().name(), "get");
           saw_member_call = true;
         }

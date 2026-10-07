@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(ast/v1/non_type_template_parm_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xf0\x03\n\x17NonTypeTemplateParmDecl\x12\x32\n\ndeclarator\x18\x01 \x01(\x0b\x32\x1e.ctk.ast.v1.DeclaratorDeclInfo\x12\x12\n\x05\x64\x65pth\x18\x02 \x01(\rH\x00\x88\x01\x01\x12\x15\n\x08position\x18\x03 \x01(\rH\x01\x88\x01\x01\x12\x1e\n\x11is_parameter_pack\x18\x04 \x01(\x08H\x02\x88\x01\x01\x12\x36\n\x10\x64\x65\x66\x61ult_argument\x18\x05 \x01(\x0b\x32\x1c.ctk.ast.v1.TemplateArgument\x12+\n\x1e\x64\x65\x66\x61ult_argument_was_inherited\x18\x06 \x01(\x08H\x03\x88\x01\x01\x12\x1e\n\x11is_pack_expansion\x18\x07 \x01(\x08H\x04\x88\x01\x01\x12\x36\n\x18\x65xpanded_parameter_types\x18\x08 \x03(\x0b\x32\x14.ctk.ast.v1.QualType\x12\x33\n\x0ftype_constraint\x18\t \x01(\x0b\x32\x1a.ctk.ast.v1.TypeConstraintB\x08\n\x06_depthB\x0b\n\t_positionB\x14\n\x12_is_parameter_packB!\n\x1f_default_argument_was_inheritedB\x14\n\x12_is_pack_expansionb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(ast/v1/non_type_template_parm_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.non_type_template_parm_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_NONTYPETEMPLATEPARMDECL']._serialized_start=86
-  _globals['_NONTYPETEMPLATEPARMDECL']._serialized_end=582
 # @@protoc_insertion_point(module_scope)

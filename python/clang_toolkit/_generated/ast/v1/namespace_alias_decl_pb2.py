@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!ast/v1/namespace_alias_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\x86\x02\n\x12NamespaceAliasDecl\x12(\n\x05named\x18\x01 \x01(\x0b\x32\x19.ctk.ast.v1.NamedDeclInfo\x12<\n\x15namespace_declaration\x18\x02 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12\x38\n\x11\x61liased_namespace\x18\x03 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12\x32\n\tqualifier\x18\x04 \x01(\x0b\x32\x1f.ctk.ast.v1.NestedNameSpecifierJ\x04\x08\x05\x10\x06R\x14target_name_locationb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!ast/v1/namespace_alias_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.namespace_alias_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_NAMESPACEALIASDECL']._serialized_start=79
-  _globals['_NAMESPACEALIASDECL']._serialized_end=341
 # @@protoc_insertion_point(module_scope)

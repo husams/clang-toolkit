@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1c\x61st/v1/source_loc_expr.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xe9\x01\n\rSourceLocExpr\x12\"\n\x04info\x18\x01 \x01(\x0b\x32\x14.ctk.ast.v1.ExprInfo\x12\x35\n\x0eparent_context\x18\x03 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12\x30\n\x04kind\x18\x04 \x01(\x0e\x32\x1d.ctk.ast.v1.SourceLocExprKindH\x00\x88\x01\x01\x12\x19\n\x0c\x62uiltin_name\x18\x05 \x01(\tH\x01\x88\x01\x01\x42\x07\n\x05_kindB\x0f\n\r_builtin_nameJ\x04\x08\x02\x10\x03R\x10\x62uiltin_locationb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1c\x61st/v1/source_loc_expr.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.source_loc_expr_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SOURCELOCEXPR']._serialized_start=74
-  _globals['_SOURCELOCEXPR']._serialized_end=307
 # @@protoc_insertion_point(module_scope)

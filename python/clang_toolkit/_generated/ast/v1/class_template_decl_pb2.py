@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n ast/v1/class_template_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xf2\x01\n\x11\x43lassTemplateDecl\x12(\n\x05named\x18\x01 \x01(\x0b\x32\x19.ctk.ast.v1.NamedDeclInfo\x12;\n\x15templated_declaration\x18\x02 \x01(\x0b\x32\x1c.ctk.ast.v1.DeclarationValue\x12>\n\x13template_parameters\x18\x03 \x01(\x0b\x32!.ctk.ast.v1.TemplateParameterList\x12\x36\n\x0fspecializations\x18\x04 \x03(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbolb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n ast/v1/class_template_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.class_template_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CLASSTEMPLATEDECL']._serialized_start=78
-  _globals['_CLASSTEMPLATEDECL']._serialized_end=320
 # @@protoc_insertion_point(module_scope)

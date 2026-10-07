@@ -78,6 +78,7 @@ message AddressSpace {
   oneof value {
     Empty default_space = 1;
     uint32 target_space = 2;
+    string language_space = 3;
   }
 }
 

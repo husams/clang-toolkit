@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x61st/v1/namespace_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xd3\x02\n\rNamespaceDecl\x12(\n\x05named\x18\x01 \x01(\x0b\x32\x19.ctk.ast.v1.NamedDeclInfo\x12\x39\n\x12original_namespace\x18\x02 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12:\n\x13\x61nonymous_namespace\x18\x03 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12\x16\n\tis_inline\x18\x05 \x01(\x08H\x00\x88\x01\x01\x12\x19\n\x0cis_anonymous\x18\x06 \x01(\x08H\x01\x88\x01\x01\x12\x32\n\x0c\x64\x65\x63larations\x18\x07 \x03(\x0b\x32\x1c.ctk.ast.v1.DeclarationValueB\x0c\n\n_is_inlineB\x0f\n\r_is_anonymousJ\x04\x08\x04\x10\x05R\x15\x63\x61nonical_declarationb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x61st/v1/namespace_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.namespace_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_NAMESPACEDECL']._serialized_start=73
-  _globals['_NAMESPACEDECL']._serialized_end=412
 # @@protoc_insertion_point(module_scope)

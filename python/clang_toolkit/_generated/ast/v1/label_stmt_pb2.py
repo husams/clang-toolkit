@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61st/v1/label_stmt.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xb6\x01\n\tLabelStmt\x12\x32\n\x0b\x64\x65\x63laration\x18\x02 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12\x30\n\x0csubstatement\x18\x03 \x01(\x0b\x32\x1a.ctk.ast.v1.StatementValue\x12\x1d\n\x10is_gnu_asm_label\x18\x04 \x01(\x08H\x00\x88\x01\x01\x42\x13\n\x11_is_gnu_asm_labelJ\x04\x08\x01\x10\x02R\tstatementb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61st/v1/label_stmt.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.label_stmt_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_LABELSTMT']._serialized_start=69
-  _globals['_LABELSTMT']._serialized_end=251
 # @@protoc_insertion_point(module_scope)

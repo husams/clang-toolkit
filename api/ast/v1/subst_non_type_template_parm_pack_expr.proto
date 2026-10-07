@@ -8,4 +8,5 @@ message SubstNonTypeTemplateParmPackExpr {
   ExprInfo info = 1;
   DeclarationSymbol parameter_pack = 2;
   repeated ExpressionValue arguments = 3;
+  repeated TemplateArgument template_arguments = 4;
 }

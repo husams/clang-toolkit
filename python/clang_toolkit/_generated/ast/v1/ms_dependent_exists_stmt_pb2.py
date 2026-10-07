@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%ast/v1/ms_dependent_exists_stmt.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xcb\x01\n\x15MSDependentExistsStmt\x12\x30\n\x0csubstatement\x18\x02 \x01(\x0b\x32\x1a.ctk.ast.v1.StatementValue\x12\x17\n\nidentifier\x18\x04 \x01(\tH\x00\x88\x01\x01\x12\x19\n\x0cis_if_exists\x18\x05 \x01(\x08H\x01\x88\x01\x01\x42\r\n\x0b_identifierB\x0f\n\r_is_if_existsJ\x04\x08\x01\x10\x02J\x04\x08\x03\x10\x04R\x15nested_name_specifierR\tstatementb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%ast/v1/ms_dependent_exists_stmt.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.ms_dependent_exists_stmt_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_MSDEPENDENTEXISTSSTMT']._serialized_start=83
-  _globals['_MSDEPENDENTEXISTSSTMT']._serialized_end=286
 # @@protoc_insertion_point(module_scope)

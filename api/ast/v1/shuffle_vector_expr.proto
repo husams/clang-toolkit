@@ -8,4 +8,6 @@ message ShuffleVectorExpr {
   ExprInfo info = 1;
   repeated ExpressionValue arguments = 2;
   repeated uint32 shuffle_mask = 3;
+  // Full ordered mask, including -1 (undefined element).
+  repeated sint64 signed_shuffle_mask = 4;
 }

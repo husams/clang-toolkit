@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n ast/v1/dependent_name_type.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xa2\x01\n\x11\x44\x65pendentNameType\x12\"\n\x04info\x18\x01 \x01(\x0b\x32\x14.ctk.ast.v1.TypeInfo\x12\x32\n\tqualifier\x18\x02 \x01(\x0b\x32\x1f.ctk.ast.v1.NestedNameSpecifier\x12\x17\n\nidentifier\x18\x03 \x01(\tH\x00\x88\x01\x01\x42\r\n\x0b_identifierJ\x04\x08\x04\x10\x05R\x07keywordb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n ast/v1/dependent_name_type.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.dependent_name_type_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DEPENDENTNAMETYPE']._serialized_start=78
-  _globals['_DEPENDENTNAMETYPE']._serialized_end=240
 # @@protoc_insertion_point(module_scope)

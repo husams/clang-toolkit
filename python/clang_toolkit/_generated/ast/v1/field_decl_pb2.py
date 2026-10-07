@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61st/v1/field_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xca\x02\n\tFieldDecl\x12\x32\n\ndeclarator\x18\x01 \x01(\x0b\x32\x1e.ctk.ast.v1.DeclaratorDeclInfo\x12.\n\tbit_width\x18\x02 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12\x39\n\x14in_class_initializer\x18\x03 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12\x17\n\nis_mutable\x18\x04 \x01(\x08H\x00\x88\x01\x01\x12\x19\n\x0cis_bit_field\x18\x05 \x01(\x08H\x01\x88\x01\x01\x12)\n\x1cis_anonymous_struct_or_union\x18\x06 \x01(\x08H\x02\x88\x01\x01\x42\r\n\x0b_is_mutableB\x0f\n\r_is_bit_fieldB\x1f\n\x1d_is_anonymous_struct_or_unionb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61st/v1/field_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.field_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_FIELDDECL']._serialized_start=69
-  _globals['_FIELDDECL']._serialized_end=399
 # @@protoc_insertion_point(module_scope)

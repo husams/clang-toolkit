@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x61st/v1/ms_property_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xb0\x01\n\x0eMSPropertyDecl\x12\x32\n\ndeclarator\x18\x01 \x01(\x0b\x32\x1e.ctk.ast.v1.DeclaratorDeclInfo\x12\x1e\n\x11getter_identifier\x18\x02 \x01(\tH\x00\x88\x01\x01\x12\x1e\n\x11setter_identifier\x18\x03 \x01(\tH\x01\x88\x01\x01\x42\x14\n\x12_getter_identifierB\x14\n\x12_setter_identifierb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x61st/v1/ms_property_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.ms_property_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_MSPROPERTYDECL']._serialized_start=75
-  _globals['_MSPROPERTYDECL']._serialized_end=251
 # @@protoc_insertion_point(module_scope)

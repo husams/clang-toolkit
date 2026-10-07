@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19\x61st/v1/default_stmt.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"h\n\x0b\x44\x65\x66\x61ultStmt\x12\x30\n\x0csubstatement\x18\x02 \x01(\x0b\x32\x1a.ctk.ast.v1.StatementValueJ\x04\x08\x01\x10\x02J\x04\x08\x03\x10\x04R\x10next_switch_caseR\tstatementb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19\x61st/v1/default_stmt.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.default_stmt_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DEFAULTSTMT']._serialized_start=70
-  _globals['_DEFAULTSTMT']._serialized_end=174
 # @@protoc_insertion_point(module_scope)

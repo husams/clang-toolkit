@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18\x61st/v1/export_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\x99\x01\n\nExportDecl\x12)\n\x0b\x64\x65\x63laration\x18\x01 \x01(\x0b\x32\x14.ctk.ast.v1.DeclInfo\x12\x32\n\x0c\x64\x65\x63larations\x18\x02 \x03(\x0b\x32\x1c.ctk.ast.v1.DeclarationValueJ\x04\x08\x03\x10\x04J\x04\x08\x04\x10\x05R\nhas_bracesR\x14right_brace_locationb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18\x61st/v1/export_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.export_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_EXPORTDECL']._serialized_start=70
-  _globals['_EXPORTDECL']._serialized_end=223
 # @@protoc_insertion_point(module_scope)

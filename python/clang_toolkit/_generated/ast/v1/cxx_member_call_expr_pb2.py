@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!ast/v1/cxx_member_call_expr.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\x9b\x02\n\x11\x43XXMemberCallExpr\x12&\n\x04\x63\x61ll\x18\x01 \x01(\x0b\x32\x18.ctk.ast.v1.CallExprInfo\x12=\n\x18implicit_object_argument\x18\x02 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12)\n\x0bobject_type\x18\x03 \x01(\x0b\x32\x14.ctk.ast.v1.QualType\x12\x39\n\x12method_declaration\x18\x04 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbol\x12\x39\n\x12record_declaration\x18\x05 \x01(\x0b\x32\x1d.ctk.ast.v1.DeclarationSymbolb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!ast/v1/cxx_member_call_expr.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.cxx_member_call_expr_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CXXMEMBERCALLEXPR']._serialized_start=79
-  _globals['_CXXMEMBERCALLEXPR']._serialized_end=362
 # @@protoc_insertion_point(module_scope)

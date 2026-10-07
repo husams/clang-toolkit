@@ -7,5 +7,5 @@ import "ast/v1/semantic_types.proto";
 message BindingDecl {
   ValueDeclInfo value = 1;
   DeclarationSymbol holding_variable = 2;
-  DeclarationSymbol binding = 3;
+  ExpressionValue binding = 3;
 }

@@ -10,4 +10,5 @@ message GenericSelectionExpr {
   ExpressionValue result_expression = 3;
   repeated GenericAssociation associations = 4;
   optional int32 selected_index = 5;
+  QualType controlling_type = 6;
 }

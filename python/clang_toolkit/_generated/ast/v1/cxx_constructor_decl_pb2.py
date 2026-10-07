@@ -22,16 +22,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2  # noqa: E402, F401
+from . import semantic_pb2 as ast_dot_v1_dot_semantic__pb2  # noqa: E402, F401
 
+from .semantic_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!ast/v1/cxx_constructor_decl.proto\x12\nctk.ast.v1\x1a\x1b\x61st/v1/semantic_types.proto\"\xf1\x04\n\x12\x43XXConstructorDecl\x12-\n\x06method\x18\x01 \x01(\x0b\x32\x1d.ctk.ast.v1.CXXMethodDeclInfo\x12\x34\n\x0cinitializers\x18\x02 \x03(\x0b\x32\x1e.ctk.ast.v1.CXXCtorInitializer\x12\x18\n\x0bis_explicit\x18\x03 \x01(\x08H\x00\x88\x01\x01\x12(\n\x1bis_explicit_specifier_value\x18\x04 \x01(\x08H\x01\x88\x01\x01\x12&\n\x19is_converting_constructor\x18\x05 \x01(\x08H\x02\x88\x01\x01\x12 \n\x13is_copy_constructor\x18\x06 \x01(\x08H\x03\x88\x01\x01\x12 \n\x13is_move_constructor\x18\x07 \x01(\x08H\x04\x88\x01\x01\x12#\n\x16is_default_constructor\x18\x08 \x01(\x08H\x05\x88\x01\x01\x12&\n\x19is_delegating_constructor\x18\t \x01(\x08H\x06\x88\x01\x01\x12\x42\n\x1d\x65xplicit_specifier_expression\x18\n \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValueB\x0e\n\x0c_is_explicitB\x1e\n\x1c_is_explicit_specifier_valueB\x1c\n\x1a_is_converting_constructorB\x16\n\x14_is_copy_constructorB\x16\n\x14_is_move_constructorB\x19\n\x17_is_default_constructorB\x1c\n\x1a_is_delegating_constructorb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!ast/v1/cxx_constructor_decl.proto\x12\nctk.ast.v1\x1a\x15\x61st/v1/semantic.protoP\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'ast.v1.cxx_constructor_decl_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CXXCONSTRUCTORDECL']._serialized_start=79
-  _globals['_CXXCONSTRUCTORDECL']._serialized_end=704
 # @@protoc_insertion_point(module_scope)
