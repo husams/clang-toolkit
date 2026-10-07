@@ -43,7 +43,10 @@ enum MatchTraversalMode {
 
 message MatchRequest {
   // A dynamic matcher expression, not a clang-query command. The expression
-  // must parse as a native dynamic matcher. Binding continuation additionally
+  // must parse as a native dynamic matcher. As in clang-query, the outer
+  // matcher is automatically bound to "root" when it supports binding;
+  // explicit named bindings are preserved alongside it.
+  // Binding continuation additionally
   // requires a Decl or Stmt matcher category for SUBTREE scope. Query and
   // exactly one target are required; missing fields or unknown enum values
   // are INVALID_ARGUMENT.

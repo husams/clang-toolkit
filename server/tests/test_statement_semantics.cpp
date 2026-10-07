@@ -122,7 +122,7 @@ TEST(StatementSemantics,
   EXPECT_GT(complete, 0U);
   EXPECT_GT(truncated, 0U);
 }
-TEST(StatementSemantics, BindingRowsPreserveMultiplicityAndEmptyMaps) {
+TEST(StatementSemantics, BindingRowsPreserveMultiplicityAndAutomaticRoot) {
   Fixture f("int f() { return 1+2; }");
   auto engine = make_query_engine();
   unsigned rows = 0;
@@ -130,7 +130,8 @@ TEST(StatementSemantics, BindingRowsPreserveMultiplicityAndEmptyMaps) {
       f.file, "integerLiteral()", [] { return true; },
       [&](const IQueryEngine::Bindings &row) {
         ++rows;
-        EXPECT_TRUE(row.empty());
+        ASSERT_EQ(row.size(), 1U);
+        EXPECT_TRUE(row.at("root").value.node().has_integer_literal());
       });
   EXPECT_TRUE(result.ok) << result.message;
   EXPECT_EQ(rows, 2U);
@@ -143,6 +144,8 @@ TEST(StatementSemantics, BindingRowsPreserveMultiplicityAndEmptyMaps) {
       [&](const IQueryEngine::Bindings &row) {
         ++rows;
         EXPECT_TRUE(row.at("node").value.node().has_function_decl());
+        EXPECT_TRUE(row.at("root").value.node().has_function_decl());
+        EXPECT_TRUE(row.at("literal").value.node().has_integer_literal());
       });
   EXPECT_TRUE(result.ok) << result.message;
   EXPECT_EQ(rows, 2U);

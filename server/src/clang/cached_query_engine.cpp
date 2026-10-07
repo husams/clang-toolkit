@@ -713,6 +713,8 @@ public:
         result.message = diagnostics.toStringFull();
         return result;
       }
+      if (auto root = matcher->tryBind("root"))
+        matcher = std::move(root);
       if (!checkpoint()) {
         result.cancelled = true;
         result.message = "query cancelled";

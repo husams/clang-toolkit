@@ -549,8 +549,8 @@ public:
         {"queue.size", std::int64_t{100}},
         {"session.max_files", std::int64_t{100}},
         {"session.max_memory_bytes", std::int64_t{2147483648}},
-        {"server.grpc.max_send_message_bytes", std::int64_t{67108864}},
-        {"client.grpc.max_receive_message_bytes", std::int64_t{67108864}},
+        {"server.grpc.max_send_message_bytes", std::int64_t{-1}},
+        {"client.grpc.max_receive_message_bytes", std::int64_t{-1}},
         {"server.shutdown_grace_ms", std::monostate{}},
         {"client.rpc_timeout_ms", std::monostate{}}};
     for (const auto &[key, value] : settings.effective_values) {

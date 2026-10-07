@@ -239,14 +239,18 @@ TEST_F(MatchCursors, ByteLimitReportsBudgetAndPreservesParsedTree) {
             std::string::npos);
   EXPECT_NE(rejected.message.find("no cursor state committed"),
             std::string::npos);
-  EXPECT_EQ(fork(session(tree, "functionDecl()")).code, MatchCode::Ok);
+  EXPECT_EQ(fork(session(tree, "functionDecl(hasName(\"absent\"))")).code,
+            MatchCode::Ok);
 }
 
-TEST_F(MatchCursors, DefaultBudgetAcceptsResponseLargerThanFourMiB) {
-  std::ofstream source(directory.path() / "fixture.cc");
-  for (int index = 0; index < 3000; ++index)
-    source << "void function_" << index << "_" << std::string(1000, 'x')
+TEST_F(MatchCursors, DefaultBudgetAcceptsIncludedResultsLargerThan64MiB) {
+  std::ofstream header(directory.path() / "many.hpp");
+  for (int index = 0; index < 15000; ++index)
+    header << "void function_" << index << "_" << std::string(1000, 'x')
            << "();\n";
+  header.close();
+  std::ofstream source(directory.path() / "fixture.cc");
+  source << "#include \"many.hpp\"\nvoid source_function();\n";
   source.close();
   const auto parsed =
       controller->parse("owner", parse_request(), [] { return true; });
@@ -254,8 +258,32 @@ TEST_F(MatchCursors, DefaultBudgetAcceptsResponseLargerThanFourMiB) {
   const auto result = fork(
       session(tree_response(parsed.response), "functionDecl().bind(\"x\")"));
   ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
-  EXPECT_EQ(result.response.results_size(), 3000);
-  EXPECT_GT(result.response.ByteSizeLong(), 4U * 1024 * 1024);
+  EXPECT_EQ(result.response.results_size(), 15001);
+  EXPECT_GT(result.response.ByteSizeLong(), 64U * 1024 * 1024);
+  EXPECT_TRUE(result.response.results(0).bindings().contains("root"));
+  EXPECT_TRUE(result.response.results(0).bindings().contains("x"));
+}
+
+TEST_F(MatchCursors, AutomaticRootMatchesClangQueryAndIncludesHeaders) {
+  std::ofstream(directory.path() / "included.hpp")
+      << "void header_function();\n";
+  std::ofstream(directory.path() / "fixture.cc")
+      << "#include \"included.hpp\"\nvoid source_function();\n";
+  auto unbound = run(file("functionDecl()"));
+  ASSERT_EQ(unbound.code, MatchCode::Ok) << unbound.message;
+  ASSERT_EQ(unbound.response.results_size(), 2);
+  for (const auto &row : unbound.response.results()) {
+    ASSERT_EQ(row.bindings().size(), 1U);
+    EXPECT_TRUE(row.bindings().at("root").node().has_function_decl());
+  }
+  auto named = run(file("functionDecl().bind(\"x\")"));
+  ASSERT_EQ(named.code, MatchCode::Ok) << named.message;
+  ASSERT_EQ(named.response.results_size(), 2);
+  for (const auto &row : named.response.results()) {
+    ASSERT_EQ(row.bindings().size(), 2U);
+    EXPECT_EQ(row.bindings().at("root").SerializeAsString(),
+              row.bindings().at("x").SerializeAsString());
+  }
 }
 
 TEST_F(MatchCursors, ConcurrentForksAcceptSameSourceRevisionIndependently) {
@@ -435,7 +463,7 @@ TEST_F(MatchCursors, WholeTreeRestartAndZeroMatchesAdvanceRevision) {
   EXPECT_EQ(restart.response.result_revision(), 2U);
 }
 
-TEST_F(MatchCursors, RootOnlyDoesNotSearchDescendantsAndKeepsEmptyRows) {
+TEST_F(MatchCursors, RootOnlyDoesNotSearchDescendantsAndBindsRoot) {
   auto first = run(file("functionDecl(hasName(\"alpha\")).bind(\"f\")"));
   ASSERT_EQ(first.code, MatchCode::Ok) << first.message;
   auto request = binding(first.response, "f", "functionDecl()");
@@ -443,7 +471,8 @@ TEST_F(MatchCursors, RootOnlyDoesNotSearchDescendantsAndKeepsEmptyRows) {
   auto result = run(request);
   ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
   ASSERT_EQ(result.response.results_size(), 1);
-  EXPECT_TRUE(result.response.results(0).bindings().empty());
+  EXPECT_EQ(result.response.results(0).bindings().size(), 1U);
+  EXPECT_TRUE(result.response.results(0).bindings().contains("root"));
   EXPECT_EQ(result.response.results(0).source_match_index(), 0U);
   auto missing = run(binding(result.response, "f", "callExpr()"));
   EXPECT_EQ(missing.code, MatchCode::NotFound);

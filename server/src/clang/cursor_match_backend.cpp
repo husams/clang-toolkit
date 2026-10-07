@@ -80,6 +80,8 @@ public:
     auto parsed = dynamic::Parser::parseMatcherExpression(text, &diagnostics);
     if (!parsed)
       return failure(MatchCode::InvalidArgument, diagnostics.toStringFull());
+    if (auto root = parsed->tryBind("root"))
+      parsed = std::move(root);
     const auto traversal =
         request.traversal_mode() ==
                 MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE

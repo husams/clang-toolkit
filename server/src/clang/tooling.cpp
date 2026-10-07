@@ -224,6 +224,8 @@ public:
       result.message = diagnostics_text(diagnostics);
       return result;
     }
+    if (auto root = matcher->tryBind("root"))
+      matcher = std::move(root);
 
     std::shared_ptr<Snapshot> snapshot;
     std::unique_lock<std::mutex> snapshot_lock;

@@ -2,6 +2,7 @@
 #include "ctk/clang/tooling.hpp"
 #include <filesystem>
 #include <fstream>
+#include <google/protobuf/util/message_differencer.h>
 #include <gtest/gtest.h>
 #ifdef CTK_WITH_CLANG
 #include "ctk/platform/temporary_directory.hpp"
@@ -100,8 +101,9 @@ TEST_F(ScriptNative, BranchesFromImmutableRowsAndPreservesRowSelection) {
   emit rows;)script");
   auto result = controller.run(request, [] { return true; });
   ASSERT_EQ(result.code, Code::Ok) << result.message;
-  EXPECT_EQ(result.response.emissions(0).value().SerializeAsString(),
-            result.response.emissions(1).value().SerializeAsString());
+  EXPECT_TRUE(google::protobuf::util::MessageDifferencer::Equals(
+      result.response.emissions(0).value(),
+      result.response.emissions(1).value()));
   EXPECT_EQ(result.response.emissions(2).value().matches().rows_size(), 2);
 }
 TEST_F(ScriptNative, NativeAndScopeFailuresAreAtomic) {

@@ -22,8 +22,8 @@ const defaults: ConfigurationMap = {
   pool: { size: 3n },
   queue: { size: 100n },
   session: { max_files: 100n, max_memory_bytes: 2147483648n },
-  server: { grpc: { max_send_message_bytes: 67108864n }, shutdown_grace_ms: null },
-  client: { grpc: { max_receive_message_bytes: 67108864n }, rpc_timeout_ms: null },
+  server: { grpc: { max_send_message_bytes: -1n }, shutdown_grace_ms: null },
+  client: { grpc: { max_receive_message_bytes: -1n }, rpc_timeout_ms: null },
 };
 
 export function loadNetworkConfig(

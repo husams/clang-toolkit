@@ -45,8 +45,10 @@ completion; responses contain semantic values without session handles.
 
 All syntax is parsed before evaluation. Defaults: 100 execution steps (statements,
 function calls, loop iterations), 1 MiB source, 100,000 tokens, nesting 64, 16 MiB
-retained values/bindings, and at most 64 MiB response by default (following a
-positive `server.grpc.max_send_message_bytes`). `max_steps` accepts 1..10,000. Snapshot memory uses the server's
+retained values/bindings, and responses bounded by the server memory budget
+(also capped by a positive `server.grpc.max_send_message_bytes`). Match expressions
+automatically bind the outer matcher as `root`, preserving explicit bindings.
+`max_steps` accepts 1..10,000. Snapshot memory uses the server's
 configured memory bound. Errors, cancellation, and any limit return no partial
 emissions. A script occupies one shared worker; native calls run directly within
 that worker, avoiding nested worker-queue waits. The DSL provides no shell,

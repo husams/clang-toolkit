@@ -21,7 +21,11 @@ Missing bindings and rows return `NOT_FOUND`. The default `SUBTREE` supports
 Decl/Stmt roots and Decl/Stmt matchers, including cross-category searches.
 `ROOT_ONLY` matches one selected candidate; native Type/QualType bindings also
 support that scope. Unsupported scope combinations return `FAILED_PRECONDITION`.
-Successful native callbacks without explicit bindings remain empty result rows.
+Like clang-query, bindable outer matchers automatically capture `root`, alongside
+any explicit names. `functionDecl()` therefore returns function values under
+`root`; `functionDecl().bind("x")` returns both `root` and `x`. Matching includes
+headers by default. Auxiliary matchers that cannot bind a root retain their
+native callback bindings.
 
 Both traversal policies use Clang's native matcher traversal. Subtree filters
 restrict candidate ancestry while relationship predicates see the full AST.
@@ -63,9 +67,10 @@ operation and releases retained state.
 The bounded executor and registry enforce cursor count, estimated retained
 memory, row count and the complete serialized response size. Snapshot estimates
 are counted once per unique snapshot within this registry. Defaults are 100
-cursors, 2 GiB estimated retained memory, 100,000 rows, and 64 MiB per response.
-The response budget follows a positive `server.grpc.max_send_message_bytes`;
-configure `client.grpc.max_receive_message_bytes` to receive responses of that size.
+cursors, 2 GiB estimated retained memory, and 100,000 rows. There is no configured
+response wire cap by default; complete results remain bounded by the memory
+budget. A positive `server.grpc.max_send_message_bytes` adds a response cap;
+the client receive limit must also accommodate that size.
 These cursor budgets are independent of the streaming
 query controller's existing analysis-session budgets; they do not constitute
 one combined process-memory cap. Native parsing/traversal cancellation is

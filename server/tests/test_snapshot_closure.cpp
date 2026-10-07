@@ -216,7 +216,9 @@ TEST_F(SnapshotClosure,
       input, "functionDecl(hasName(\"fallback_header_16384\")).bind(\"f\")",
       [] { return true; },
       [&](const auto &rows) {
-        ASSERT_EQ(rows.size(), 1U);
+        ASSERT_EQ(rows.size(), 2U);
+        EXPECT_TRUE(rows.contains("root"));
+        EXPECT_TRUE(rows.contains("f"));
         ++matches;
       });
   ASSERT_TRUE(result.ok) << result.message;

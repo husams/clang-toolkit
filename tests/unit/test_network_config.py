@@ -19,8 +19,8 @@ def test_default_endpoint_and_application_limits(tmp_path):
     assert config.transport == "unix"
     assert (config.pool_size, config.queue_size) == (3, 100)
     assert (config.max_files, config.max_memory_bytes) == (100, 2_147_483_648)
-    assert config.client_options == (("grpc.max_receive_message_length", 67_108_864),)
-    assert config.server_options == (("grpc.max_send_message_length", 67_108_864),)
+    assert config.client_options == (("grpc.max_receive_message_length", -1),)
+    assert config.server_options == (("grpc.max_send_message_length", -1),)
 
 
 def test_configuration_layers_merge_and_hidden_file_wins(tmp_path):

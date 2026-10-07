@@ -165,6 +165,13 @@ Feature: gRPC network client
     When I match the large result through both SDKs and the console
     Then every client receives all function declarations
 
+  Scenario: Included declarations exceeding 64 MiB need no response tuning
+    Given a query server using unix
+    And a C++ file whose included matches exceed 64 MiB
+    When I match the large result through both SDKs and the console
+    Then every client receives all function declarations
+    And the complete response exceeds 64 MiB without special settings
+
   Scenario Outline: Query over the configured local transport
     Given a query server using <transport>
     And a C++ file containing a declaration

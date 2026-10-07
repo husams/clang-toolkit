@@ -15,14 +15,14 @@
       "files": {},
       "expected": {
         "target": "unix://${TEMP}/ctk.sock",
-        "values": {"version": 1, "network.transport": "unix", "network.unix.socket_path": null, "pool.size": 3, "queue.size": 100, "session.max_files": 100, "session.max_memory_bytes": 2147483648, "server.grpc.max_send_message_bytes": 67108864, "client.grpc.max_receive_message_bytes": 67108864},
+        "values": {"version": 1, "network.transport": "unix", "network.unix.socket_path": null, "pool.size": 3, "queue.size": 100, "session.max_files": 100, "session.max_memory_bytes": 2147483648, "server.grpc.max_send_message_bytes": -1, "client.grpc.max_receive_message_bytes": -1},
         "origins": {"network.transport": "<defaults>", "network.unix.socket_path": "<defaults>"}
       }
     },
     {
       "name": "partial_grpc_mapping_preserves_response_defaults",
       "files": {"explicit": "server:\n  grpc:\n    max_receive_message_bytes: 1024\nclient:\n  grpc:\n    max_send_message_bytes: 2048\n"},
-      "expected": {"target": "unix://${TEMP}/ctk.sock", "values": {"server.grpc.max_send_message_bytes": 67108864, "client.grpc.max_receive_message_bytes": 67108864}, "origins": {"server.grpc.max_send_message_bytes": "<defaults>", "client.grpc.max_receive_message_bytes": "<defaults>"}}
+      "expected": {"target": "unix://${TEMP}/ctk.sock", "values": {"server.grpc.max_send_message_bytes": -1, "client.grpc.max_receive_message_bytes": -1}, "origins": {"server.grpc.max_send_message_bytes": "<defaults>", "client.grpc.max_receive_message_bytes": "<defaults>"}}
     },
     {
       "name": "explicit_null_clears_response_defaults",

@@ -387,38 +387,53 @@ def start_large_cursor_server(tmp_path: Path, request) -> RunningServer:
 
 
 @given("a C++ file with a large function declaration result", target_fixture="large_source")
-def large_source(tmp_path: Path) -> Path:
+def large_source(tmp_path: Path) -> tuple[Path, int]:
+    return _included_function_source(tmp_path, 3000)
+
+
+@given("a C++ file whose included matches exceed 64 MiB", target_fixture="large_source")
+def very_large_source(tmp_path: Path) -> tuple[Path, int]:
+    return _included_function_source(tmp_path, 15000)
+
+
+def _included_function_source(tmp_path: Path, count: int) -> tuple[Path, int]:
     source = tmp_path / "large.cc"
-    source.write_text("void marker();\n" + "\n".join(
-        f"void function_{index}_" + "x" * 1000 + "();" for index in range(3000)))
-    return source
+    (tmp_path / "many.hpp").write_text("\n".join(
+        f"void function_{index}_" + "x" * 1000 + "();" for index in range(count)))
+    source.write_text('#include "many.hpp"\nvoid marker();\n')
+    return source, count + 1
 
 
 @when("I match the large result through both SDKs and the console", target_fixture="large_result")
-def match_large_result(server: RunningServer, large_source: Path):
+def match_large_result(server: RunningServer, large_source: tuple[Path, int]):
     import sys
     from clang_toolkit import Client
+    source, count = large_source
 
     with Client(server.endpoint) as client:
-        with client.parse(large_source) as tree:
+        with client.parse(source) as tree:
             with client.match_in('functionDecl().bind("x")', tree) as rows:
-                assert len(rows) == 3001
-        response = client.match_file(large_source, 'functionDecl().bind("x")')
+                assert len(rows) == count
+                assert {"root", "x"} <= rows[0].bindings.keys()
+            with client.match_in('functionDecl()', tree) as roots:
+                assert len(roots) == count
+                assert set(roots[0].bindings) == {"root"}
+        response = client.match_file(source, 'functionDecl().bind("x")')
         assert response.ByteSize() > 4 * 1024 * 1024
-        assert len(response.results) == 3001
+        assert len(response.results) == count
         client.close_match(response.session_id)
 
     async def run():
         async with AsyncClient(server.endpoint) as client:
-            async with await client.parse(large_source) as tree:
+            async with await client.parse(source) as tree:
                 async with await client.match_in('functionDecl().bind("x")', tree) as rows:
-                    assert len(rows) == 3001
+                    assert len(rows) == count
     asyncio.run(run())
     console = subprocess.run(
         [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
-        input=f'let tree = parse "{large_source}"\nlet rows = match functionDecl().bind("x") in $tree\n'
+        input=f'let tree = parse "{source}"\nlet rows = match functionDecl().bind("x") in $tree\n'
               'let one = match functionDecl(hasName("marker")).bind("x") in $tree\nprint $one\nquit\n',
-        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90,
         check=False,
     )
     return console, response.ByteSize()
@@ -433,18 +448,23 @@ def verify_large_result(large_result):
     assert size > 4 * 1024 * 1024
 
 
+@then("the complete response exceeds 64 MiB without special settings")
+def verify_no_default_wire_cap(large_result):
+    assert large_result[1] > 64 * 1024 * 1024
+
+
 @when("I request an oversized cursor replacement", target_fixture="cursor_limited_result")
 def oversized_cursor_replacement(server: RunningServer, cursor_source: Path):
     async def run():
         async with AsyncClient(server.endpoint) as client:
-            first = await client.match_file(cursor_source, 'functionDecl(hasName("f"))')
+            first = await client.match_file(cursor_source, 'functionDecl(hasName("not_present"))')
             with pytest.raises(CursorError) as rejected:
                 await client.restart_match(first.session_id, 'functionDecl().bind("f")',
                                            expected_result_revision=1)
             assert rejected.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
             assert "limit 128 bytes" in str(rejected.value)
             assert "server.grpc.max_send_message_bytes" in str(rejected.value)
-            preserved = await client.restart_match(first.session_id, 'functionDecl(hasName("f"))',
+            preserved = await client.restart_match(first.session_id, 'functionDecl(hasName("not_present"))',
                                                    expected_result_revision=1)
             await client.close_match(first.session_id)
             return preserved
