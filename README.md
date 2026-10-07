@@ -38,8 +38,10 @@ RHEL repositories or use the supplied Rocky Linux 9 container for all dependenci
 
 Like facts-tool, SQLite is built from the pinned 3.53.4 amalgamation and linked
 statically on every platform; Clang/LLVM and other system libraries retain their
-normal linkage. The RHEL script checks that `ldd` reports no shared SQLite dependency.
-Downloads are cached under `.deps/`. `SQLITE_SOURCE_DIR=/path/to/amalgamation`
+normal linkage. Its verified upstream archive is included in `third_party/sqlite/`,
+so SQLite does not require a network download. The RHEL script checks that `ldd`
+reports no shared SQLite dependency. Other dependency downloads are cached under
+`.deps/`. `SQLITE_SOURCE_DIR=/path/to/amalgamation`
 selects a local SQLite source directory. Direct CMake builds accept the equivalent
 `-DCTK_SQLITE_SOURCE_DIR=/path/to/amalgamation`; `-DCTK_SYSTEM_SQLITE=ON` requires
 an installed static SQLite archive of version 3.35 or later and rejects shared libraries.

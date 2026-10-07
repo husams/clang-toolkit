@@ -22,8 +22,10 @@ else()
     set(_ctk_sqlite_source "${CTK_SQLITE_SOURCE_DIR}")
   else()
     include(FetchContent)
+    # Keep the pinned upstream archive in the checkout so SQLite configuration
+    # works behind restricted networks and with older CMake TLS implementations.
     FetchContent_Declare(ctk_sqlite_source
-      URL https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip
+      URL "${CMAKE_CURRENT_LIST_DIR}/../third_party/sqlite/sqlite-amalgamation-3530400.zip"
       URL_HASH SHA256=1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(ctk_sqlite_source)
