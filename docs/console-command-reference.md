@@ -38,7 +38,8 @@ let tree = parse PATH
 ```
 
 - PATH: quoted file path or a reference to a path/File; relative to the session directory.
-- Uses configured extra_args (default []) and requires the native server.
+- Automatically loads compile_commands.json; extra_args append compiler overrides.
+- Select a database with ctk --compile-commands PATH or set compile_commands PATH.
 - Use the result with match ... in $tree or a scoped in $tree block.
 
 ```text
@@ -198,6 +199,7 @@ Persist a project or user configuration override.
 ```text
 set [user] traversal MODE
 set [user] extra_args STRING_LIST
+set [user] compile_commands PATH
 set [user] cache_dir to DIRECTORY
 set [user] files to FILE_LIST
 set [user] output to PATH_OR_STDOUT [mode replace]
@@ -225,7 +227,7 @@ Remove an override, revealing the lower configuration layers.
 clear [user] KEY
 ```
 
-- KEY: traversal, extra_args, cache_dir, files, output or vars.
+- KEY: traversal, extra_args, compile_commands, cache_dir, files, output or vars.
 - Default scope is project; user selects the home layer. Does not erase runtime let bindings.
 
 ```text
@@ -707,6 +709,36 @@ set [user] extra_args STRING_LIST
 set user extra_args ["-std=c++20"]
 ```
 
+## set compile_commands
+
+Set the compile_commands configuration override.
+
+```text
+set [user] compile_commands PATH
+```
+
+- PATH: server-side JSON file or directory; default null enables automatic discovery.
+- Default scope: project ./.clang_tools.yaml; user scope: ~/.clang_tools.yaml.
+
+```text
+set compile_commands "build"
+```
+
+## set user compile_commands
+
+Set the compile_commands configuration override.
+
+```text
+set [user] compile_commands PATH
+```
+
+- PATH: server-side JSON file or directory; default null enables automatic discovery.
+- Writes the user ~/.clang_tools.yaml layer; a project override still takes precedence.
+
+```text
+set user compile_commands "build"
+```
+
 ## set cache_dir
 
 Set the cache_dir configuration override.
@@ -805,7 +837,7 @@ Remove an override, revealing the lower configuration layers.
 clear user KEY
 ```
 
-- KEY: traversal, extra_args, cache_dir, files, output or vars.
+- KEY: traversal, extra_args, compile_commands, cache_dir, files, output or vars.
 - Removes the home-layer override; project overrides still take precedence. Runtime let bindings remain.
 
 ```text
@@ -821,6 +853,7 @@ Persist a project or user configuration override.
 ```text
 set user traversal MODE
 set user extra_args STRING_LIST
+set user compile_commands PATH
 set user cache_dir to DIRECTORY
 set user files to FILE_LIST
 set user output to PATH_OR_STDOUT [mode replace]

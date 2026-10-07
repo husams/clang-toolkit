@@ -1,4 +1,5 @@
 #include "ctk/clang/tooling.hpp"
+#include "ctk/clang/compilation_database.hpp"
 
 #include "ctk/cache/compilation_context.hpp"
 #include "ctk/cache/snapshot_cache.hpp"
@@ -680,14 +681,16 @@ public:
         cache_(loader_) {}
 
   ctk::cache::SnapshotPtr acquire_snapshot(const FileInput &file) override {
-    return cache_.acquire(normalized_path(file), cache_context(file));
+    const auto resolved = resolve_compilation_command(file);
+    return cache_.acquire(normalized_path(resolved), cache_context(resolved));
   }
 
-  QueryResult match(const FileInput &file, const std::string &query,
+  QueryResult match(const FileInput &input, const std::string &query,
                     const Checkpoint &checkpoint,
                     const MatchCallback &on_match) override {
     QueryResult result;
     try {
+      const auto file = resolve_compilation_command(input);
       auto context = cache_context(file);
       result.profile = context.digest();
       clang::ast_matchers::dynamic::Diagnostics diagnostics;

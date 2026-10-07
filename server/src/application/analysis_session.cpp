@@ -38,6 +38,7 @@ std::string profile_key(const FileInput &input) {
   };
   append(normalized_path(input));
   append(input.working_directory);
+  append(input.compilation_database);
   key.append(std::to_string(input.compile_arguments.size())).push_back(';');
   for (const auto &argument : input.compile_arguments)
     append(argument);

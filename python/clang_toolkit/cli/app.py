@@ -63,6 +63,7 @@ async def _prompt(session, prompt: str) -> str:
 
 async def _run() -> int:
     parser = argparse.ArgumentParser(prog="ctk")
+    parser.add_argument("--compile-commands", help="server-side compile_commands.json file or directory")
     parser.add_argument("--server", help="override the configured gRPC endpoint")
     parser.add_argument("-c", "--cofing", "--config-path", dest="config_path")
     parser.add_argument("--print-config", action="store_true")
@@ -83,22 +84,28 @@ async def _run() -> int:
     if args.background and not args.query:
         parser.error("--background requires --query")
 
+    compilation_options = ({"compilation_database": args.compile_commands}
+                           if args.compile_commands is not None else {})
     client = (
-        Client(args.server)
+        Client(args.server, **compilation_options)
         if args.config_path is None
-        else Client(args.server, args.config_path)
+        else Client(args.server, args.config_path, **compilation_options)
     )
     try:
         runtime = Runtime(client, history=HistoryStore())
     except (ConfigError, OutputError) as exc:
         print(f"error: {exc}")
         return 1
+    if args.compile_commands is not None:
+        runtime.config_store.effective["compile_commands"] = args.compile_commands
+    if runtime.config_store.effective["compile_commands"] is not None:
+        compilation_options["compilation_database"] = runtime.config_store.effective["compile_commands"]
     session = create_session(references=runtime.completion_references, cwd=runtime.cwd)
     query_session = None
     session_reader = None
     exit_code = 0
     try:
-        async with AsyncClient(args.server, args.config_path, network_config) as async_client:
+        async with AsyncClient(args.server, args.config_path, network_config, **compilation_options) as async_client:
             client.bind_async_client(async_client)
             if args.session:
                 query_session = await async_client.query_session()

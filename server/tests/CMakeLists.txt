@@ -24,6 +24,7 @@ if(CTK_WITH_CLANG)
   target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_TOOL_PATH="${CMAKE_CXX_COMPILER}")
   target_sources(ctk_tests PRIVATE
     test_clang_query.cpp
+    test_compilation_database.cpp
     test_clang_query_regressions.cpp
     test_clang_serializer_regressions.cpp
     test_statement_semantics.cpp

@@ -20,6 +20,7 @@ class ConfigError(ValueError):
 DEFAULTS: dict[str, Any] = {
     "traversal": "AsIs",
     "extra_args": [],
+    "compile_commands": None,
     "cache_dir": None,
     "files": [],
     "output": "stdout",
@@ -52,6 +53,8 @@ def _validate(data: dict[str, Any]) -> None:
         isinstance(arg, str) for arg in data["extra_args"]
     ):
         raise ConfigError("extra_args must be a list of strings")
+    if data["compile_commands"] is not None and (not isinstance(data["compile_commands"], str) or not data["compile_commands"]):
+        raise ConfigError("compile_commands must be a nonempty path string or null")
     if data["cache_dir"] is not None and not isinstance(data["cache_dir"], str):
         raise ConfigError("cache_dir must be a path string or null")
     if not isinstance(data["files"], list) or not all(

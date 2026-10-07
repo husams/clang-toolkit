@@ -178,6 +178,61 @@ for (const transport of ["unix", "tcp"] as const) {
       ).toBe(3);
     });
 
+    it("loads automatic and explicit databases and refreshes changed commands", async () => {
+      const project = resolve(directory, "database-project");
+      const build = resolve(project, "build");
+      await mkdir(resolve(build, "include with spaces"), { recursive: true });
+      await writeFile(
+        resolve(build, "include with spaces/profile.hpp"),
+        "#define HEADER_VALUE 17\n",
+      );
+      const file = resolve(project, "profile.cc");
+      await writeFile(
+        file,
+        "#include <profile.hpp>\nstatic_assert(HEADER_VALUE == 17);\n#if VALUE == 1\nint before(){return 1;}\n#else\nint after(){return 2;}\n#endif\n",
+      );
+      const command = {
+        directory: build,
+        file: "../profile.cc",
+        arguments: [
+          "clang++",
+          "-std=c++20",
+          "-Iinclude with spaces",
+          "-DVALUE=1",
+          "-c",
+          "../profile.cc",
+          "-o",
+          "unused.o",
+        ],
+      };
+      const database = resolve(build, "compile_commands.json");
+      await writeFile(database, JSON.stringify([command]));
+      await using client = new Client(endpoint);
+      await using automatic = await client.parse(file);
+      await using before = await client.match(
+        'functionDecl(hasName("before")).bind("f")',
+        automatic,
+      );
+      expect(before.length).toBe(1);
+      await using explicitClient = new Client(endpoint, {
+        compilationDatabase: database,
+      });
+      await using explicit = await explicitClient.parse(file);
+      command.arguments[3] = "-DVALUE=22";
+      await writeFile(database, JSON.stringify([command]));
+      await using updated = await client.match(
+        'functionDecl(hasName("after")).bind("f")',
+        file,
+        { compilationDatabase: build },
+      );
+      expect(updated.length).toBe(1);
+      await using pinned = await explicitClient.match(
+        'functionDecl(hasName("before")).bind("f")',
+        explicit,
+      );
+      expect(pinned.length).toBe(1);
+    });
+
     it("parses once, forks immutable all/indexed bindings, and survives parent close", async () => {
       await using sdk = client();
       const tree = await sdk.parse("fixture.cc");

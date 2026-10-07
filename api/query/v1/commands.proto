@@ -9,6 +9,8 @@ message FileInput {
   repeated string compile_arguments = 2;
   // Required absolute directory for resolving paths and compiler inputs.
   string working_directory = 3;
+  // Server-side JSON file or directory; empty enables automatic discovery.
+  string compilation_database = 4;
 }
 
 // Fixed-file query; the complete input batch is admitted atomically.

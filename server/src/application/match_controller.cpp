@@ -16,6 +16,7 @@ std::string invalid_request(const ParseRequest &request) {
   FileMatchTarget file;
   file.set_file_path(request.file_path());
   file.set_working_directory(request.working_directory());
+  file.set_compilation_database(request.compilation_database());
   file.mutable_compile_arguments()->CopyFrom(request.compile_arguments());
   return detail::invalid_file_target(file);
 }

@@ -6,4 +6,8 @@ message ParseRequest {
   string file_path = 1;
   repeated string compile_arguments = 2;
   string working_directory = 3;
+  // Server-side JSON file or directory. Empty discovers compile_commands.json
+  // in the working/source directory or parents (including build/). Explicit
+  // databases must contain this file; compile_arguments append overrides.
+  string compilation_database = 4;
 }

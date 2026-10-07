@@ -5,10 +5,12 @@ export interface FileMatchTarget {
   'filePath'?: (string);
   'compileArguments'?: (string)[];
   'workingDirectory'?: (string);
+  'compilationDatabase'?: (string);
 }
 
 export interface FileMatchTarget__Output {
   'filePath': (string);
   'compileArguments': (string)[];
   'workingDirectory': (string);
+  'compilationDatabase': (string);
 }

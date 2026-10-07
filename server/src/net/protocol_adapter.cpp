@@ -5,6 +5,8 @@
 namespace ctk::net {
 namespace {
 application::FileInput decode_file(const query::v1::FileInput &file) {
+  if (file.compilation_database().find('\0') != std::string::npos)
+    throw std::invalid_argument("compilation_database cannot contain NUL bytes");
   if (file.path().empty() || file.path().find('\0') != std::string::npos)
     throw std::invalid_argument("file.path must be a nonempty pathname");
   if (file.working_directory().empty() ||
@@ -18,7 +20,7 @@ application::FileInput decode_file(const query::v1::FileInput &file) {
           "compiler arguments cannot contain NUL bytes");
   return {file.path(),
           {file.compile_arguments().begin(), file.compile_arguments().end()},
-          file.working_directory()};
+          file.working_directory(), file.compilation_database()};
 }
 void copy_violations(const application::Outcome &outcome,
                      query::v1::Rejected &rejected) {

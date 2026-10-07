@@ -98,6 +98,7 @@ if(CTK_WITH_CLANG)
     src/clang/cfg_project.cpp
     src/clang/call_graph_project.cpp
     src/clang/cached_query_engine.cpp
+    src/clang/compilation_database.cpp
     src/clang/snapshot/compilation_environment.cpp
     src/clang/snapshot/captured_filesystem.cpp
     src/clang/snapshot/build_snapshot.cpp
@@ -144,6 +145,7 @@ if(CTK_WITH_CLANG)
   endif()
   target_link_libraries(ctk_core PUBLIC ctk_clang)
   target_link_libraries(ctk_clang PUBLIC ctk_match_api ctk_analysis_api ctk_cache ctk_storage)
+  target_link_libraries(ctk_clang PRIVATE ctk::sqlite)
   target_compile_definitions(ctk_core PUBLIC CTK_WITH_CLANG=1)
 endif()
 

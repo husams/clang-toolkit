@@ -55,6 +55,7 @@ export const scriptResponseSchema = z.looseObject({
 export const fileOptionsSchema = z.object({
   workingDirectory: z.string().min(1).optional(),
   compileArguments: z.array(z.string().min(1)).optional(),
+  compilationDatabase: z.string().min(1).optional(),
 });
 export const matchOptionsSchema = fileOptionsSchema.extend({
   traversal: z.enum(["asIs", "spelled"]).optional(),

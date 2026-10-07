@@ -65,6 +65,9 @@ export class Client implements AsyncDisposable {
       z.number().int().positive().safe().parse(options.connectTimeoutMs);
     fileOptionsSchema.parse(options);
     this.defaults = snapshot({
+      ...(options.compilationDatabase === undefined
+        ? {}
+        : { compilationDatabase: options.compilationDatabase }),
       ...(options.workingDirectory === undefined
         ? {}
         : { workingDirectory: options.workingDirectory }),
@@ -133,6 +136,7 @@ export class Client implements AsyncDisposable {
   private compilationProfile(options: FileOptions): {
     workingDirectory: string;
     compileArguments: string[];
+    compilationDatabase: string;
   } {
     const parsed = fileOptionsSchema.parse(options);
     const directory =
@@ -146,6 +150,8 @@ export class Client implements AsyncDisposable {
       );
     return {
       workingDirectory: directory,
+      compilationDatabase:
+        parsed.compilationDatabase ?? this.defaults.compilationDatabase ?? "",
       compileArguments: [
         ...(parsed.compileArguments ?? this.defaults.compileArguments ?? []),
       ],
@@ -205,6 +211,9 @@ export class Client implements AsyncDisposable {
           {
             workingDirectory: file.workingDirectory ?? process.cwd(),
             compileArguments: [...(file.compileArguments ?? [])],
+            ...(file.compilationDatabase
+              ? { compilationDatabase: file.compilationDatabase }
+              : {}),
           },
         );
       })(),
@@ -243,6 +252,7 @@ export class Client implements AsyncDisposable {
       const owner = target[handleOwner];
       owner.assertOpen(this.identity);
       if (
+        parsed.compilationDatabase !== undefined ||
         parsed.compileArguments !== undefined ||
         parsed.workingDirectory !== undefined
       )

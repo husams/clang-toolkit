@@ -176,6 +176,7 @@ and platform details are recorded in [AGENTS.md](AGENTS.md).
 
 - [API contract](api/README.md)
 - [Parse and match expressions](docs/parse-match-expressions.md)
+- [Compilation database discovery and flag lookup](docs/compilation-database.md)
 - [Interactive console](docs/repl.md)
 - [Console command reference](docs/console-command-reference.md)
 - [AST traversal](docs/ast-traversal.md)

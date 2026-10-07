@@ -87,6 +87,7 @@ NativeScriptEnvironment::file_target(const std::string &path) const {
     file = request_.file();
   if (request_.has_profile()) {
     file.set_working_directory(request_.profile().working_directory());
+    file.set_compilation_database(request_.profile().compilation_database());
     file.clear_compile_arguments();
     *file.mutable_compile_arguments() = request_.profile().compile_arguments();
   }
@@ -108,7 +109,7 @@ void NativeScriptEnvironment::acquire_file(
   pinned_->acquire_snapshot(
       {file.file_path(),
        {file.compile_arguments().begin(), file.compile_arguments().end()},
-       file.working_directory()});
+       file.working_directory(), file.compilation_database()});
   if (!checkpoint_())
     throw Error(Code::Cancelled, "script cancelled");
 }
@@ -119,6 +120,7 @@ NativeScriptEnvironment::parse_file(const std::string &path) {
   ctk::match::v1::ParseRequest request;
   request.set_file_path(file.file_path());
   request.set_working_directory(file.working_directory());
+  request.set_compilation_database(file.compilation_database());
   *request.mutable_compile_arguments() = file.compile_arguments();
   auto result = matches_->parse(request, checkpoint_, settings_.results);
   if (result.code != Code::Ok)

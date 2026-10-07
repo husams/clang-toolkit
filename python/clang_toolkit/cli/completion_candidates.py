@@ -52,6 +52,7 @@ _REGEX_LITERALS = {
     "ADD": "add",
     "EXTRA_ARG": "extra_arg",
     "EXTRA_ARGS": "extra_args",
+    "COMPILE_COMMANDS": "compile_commands",
     "TRAVERSAL": "traversal",
     "CACHE_DIR": "cache_dir",
     "FILES": "files",

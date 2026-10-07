@@ -66,6 +66,7 @@ traverse_option: DEPTH NUMBER -> traverse_depth
 
 ?setting: TRAVERSAL NAME                 -> traversal_setting
         | EXTRA_ARGS list_value          -> args_setting
+        | COMPILE_COMMANDS STRING        -> compilation_database_setting
         | CACHE_DIR TO DIRECTORY_STRING  -> cache_setting
         | FILES TO path_value_expression -> files_setting
         | OUTPUT TO (FILE_STRING | STDOUT) [MODE REPLACE] -> output_setting
@@ -169,6 +170,7 @@ editor_start: editor_token*
              | CLEAR
              | ADD
              | EXTRA_ARG
+             | COMPILE_COMMANDS
              | EXTRA_ARGS
              | TRAVERSAL
              | CACHE_DIR
@@ -332,3 +334,5 @@ BLOCKS.2: /blocks(?![a-zA-Z0-9_])/
 ELEMENTS.2: /elements(?![a-zA-Z0-9_])/
 
 EDGES.2: /edges(?![a-zA-Z0-9_])/
+
+COMPILE_COMMANDS.2: /compile_commands(?![a-zA-Z0-9_])/

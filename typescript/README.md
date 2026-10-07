@@ -2,6 +2,12 @@
 
 Typed Node.js 22+ ESM client for the native clang-toolkit gRPC services. The package includes the assembled protobuf schemas and generated semantic AST types.
 
+File operations discover `compile_commands.json` on the server automatically.
+Set `compilationDatabase` in client options or a `parse`/file `match`/`runScript`
+operation to select a JSON file or directory explicitly. Commands supply each
+file's flags and working directory; `compileArguments` append overrides.
+See [compilation databases](../docs/compilation-database.md) for lookup and cache rules.
+
 ```sh
 pnpm install
 pnpm run generate

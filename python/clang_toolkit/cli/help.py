@@ -44,7 +44,8 @@ _ENTRIES = (
         ("parse PATH", "let tree = parse PATH"),
         (
             "PATH: quoted file path or a reference to a path/File; relative to the session directory.",
-            "Uses configured extra_args (default []) and requires the native server.",
+            "Automatically loads compile_commands.json; extra_args append compiler overrides.",
+            "Select a database with ctk --compile-commands PATH or set compile_commands PATH.",
             "Use the result with match ... in $tree or a scoped in $tree block.",
         ),
         (
@@ -175,6 +176,7 @@ _ENTRIES = (
         (
             "set [user] traversal MODE",
             "set [user] extra_args STRING_LIST",
+            "set [user] compile_commands PATH",
             "set [user] cache_dir to DIRECTORY",
             "set [user] files to FILE_LIST",
             "set [user] output to PATH_OR_STDOUT [mode replace]",
@@ -199,7 +201,7 @@ _ENTRIES = (
         "Remove an override, revealing the lower configuration layers.",
         ("clear [user] KEY",),
         (
-            "KEY: traversal, extra_args, cache_dir, files, output or vars.",
+            "KEY: traversal, extra_args, compile_commands, cache_dir, files, output or vars.",
             "Default scope is project; user selects the home layer. Does not erase runtime let bindings.",
         ),
         ("clear output", "clear traversal", "clear user extra_args"),
@@ -536,6 +538,12 @@ for setting, usage, detail, example in (
         'set extra_args ["-std=c++20"]',
     ),
     (
+        "compile_commands",
+        "set [user] compile_commands PATH",
+        "PATH: server-side JSON file or directory; default null enables automatic discovery.",
+        'set compile_commands "build"',
+    ),
+    (
         "cache_dir",
         "set [user] cache_dir to DIRECTORY",
         "DIRECTORY: quoted directory; default null. Stored setting; not forwarded by current console RPCs.",
@@ -581,7 +589,7 @@ COMMAND_HELP["clear user"] = replace(
     topic="clear user",
     usage=("clear user KEY",),
     arguments=(
-        "KEY: traversal, extra_args, cache_dir, files, output or vars.",
+        "KEY: traversal, extra_args, compile_commands, cache_dir, files, output or vars.",
         "Removes the home-layer override; project overrides still take precedence. Runtime let bindings remain.",
     ),
     examples=("clear user output", "clear user traversal", "clear user extra_args"),

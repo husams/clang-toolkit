@@ -1,4 +1,15 @@
 Feature: gRPC network client
+  Scenario Outline: Compilation database commands supply and refresh per-file flags
+    Given a query server using unix
+    And a project with a compilation database selected by <selection>
+    When I parse through the SDK and console and update its compilation command
+    Then the database include paths and changed flags produce the expected ASTs
+
+    Examples:
+      | selection |
+      | automatic |
+      | explicit  |
+
   Scenario Outline: Native parse blocks inherit client compilation profiles without a default file
     Given a query server using <transport>
     And a C++ file controlled by a client compilation profile

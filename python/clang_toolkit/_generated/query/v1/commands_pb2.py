@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17query/v1/commands.proto\x12\x0c\x63tk.query.v1\"O\n\tFileInput\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\t\"E\n\x0cQueryRequest\x12\r\n\x05query\x18\x01 \x01(\t\x12&\n\x05\x66iles\x18\x02 \x03(\x0b\x32\x17.ctk.query.v1.FileInput\"\x1b\n\nStartQuery\x12\r\n\x05query\x18\x01 \x01(\t\"2\n\x08\x41\x64\x64\x46iles\x12&\n\x05\x66iles\x18\x01 \x03(\x0b\x32\x17.ctk.query.v1.FileInput\"\x07\n\x05Match\"\x07\n\x05Pause\"\x08\n\x06Resume\"\xff\x01\n\x0cQueryCommand\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12/\n\x0bstart_query\x18\x02 \x01(\x0b\x32\x18.ctk.query.v1.StartQueryH\x00\x12+\n\tadd_files\x18\x03 \x01(\x0b\x32\x16.ctk.query.v1.AddFilesH\x00\x12$\n\x05match\x18\x04 \x01(\x0b\x32\x13.ctk.query.v1.MatchH\x00\x12$\n\x05pause\x18\x05 \x01(\x0b\x32\x13.ctk.query.v1.PauseH\x00\x12&\n\x06resume\x18\x06 \x01(\x0b\x32\x14.ctk.query.v1.ResumeH\x00\x42\t\n\x07\x63ommandb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17query/v1/commands.proto\x12\x0c\x63tk.query.v1\"m\n\tFileInput\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\t\x12\x1c\n\x14\x63ompilation_database\x18\x04 \x01(\t\"E\n\x0cQueryRequest\x12\r\n\x05query\x18\x01 \x01(\t\x12&\n\x05\x66iles\x18\x02 \x03(\x0b\x32\x17.ctk.query.v1.FileInput\"\x1b\n\nStartQuery\x12\r\n\x05query\x18\x01 \x01(\t\"2\n\x08\x41\x64\x64\x46iles\x12&\n\x05\x66iles\x18\x01 \x03(\x0b\x32\x17.ctk.query.v1.FileInput\"\x07\n\x05Match\"\x07\n\x05Pause\"\x08\n\x06Resume\"\xff\x01\n\x0cQueryCommand\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12/\n\x0bstart_query\x18\x02 \x01(\x0b\x32\x18.ctk.query.v1.StartQueryH\x00\x12+\n\tadd_files\x18\x03 \x01(\x0b\x32\x16.ctk.query.v1.AddFilesH\x00\x12$\n\x05match\x18\x04 \x01(\x0b\x32\x13.ctk.query.v1.MatchH\x00\x12$\n\x05pause\x18\x05 \x01(\x0b\x32\x13.ctk.query.v1.PauseH\x00\x12&\n\x06resume\x18\x06 \x01(\x0b\x32\x14.ctk.query.v1.ResumeH\x00\x42\t\n\x07\x63ommandb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,19 +32,19 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'query.v1.commands_pb2', _gl
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_FILEINPUT']._serialized_start=41
-  _globals['_FILEINPUT']._serialized_end=120
-  _globals['_QUERYREQUEST']._serialized_start=122
-  _globals['_QUERYREQUEST']._serialized_end=191
-  _globals['_STARTQUERY']._serialized_start=193
-  _globals['_STARTQUERY']._serialized_end=220
-  _globals['_ADDFILES']._serialized_start=222
-  _globals['_ADDFILES']._serialized_end=272
-  _globals['_MATCH']._serialized_start=274
-  _globals['_MATCH']._serialized_end=281
-  _globals['_PAUSE']._serialized_start=283
-  _globals['_PAUSE']._serialized_end=290
-  _globals['_RESUME']._serialized_start=292
-  _globals['_RESUME']._serialized_end=300
-  _globals['_QUERYCOMMAND']._serialized_start=303
-  _globals['_QUERYCOMMAND']._serialized_end=558
+  _globals['_FILEINPUT']._serialized_end=150
+  _globals['_QUERYREQUEST']._serialized_start=152
+  _globals['_QUERYREQUEST']._serialized_end=221
+  _globals['_STARTQUERY']._serialized_start=223
+  _globals['_STARTQUERY']._serialized_end=250
+  _globals['_ADDFILES']._serialized_start=252
+  _globals['_ADDFILES']._serialized_end=302
+  _globals['_MATCH']._serialized_start=304
+  _globals['_MATCH']._serialized_end=311
+  _globals['_PAUSE']._serialized_start=313
+  _globals['_PAUSE']._serialized_end=320
+  _globals['_RESUME']._serialized_start=322
+  _globals['_RESUME']._serialized_end=330
+  _globals['_QUERYCOMMAND']._serialized_start=333
+  _globals['_QUERYCOMMAND']._serialized_end=588
 # @@protoc_insertion_point(module_scope)

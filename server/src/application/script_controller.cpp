@@ -27,6 +27,7 @@ ctk::script::Result ScriptController::run(
     auto file = request.file();
     if (request.has_profile()) {
       file.set_working_directory(request.profile().working_directory());
+      file.set_compilation_database(request.profile().compilation_database());
       file.clear_compile_arguments();
       *file.mutable_compile_arguments() =
           request.profile().compile_arguments();

@@ -4,6 +4,8 @@
 
 namespace ctk::application::detail {
 std::string invalid_file_target(const ctk::match::v1::FileMatchTarget &file) {
+  if (file.compilation_database().find('\0') != std::string::npos)
+    return "compilation_database cannot contain NUL bytes";
   if (file.file_path().empty() || file.working_directory().empty() ||
       !std::filesystem::path(file.working_directory()).is_absolute())
     return "file path and absolute working directory are required";
@@ -40,6 +42,7 @@ std::string invalid_script_profile(
   ctk::match::v1::FileMatchTarget file;
   file.set_file_path("script-profile.cc");
   file.set_working_directory(profile.working_directory());
+  file.set_compilation_database(profile.compilation_database());
   *file.mutable_compile_arguments() = profile.compile_arguments();
   return invalid_file_target(file);
 }

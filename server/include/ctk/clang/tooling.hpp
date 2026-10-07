@@ -23,6 +23,7 @@ struct FileInput {
   std::string path;
   std::vector<std::string> compile_arguments;
   std::string working_directory;
+  std::string compilation_database;
 };
 
 struct SemanticBinding {

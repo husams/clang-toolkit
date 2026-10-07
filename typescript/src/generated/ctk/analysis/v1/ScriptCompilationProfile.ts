@@ -4,9 +4,11 @@
 export interface ScriptCompilationProfile {
   'workingDirectory'?: (string);
   'compileArguments'?: (string)[];
+  'compilationDatabase'?: (string);
 }
 
 export interface ScriptCompilationProfile__Output {
   'workingDirectory': (string);
   'compileArguments': (string)[];
+  'compilationDatabase': (string);
 }

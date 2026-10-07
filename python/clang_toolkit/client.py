@@ -110,6 +110,7 @@ class AsyncClient:
     address: str | None = None
     config_path: str | Path | None = None
     config: NetworkConfig | None = None
+    compilation_database: str | Path | None = None
     _channel: grpc.aio.Channel | None = field(default=None, init=False, repr=False)
     _stub: query_pb2_grpc.QueryServiceStub | None = field(default=None, init=False, repr=False)
     _loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False)
@@ -130,6 +131,24 @@ class AsyncClient:
     _value_operation_count: int = field(default=0, init=False, repr=False)
     _value_idle: asyncio.Event | None = field(default=None, init=False, repr=False)
     _value_close_lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
+
+    def _compilation_request(self, request: Any) -> Any:
+        """Select a server-side database for every file/profile RPC."""
+        selected = str(self.compilation_database or "")
+        if not selected:
+            return request
+        if hasattr(request, "compilation_database") and not request.compilation_database:
+            request.compilation_database = selected
+        if hasattr(request, "file") and request.HasField("file"):
+            if not request.file.compilation_database:
+                request.file.compilation_database = selected
+        if hasattr(request, "profile") and request.HasField("profile"):
+            if not request.profile.compilation_database:
+                request.profile.compilation_database = selected
+        for file in getattr(request, "files", ()):
+            if not file.compilation_database:
+                file.compilation_database = selected
+        return request
 
     def _ensure_stub(self) -> query_pb2_grpc.QueryServiceStub:
         loop = asyncio.get_running_loop()
@@ -163,7 +182,7 @@ class AsyncClient:
                 compile_arguments=compile_arguments,
             ),
         )
-        call = stub.Query(request, timeout=self.config.rpc_timeout)
+        call = stub.Query(self._compilation_request(request), timeout=self.config.rpc_timeout)
         received: list[QueryEvent] = []
         completed = False
         consumed = False
@@ -263,23 +282,24 @@ class AsyncClient:
         assert self._channel is not None and self.config is not None
         stub = match_service_pb2_grpc.MatchServiceStub(self._channel)
         try:
-            return await stub.Match(request, timeout=self.config.rpc_timeout)
+            return await stub.Match(self._compilation_request(request), timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise CursorError(error.code(), error.details()) from error
 
     async def _parse_response(
         self, path: str | Path, *, working_directory: str | Path | None = None,
-        compile_arguments: Sequence[str] = (),
+        compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None,
     ) -> parse_response_pb2.ParseResponse:
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
         request = parse_request_pb2.ParseRequest(
             file_path=str(path), compile_arguments=compile_arguments,
+            compilation_database=str(compilation_database or ""),
             working_directory=str(Path(working_directory or Path.cwd()).resolve()),
         )
         try:
             return await match_service_pb2_grpc.MatchServiceStub(self._channel).Parse(
-                request, timeout=self.config.rpc_timeout)
+                self._compilation_request(request), timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise CursorError(error.code(), error.details()) from error
 
@@ -370,20 +390,20 @@ class AsyncClient:
 
     async def parse(
         self, path: str | Path, *, working_directory: str | Path | None = None,
-        compile_arguments: Sequence[str] = (),
+        compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None,
     ) -> ParsedTree[AsyncClient]:
         """Parse a file once and retain a reusable immutable native tree."""
         return await self._parse_with_lease(path, working_directory=working_directory,
-                                            compile_arguments=compile_arguments, lease=None)
+                                            compile_arguments=compile_arguments, compilation_database=compilation_database, lease=None)
 
     async def _parse_with_lease(
         self, path: str | Path, *, working_directory: str | Path | None = None,
-        compile_arguments: Sequence[str] = (), lease: OperationLease | None,
+        compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None, lease: OperationLease | None,
     ) -> ParsedTree[AsyncClient]:
         self._begin_value_operation(lease)
         try:
             response = await self._parse_response(path, working_directory=working_directory,
-                                                  compile_arguments=compile_arguments)
+                compile_arguments=compile_arguments, compilation_database=compilation_database)
             return ParsedTree(str(path), self._own_value(response))
         finally:
             self._end_value_operation()
@@ -456,7 +476,7 @@ class AsyncClient:
         assert self._channel is not None and self.config is not None
         try:
             return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).Traverse(
-                request, timeout=self.config.rpc_timeout)
+                self._compilation_request(request), timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
 
@@ -472,7 +492,7 @@ class AsyncClient:
         assert self._channel is not None and self.config is not None
         try:
             return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).Cfg(
-                request, timeout=self.config.rpc_timeout)
+                self._compilation_request(request), timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
 
@@ -486,7 +506,7 @@ class AsyncClient:
         assert self._channel is not None and self.config is not None
         try:
             return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).RunScript(
-                request, timeout=self.config.rpc_timeout)
+                self._compilation_request(request), timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
 
@@ -503,7 +523,7 @@ class AsyncClient:
         assert self._channel is not None and self.config is not None
         try:
             return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).CallGraph(
-                request, timeout=self.config.rpc_timeout)
+                self._compilation_request(request), timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
 
@@ -718,7 +738,7 @@ class QuerySession:
         if value is None:
             getattr(command, command_name).SetInParent()
         else:
-            getattr(command, command_name).CopyFrom(value)
+            getattr(command, command_name).CopyFrom(self.client._compilation_request(value))
         self._commands.put_nowait(command)
         return command.request_id
 
@@ -809,6 +829,7 @@ class Client:
     address: str | None = None
     config_path: str | Path | None = None
     config: NetworkConfig | None = None
+    compilation_database: str | Path | None = None
     _resolved_config: NetworkConfig | None = field(default=None, init=False, repr=False)
     _async_client: AsyncClient | None = field(default=None, init=False, repr=False)
     _async_loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False)
@@ -863,10 +884,11 @@ class Client:
         self._pending_value_cleanup.discard(identifier)
 
     def parse(self, path: str | Path, *, working_directory: str | Path | None = None,
-              compile_arguments: Sequence[str] = ()) -> ParsedTree[Client]:
+              compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None) -> ParsedTree[Client]:
         """Parse a file and retain a tree with automatic native ownership."""
         response = self._cursor_call("_parse_response", path,
-            working_directory=working_directory, compile_arguments=compile_arguments)
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            compilation_database=compilation_database)
         return ParsedTree(str(path), self._own_value(response))
 
     def match_in(
@@ -929,7 +951,7 @@ class Client:
         config = self._configuration()
 
         async def run() -> Any:
-            async with AsyncClient(self.address, config=config) as client:
+            async with AsyncClient(self.address, config=config, compilation_database=self.compilation_database) as client:
                 return await getattr(client, method)(*args, **kwargs)
         return asyncio.run(run())
 
@@ -970,6 +992,7 @@ class Client:
             raise RuntimeError("bidirectional session requires --session")
 
         async def send() -> None:
+            self._query_session.client.compilation_database = self.compilation_database
             if command == "start":
                 await self._query_session.start_query(value or "")
             elif command == "add":
@@ -1056,7 +1079,7 @@ class Client:
         config = self._configuration()
 
         async def run() -> list[str]:
-            async with AsyncClient(self.address, config=config) as client:
+            async with AsyncClient(self.address, config=config, compilation_database=self.compilation_database) as client:
                 events = await client.query(
                     matcher, files or (), working_directory=working_directory,
                     compile_arguments=compile_arguments,
@@ -1132,6 +1155,14 @@ class _AsyncExpressionAdapter:
             return future.result()
         finally:
             self._future = None
+
+    @property
+    def compilation_database(self) -> str | Path | None:
+        return self.client.compilation_database
+
+    @compilation_database.setter
+    def compilation_database(self, value: str | Path | None) -> None:
+        self.client.compilation_database = value
 
     def parse(self, path: str | Path, *, working_directory: str | Path | None = None,
               compile_arguments: Sequence[str] = ()) -> ParsedTree[AsyncClient]:

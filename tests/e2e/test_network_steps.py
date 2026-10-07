@@ -24,6 +24,69 @@ pytestmark = pytest.mark.e2e
 scenarios("network.feature")
 
 
+@given(parsers.parse("a project with a compilation database selected by {selection}"), target_fixture="database_project")
+def database_project(tmp_path: Path, selection: str):
+    import json
+    root = tmp_path / "database-project"
+    (root / "src").mkdir(parents=True)
+    (root / "build/include with spaces").mkdir(parents=True)
+    (root / "build/include with spaces/profile.hpp").write_text("#define HEADER_VALUE 17\n")
+    source = root / "src/profile.cc"
+    source.write_text('#include <profile.hpp>\nstatic_assert(HEADER_VALUE == 17);\n'
+                      '#if PROFILE == 1\nint before(){return 1;}\n#else\nint after(){return 2;}\n#endif\n')
+    database = root / "build" / ("compile_commands.json" if selection == "automatic" else "selected.json")
+    command = {"directory": str(root / "build"), "file": "../src/profile.cc",
+               "arguments": ["clang++", "-std=c++20", "-Iinclude with spaces", "-DPROFILE=1",
+                             "-c", "../src/profile.cc", "-o", "profile.o", "-MMD", "-MF", "profile.d"]}
+    database.write_text(json.dumps([command]))
+    return root, source, database, command, selection
+
+
+@when("I parse through the SDK and console and update its compilation command", target_fixture="database_results")
+def parse_database_project(server: RunningServer, database_project):
+    import json
+    import sys
+    from clang_toolkit import Client
+    root, source, database, command, selection = database_project
+    selected = str(database) if selection == "explicit" else None
+    with Client(server.endpoint, compilation_database=selected) as client:
+        with client.parse(source, working_directory=root) as tree:
+            with client.match_in('functionDecl(hasName("before")).bind("f")', tree) as rows:
+                assert len(rows) == 1
+        script = client.run_script('let tree = parse "src/profile.cc"; let rows = match functionDecl(hasName("before")).bind("f") in $tree; emit rows;', working_directory=root)
+        assert len(script.emissions[0].value.matches.rows) == 1
+    arguments = [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint]
+    if selected:
+        arguments += ["--compile-commands", selected]
+    console = subprocess.run(arguments, cwd=root,
+        input='let tree = parse "src/profile.cc"\nlet rows = match functionDecl(hasName("before")).bind("f") in $tree\nprint $rows\nquit\n',
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30, check=False)
+    assert console.returncode == 0, console.stdout
+    assert "before" in console.stdout and "could not build" not in console.stdout
+
+    async def run():
+        async with AsyncClient(server.endpoint, compilation_database=selected) as client:
+            first = await client.match_in('functionDecl(hasName("before")).bind("f")', source)
+            command["arguments"][3] = "-DPROFILE=22"
+            database.write_text(json.dumps([command]))
+            updated = await client.match_in('functionDecl(hasName("after")).bind("f")', source)
+            old = await client.match_in('functionDecl(hasName("before")).bind("f")', source)
+            pinned = await client.match_in('functionDecl(hasName("before")).bind("f")', first)
+            traversal = await client.traverse(source)
+            events = await client.query('functionDecl(hasName("after")).bind("f")', [source])
+            return len(first), len(updated), len(old), len(pinned), len(traversal.nodes), sum(event.HasField("match") for event in events)
+    return asyncio.run(run()), root
+
+
+@then("the database include paths and changed flags produce the expected ASTs")
+def database_asts(database_results):
+    counts, root = database_results
+    assert counts[:4] == (1, 1, 0, 1)
+    assert counts[4] > 0 and counts[5] == 1
+    assert not (root / "build/profile.o").exists()
+    assert not (root / "build/profile.d").exists()
+
+
 @given("a C++ file controlled by a client compilation profile", target_fixture="profile_source")
 def client_profile_source(tmp_path: Path) -> Path:
     directory = tmp_path / "client-profile"

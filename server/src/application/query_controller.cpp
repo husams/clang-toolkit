@@ -513,7 +513,7 @@ void run_files(QueryController::Impl *impl,
         failure.message = "native Clang analysis is unavailable in this build";
       } else {
         result = impl->analysis.engine->match(
-            {file.path, file.compile_arguments, file.working_directory},
+            {file.path, file.compile_arguments, file.working_directory, file.compilation_database},
             session->query, [&] { return session->cancellation.checkpoint(); },
             [&](const ctk::clang_layer::IQueryEngine::Bindings &bindings) {
               auto found = event(EventKind::Match, request_id);

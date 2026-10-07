@@ -5,4 +5,5 @@ package ctk.analysis.v1;
 message ScriptCompilationProfile {
   string working_directory = 1;
   repeated string compile_arguments = 2;
+  string compilation_database = 3;
 }

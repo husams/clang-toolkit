@@ -51,7 +51,7 @@ public:
           engine_->acquire_snapshot({request.file_path(),
                                      {request.compile_arguments().begin(),
                                       request.compile_arguments().end()},
-                                     request.working_directory()});
+                                     request.working_directory(), request.compilation_database()});
       if (!snapshot)
         return failure(MatchCode::FailedPrecondition,
                        "native snapshot unavailable");
@@ -97,7 +97,7 @@ public:
         snapshot = engine_->acquire_snapshot(
             {file.file_path(),
              {file.compile_arguments().begin(), file.compile_arguments().end()},
-             file.working_directory()});
+             file.working_directory(), file.compilation_database()});
       } else if (old) {
         snapshot = old->snapshot();
       }

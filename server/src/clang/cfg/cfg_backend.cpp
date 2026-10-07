@@ -31,7 +31,7 @@ public:
       const auto snapshot = engine_->acquire_snapshot(
           {file.file_path(),
            {file.compile_arguments().begin(), file.compile_arguments().end()},
-           file.working_directory()});
+           file.working_directory(), file.compilation_database()});
       if (!snapshot)
         return {
             MatchCode::FailedPrecondition, "native snapshot unavailable", {}};

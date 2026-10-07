@@ -39,14 +39,16 @@ class MatchRequest(_message.Message):
     def __init__(self, query: _Optional[str] = ..., file: _Optional[_Union[FileMatchTarget, _Mapping]] = ..., session: _Optional[_Union[SessionMatchTarget, _Mapping]] = ..., binding: _Optional[_Union[BindingMatchTarget, _Mapping]] = ..., traversal_mode: _Optional[_Union[MatchTraversalMode, str]] = ..., preserve_source: _Optional[bool] = ...) -> None: ...
 
 class FileMatchTarget(_message.Message):
-    __slots__ = ("file_path", "compile_arguments", "working_directory")
+    __slots__ = ("file_path", "compile_arguments", "working_directory", "compilation_database")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     COMPILE_ARGUMENTS_FIELD_NUMBER: _ClassVar[int]
     WORKING_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
+    COMPILATION_DATABASE_FIELD_NUMBER: _ClassVar[int]
     file_path: str
     compile_arguments: _containers.RepeatedScalarFieldContainer[str]
     working_directory: str
-    def __init__(self, file_path: _Optional[str] = ..., compile_arguments: _Optional[_Iterable[str]] = ..., working_directory: _Optional[str] = ...) -> None: ...
+    compilation_database: str
+    def __init__(self, file_path: _Optional[str] = ..., compile_arguments: _Optional[_Iterable[str]] = ..., working_directory: _Optional[str] = ..., compilation_database: _Optional[str] = ...) -> None: ...
 
 class SessionMatchTarget(_message.Message):
     __slots__ = ("session_id", "expected_result_revision")

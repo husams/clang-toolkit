@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1cmatch/v1/parse_request.proto\x12\x0c\x63tk.match.v1\"W\n\x0cParseRequest\x12\x11\n\tfile_path\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\tb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1cmatch/v1/parse_request.proto\x12\x0c\x63tk.match.v1\"u\n\x0cParseRequest\x12\x11\n\tfile_path\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\t\x12\x1c\n\x14\x63ompilation_database\x18\x04 \x01(\tb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,5 +32,5 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'match.v1.parse_request_pb2'
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_PARSEREQUEST']._serialized_start=46
-  _globals['_PARSEREQUEST']._serialized_end=133
+  _globals['_PARSEREQUEST']._serialized_end=163
 # @@protoc_insertion_point(module_scope)

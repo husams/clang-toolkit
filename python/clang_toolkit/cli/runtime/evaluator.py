@@ -54,6 +54,10 @@ class Runtime:
         self.cwd = (cwd or Path.cwd()).resolve()
         self.environment = environment if environment is not None else os.environ
         self.config_store = config_store or ConfigStore(self.cwd)
+        if self.config_store.effective["compile_commands"] is None:
+            selected = getattr(client, "compilation_database", None)
+            if selected is not None:
+                self.config_store.effective["compile_commands"] = str(selected)
         self.config_vars = {
             **self.config_store.effective["vars"],
             **(config_vars or {}),
@@ -67,12 +71,20 @@ class Runtime:
         self._default_targets: list[ParsedTree] = []
         self._block_owners: list[set[Any]] = []
 
+    def _apply_compilation_settings(self) -> None:
+        selected = self.config_store.effective["compile_commands"]
+        self.client.compilation_database = selected
+        bound = getattr(self.client, "_async_client", None)
+        if bound is not None:
+            bound.compilation_database = selected
+
     def evaluate(self, source: str) -> Any:
         """Execute a typed SDK expression or assignment without rendering it."""
         statement = parser().parse(source).children[0]
         if not isinstance(statement, Tree):
             raise EvaluationError("expected an expression")
         kind = str(statement.data)
+        self._apply_compilation_settings()
         if kind == "assignment":
             self._assignment(statement)
             return self._resolve_name(str(statement.children[1]))
@@ -90,6 +102,7 @@ class Runtime:
         if not isinstance(statement, Tree):
             raise EvaluationError("expected a statement")
         kind = str(statement.data)
+        self._apply_compilation_settings()
         if kind in {"quit", "exit"}:
             return None
         if kind in {"help", "help_shortcut"}:
@@ -278,6 +291,8 @@ class Runtime:
         kind = str(setting.data)
         if kind == "traversal_setting":
             key, value = "traversal", str(setting.children[1])
+        elif kind == "compilation_database_setting":
+            key, value = "compile_commands", self._string(str(setting.children[1]))
         elif kind == "args_setting":
             key, value = "extra_args", self._evaluate(setting.children[1])
         elif kind == "cache_setting":

@@ -9,6 +9,7 @@ import type { ConfigurationOptions } from "./configuration-types.js";
 export interface FileOptions {
   workingDirectory?: string;
   compileArguments?: readonly string[];
+  compilationDatabase?: string;
 }
 export interface ClientOptions extends FileOptions, ConfigurationOptions {
   credentials?: ChannelCredentials;

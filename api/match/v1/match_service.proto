@@ -78,6 +78,10 @@ message FileMatchTarget {
   repeated string compile_arguments = 2;
   // Required absolute server-side directory.
   string working_directory = 3;
+  // JSON file or directory on the server; empty enables automatic discovery.
+  // The file's database command supplies flags and its working directory;
+  // compile_arguments append overrides. Explicit lookup misses are errors.
+  string compilation_database = 4;
 }
 
 message SessionMatchTarget {
