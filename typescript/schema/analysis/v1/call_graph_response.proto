@@ -1,0 +1,12 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "analysis/v1/call_graph_node.proto";
+import "analysis/v1/call_graph_edge.proto";
+import "ast/v1/common.proto";
+message CallGraphResponse {
+  uint64 root_node = 1;
+  repeated CallGraphNode nodes = 2;
+  repeated CallGraphEdge edges = 3; // Native call-record multiplicity and per-caller order.
+  optional bool is_complete = 4;
+  repeated ctk.ast.v1.FieldAvailability availability = 5;
+}

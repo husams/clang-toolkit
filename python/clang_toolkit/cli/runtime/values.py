@@ -7,6 +7,7 @@ from datetime import datetime
 
 from .filesystem import FileSystemEntry
 from typing import Any
+from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, ParsedTree
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,15 @@ def render(value: Any) -> str:
         return value.path
     if isinstance(value, MatchSet):
         return "\n".join(render(row) for row in value.rows)
+    if isinstance(value, MatchValue):
+        return "\n".join(render(row) for row in value.rows)
+    if isinstance(value, MatchRow):
+        import json
+        return json.dumps(value.to_dict(), sort_keys=True, ensure_ascii=False)
+    if isinstance(value, ParsedTree):
+        return f"parsed {value.path}"
+    if isinstance(value, BindingSelection):
+        return f"binding {value.name}"
     if isinstance(value, list):
         return "\n".join(render(item) for item in value)
     if isinstance(value, bool):

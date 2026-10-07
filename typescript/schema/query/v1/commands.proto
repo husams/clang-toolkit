@@ -1,0 +1,50 @@
+syntax = "proto3";
+package ctk.query.v1;
+
+// One main file and its compiler profile. Paths are interpreted on the server.
+message FileInput {
+  // Nonempty path; relative paths resolve against working_directory.
+  string path = 1;
+  // Compiler arguments as individual argv values, without shell expansion.
+  repeated string compile_arguments = 2;
+  // Required absolute directory for resolving paths and compiler inputs.
+  string working_directory = 3;
+}
+
+// Fixed-file query; the complete input batch is admitted atomically.
+message QueryRequest {
+  // Required nonempty query expression.
+  string query = 1;
+  repeated FileInput files = 2;
+}
+
+// First command in an incremental call. The query stays fixed for that call;
+// changing it requires a new RPC.
+message StartQuery { string query = 1; }
+
+// Atomically admit a complete batch before or during matching. New accepted
+// files automatically join work after Match; rejected batches add no files.
+message AddFiles { repeated FileInput files = 1; }
+
+// Start matching the query over accepted inputs.
+message Match {}
+
+// Pause at cooperative safe points. Buffered or in-flight events may arrive.
+message Pause {}
+
+// Continue work after an explicit Pause.
+message Resume {}
+
+// Exactly one command must be set. StartQuery precedes other commands.
+// Half-close and cancellation are native gRPC operations, not command payloads.
+message QueryCommand {
+  // Client-selected correlation value, echoed on resulting command events.
+  string request_id = 1;
+  oneof command {
+    StartQuery start_query = 2;
+    AddFiles add_files = 3;
+    Match match = 4;
+    Pause pause = 5;
+    Resume resume = 6;
+  }
+}

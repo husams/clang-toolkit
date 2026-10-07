@@ -42,8 +42,10 @@ manual matcher spellings remain available for the server to validate.
 
 The shared language definitions are in `python/clang_toolkit/cli/grammar.lark`.
 The editor token rule recognizes incomplete strings, invalid characters, and
-all three delimiter pairs. Lists are executable values; braces are currently
-reserved. A multiline `foreach ... do` continues until `done`.
+all three delimiter pairs. Lists are executable values; braces delimit scoped
+parsed-tree blocks with a terminal `yield`. See
+[parse/match expressions](parse-match-expressions.md) for executable examples.
+A multiline `foreach ... do` continues until `done`.
 Command dispatch now evaluates through modular `cli.runtime` modules. A session
 keeps typed `let` bindings, composes matcher trees without textual substitution,
 and expands references before calling the existing client API. Direct literal
@@ -112,8 +114,11 @@ detected from the extension (or a unique matching extension if omitted).
 History is saved automatically to `$XDG_STATE_HOME/clang_tools/history.jsonl`
 (or `~/.local/state/clang_tools/history.jsonl`) with a session UUID.
 
-The existing server transport remains a stub, so a real `match`, `cfg`, or
-`callgraph` still cannot execute until the API and C++ server are connected.
-The request/session protocol and automatic server cleanup remain the next
-implementation slice; see
-`~/workspace/wiki/pages/planning/clang-toolkit-interactive-runtime.md`.
+Matching executes through the native server over Unix or TCP. Use the
+[parse/match expressions](parse-match-expressions.md) and their scoped results
+for declarative composition. The legacy `cursor open`, `cursor continue`,
+`cursor restart` and `cursor close` commands remain available; see
+[result cursors](result-cursors.md) for revision, selection and cleanup semantics.
+
+`script "emit 7;"` runs the bounded server DSL. Add `in "file.cc"` for native
+matching composition; see [server scripting](server-scripting.md).

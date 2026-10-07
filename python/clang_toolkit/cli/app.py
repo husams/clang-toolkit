@@ -16,9 +16,13 @@ from clang_toolkit.cli.runtime.history import HistoryError, HistoryStore
 from clang_toolkit.cli.runtime.output import OutputError
 from clang_toolkit.cli.runtime.persistence import PersistenceError
 from clang_toolkit.client import AsyncClient, Client, QueryError, _format_event
+from clang_toolkit.cursors import CursorError
+from clang_toolkit.match_values import MatchValueError
+from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.configuration import ConfigurationError, load_network_config
 
 COMMANDS = [
+    "parse",
     "match",
     "background",
     "let",
@@ -31,6 +35,7 @@ COMMANDS = [
     "add",
     "history",
     "session",
+    "cursor",
     "cfg",
     "callgraph",
     "script",
@@ -59,6 +64,8 @@ def dispatch(client: Client, line: str, runtime: Runtime | None = None) -> str |
         PersistenceError,
         OutputError,
         HistoryError,
+        CursorError,
+        MatchValueError,
     ) as exc:
         return f"error: {exc}"
 
@@ -73,7 +80,7 @@ async def _prompt(session, prompt: str) -> str:
 async def _run() -> int:
     parser = argparse.ArgumentParser(prog="ctk")
     parser.add_argument("--server", help="override the configured gRPC endpoint")
-    parser.add_argument("-c", "--cofing", dest="config_path")
+    parser.add_argument("-c", "--cofing", "--config-path", dest="config_path")
     parser.add_argument("--print-config", action="store_true")
     parser.add_argument("--query", help="run one query expression")
     parser.add_argument("--file", action="append", default=[], help="query input file (repeatable)")
@@ -143,7 +150,7 @@ async def _run() -> int:
                     continue
                 try:
                     out = await asyncio.to_thread(dispatch, client, line, runtime)
-                except NotImplementedError as exc:
+                except (NotImplementedError, CursorError, AnalysisError) as exc:
                     out = f"error: {exc}"
                 except (QueryError, ConfigurationError) as exc:
                     out = f"error: {exc}"
@@ -167,7 +174,8 @@ async def _run() -> int:
                         print(f"error: {exc}")
                         exit_code = 1
     finally:
-        runtime.close()
+        await asyncio.to_thread(runtime.close)
+        await asyncio.to_thread(client.close)
     return exit_code
 
 

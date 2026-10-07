@@ -17,7 +17,9 @@ trap 'rm -rf "$schema_directory"' EXIT
 "${python_command[@]}" -m grpc_tools.protoc \
   -I "$schema_directory" \
   --python_out="$output" \
-  "$schema_directory/match/v1/match_result.proto" \
+  --pyi_out="$output" \
+  "$schema_directory/match/v1/"*.proto \
+  "$schema_directory/analysis/v1"/*.proto \
   "$schema_directory/ast/v1"/*.proto \
   "$schema_directory/query/v1/commands.proto" \
   "$schema_directory/query/v1/errors.proto" \
@@ -26,13 +28,15 @@ trap 'rm -rf "$schema_directory"' EXIT
 "${python_command[@]}" -m grpc_tools.protoc \
   -I "$schema_directory" \
   --grpc_python_out="$output" \
+  "$schema_directory/match/v1/match_service.proto" \
+  "$schema_directory/analysis/v1/analysis_service.proto" \
   "$schema_directory/query/v1/query.proto"
-for package in ast ast/v1 match match/v1 query query/v1; do
+for package in ast ast/v1 match match/v1 query query/v1 analysis analysis/v1; do
   mkdir -p "$output/$package"
   touch "$output/$package/__init__.py"
 done
 # Imported AST and match modules need paths relative to their generated package.
-for module in "$output/ast/v1/"*_pb2.py; do
+for module in "$output/ast/v1/"*_pb2.py "$output/ast/v1/"*_pb2.pyi; do
   sed -i.bak \
     -e 's/^from ast\.v1 import /from . import /' \
     -e 's/^from ast\.v1\./from ./' \
@@ -41,12 +45,17 @@ for module in "$output/ast/v1/"*_pb2.py; do
     "$module"
   rm -f "$module.bak"
 done
-sed -i.bak \
-  -e 's/^from ast\.v1 import /from ...ast.v1 import /' \
-  "$output/match/v1/match_result_pb2.py"
-rm -f "$output/match/v1/match_result_pb2.py.bak"
+for module in "$output/match/v1/"*_pb2*.py "$output/match/v1/"*_pb2.pyi; do
+  sed -i.bak \
+    -e 's/^from ast\.v1 import /from ...ast.v1 import /' \
+    -e 's/^from ast\.v1\./from ...ast.v1./' \
+    -e 's/^from match\.v1 import /from . import /' \
+    -e 's/^from match\.v1\./from ./' \
+    -e '/^import warnings$/d' "$module"
+  rm -f "$module.bak"
+done
 # grpcio-tools emits source-root imports; make every module package-relative.
-for module in "$output/query/v1/"*_pb2*.py; do
+for module in "$output/query/v1/"*_pb2*.py "$output/query/v1/"*_pb2.pyi; do
   sed -i.bak \
     -e 's/^from query\.v1 import /from . import /' \
     -e 's/^from query\.v1\./from ./' \
@@ -58,5 +67,17 @@ for module in "$output/query/v1/"*_pb2*.py; do
 done
 sed -i.bak \
   -e 's/^from match\.v1 import /from ...match.v1 import /' \
-  "$output/query/v1/events_pb2.py"
-rm -f "$output/query/v1/events_pb2.py.bak"
+  "$output/query/v1/events_pb2.py" "$output/query/v1/events_pb2.pyi"
+rm -f "$output/query/v1/events_pb2.py.bak" "$output/query/v1/events_pb2.pyi.bak"
+
+for module in "$output/analysis/v1/"*_pb2*.py "$output/analysis/v1/"*_pb2.pyi; do
+  sed -i.bak \
+    -e 's/^from ast\.v1 import /from ...ast.v1 import /' \
+    -e 's/^from ast\.v1\./from ...ast.v1./' \
+    -e 's/^from analysis\.v1 import /from . import /' \
+    -e 's/^from analysis\.v1\./from ./' \
+    -e 's/^from match\.v1 import /from ...match.v1 import /' \
+    -e 's/^from match\.v1\./from ...match.v1./' \
+    -e '/^import warnings$/d' "$module"
+  rm -f "$module.bak"
+done

@@ -1,4 +1,5 @@
 #pragma once
+#include "ctk/application/operation_executor.hpp"
 
 #include <condition_variable>
 #include <cstddef>
@@ -13,7 +14,7 @@ namespace ctk::application::detail {
 
 // Bounded request-level worker queue. A queued AddFiles batch occupies one
 // slot; running requests no longer count against the pending limit.
-class QueryExecutor final {
+class QueryExecutor final : public OperationExecutor {
 public:
   QueryExecutor(std::size_t worker_count, std::size_t pending_limit)
       : pending_limit_(pending_limit == 0 ? 1 : pending_limit) {
@@ -29,7 +30,7 @@ public:
 
   ~QueryExecutor() { shutdown(); }
 
-  bool enqueue(std::function<void()> task) {
+  bool enqueue(std::function<void()> task) override {
     std::lock_guard lock(mutex_);
     if (stopping_ || !accepting_ || tasks_.size() >= pending_limit_)
       return false;
@@ -43,7 +44,7 @@ public:
     return tasks_.size();
   }
 
-  void stop_admission() {
+  void stop_admission() override {
     std::lock_guard lock(mutex_);
     accepting_ = false;
   }

@@ -1,0 +1,14 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/semantic_types.proto";
+import "ast/v1/common.proto";
+message CallGraphNode {
+  uint64 node_index = 1;
+  bool is_virtual_root = 2;
+  ctk.ast.v1.DeclarationSymbol function = 3;
+  ctk.ast.v1.DeclarationValue anonymous_declaration = 4;
+  bool has_definition = 5;
+  string declaration_kind = 6;
+  optional bool is_complete = 7;
+  repeated ctk.ast.v1.FieldAvailability availability = 8;
+}

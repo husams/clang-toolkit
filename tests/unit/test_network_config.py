@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+import tempfile
 
 import pytest
 
@@ -46,7 +48,7 @@ def test_explicit_tcp_ipv6_and_optional_grpc_values(tmp_path):
     )
     config = load_network_config(selected, cwd=tmp_path, home=tmp_path / "home", system_dir=tmp_path / "etc")
     assert config.target == "[::1]:8123"
-    assert config.client_options == (("grpc.max_receive_message_bytes", -1),)
+    assert config.client_options == (("grpc.max_receive_message_length", -1),)
 
 
 def test_bracketed_ipv4_is_normalized_for_grpc_target(tmp_path):
@@ -98,3 +100,72 @@ def test_invalid_value_is_rejected_even_when_a_higher_layer_overrides_it(tmp_pat
     selected = write(tmp_path / "selected.yaml", "pool:\n  size: 2\n")
     with pytest.raises(ConfigurationError, match="pool.size"):
         load_network_config(selected, cwd=tmp_path, home=tmp_path / "home", system_dir=system.parent)
+
+
+_CONFORMANCE = json.loads((Path(__file__).parents[1] / "fixtures" / "network_configuration.json").read_text())
+
+
+@pytest.mark.parametrize("case", _CONFORMANCE["cases"], ids=lambda case: case["name"])
+def test_shared_network_configuration_conformance(tmp_path, case):
+    assert _CONFORMANCE["format"] == 1
+    paths = {layer: tmp_path / relative for layer, relative in _CONFORMANCE["layers"].items()}
+    for layer, text in case["files"].items():
+        write(paths[layer], text)
+    selected = paths["explicit"] if "explicit" in case["files"] else None
+    options = {"cwd": tmp_path / "project", "home": tmp_path / "home", "system_dir": tmp_path / "etc"}
+    if case.get("error") or "error_key" in case:
+        with pytest.raises(ConfigurationError) as failure:
+            load_network_config(selected, **options)
+        assert str(tmp_path) in str(failure.value)
+        if "error_key" in case:
+            assert case["error_key"] in str(failure.value)
+        return
+    config = load_network_config(selected, **options)
+    expected = case["expected"]
+
+    def expand(value):
+        return value.replace("${ROOT}", str(tmp_path)).replace("${TEMP}", tempfile.gettempdir())
+
+    assert config.target == expand(expected["target"])
+    for key, value in expected.get("values", {}).items():
+        assert config.effective_values[key] == value
+        assert type(config.effective_values[key]) is type(value)
+    for key, value in expected.get("origins", {}).items():
+        assert config.provenance[key] == expand(value)
+
+
+def test_provenance_effective_values_are_read_only_and_defaults_are_explicit(tmp_path):
+    config = load_network_config(cwd=tmp_path, home=tmp_path / "home", system_dir=tmp_path / "etc")
+    assert len(config.effective_values) == len(config.provenance) == 9
+    assert set(config.provenance.values()) == {"<defaults>"}
+    assert "network.tcp.host" not in config.effective_values
+    assert "client.grpc.max_send_message_bytes" not in config.effective_values
+    with pytest.raises(TypeError):
+        config.effective_values["pool.size"] = 8
+    with pytest.raises(TypeError):
+        config.provenance["pool.size"] = "new.yaml"
+
+
+def test_duplicate_and_base_notation_errors_report_file_and_dotted_key(tmp_path):
+    for text in ("pool:\n  size: 1\n  size: 2\n", "pool:\n  size: 0x10\n"):
+        path = write(tmp_path / "bad.yaml", text)
+        with pytest.raises(ConfigurationError) as failure:
+            load_network_config(path, cwd=tmp_path, home=tmp_path / "home", system_dir=tmp_path / "etc")
+        assert str(path) in str(failure.value)
+        assert "pool.size" in str(failure.value)
+
+
+def test_client_and_server_grpc_options_use_native_channel_argument_names(tmp_path):
+    selected = write(tmp_path / "network.yaml", '''client:
+  grpc:
+    max_receive_message_bytes: 128
+    max_send_message_bytes: -1
+server:
+  grpc:
+    max_receive_message_bytes: 256
+    max_send_message_bytes: 512
+''')
+    config = load_network_config(selected, cwd=tmp_path, home=tmp_path / "home", system_dir=tmp_path / "etc")
+    assert dict(config.client_options) == {"grpc.max_receive_message_length": 128, "grpc.max_send_message_length": -1}
+    assert dict(config.server_options) == {"grpc.max_receive_message_length": 256, "grpc.max_send_message_length": 512}
+    assert config.effective_values["client.grpc.max_receive_message_bytes"] == 128

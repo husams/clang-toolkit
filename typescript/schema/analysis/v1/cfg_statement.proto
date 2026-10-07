@@ -1,0 +1,9 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/semantic_types.proto";
+import "analysis/v1/cfg_construction_context.proto";
+
+message CfgStatement {
+  ctk.ast.v1.StatementValue statement = 1;
+  CfgConstructionContext construction_context = 2;
+}

@@ -1,6 +1,8 @@
 """Async and synchronous gRPC clients for clang-toolkit query services."""
 
 from __future__ import annotations
+from clang_toolkit._generated.analysis.v1 import script_response_pb2
+from clang_toolkit.scripting import script_request
 
 import asyncio
 import concurrent.futures
@@ -8,16 +10,27 @@ from contextlib import aclosing
 import inspect
 import json
 import uuid
+import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast, overload
 
 import grpc
 from google.protobuf.message import DecodeError
 
 from clang_toolkit._generated.query.v1 import query_pb2, query_pb2_grpc
 from clang_toolkit.configuration import NetworkConfig, load_network_config
+from clang_toolkit.cursors import CursorError, file_request, retained_request
+from clang_toolkit._generated.match.v1 import match_service_pb2, match_service_pb2_grpc
+from clang_toolkit._generated.match.v1 import match_result_pb2
+from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc
+from clang_toolkit.analysis_error import AnalysisError
+from clang_toolkit.match_values import (
+    BindingSelection, MatchTarget, MatchValue, MatchValueError, ParsedTree,
+)
+from clang_toolkit._value_lifecycle import CursorOwner, OperationLease
+from clang_toolkit._generated.match.v1 import parse_request_pb2, parse_response_pb2
 
 QueryEvent = query_pb2.QueryEvent
 EventCallback = Callable[[QueryEvent], Any | Awaitable[Any]]
@@ -100,13 +113,29 @@ class AsyncClient:
     _background: set[asyncio.Task[list[QueryEvent]]] = field(
         default_factory=set, init=False, repr=False
     )
+    _values: dict[str, weakref.ReferenceType[CursorOwner[AsyncClient]]] = field(
+        default_factory=dict, init=False, repr=False)
+    _value_cleanup: set[asyncio.Task[None]] = field(
+        default_factory=set, init=False, repr=False)
+    _value_cleanup_by_id: dict[str, asyncio.Task[None]] = field(
+        default_factory=dict, init=False, repr=False)
+    _pending_value_cleanup: set[str] = field(default_factory=set, init=False, repr=False)
+    _expression_runtime: Any = field(default=None, init=False, repr=False)
+    _expression_lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
+    _value_closing: bool = field(default=False, init=False, repr=False)
+    _value_closed: bool = field(default=False, init=False, repr=False)
+    _value_operation_count: int = field(default=0, init=False, repr=False)
+    _value_idle: asyncio.Event | None = field(default=None, init=False, repr=False)
+    _value_close_lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
 
     def _ensure_stub(self) -> query_pb2_grpc.QueryServiceStub:
         loop = asyncio.get_running_loop()
         if self._loop is not None and self._loop is not loop:
             raise RuntimeError("AsyncClient must be used from the event loop that created it")
         if self._stub is None:
-            self.config = self.config or load_network_config(self.config_path)
+            self.config = (load_network_config(self.config_path)
+                           if self.config_path is not None else
+                           self.config or load_network_config())
             self._loop = loop
             target = self.address or self.config.target
             self._channel = grpc.aio.insecure_channel(target, options=self.config.client_options)
@@ -191,6 +220,20 @@ class AsyncClient:
                         await outcome
         return events
 
+    @overload
+    async def match(
+        self, expression: str, files: Sequence[str | Path] = (), *,
+        file: str | Path, working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+    ) -> MatchValue[AsyncClient]: ...
+
+    @overload
+    async def match(
+        self, expression: str, files: Sequence[str | Path] = (), *,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (), file: None = None,
+    ) -> list[query_pb2.MatchEvent]: ...
+
     async def match(
         self,
         expression: str,
@@ -198,13 +241,263 @@ class AsyncClient:
         *,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
-    ) -> list[query_pb2.MatchEvent]:
+        file: str | Path | None = None,
+    ) -> list[query_pb2.MatchEvent] | MatchValue[AsyncClient]:
         """Collect typed match rows after successful terminal completion."""
+        if file is not None:
+            if files:
+                raise ValueError("use either file or files, not both")
+            return await self.match_in(expression, file,
+                working_directory=working_directory, compile_arguments=compile_arguments)
         events = await self.query(
             expression, files, working_directory=working_directory,
             compile_arguments=compile_arguments,
         )
         return [event.match for event in events if event.WhichOneof("event") == "match"]
+
+    async def _cursor_match(self, request: match_service_pb2.MatchRequest) -> match_service_pb2.MatchResponse:
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        stub = match_service_pb2_grpc.MatchServiceStub(self._channel)
+        try:
+            return await stub.Match(request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise CursorError(error.code(), error.details()) from error
+
+    async def _parse_response(
+        self, path: str | Path, *, working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+    ) -> parse_response_pb2.ParseResponse:
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        request = parse_request_pb2.ParseRequest(
+            file_path=str(path), compile_arguments=compile_arguments,
+            working_directory=str(Path(working_directory or Path.cwd()).resolve()),
+        )
+        try:
+            return await match_service_pb2_grpc.MatchServiceStub(self._channel).Parse(
+                request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise CursorError(error.code(), error.details()) from error
+
+    def _own_value(self, response: Any) -> CursorOwner[AsyncClient]:
+        owner = CursorOwner(cast(AsyncClient, self), response.session_id, response.result_revision,
+                             self._release_value, loop=asyncio.get_running_loop())
+        self._values[response.session_id] = weakref.ref(owner)
+        return owner
+
+    def _release_value(self, session_id: str) -> None:
+        loop = self._loop
+        def release_on_loop() -> None:
+            self._pending_value_cleanup.add(session_id)
+            self._values.pop(session_id, None)
+            self._schedule_value_cleanup(session_id)
+
+        if loop is None:
+            self._pending_value_cleanup.add(session_id)
+            self._values.pop(session_id, None)
+            return
+        if loop.is_closed():
+            self._pending_value_cleanup.add(session_id)
+            self._values.pop(session_id, None)
+            return
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            release_on_loop()
+        else:
+            loop.call_soon_threadsafe(release_on_loop)
+
+    def _cleanup_task_done(self, identifier: str, task: asyncio.Task[None]) -> None:
+        if self._value_cleanup_by_id.get(identifier) is task:
+            self._value_cleanup_by_id.pop(identifier, None)
+        self._value_cleanup.discard(task)
+        if not task.cancelled():
+            # Finalizer-triggered cleanup has no caller to observe a failure.
+            # Retrieve it here and leave the identifier pending for retry.
+            task.exception()
+
+    def _schedule_value_cleanup(self, identifier: str) -> asyncio.Task[None]:
+        task = self._value_cleanup_by_id.get(identifier)
+        if task is None or task.done():
+            task = asyncio.create_task(self._close_value_cleanup_once(identifier))
+            self._value_cleanup_by_id[identifier] = task
+            self._value_cleanup.add(task)
+            task.add_done_callback(lambda done, key=identifier: self._cleanup_task_done(key, done))
+        return task
+
+    async def _close_value_cleanup(self, identifier: str) -> None:
+        if identifier not in self._pending_value_cleanup:
+            return
+        task = self._schedule_value_cleanup(identifier)
+        await asyncio.shield(task)
+
+    async def _close_value_cleanup_once(self, identifier: str) -> None:
+        await self.close_match(identifier)
+        self._pending_value_cleanup.discard(identifier)
+
+    async def _flush_value_cleanup(self) -> None:
+        tasks = tuple(self._value_cleanup)
+        if tasks:
+            outcomes = await asyncio.gather(
+                *(asyncio.shield(task) for task in tasks), return_exceptions=True
+            )
+            _raise_cleanup_errors([outcome for outcome in outcomes
+                                   if isinstance(outcome, BaseException)])
+
+    def _begin_value_operation(self, lease: OperationLease | None = None) -> None:
+        accepted = lease is not None and lease.client is self and lease.active
+        if (self._value_closing or self._value_closed) and not accepted:
+            raise MatchValueError("client is closing or closed")
+        self._ensure_stub()
+        for identifier in tuple(self._pending_value_cleanup):
+            if identifier not in self._value_cleanup_by_id:
+                self._schedule_value_cleanup(identifier)
+        if self._value_idle is None:
+            self._value_idle = asyncio.Event()
+        self._value_operation_count += 1
+        self._value_idle.clear()
+
+    def _end_value_operation(self) -> None:
+        self._value_operation_count -= 1
+        if self._value_operation_count == 0 and self._value_idle is not None:
+            self._value_idle.set()
+
+    async def parse(
+        self, path: str | Path, *, working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+    ) -> ParsedTree[AsyncClient]:
+        """Parse a file once and retain a reusable immutable native tree."""
+        return await self._parse_with_lease(path, working_directory=working_directory,
+                                            compile_arguments=compile_arguments, lease=None)
+
+    async def _parse_with_lease(
+        self, path: str | Path, *, working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (), lease: OperationLease | None,
+    ) -> ParsedTree[AsyncClient]:
+        self._begin_value_operation(lease)
+        try:
+            response = await self._parse_response(path, working_directory=working_directory,
+                                                  compile_arguments=compile_arguments)
+            return ParsedTree(str(path), self._own_value(response))
+        finally:
+            self._end_value_operation()
+
+    async def match_in(
+        self, query: str, target: MatchTarget | Path, *,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+    ) -> MatchValue[AsyncClient]:
+        """Match a path, pinned tree or binding selection without changing it."""
+        return await self._match_in_with_lease(query, target,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            traversal_mode=traversal_mode, lease=None)
+
+    async def _match_in_with_lease(
+        self, query: str, target: MatchTarget, *,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+        lease: OperationLease | None,
+    ) -> MatchValue[AsyncClient]:
+        self._begin_value_operation(lease)
+        try:
+            request = _value_request(self, query, target,
+                working_directory=working_directory, compile_arguments=compile_arguments,
+                traversal_mode=traversal_mode)
+            response = await self._cursor_match(request)
+            return MatchValue._from_response(response, self._own_value(response))
+        finally:
+            self._end_value_operation()
+
+    async def execute(
+        self, source: str, *, working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] | None = None,
+    ) -> Any:
+        """Evaluate the console's Lark expressions and return typed live values."""
+        self._begin_value_operation()
+        lease = OperationLease(self)
+        try:
+            if self._expression_lock is None:
+                self._expression_lock = asyncio.Lock()
+            async with self._expression_lock:
+                adapter = _AsyncExpressionAdapter(self, lease)
+                runtime = _expression_runtime(self, adapter,
+                                              working_directory, compile_arguments)
+                runtime.client = adapter
+                worker = asyncio.create_task(asyncio.to_thread(runtime.evaluate, source))
+                try:
+                    return await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    adapter.cancel()
+                    await asyncio.gather(worker, return_exceptions=True)
+                    raise
+        finally:
+            lease.close()
+            self._end_value_operation()
+
+    async def run_script(self, source: str, *, path: str | Path | None = None,
+                         working_directory: str | Path | None = None,
+                         compile_arguments: Sequence[str] = (), max_steps: int | None = None
+                         ) -> script_response_pb2.ScriptResponse:
+        request = script_request(source, path=path, working_directory=working_directory,
+            compile_arguments=compile_arguments, max_steps=max_steps)
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        try:
+            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).RunScript(
+                request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+
+    async def match_file(
+        self, path: str | Path, query: str, *,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+    ) -> match_service_pb2.MatchResponse:
+        """Acquire a validated AST and create an independent result cursor."""
+        return await self._cursor_match(file_request(
+            path, query, working_directory=working_directory,
+            compile_arguments=compile_arguments, traversal_mode=traversal_mode,
+        ))
+
+    async def continue_match(
+        self, session_id: str, bind: str, query: str, *,
+        match_index: int | None = None,
+        scope: int = match_result_pb2.BINDING_MATCH_SCOPE_SUBTREE,
+        expected_result_revision: int | None = None,
+        traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+    ) -> match_service_pb2.MatchResponse:
+        """Replace one cursor's result using roots in its latest revision."""
+        return await self._cursor_match(retained_request(
+            session_id, query, bind=bind, match_index=match_index, scope=scope,
+            expected_result_revision=expected_result_revision, traversal_mode=traversal_mode,
+        ))
+
+    async def restart_match(
+        self, session_id: str, query: str, *, expected_result_revision: int | None = None,
+        traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+    ) -> match_service_pb2.MatchResponse:
+        """Run again from the cursor's pinned translation-unit root."""
+        return await self._cursor_match(retained_request(
+            session_id, query, expected_result_revision=expected_result_revision,
+            traversal_mode=traversal_mode,
+        ))
+
+    async def close_match(self, session_id: str) -> None:
+        """Release a cursor; closing an unavailable valid UUID is idempotent."""
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        stub = match_service_pb2_grpc.MatchServiceStub(self._channel)
+        try:
+            await stub.CloseSession(match_service_pb2.CloseSessionRequest(session_id=session_id),
+                                    timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise CursorError(error.code(), error.details()) from error
 
     def start_background_query(
         self,
@@ -253,17 +546,65 @@ class AsyncClient:
         return [item for item in outcomes if isinstance(item, list)]
 
     async def aclose(self) -> None:
-        for task in tuple(self._background):
-            if not task.done():
-                task.cancel()
-        if self._background:
-            await asyncio.gather(*self._background, return_exceptions=True)
-            self._background.clear()
-        if self._channel is not None:
-            await self._channel.close()
+        current_loop = asyncio.get_running_loop()
+        if self._loop is not None and current_loop is not self._loop:
+            raise RuntimeError("AsyncClient must be closed from its owning event loop")
+        self._value_closing = True
+        if self._value_idle is not None:
+            await self._value_idle.wait()
+        if self._value_close_lock is None:
+            self._value_close_lock = asyncio.Lock()
+        async with self._value_close_lock:
+            try:
+                await self._close_resources()
+            finally:
+                self._value_closed = True
+
+    async def _close_resources(self) -> None:
+        errors: list[BaseException] = []
+        owners = tuple(self._values.items())
+        for _, reference in owners:
+            owner = reference()
+            if owner is not None:
+                owner.closed = True
+        try:
+            if self._expression_runtime is not None:
+                try:
+                    self._expression_runtime.close()
+                except BaseException as error:
+                    errors.append(error)
+                finally:
+                    self._expression_runtime = None
+            for task in tuple(self._background):
+                if not task.done():
+                    task.cancel()
+            if self._background:
+                try:
+                    await asyncio.gather(*self._background, return_exceptions=True)
+                except BaseException as error:
+                    errors.append(error)
+                self._background.clear()
+            identifiers = tuple(set(self._values) | self._pending_value_cleanup)
+            self._pending_value_cleanup.update(identifiers)
+            outcomes = await asyncio.gather(
+                *(self._close_value_cleanup(identifier) for identifier in identifiers),
+                return_exceptions=True,
+            )
+            for identifier, outcome in zip(identifiers, outcomes):
+                if isinstance(outcome, BaseException):
+                    errors.append(outcome)
+                else:
+                    self._values.pop(identifier, None)
+        finally:
+            if self._channel is not None:
+                try:
+                    await self._channel.close()
+                except BaseException as error:
+                    errors.append(error)
             self._channel = None
             self._stub = None
             self._loop = None
+        _raise_cleanup_errors(errors)
 
     async def __aenter__(self) -> "AsyncClient":
         self._ensure_stub()
@@ -413,15 +754,153 @@ class Client:
 
     address: str | None = None
     config_path: str | Path | None = None
+    config: NetworkConfig | None = None
+    _resolved_config: NetworkConfig | None = field(default=None, init=False, repr=False)
     _async_client: AsyncClient | None = field(default=None, init=False, repr=False)
     _async_loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False)
     _query_session: QuerySession | None = field(default=None, init=False, repr=False)
     _background_handles: dict[str, BackgroundQuery] = field(default_factory=dict, init=False, repr=False)
+    _values: dict[str, weakref.ReferenceType[CursorOwner[Client]]] = field(
+        default_factory=dict, init=False, repr=False)
+    _pending_value_cleanup: set[str] = field(default_factory=set, init=False, repr=False)
+    _expression_runtime: Any = field(default=None, init=False, repr=False)
+
+    def _configuration(self) -> NetworkConfig:
+        if self._resolved_config is None:
+            self._resolved_config = (load_network_config(self.config_path)
+                if self.config_path is not None else self.config or load_network_config())
+            self.config = self._resolved_config
+        return self._resolved_config
+
+    def _own_value(self, response: Any) -> CursorOwner[Client]:
+        owner = CursorOwner(cast(Client, self), response.session_id, response.result_revision,
+                             self._release_value)
+        self._values[response.session_id] = weakref.ref(owner)
+        return owner
+
+    def _release_value(self, session_id: str) -> None:
+        self._values.pop(session_id, None)
+        self._pending_value_cleanup.add(session_id)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                self._close_value_cleanup(session_id)
+            except Exception:
+                # Finalizers cannot propagate failures; retain the identifier
+                # so the next explicit operation or close retries cleanup.
+                pass
+
+    def _flush_value_cleanup(self) -> None:
+        errors: list[BaseException] = []
+        for identifier in tuple(self._pending_value_cleanup):
+            try:
+                self.close_match(identifier)
+            except Exception as error:
+                errors.append(error)
+            else:
+                self._pending_value_cleanup.remove(identifier)
+        _raise_cleanup_errors(errors)
+
+    def _close_value_cleanup(self, identifier: str) -> None:
+        if identifier not in self._pending_value_cleanup:
+            return
+        self.close_match(identifier)
+        self._pending_value_cleanup.discard(identifier)
+
+    def parse(self, path: str | Path, *, working_directory: str | Path | None = None,
+              compile_arguments: Sequence[str] = ()) -> ParsedTree[Client]:
+        """Parse a file and retain a tree with automatic native ownership."""
+        response = self._cursor_call("_parse_response", path,
+            working_directory=working_directory, compile_arguments=compile_arguments)
+        return ParsedTree(str(path), self._own_value(response))
+
+    def match_in(
+        self, query: str, target: MatchTarget, *,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+    ) -> MatchValue[Client]:
+        request = _value_request(self, query, target,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            traversal_mode=traversal_mode)
+        response = self._cursor_call("_cursor_match", request)
+        return MatchValue._from_response(response, self._own_value(response))
+
+    def close(self) -> None:
+        """Release every high-level retained value owned by this client."""
+        errors: list[BaseException] = []
+        for identifier, reference in tuple(self._values.items()):
+            owner = reference()
+            if owner is not None:
+                owner.closed = True
+            self._pending_value_cleanup.add(identifier)
+        self._values.clear()
+        if self._expression_runtime is not None:
+            try:
+                self._expression_runtime.close()
+            except Exception as error:
+                errors.append(error)
+            finally:
+                self._expression_runtime = None
+        try:
+            self._flush_value_cleanup()
+        except Exception as error:
+            errors.append(error)
+        _raise_cleanup_errors(errors)
+
+    def execute(
+        self, source: str, *, working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] | None = None,
+    ) -> Any:
+        """Evaluate expressions/blocks, returning reusable typed values."""
+        runtime = _expression_runtime(self, self, working_directory, compile_arguments)
+        return runtime.evaluate(source)
+
+    def __enter__(self) -> Client:
+        self._configuration()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def _cursor_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("synchronous cursor methods cannot run inside an active event loop")
+
+        config = self._configuration()
+
+        async def run() -> Any:
+            async with AsyncClient(self.address, config=config) as client:
+                return await getattr(client, method)(*args, **kwargs)
+        return asyncio.run(run())
+
+    def match_file(self, path: str | Path, query: str, **kwargs: Any) -> match_service_pb2.MatchResponse:
+        return self._cursor_call("match_file", path, query, **kwargs)
+
+    def continue_match(self, session_id: str, bind: str, query: str, **kwargs: Any) -> match_service_pb2.MatchResponse:
+        return self._cursor_call("continue_match", session_id, bind, query, **kwargs)
+
+    def restart_match(self, session_id: str, query: str, **kwargs: Any) -> match_service_pb2.MatchResponse:
+        return self._cursor_call("restart_match", session_id, query, **kwargs)
+
+    def close_match(self, session_id: str) -> None:
+        self._cursor_call("close_match", session_id)
+
 
     def bind_async_client(self, client: AsyncClient) -> None:
         """Attach the active CLI loop for commands submitted by worker threads."""
         self._async_client = client
         self._async_loop = asyncio.get_running_loop()
+        config = getattr(client, "config", None)
+        if self.config_path is None and config is not None:
+            self.config = self._resolved_config = config
+        else:
+            self._configuration()
 
     def bind_query_session(self, session: QuerySession) -> None:
         self._query_session = session
@@ -485,12 +964,32 @@ class Client:
         ready.result(timeout=2)
         return f"background query {query_id} started"
 
+    @overload
     def match(
-        self, matcher: str, *, files: list[str] | None = None,
+        self, matcher: str, *, file: str | Path,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
-    ) -> list[str]:
+    ) -> MatchValue[Client]: ...
+
+    @overload
+    def match(
+        self, matcher: str, *, files: Sequence[str | Path] | None = None,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (), file: None = None,
+    ) -> list[str]: ...
+
+    def match(
+        self, matcher: str, *, files: Sequence[str | Path] | None = None,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        file: str | Path | None = None,
+    ) -> list[str] | MatchValue[Client]:
         """Run a query synchronously; bindings are returned as JSON rows."""
+        if file is not None:
+            if files is not None:
+                raise ValueError("use either file or files, not both")
+            return self.match_in(matcher, file, working_directory=working_directory,
+                                 compile_arguments=compile_arguments)
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -498,8 +997,10 @@ class Client:
         else:
             raise RuntimeError("Client.match cannot run inside an active event loop")
 
+        config = self._configuration()
+
         async def run() -> list[str]:
-            async with AsyncClient(self.address, self.config_path) as client:
+            async with AsyncClient(self.address, config=config) as client:
                 events = await client.query(
                     matcher, files or (), working_directory=working_directory,
                     compile_arguments=compile_arguments,
@@ -524,8 +1025,108 @@ class Client:
     def cfg(self, function: str) -> str:
         raise NotImplementedError("CFG queries are not yet exposed by the server")
 
+    def run_script(self, source: str, *, path: str | Path | None = None,
+                   working_directory: str | Path | None = None,
+                   compile_arguments: Sequence[str] = (),
+                   max_steps: int | None = None) -> script_response_pb2.ScriptResponse:
+        return self._cursor_call("run_script", source, path=path,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            max_steps=max_steps)
+
     def callgraph(self) -> str:
         raise NotImplementedError("call graph queries are not yet exposed by the server")
+
+
+def _raise_cleanup_errors(errors: Sequence[BaseException]) -> None:
+    if len(errors) == 1:
+        raise errors[0]
+    if errors:
+        raise BaseExceptionGroup("client resource cleanup failed", list(errors))
+
+
+class _AsyncExpressionAdapter:
+    """Run the shared synchronous evaluator with calls on its owner's loop."""
+
+    def __init__(self, client: AsyncClient, lease: OperationLease) -> None:
+        self.client = client
+        self.lease = lease
+        self._cancelled = False
+        self._future: concurrent.futures.Future[Any] | None = None
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        if self._future is not None:
+            self._future.cancel()
+
+    def _call(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        if self._cancelled:
+            raise asyncio.CancelledError
+        future = asyncio.run_coroutine_threadsafe(
+            getattr(self.client, method)(*args, **kwargs), self.client._loop)
+        self._future = future
+        if self._cancelled:
+            future.cancel()
+        try:
+            return future.result()
+        finally:
+            self._future = None
+
+    def parse(self, path: str | Path, *, working_directory: str | Path | None = None,
+              compile_arguments: Sequence[str] = ()) -> ParsedTree[AsyncClient]:
+        return self._call("_parse_with_lease", path,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            lease=self.lease)
+
+    def match_in(self, query: str, target: MatchTarget, *,
+                 working_directory: str | Path | None = None,
+                 compile_arguments: Sequence[str] = (),
+                 traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS
+                 ) -> MatchValue[AsyncClient]:
+        return self._call("_match_in_with_lease", query, target,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            traversal_mode=traversal_mode, lease=self.lease)
+
+    def match(self, query: str, *, files: Sequence[str] | None = None,
+              **kwargs: Any) -> list[Any]:
+        return self._call("match", query, files or (), **kwargs)
+
+
+def _expression_runtime(owner: Client | AsyncClient, adapter: Any,
+                        working_directory: str | Path | None,
+                        compile_arguments: Sequence[str] | None) -> Any:
+    from clang_toolkit.cli.runtime.evaluator import Runtime
+    if owner._expression_runtime is None:
+        owner._expression_runtime = Runtime(adapter, cwd=Path(working_directory)
+                                            if working_directory is not None else None)
+    runtime = owner._expression_runtime
+    if working_directory is not None and Path(working_directory).resolve() != runtime.cwd:
+        raise ValueError("expression execution uses one working directory per client")
+    if compile_arguments is not None:
+        runtime.config_store.effective["extra_args"] = list(compile_arguments)
+    return runtime
+
+
+def _value_request(
+    client: Client | AsyncClient, query: str, target: MatchTarget | Path, *,
+    working_directory: str | Path | None = None,
+    compile_arguments: Sequence[str] = (),
+    traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+) -> match_service_pb2.MatchRequest:
+    if isinstance(target, str | Path):
+        return file_request(target, query, working_directory=working_directory,
+                            compile_arguments=compile_arguments,
+                            traversal_mode=traversal_mode)
+    if not isinstance(target, ParsedTree | MatchValue | BindingSelection):
+        raise TypeError("match target must be a file path, parsed tree or binding selection")
+    target._owner.check(client)
+    options: dict[str, Any] = {}
+    if isinstance(target, BindingSelection):
+        options.update(bind=target.name, match_index=target._index, scope=target.scope)
+    request = retained_request(target._owner.session_id, query,
+        expected_result_revision=target._owner.revision,
+        traversal_mode=traversal_mode, **options)
+    request.preserve_source = True
+    return request
 
 
 def _format_event(event: QueryEvent) -> str:

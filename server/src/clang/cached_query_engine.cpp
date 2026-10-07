@@ -3,6 +3,7 @@
 #include "ctk/cache/compilation_context.hpp"
 #include "ctk/cache/snapshot_cache.hpp"
 #include "ctk/storage/store.hpp"
+#include "native_snapshot_owner.hpp"
 #include "native_temporary_artifact.hpp"
 #include "serialization/node_serializers.hpp"
 
@@ -43,23 +44,10 @@
 namespace ctk::clang_layer {
 namespace {
 
-using DependencyBuffers = std::map<std::string, std::optional<llvm::StringRef>>;
-
 llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> isolated_physical_filesystem() {
   auto filesystem = llvm::vfs::createPhysicalFileSystem();
   return llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(filesystem.release());
 }
-
-struct AstSnapshotOwner final : ctk::cache::NativeSnapshotOwner {
-  // Destroy the AST and lease before removing the directory that may still be
-  // consulted by lazy AST accessors.
-  std::unique_ptr<detail::NativeTemporaryArtifact> native_artifact;
-  ctk::storage::SnapshotLeasePtr storage_lease;
-  std::unique_ptr<clang::ASTUnit> unit;
-  DependencyBuffers dependencies;
-  bool storage_loaded = false;
-  std::string storage_message;
-};
 
 std::filesystem::path storage_root() {
   if (const auto *configured = std::getenv("CTK_STORAGE_ROOT");
@@ -576,6 +564,10 @@ public:
   NativeQueryEngine()
       : loader_(std::make_shared<ClangSnapshotLoader>(shared_store())),
         cache_(loader_) {}
+
+  ctk::cache::SnapshotPtr acquire_snapshot(const FileInput &file) override {
+    return cache_.acquire(normalized_path(file), cache_context(file));
+  }
 
   QueryResult match(const FileInput &file, const std::string &query,
                     const Checkpoint &checkpoint,

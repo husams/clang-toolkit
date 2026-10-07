@@ -1,0 +1,14 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+import "match/v1/match_service.proto";
+import "analysis/v1/script_compilation_profile.proto";
+// Optional default file for legacy operations. Explicit parse/file expressions
+// can acquire their own trees; scoped blocks provide a lexical default tree.
+message ScriptRequest {
+  ctk.match.v1.FileMatchTarget file = 1;
+  string source = 2;
+  optional uint32 max_steps = 3;
+  // Omitted profiles preserve the legacy default-file compilation context.
+  ScriptCompilationProfile profile = 4;
+}

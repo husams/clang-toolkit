@@ -12,6 +12,8 @@ from prompt_toolkit.styles import Style
 from clang_toolkit.cli.language import lex, parser as parser
 
 KEYWORDS = {
+    "PARSE",
+    "YIELD",
     "LET",
     "MATCH",
     "CFG",
@@ -20,6 +22,7 @@ KEYWORDS = {
     "QUIT",
     "EXIT",
     "TRAVERSE",
+
     "SCRIPT",
     "PRINT",
     "FOREACH",
@@ -45,6 +48,13 @@ KEYWORDS = {
     "USER",
     "HISTORY",
     "SESSION",
+    "CURSOR",
+    "OPEN",
+    "CONTINUE",
+    "RESTART",
+    "ROW",
+    "CURSOR_SCOPE",
+    "REVISION",
     "LABEL",
     "MODE",
     "REPLACE",
@@ -64,7 +74,7 @@ TOKEN_STYLES = {
     "EQUAL": "operator",
     **{
         kind: "punctuation"
-        for kind in ("LPAR", "RPAR", "LSQB", "RSQB", "LBRACE", "RBRACE", "COMMA", "DOT")
+        for kind in ("LPAR", "RPAR", "LSQB", "RSQB", "LBRACE", "RBRACE", "COMMA", "DOT", "SEMICOLON")
     },
 }
 STYLE = Style.from_dict(

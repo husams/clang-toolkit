@@ -24,28 +24,79 @@ add_custom_command(
   COMMENT "Assembling dedicated typed AST schemas for recursive protobuf values"
   VERBATIM)
 
-if(CTK_WITH_CLANG OR CTK_BUILD_NETWORK)
-  set(_match_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/query-generated")
-  add_custom_command(
-    OUTPUT "${_match_generated_dir}/match/v1/match_result.pb.cc"
-           "${_match_generated_dir}/match/v1/match_result.pb.h"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_match_generated_dir}"
-    COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
-            "--cpp_out=${_match_generated_dir}"
-            --experimental_allow_proto3_optional
-            "${_api_schema_dir}/match/v1/match_result.proto"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/match/v1/match_result.proto"
-            ${_api_staged_protos}
-    VERBATIM)
-  add_library(ctk_match_api STATIC
-    "${_match_generated_dir}/match/v1/match_result.pb.cc"
-    "${_match_generated_dir}/match/v1/match_result.pb.h")
-  target_include_directories(ctk_match_api PUBLIC "${_match_generated_dir}")
-  target_link_libraries(ctk_match_api PUBLIC ctk_ast_api protobuf::libprotobuf)
-endif()
+set(_match_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/query-generated")
+set(_parse_sources)
+foreach(_module IN ITEMS parse_request parse_response)
+  list(APPEND _parse_sources "${_match_generated_dir}/match/v1/${_module}.pb.cc"
+       "${_match_generated_dir}/match/v1/${_module}.pb.h")
+endforeach()
+add_custom_command(
+  OUTPUT ${_parse_sources} "${_match_generated_dir}/match/v1/match_result.pb.cc"
+         "${_match_generated_dir}/match/v1/match_result.pb.h"
+         "${_match_generated_dir}/match/v1/match_service.pb.cc"
+         "${_match_generated_dir}/match/v1/match_service.pb.h"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${_match_generated_dir}"
+  COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
+          "--cpp_out=${_match_generated_dir}"
+          --experimental_allow_proto3_optional
+          "${_api_schema_dir}/match/v1/match_result.proto"
+          "${_api_schema_dir}/match/v1/parse_request.proto"
+          "${_api_schema_dir}/match/v1/parse_response.proto"
+          "${_api_schema_dir}/match/v1/match_service.proto"
+  DEPENDS "${_api_schema_dir}/match/v1/match_result.proto"
+          "${_api_schema_dir}/match/v1/parse_request.proto"
+          "${_api_schema_dir}/match/v1/parse_response.proto"
+          "${_api_schema_dir}/match/v1/match_service.proto"
+  VERBATIM)
+add_library(ctk_match_api STATIC ${_parse_sources}
+  "${_match_generated_dir}/match/v1/match_result.pb.cc"
+  "${_match_generated_dir}/match/v1/match_result.pb.h"
+  "${_match_generated_dir}/match/v1/match_service.pb.cc")
+target_include_directories(ctk_match_api PUBLIC "${_match_generated_dir}")
+target_link_libraries(ctk_match_api PUBLIC ctk_ast_api protobuf::libprotobuf)
+
+set(_analysis_protos)
+set(_analysis_sources)
+set(_analysis_headers)
+file(GLOB _analysis_source_protos CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/analysis/v1/*.proto")
+foreach(_source_proto IN LISTS _analysis_source_protos)
+  get_filename_component(_module "${_source_proto}" NAME_WE)
+  list(APPEND _analysis_protos "${_api_schema_dir}/analysis/v1/${_module}.proto")
+  list(APPEND _analysis_sources "${_match_generated_dir}/analysis/v1/${_module}.pb.cc")
+  list(APPEND _analysis_headers "${_match_generated_dir}/analysis/v1/${_module}.pb.h")
+endforeach()
+add_custom_command(OUTPUT ${_analysis_sources} ${_analysis_headers}
+  COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
+    "--cpp_out=${_match_generated_dir}" --experimental_allow_proto3_optional ${_analysis_protos}
+  DEPENDS ${_analysis_protos} VERBATIM)
+add_library(ctk_analysis_api STATIC ${_analysis_sources})
+target_include_directories(ctk_analysis_api PUBLIC "${_match_generated_dir}")
+target_link_libraries(ctk_analysis_api PUBLIC ctk_match_api)
 
 if(CTK_BUILD_NETWORK)
   find_package(gRPC CONFIG REQUIRED)
+  add_custom_command(
+    OUTPUT "${_match_generated_dir}/match/v1/match_service.grpc.pb.cc"
+           "${_match_generated_dir}/match/v1/match_service.grpc.pb.h"
+    COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
+            --experimental_allow_proto3_optional
+            "--grpc_out=${_match_generated_dir}"
+            "--plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
+            "${_api_schema_dir}/match/v1/match_service.proto"
+    DEPENDS "${_api_schema_dir}/match/v1/match_service.proto" VERBATIM)
+  add_library(ctk_match_grpc STATIC
+    "${_match_generated_dir}/match/v1/match_service.grpc.pb.cc")
+  target_link_libraries(ctk_match_grpc PUBLIC ctk_match_api gRPC::grpc++)
+  add_custom_command(
+    OUTPUT "${_match_generated_dir}/analysis/v1/analysis_service.grpc.pb.cc"
+           "${_match_generated_dir}/analysis/v1/analysis_service.grpc.pb.h"
+    COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
+      --experimental_allow_proto3_optional "--grpc_out=${_match_generated_dir}"
+      "--plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
+      "${_api_schema_dir}/analysis/v1/analysis_service.proto"
+    DEPENDS ${_analysis_protos} VERBATIM)
+  add_library(ctk_analysis_grpc STATIC "${_match_generated_dir}/analysis/v1/analysis_service.grpc.pb.cc")
+  target_link_libraries(ctk_analysis_grpc PUBLIC ctk_analysis_api gRPC::grpc++)
   set(_query_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/query-generated")
   set(_query_proto "${_api_schema_dir}/query/v1/query.proto")
   set(_query_message_protos)
@@ -72,16 +123,13 @@ if(CTK_BUILD_NETWORK)
             "--grpc_out=${_query_generated_dir}"
             "--plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
             "${_query_proto}"
-    DEPENDS ${_query_message_protos} "${_query_proto}" ${_api_staged_protos} VERBATIM)
+    DEPENDS ${_query_message_protos} "${_query_proto}" VERBATIM)
   add_library(ctk_query_api STATIC
     ${_query_message_sources}
     "${_query_generated_dir}/query/v1/query.pb.cc"
     "${_query_generated_dir}/query/v1/query.grpc.pb.cc")
   target_include_directories(ctk_query_api PUBLIC "${_query_generated_dir}")
   target_link_libraries(ctk_query_api PUBLIC ctk_match_api protobuf::libprotobuf gRPC::grpc++)
-endif()
-if(NOT CTK_BUILD_APIS AND NOT CTK_WITH_CLANG AND NOT CTK_BUILD_NETWORK)
-  return()
 endif()
 
 set(_api_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -108,7 +156,7 @@ add_custom_command(
           --experimental_allow_proto3_optional
           "--descriptor_set_out=${_api_generated_dir}/ast.pb"
           --include_imports ${_api_ast_staged_protos}
-  DEPENDS ${_api_staged_protos} "${CMAKE_CURRENT_SOURCE_DIR}/catalog.json"
+  DEPENDS ${_api_ast_staged_protos} "${CMAKE_CURRENT_SOURCE_DIR}/catalog.json"
           "${CMAKE_CURRENT_SOURCE_DIR}/node_tags.json"
           "${CMAKE_CURRENT_SOURCE_DIR}/generate_nodes.py"
   COMMENT "Generating the clang-toolkit C++ AST protobuf contract"

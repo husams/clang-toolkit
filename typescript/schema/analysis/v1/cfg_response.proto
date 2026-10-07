@@ -1,0 +1,5 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "analysis/v1/cfg_graph.proto";
+
+message CfgResponse { repeated CfgGraph graphs = 1; }

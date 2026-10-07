@@ -1,0 +1,26 @@
+// Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/ast/v1/semantic.proto
+
+export const StringLiteralKind = {
+  STRING_LITERAL_KIND_UNSPECIFIED: 'STRING_LITERAL_KIND_UNSPECIFIED',
+  STRING_LITERAL_KIND_ORDINARY: 'STRING_LITERAL_KIND_ORDINARY',
+  STRING_LITERAL_KIND_UTF8: 'STRING_LITERAL_KIND_UTF8',
+  STRING_LITERAL_KIND_UTF16: 'STRING_LITERAL_KIND_UTF16',
+  STRING_LITERAL_KIND_UTF32: 'STRING_LITERAL_KIND_UTF32',
+  STRING_LITERAL_KIND_WIDE: 'STRING_LITERAL_KIND_WIDE',
+} as const;
+
+export type StringLiteralKind =
+  | 'STRING_LITERAL_KIND_UNSPECIFIED'
+  | 0
+  | 'STRING_LITERAL_KIND_ORDINARY'
+  | 1
+  | 'STRING_LITERAL_KIND_UTF8'
+  | 2
+  | 'STRING_LITERAL_KIND_UTF16'
+  | 3
+  | 'STRING_LITERAL_KIND_UTF32'
+  | 4
+  | 'STRING_LITERAL_KIND_WIDE'
+  | 5
+
+export type StringLiteralKind__Output = typeof StringLiteralKind[keyof typeof StringLiteralKind]

@@ -1,4 +1,4 @@
-start: statement
+start: statement SEMICOLON?
 reference_start: reference
 
 ?statement: assignment
@@ -6,6 +6,8 @@ reference_start: reference
           | reference                    -> display
           | STRING                       -> display
           | foreach_expression           -> display
+          | parse_expression             -> display
+          | analysis_block               -> display
 
 assignment: LET NAME EQUAL value_expression
 
@@ -32,7 +34,15 @@ assignment: LET NAME EQUAL value_expression
         | QUIT                           -> quit
         | EXIT                           -> exit
         | TRAVERSE target_expression    -> traverse
-        | SCRIPT target_expression      -> script
+        | SCRIPT target_expression (IN target_expression)? -> script
+        | CURSOR OPEN STRING root_expression cursor_option* -> cursor_open
+        | CURSOR CONTINUE STRING STRING root_expression cursor_option* -> cursor_continue
+        | CURSOR RESTART STRING root_expression cursor_option* -> cursor_restart
+        | CURSOR CLOSE STRING -> cursor_close
+
+cursor_option: ROW NUMBER -> cursor_row
+             | CURSOR_SCOPE NAME -> cursor_scope
+             | REVISION NUMBER -> cursor_revision
 
 ?setting: TRAVERSAL NAME                 -> traversal_setting
         | EXTRA_ARGS list_value          -> args_setting
@@ -49,8 +59,14 @@ assignment: LET NAME EQUAL value_expression
                  | glob_call
                  | match_expression
                  | foreach_expression
+                 | parse_expression
+                 | analysis_block
 
 match_expression: MATCH root_expression [IN value_expression]
+parse_expression: PARSE target_expression
+analysis_block: IN (parse_expression | reference) LBRACE (assignment SEMICOLON)* YIELD yield_expression SEMICOLON? RBRACE
+?yield_expression: value_expression
+                 | NAME -> named_value
 foreach_expression: FOREACH reference IN value_expression DO value_expression DONE?
 list_value: LSQB [value_expression (COMMA value_expression)*] RSQB
 glob_call: GLOB LPAR STRING RPAR
@@ -89,13 +105,15 @@ target_matcher: NAME LPAR [target_arguments] RPAR bind? -> matcher
 
 target_arguments: target_expression (COMMA target_expression)*
 
-reference: DOLLAR NAME (DOT NAME | DOT JOIN_WITH LPAR value_expression RPAR)*
+reference: DOLLAR NAME (DOT NAME | DOT JOIN_WITH LPAR value_expression RPAR | LSQB NUMBER RSQB)*
 qualified_name: NAME (SCOPE NAME)+
 
 // Keep the editor lexer lossless, including strings open at end of input.
 editor_start: editor_token*
 
 ?editor_token: LET
+             | PARSE
+             | YIELD
              | MATCH
              | BACKGROUND
              | PRINT
@@ -139,6 +157,13 @@ editor_start: editor_token*
              | EXIT
              | TRAVERSE
              | SCRIPT
+             | CURSOR
+             | OPEN
+             | CONTINUE
+             | RESTART
+             | ROW
+             | CURSOR_SCOPE
+             | REVISION
              | EDITOR_NAME
              | NAME
              | STRING
@@ -156,10 +181,13 @@ editor_start: editor_token*
              | LBRACE
              | RBRACE
              | COMMA
+             | SEMICOLON
              | WS
              | ERROR
 
 LET.2: /let(?![a-zA-Z0-9_])/
+PARSE.2: /parse(?![a-zA-Z0-9_])/
+YIELD.2: /yield(?![a-zA-Z0-9_])/
 MATCH.2: /match(?![a-zA-Z0-9_])/
 BACKGROUND.2: /background(?![a-zA-Z0-9_])/
 PRINT.2: /print(?![a-zA-Z0-9_])/
@@ -203,6 +231,13 @@ QUIT.2: /quit(?![a-zA-Z0-9_])/
 EXIT.2: /exit(?![a-zA-Z0-9_])/
 TRAVERSE.2: /traverse(?![a-zA-Z0-9_])/
 SCRIPT.2: /script(?![a-zA-Z0-9_])/
+CURSOR.2: /cursor(?![a-zA-Z0-9_])/
+OPEN.2: /open(?![a-zA-Z0-9_])/
+CONTINUE.2: /continue(?![a-zA-Z0-9_])/
+RESTART.2: /restart(?![a-zA-Z0-9_])/
+ROW.2: /row(?![a-zA-Z0-9_])/
+CURSOR_SCOPE.2: /scope(?![a-zA-Z0-9_])/
+REVISION.2: /revision(?![a-zA-Z0-9_])/
 
 ROOT_MATCHER_NAME: /[a-zA-Z_][a-zA-Z0-9_]*(?=\s*\()/
 MATCHER_NAME: /[a-zA-Z_][a-zA-Z0-9_]*(?=\s*\()/
@@ -222,6 +257,7 @@ RSQB: "]"
 LBRACE: "{"
 RBRACE: "}"
 COMMA: ","
+SEMICOLON: ";"
 WS: /\s+/
 ERROR: /[\s\S]/
 

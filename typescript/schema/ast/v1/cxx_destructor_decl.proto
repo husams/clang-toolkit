@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+// Generated compatibility import; definitions remain in the source schema.
+import public "ast/v1/semantic.proto";

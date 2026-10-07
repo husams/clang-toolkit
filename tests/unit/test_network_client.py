@@ -6,6 +6,8 @@ import pytest
 from clang_toolkit import client as client_module
 from clang_toolkit._generated.query.v1 import query_pb2
 from clang_toolkit.client import AsyncClient, Client, QueryError, _format_violation
+from clang_toolkit.configuration import ConfigurationError, load_network_config
+from clang_toolkit._generated.match.v1 import match_service_pb2, parse_response_pb2
 
 
 class Stream:
@@ -145,3 +147,99 @@ def test_callback_failure_closes_and_cancels_partial_stream(monkeypatch):
 
     stream = asyncio.run(run())
     assert stream.cancelled
+
+
+def patch_native_transport(monkeypatch):
+    created, requests = [], []
+    count = 0
+
+    def channel(target, *, options=()):
+        created.append((target, options))
+        return Channel()
+
+    class NativeStub:
+        def __init__(self, _channel):
+            pass
+
+        async def Parse(self, request, *, timeout=None):
+            nonlocal count
+            count += 1
+            return parse_response_pb2.ParseResponse(session_id=f"native-{count}", result_revision=1)
+
+        async def Match(self, request, *, timeout=None):
+            nonlocal count
+            count += 1
+            requests.append(request)
+            return match_service_pb2.MatchResponse(session_id=f"native-{count}", result_revision=1)
+
+        async def CloseSession(self, request, *, timeout=None):
+            return match_service_pb2.CloseSessionResponse()
+
+    monkeypatch.setattr(client_module.grpc.aio, "insecure_channel", channel)
+    monkeypatch.setattr(client_module.query_pb2_grpc, "QueryServiceStub", lambda _channel: Stub([]))
+    monkeypatch.setattr(client_module.match_service_pb2_grpc, "MatchServiceStub", NativeStub)
+    return created, requests
+
+
+def test_no_address_sync_client_discovers_once_and_caches_winning_configuration(monkeypatch, tmp_path):
+    cwd = tmp_path / "project"
+    cwd.mkdir()
+    path = cwd / ".clang-toolkit.yaml"
+    path.write_text("network:\n  unix:\n    socket_path: run/first.sock\n")
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(client_module, "load_network_config", lambda selected=None:
+        load_network_config(selected, cwd=cwd, home=tmp_path / "home", system_dir=tmp_path / "etc"))
+    created, requests = patch_native_transport(monkeypatch)
+    with Client() as client:
+        assert client.address is None
+        assert client.config.provenance["network.unix.socket_path"] == str(path)
+        with client.match('functionDecl().bind("f")', file="example.cc") as functions:
+            path.write_text("network:\n  unix:\n    socket_path: run/second.sock\n")
+            with functions.binding("f").match("callExpr()"):
+                pass
+        assert requests[1].preserve_source
+    assert all(target == f"unix://{cwd / 'run/first.sock'}" for target, _ in created)
+    with Client() as restarted:
+        assert restarted.config.target == f"unix://{cwd / 'run/second.sock'}"
+
+
+def test_no_address_async_contexts_use_discovered_yaml(monkeypatch, tmp_path):
+    cwd = tmp_path / "project"
+    cwd.mkdir()
+    path = cwd / ".clang-toolkit.yaml"
+    path.write_text("network:\n  unix:\n    socket_path: run/async.sock\nclient:\n  grpc:\n    max_receive_message_bytes: 4096\n")
+    monkeypatch.setattr(client_module, "load_network_config", lambda selected=None:
+        load_network_config(selected, cwd=cwd, home=tmp_path / "home", system_dir=tmp_path / "etc"))
+    created, _ = patch_native_transport(monkeypatch)
+
+    async def run():
+        async with AsyncClient() as client:
+            assert client.address is None
+            async with await client.match('functionDecl().bind("f")', file="example.cc") as functions:
+                child = await functions.binding("f").match("callExpr()")
+            async with child:
+                assert not child._owner.closed
+            assert not client._value_cleanup and not client._pending_value_cleanup
+
+    asyncio.run(run())
+    assert created == [(f"unix://{cwd / 'run/async.sock'}", (("grpc.max_receive_message_length", 4096),))]
+
+
+def test_explicit_endpoint_and_injected_config_do_not_bypass_selected_file_errors(monkeypatch, tmp_path):
+    selected = tmp_path / "bad.yaml"
+    selected.write_text("pool:\n  size: false\n")
+    defaults = load_network_config(cwd=tmp_path, home=tmp_path / "home", system_dir=tmp_path / "etc")
+    created, _ = patch_native_transport(monkeypatch)
+    with pytest.raises(ConfigurationError) as failure:
+        with Client("unix:///override.sock", config_path=selected, config=defaults):
+            pass
+    assert str(selected) in str(failure.value) and "pool.size" in str(failure.value)
+
+    async def run():
+        with pytest.raises(ConfigurationError) as failure:
+            async with AsyncClient("unix:///override.sock", config_path=selected, config=defaults):
+                pass
+        assert str(selected) in str(failure.value) and "pool.size" in str(failure.value)
+
+    asyncio.run(run())
+    assert not created

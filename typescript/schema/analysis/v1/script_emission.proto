@@ -1,0 +1,5 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+import "analysis/v1/script_value.proto";
+message ScriptEmission { string name = 1; ScriptValue value = 2; }

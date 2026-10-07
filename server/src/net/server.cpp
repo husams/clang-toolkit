@@ -1,5 +1,7 @@
 #include "ctk/net/server.hpp"
+#include "ctk/clang/tooling.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <grpcpp/security/server_credentials.h>
 #include <grpcpp/server_builder.h>
@@ -7,10 +9,49 @@
 
 namespace ctk::net {
 
+namespace {
+std::shared_ptr<ctk::clang_layer::IQueryEngine> native_engine() {
+#ifdef CTK_WITH_CLANG
+  return ctk::clang_layer::make_query_engine();
+#else
+  return {};
+#endif
+}
+std::shared_ptr<ctk::clang_layer::IMatchBackend>
+matcher(std::shared_ptr<ctk::clang_layer::IQueryEngine> engine) {
+#ifdef CTK_WITH_CLANG
+  return ctk::clang_layer::make_match_backend(std::move(engine));
+#else
+  return {};
+#endif
+}
+application::CursorSettings cursor_settings(const config::Settings &settings) {
+  application::CursorSettings result;
+  result.workers = static_cast<std::size_t>(settings.pool_size);
+  result.pending_requests = static_cast<std::size_t>(settings.queue_size);
+  result.max_cursors = static_cast<std::size_t>(settings.max_files);
+  result.max_memory_bytes =
+      static_cast<std::uint64_t>(settings.max_memory_bytes);
+  // Reject oversized responses before publishing a new cursor revision.
+  if (const auto configured = settings.server_grpc.max_send_message_bytes;
+      configured && *configured > 0)
+    result.results.max_bytes = std::min(result.results.max_bytes,
+                                        static_cast<std::size_t>(*configured));
+  return result;
+}
+} // namespace
+
 GrpcServerHost::GrpcServerHost(config::Settings settings,
                                application::IQueryController &controller)
     : settings_(std::move(settings)), controller_(controller),
-      service_(controller) {}
+      service_(controller), operations_(application::make_operation_executor(
+                                settings_.pool_size, settings_.queue_size)),
+      native_engine_(native_engine()),
+      matches_(cursor_settings(settings_), matcher(native_engine_),
+               operations_),
+      match_service_(matches_),
+      scripts_(cursor_settings(settings_), native_engine_, operations_),
+      analysis_service_(scripts_) {}
 GrpcServerHost::~GrpcServerHost() {
   if (server_)
     shutdown();
@@ -27,6 +68,8 @@ void GrpcServerHost::start() {
     builder.SetMaxSendMessageSize(
         *settings_.server_grpc.max_send_message_bytes);
   builder.RegisterService(&service_);
+  builder.RegisterService(&match_service_);
+  builder.RegisterService(&analysis_service_);
   builder.AddListeningPort(settings_.endpoint,
                            grpc::InsecureServerCredentials());
   server_ = builder.BuildAndStart();
@@ -38,6 +81,7 @@ void GrpcServerHost::shutdown() {
   if (!server_)
     return;
   controller_.stop_admission();
+  matches_.stop_admission();
   if (settings_.shutdown_grace_ms)
     server_->Shutdown(std::chrono::system_clock::now() +
                       std::chrono::milliseconds(*settings_.shutdown_grace_ms));

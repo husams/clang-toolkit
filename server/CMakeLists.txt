@@ -38,6 +38,18 @@ target_include_directories(ctk_core PUBLIC include)
 target_compile_features(ctk_core PUBLIC cxx_std_23)
 target_link_libraries(ctk_core PUBLIC ctk_cache ctk_storage)
 target_link_libraries(ctk_core PRIVATE Threads::Threads)
+target_link_libraries(ctk_core PUBLIC ctk_analysis_api)
+if(CTK_BUILD_SCRIPT)
+  include("${CMAKE_SOURCE_DIR}/cmake/Antlr.cmake")
+  file(GLOB _script_generated CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/script/generated/*.cpp")
+  add_library(ctk_script_parser STATIC ${_script_generated} src/script/parser.cpp)
+  target_include_directories(ctk_script_parser PRIVATE include)
+  target_link_libraries(ctk_script_parser PUBLIC antlr4_static ctk_analysis_api)
+  target_compile_features(ctk_script_parser PUBLIC cxx_std_23)
+  target_sources(ctk_core PRIVATE src/script/interpreter.cpp)
+  target_link_libraries(ctk_core PRIVATE ctk_script_parser)
+  target_compile_definitions(ctk_core PUBLIC CTK_BUILD_SCRIPT=1)
+endif()
 
 if(CTK_BUILD_NETWORK)
   find_path(CTK_YAML_INCLUDE_DIR yaml.h REQUIRED)
@@ -47,8 +59,14 @@ if(CTK_BUILD_NETWORK)
     src/config/config.cpp
     src/application/analysis_session.cpp
     src/application/query_controller.cpp)
+  target_sources(ctk_core PRIVATE src/application/match_controller.cpp
+    src/application/operation_executor.cpp
+    src/application/cursor_registry.cpp
+    src/application/file_target_validation.cpp
+    src/application/script_controller.cpp src/application/native_script_environment.cpp src/application/script_options.cpp)
   target_include_directories(ctk_core PRIVATE "${CTK_YAML_INCLUDE_DIR}")
   target_link_libraries(ctk_core PRIVATE "${CTK_YAML_LIBRARY}")
+  target_link_libraries(ctk_core PRIVATE OpenSSL::Crypto)
   add_library(ctk_network
     src/platform/endpoint_lease.cpp
     src/net/server.cpp
@@ -56,9 +74,11 @@ if(CTK_BUILD_NETWORK)
     src/net/outbound_event_queue.cpp
     src/net/query_call_state.cpp
     src/net/network_service.cpp)
+  target_sources(ctk_network PRIVATE src/net/match_service.cpp src/net/match_status.cpp
+    src/net/analysis_service.cpp)
   target_include_directories(ctk_network PUBLIC include)
-  target_link_libraries(ctk_core PUBLIC ctk_query_api)
-  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api Threads::Threads)
+  target_link_libraries(ctk_core PUBLIC ctk_query_api ctk_analysis_api)
+  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc Threads::Threads)
 endif()
 
 if(CTK_WITH_CLANG)
@@ -73,6 +93,8 @@ if(CTK_WITH_CLANG)
     src/platform/temporary_directory.cpp
     src/clang/tooling.cpp
     src/clang/cached_query_engine.cpp
+    src/clang/cursor_match_backend.cpp
+    src/clang/match_row_collector.cpp
     src/clang/serialization/node_serializers.cpp)
   file(GLOB_RECURSE _node_serializer_sources CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/decl/*.cpp"
@@ -96,6 +118,7 @@ if(CTK_WITH_CLANG)
   if(NOT CTK_CLANG_RESOURCE_RESULT EQUAL 0 OR CTK_CLANG_RESOURCE_DIR STREQUAL "")
     message(FATAL_ERROR "The selected Clang compiler did not provide its resource directory")
   endif()
+  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/ctk-clang-tool-path.txt" CONTENT "${CMAKE_CXX_COMPILER}\n")
   target_compile_definitions(ctk_clang PRIVATE
     CTK_CLANG_RESOURCE_DIR="${CTK_CLANG_RESOURCE_DIR}"
     CTK_CLANG_TOOL_PATH="${CMAKE_CXX_COMPILER}")
@@ -106,7 +129,7 @@ if(CTK_WITH_CLANG)
     target_link_libraries(ctk_clang PUBLIC clangTooling clangDynamicASTMatchers clangASTMatchers clangAnalysis clangFrontend clangAST clangBasic)
   endif()
   target_link_libraries(ctk_core PUBLIC ctk_clang)
-  target_link_libraries(ctk_clang PUBLIC ctk_match_api ctk_cache ctk_storage)
+  target_link_libraries(ctk_clang PUBLIC ctk_match_api ctk_analysis_api ctk_cache ctk_storage)
   target_compile_definitions(ctk_core PUBLIC CTK_WITH_CLANG=1)
 endif()
 

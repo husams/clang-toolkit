@@ -1,0 +1,12 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+import "match/v1/match_result.proto";
+
+// One declaration or statement encountered in native visitor preorder.
+// Indices describe this response's traversal structure, not AST lookup handles.
+message TraversalNode {
+  optional uint64 parent_index = 1;
+  uint32 depth = 2;
+  ctk.match.v1.MatchBinding value = 3;
+}

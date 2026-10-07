@@ -13,6 +13,7 @@ from lark import Token, Tree
 from clang_toolkit.cli.language import parser
 from clang_toolkit.cli.matcher_catalog import NESTED_MATCHERS, ROOT_MATCHERS
 from clang_toolkit.client import Client
+from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, MatchValueError, ParsedTree
 
 from .config import ConfigError, ConfigStore
 from .filesystem import Directory, File, FileSystemEntry, from_path
@@ -22,6 +23,7 @@ from .history import HistoryStore
 from .output import OutputSink
 from .persistence import load, save
 from .values import MatchSet, MatcherExpr, QualifiedName, matcher_text, render
+from .cursors import execute_cursor
 
 
 class EvaluationError(ValueError):
@@ -60,6 +62,23 @@ class Runtime:
         self.history = history
         self.bindings: dict[str, Any] = {}
         self._scopes: list[dict[str, Any]] = []
+        self._default_targets: list[ParsedTree] = []
+        self._block_owners: list[set[Any]] = []
+
+    def evaluate(self, source: str) -> Any:
+        """Execute a typed SDK expression or assignment without rendering it."""
+        statement = parser().parse(source).children[0]
+        if not isinstance(statement, Tree):
+            raise EvaluationError("expected an expression")
+        kind = str(statement.data)
+        if kind == "assignment":
+            self._assignment(statement)
+            return self._resolve_name(str(statement.children[1]))
+        if kind == "match":
+            return self._execute_match(statement, source=source)
+        if kind == "display":
+            return self._evaluate(statement.children[0])
+        raise EvaluationError("SDK execution requires an expression or assignment")
 
     def execute(self, source: str) -> str | None:
         """Evaluate a parsed command and return output; ``None`` means exit."""
@@ -72,7 +91,9 @@ class Runtime:
         if kind in {"quit", "exit"}:
             return None
         if kind == "help":
-            return "commands: match, background, let, print, foreach, set, clear, save, load, cfg, callgraph, session start/add/match/pause/resume/close, help, quit"
+            return "commands: match, background, let, print, foreach, set, clear, save, load, traverse, cfg, callgraph, script, cursor open/continue/restart/close, session start/add/match/pause/resume/close, help, quit"
+        if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
+            return self.output.emit(execute_cursor(self, statement))
         if kind == "session_label":
             self.label = self._string(str(statement.children[2]))
             return ""
@@ -132,9 +153,7 @@ class Runtime:
             self.bindings[names[0]] = value
             return ""
         if kind == "assignment":
-            name = str(statement.children[1])
-            value = self._evaluate(statement.children[3])
-            self.bindings[name] = value
+            self._assignment(statement)
             return ""
         if kind == "match":
             return self.output.emit(
@@ -179,6 +198,9 @@ class Runtime:
         if kind == "cfg":
             argument = source[statement.children[0].end_pos :].strip()
             return self.output.emit(self.client.cfg(argument))
+        if kind == "script":
+            from .scripting import execute_script
+            return self.output.emit(execute_script(self, statement))
         if kind == "callgraph":
             if len(statement.children) > 1 and statement.children[1] is not None:
                 raise EvaluationError("callgraph selection is not implemented yet")
@@ -194,7 +216,14 @@ class Runtime:
         }
         fields: dict[str, tuple[str, ...]] = {}
         for name, value in sources.items():
-            if isinstance(value, list):
+            if isinstance(value, MatchValue):
+                fields[name] = tuple(sorted({binding for row in value.rows
+                    for binding in row.bindings} | {"length", "isEmpty"}))
+            elif isinstance(value, MatchRow):
+                fields[name] = tuple(value.bindings)
+            elif isinstance(value, ParsedTree):
+                fields[name] = ("path",)
+            elif isinstance(value, list):
                 fields[name] = ("length", "isEmpty", "joinWith")
             elif isinstance(value, FileSystemEntry):
                 fields[name] = (
@@ -208,11 +237,22 @@ class Runtime:
             elif isinstance(value, Mapping):
                 fields[name] = tuple(value)
             else:
-                fields[name] = tuple(getattr(type(value), "__dataclass_fields__", {}))
+                fields[name] = tuple(field for field in
+                    getattr(type(value), "__dataclass_fields__", {}) if not field.startswith("_"))
         return fields
 
     def close(self) -> None:
+        self.bindings.clear()
+        self._scopes.clear()
+        self._default_targets.clear()
+        self._block_owners.clear()
         self.output.close()
+
+    def _assignment(self, statement: Tree) -> None:
+        name = str(statement.children[1])
+        value = self._evaluate(statement.children[3])
+        scope = self._scopes[-1] if self._scopes else self.bindings
+        scope[name] = value
 
     def _set(self, statement: Tree) -> None:
         scope = (
@@ -302,6 +342,8 @@ class Runtime:
             return False
         if kind == "reference":
             return self._reference(node)
+        if kind == "named_value":
+            return self._resolve_name(str(node.children[0]))
         if kind == "matcher":
             name = str(node.children[0])
             args: list[Any] = []
@@ -342,9 +384,65 @@ class Runtime:
             ]
         if kind == "match_expression":
             return self._execute_match(node)
+        if kind == "parse_expression":
+            target = self._evaluate(node.children[1])
+            if isinstance(target, File):
+                target = target.absolute
+            if not isinstance(target, str):
+                raise EvaluationError("parse requires a file path")
+            return self._track_native_value(self.client.parse(target, working_directory=self.cwd,
+                compile_arguments=self.config_store.effective["extra_args"]))
+        if kind == "analysis_block":
+            return self._analysis_block(node)
         if kind == "foreach_expression":
             return self._foreach(node)
         raise EvaluationError(f"unsupported expression: {kind}")
+
+    def _analysis_block(self, node: Tree) -> Any:
+        target = self._evaluate(node.children[1])
+        if not isinstance(target, ParsedTree):
+            raise EvaluationError("analysis block requires a parsed tree")
+        scope: dict[str, Any] = {}
+        owners: set[Any] = set()
+        if isinstance(node.children[1], Tree) and node.children[1].data == "parse_expression":
+            owners.add(target._owner)
+        self._scopes.append(scope)
+        self._default_targets.append(target)
+        self._block_owners.append(owners)
+        surviving: set[Any] = set()
+        try:
+            for child in node.children[3:]:
+                if isinstance(child, Tree) and child.data == "assignment":
+                    self._assignment(child)
+                elif isinstance(child, Token) and child.type == "YIELD":
+                    index = node.children.index(child)
+                    value = self._evaluate(node.children[index + 1])
+                    surviving = self._native_owners(value)
+                    return value
+            raise EvaluationError("analysis block requires a terminal yield")
+        finally:
+            self._default_targets.pop()
+            self._scopes.pop()
+            self._block_owners.pop()
+            scope.clear()
+            for owner in owners - surviving:
+                owner.close()
+
+    def _track_native_value(self, value: Any) -> Any:
+        if isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
+            for owners in self._block_owners:
+                owners.add(value._owner)
+        return value
+
+    @staticmethod
+    def _native_owners(value: Any) -> set[Any]:
+        if isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
+            return {value._owner}
+        if isinstance(value, list | tuple):
+            return set().union(*(Runtime._native_owners(item) for item in value))
+        if isinstance(value, Mapping):
+            return set().union(*(Runtime._native_owners(item) for item in value.values()))
+        return set()
 
     @staticmethod
     def _punctuation(node: Any) -> bool:
@@ -356,6 +454,13 @@ class Runtime:
         steps: list[tuple[str, str, Any | None]] = []
         index = 2
         while index < len(children):
+            if isinstance(children[index], Token) and children[index].type == "LSQB":
+                raw = str(children[index + 1])
+                if not raw.isdigit():
+                    raise EvaluationError("row index must be a zero-based integer")
+                steps.append(("index", raw, None))
+                index += 3
+                continue
             token = children[index + 1]
             if isinstance(token, Token) and token.type == "JOIN_WITH":
                 steps.append(("method", str(token), children[index + 3]))
@@ -376,9 +481,13 @@ class Runtime:
             try:
                 if operation == "method":
                     value = call_method(value, field, [self._evaluate(argument)])
+                elif operation == "index":
+                    if not isinstance(value, MatchValue | list):
+                        raise ReferenceError("index requires match results or a list")
+                    value = value[int(field)]
                 else:
                     value = property_value(value, field)
-            except ReferenceError as exc:
+            except (ReferenceError, MatchValueError, IndexError) as exc:
                 raise EvaluationError(str(exc)) from exc
         return value
 
@@ -400,7 +509,7 @@ class Runtime:
         except TemplateError as exc:
             raise EvaluationError(str(exc)) from exc
 
-    def _execute_match(self, node: Tree, *, source: str | None = None) -> MatchSet:
+    def _execute_match(self, node: Tree, *, source: str | None = None) -> MatchSet | MatchValue:
         matcher_node = node.children[1]
         matcher = self._evaluate(matcher_node)
         if not isinstance(matcher, MatcherExpr):
@@ -410,20 +519,25 @@ class Runtime:
                 f"{matcher.name} cannot be used as a top-level matcher"
             )
         files = None
+        target: Any = self._default_targets[-1] if self._default_targets else None
         if len(node.children) > 3 and node.children[3] is not None:
             selected = self._evaluate(node.children[3])
-            if not isinstance(selected, list):
-                raise EvaluationError("match files must be a list of files")
-            files = []
-            for entry in selected:
-                if isinstance(entry, File):
-                    files.append(entry.absolute)
-                elif isinstance(entry, str):
-                    files.append(str((self.cwd / entry).resolve()))
-                else:
-                    raise EvaluationError(
-                        "match files cannot include directories or other values"
-                    )
+            if isinstance(selected, str | File | ParsedTree | MatchValue | BindingSelection):
+                target = selected.absolute if isinstance(selected, File) else selected
+            elif isinstance(selected, list):
+                target = None
+                files = []
+                for entry in selected:
+                    if isinstance(entry, File):
+                        files.append(entry.absolute)
+                    elif isinstance(entry, str):
+                        files.append(str((self.cwd / entry).resolve()))
+                    else:
+                        raise EvaluationError(
+                            "match files cannot include directories or other values"
+                        )
+            else:
+                raise EvaluationError("match target must be a file list, path, tree or binding selection")
         try:
             text = matcher_text(matcher)
         except TypeError as exc:
@@ -432,6 +546,14 @@ class Runtime:
             original = source[matcher_node.meta.start_pos : matcher_node.meta.end_pos]
             if not self._has_dynamic_part(matcher_node):
                 text = original
+        if target is not None:
+            traversal = self.config_store.effective["traversal"]
+            from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
+            return self._track_native_value(self.client.match_in(text, target, working_directory=self.cwd,
+                compile_arguments=self.config_store.effective["extra_args"],
+                traversal_mode=(pb.MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE
+                    if traversal in {"ignore_unless_spelled_in_source", "IgnoreUnlessSpelledInSource"}
+                    else pb.MATCH_TRAVERSAL_MODE_AS_IS)))
         if files is None and self.config_store.effective["files"]:
             files = [
                 str((self.cwd / path).resolve())

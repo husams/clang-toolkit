@@ -1,0 +1,24 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+// Native semantic CFG build options. Observer/forced-expression pointers are internal.
+message CfgOptions {
+  optional bool prune_trivially_false_edges = 1; // Native default: true.
+  bool add_eh_edges = 2;
+  bool add_initializers = 3;
+  bool add_implicit_dtors = 4;
+  bool add_temporary_dtors = 5;
+  bool add_lifetime = 6;
+  bool add_scopes = 7;
+  bool add_loop_exit = 8;
+  bool add_static_init_branches = 9;
+  bool add_cxx_new_allocator = 10;
+  bool add_cxx_default_init_expr_in_ctors = 11;
+  bool add_cxx_default_init_expr_in_aggregates = 12;
+  bool add_rich_cxx_constructors = 13;
+  bool mark_elided_cxx_constructors = 14;
+  bool add_virtual_base_branches = 15;
+  bool omit_implicit_value_initializers = 16;
+  bool assume_reachable_default_in_switch_statements = 17;
+  bool always_add_statements = 18;
+}

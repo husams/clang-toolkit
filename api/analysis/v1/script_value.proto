@@ -1,0 +1,19 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+import "analysis/v1/script_scalar.proto";
+import "analysis/v1/script_match_rows.proto";
+import "analysis/v1/traverse_response.proto";
+import "analysis/v1/cfg_response.proto";
+import "analysis/v1/call_graph_response.proto";
+import "analysis/v1/script_tree.proto";
+message ScriptValue {
+  oneof value {
+    ScriptScalar scalar = 1;
+    ScriptMatchRows matches = 2;
+    TraverseResponse traversal = 3;
+    CfgResponse cfg = 4;
+    CallGraphResponse call_graph = 5;
+    ScriptTree tree = 6;
+  }
+}

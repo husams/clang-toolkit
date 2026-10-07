@@ -1,0 +1,29 @@
+// Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/ast/v1/common.proto
+
+export const StorageClass = {
+  STORAGE_CLASS_UNSPECIFIED: 'STORAGE_CLASS_UNSPECIFIED',
+  STORAGE_CLASS_NONE: 'STORAGE_CLASS_NONE',
+  STORAGE_CLASS_EXTERN: 'STORAGE_CLASS_EXTERN',
+  STORAGE_CLASS_STATIC: 'STORAGE_CLASS_STATIC',
+  STORAGE_CLASS_PRIVATE_EXTERN: 'STORAGE_CLASS_PRIVATE_EXTERN',
+  STORAGE_CLASS_AUTO: 'STORAGE_CLASS_AUTO',
+  STORAGE_CLASS_REGISTER: 'STORAGE_CLASS_REGISTER',
+} as const;
+
+export type StorageClass =
+  | 'STORAGE_CLASS_UNSPECIFIED'
+  | 0
+  | 'STORAGE_CLASS_NONE'
+  | 1
+  | 'STORAGE_CLASS_EXTERN'
+  | 2
+  | 'STORAGE_CLASS_STATIC'
+  | 3
+  | 'STORAGE_CLASS_PRIVATE_EXTERN'
+  | 4
+  | 'STORAGE_CLASS_AUTO'
+  | 5
+  | 'STORAGE_CLASS_REGISTER'
+  | 6
+
+export type StorageClass__Output = typeof StorageClass[keyof typeof StorageClass]

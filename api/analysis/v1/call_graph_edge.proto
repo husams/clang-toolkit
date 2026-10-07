@@ -1,0 +1,12 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/semantic_types.proto";
+import "ast/v1/common.proto";
+message CallGraphEdge {
+  uint64 caller_node = 1;
+  uint64 callee_node = 2;
+  ctk.ast.v1.ExpressionValue call = 3;
+  bool is_virtual_root_edge = 4;
+  optional bool is_complete = 5;
+  repeated ctk.ast.v1.FieldAvailability availability = 6;
+}

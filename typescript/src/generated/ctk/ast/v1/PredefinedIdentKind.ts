@@ -1,0 +1,23 @@
+// Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/ast/v1/semantic.proto
+
+export const PredefinedIdentKind = {
+  PREDEFINED_IDENT_KIND_UNSPECIFIED: 'PREDEFINED_IDENT_KIND_UNSPECIFIED',
+  PREDEFINED_IDENT_KIND_FUNC: 'PREDEFINED_IDENT_KIND_FUNC',
+  PREDEFINED_IDENT_KIND_FUNCTION: 'PREDEFINED_IDENT_KIND_FUNCTION',
+  PREDEFINED_IDENT_KIND_PRETTY_FUNCTION: 'PREDEFINED_IDENT_KIND_PRETTY_FUNCTION',
+  PREDEFINED_IDENT_KIND_OTHER: 'PREDEFINED_IDENT_KIND_OTHER',
+} as const;
+
+export type PredefinedIdentKind =
+  | 'PREDEFINED_IDENT_KIND_UNSPECIFIED'
+  | 0
+  | 'PREDEFINED_IDENT_KIND_FUNC'
+  | 1
+  | 'PREDEFINED_IDENT_KIND_FUNCTION'
+  | 2
+  | 'PREDEFINED_IDENT_KIND_PRETTY_FUNCTION'
+  | 3
+  | 'PREDEFINED_IDENT_KIND_OTHER'
+  | 4
+
+export type PredefinedIdentKind__Output = typeof PredefinedIdentKind[keyof typeof PredefinedIdentKind]

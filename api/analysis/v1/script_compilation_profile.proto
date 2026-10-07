@@ -1,0 +1,8 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+// Compilation context for explicit parse/file expressions without a default file.
+message ScriptCompilationProfile {
+  string working_directory = 1;
+  repeated string compile_arguments = 2;
+}

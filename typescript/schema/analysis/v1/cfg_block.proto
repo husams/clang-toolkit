@@ -1,0 +1,28 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/semantic_types.proto";
+import "ast/v1/common.proto";
+import "analysis/v1/cfg_element.proto";
+import "analysis/v1/cfg_edge.proto";
+
+message CfgBlock {
+  enum TerminatorKind {
+    TERMINATOR_UNSPECIFIED = 0;
+    STATEMENT_BRANCH = 1;
+    TEMPORARY_DTORS_BRANCH = 2;
+    VIRTUAL_BASE_BRANCH = 3;
+  }
+  uint64 block_index = 1;
+  repeated CfgElement elements = 2; // Native execution order.
+  repeated CfgEdge predecessors = 3;
+  repeated CfgEdge successors = 4; // Native branch order, including null slots.
+  ctk.ast.v1.StatementValue label = 5;
+  ctk.ast.v1.StatementValue loop_target = 6;
+  optional TerminatorKind terminator_kind = 7;
+  ctk.ast.v1.StatementValue terminator = 8;
+  ctk.ast.v1.StatementValue terminator_condition = 9;
+  ctk.ast.v1.ExpressionValue last_condition = 10;
+  bool has_no_return_element = 11;
+  optional bool is_complete = 12;
+  repeated ctk.ast.v1.FieldAvailability availability = 13;
+}

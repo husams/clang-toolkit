@@ -1,0 +1,20 @@
+// Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/ast/v1/semantic.proto
+
+export const DeclDeductionCandidateKind = {
+  DECL_DEDUCTION_CANDIDATE_KIND_UNSPECIFIED: 'DECL_DEDUCTION_CANDIDATE_KIND_UNSPECIFIED',
+  DECL_DEDUCTION_CANDIDATE_KIND_NORMAL: 'DECL_DEDUCTION_CANDIDATE_KIND_NORMAL',
+  DECL_DEDUCTION_CANDIDATE_KIND_COPY: 'DECL_DEDUCTION_CANDIDATE_KIND_COPY',
+  DECL_DEDUCTION_CANDIDATE_KIND_AGGREGATE: 'DECL_DEDUCTION_CANDIDATE_KIND_AGGREGATE',
+} as const;
+
+export type DeclDeductionCandidateKind =
+  | 'DECL_DEDUCTION_CANDIDATE_KIND_UNSPECIFIED'
+  | 0
+  | 'DECL_DEDUCTION_CANDIDATE_KIND_NORMAL'
+  | 1
+  | 'DECL_DEDUCTION_CANDIDATE_KIND_COPY'
+  | 2
+  | 'DECL_DEDUCTION_CANDIDATE_KIND_AGGREGATE'
+  | 3
+
+export type DeclDeductionCandidateKind__Output = typeof DeclDeductionCandidateKind[keyof typeof DeclDeductionCandidateKind]

@@ -1,0 +1,26 @@
+// Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/ast/v1/semantic.proto
+
+export const LambdaCaptureKind = {
+  LAMBDA_CAPTURE_KIND_UNSPECIFIED: 'LAMBDA_CAPTURE_KIND_UNSPECIFIED',
+  LAMBDA_CAPTURE_KIND_THIS: 'LAMBDA_CAPTURE_KIND_THIS',
+  LAMBDA_CAPTURE_KIND_STAR_THIS: 'LAMBDA_CAPTURE_KIND_STAR_THIS',
+  LAMBDA_CAPTURE_KIND_BY_COPY: 'LAMBDA_CAPTURE_KIND_BY_COPY',
+  LAMBDA_CAPTURE_KIND_BY_REFERENCE: 'LAMBDA_CAPTURE_KIND_BY_REFERENCE',
+  LAMBDA_CAPTURE_KIND_VLA_TYPE: 'LAMBDA_CAPTURE_KIND_VLA_TYPE',
+} as const;
+
+export type LambdaCaptureKind =
+  | 'LAMBDA_CAPTURE_KIND_UNSPECIFIED'
+  | 0
+  | 'LAMBDA_CAPTURE_KIND_THIS'
+  | 1
+  | 'LAMBDA_CAPTURE_KIND_STAR_THIS'
+  | 2
+  | 'LAMBDA_CAPTURE_KIND_BY_COPY'
+  | 3
+  | 'LAMBDA_CAPTURE_KIND_BY_REFERENCE'
+  | 4
+  | 'LAMBDA_CAPTURE_KIND_VLA_TYPE'
+  | 5
+
+export type LambdaCaptureKind__Output = typeof LambdaCaptureKind[keyof typeof LambdaCaptureKind]

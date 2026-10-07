@@ -1,0 +1,6 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+message ScriptScalar {
+  oneof value { string text = 1; sint64 integer = 2; double number = 3; bool boolean = 4; }
+}

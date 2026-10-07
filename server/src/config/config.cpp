@@ -33,6 +33,7 @@ struct Node {
   std::variant<std::monostate, std::string, Map> value;
   std::string tag;
   bool plain_scalar{false};
+  bool explicit_string{false};
   std::filesystem::path origin;
 };
 
@@ -49,14 +50,19 @@ std::string where(const Node &node) {
 
 Node convert_node(yaml_document_t &document, yaml_node_t *raw,
                   const std::filesystem::path &origin,
-                  std::set<yaml_node_t *> &active, std::size_t depth = 0) {
+                  std::set<yaml_node_t *> &active,
+                  const std::set<std::size_t> &explicit_strings,
+                  std::size_t depth = 0,
+                  const std::string &key_path = "configuration") {
   constexpr std::size_t kMaximumDepth = 64;
   if (!raw)
     fail(origin.string() + ": invalid YAML node reference");
   if (depth >= kMaximumDepth)
-    fail(origin.string() + ": YAML nesting exceeds the supported depth");
+    fail(origin.string() + ": " + key_path +
+         ": YAML nesting exceeds the supported depth");
   if (!active.insert(raw).second)
-    fail(origin.string() + ": recursive YAML aliases are not supported");
+    fail(origin.string() + ": " + key_path +
+         ": recursive YAML aliases are not supported");
   struct ActiveGuard {
     std::set<yaml_node_t *> &active;
     yaml_node_t *node;
@@ -66,18 +72,20 @@ Node convert_node(yaml_document_t &document, yaml_node_t *raw,
   Node result;
   result.origin = origin;
   result.tag = reinterpret_cast<const char *>(raw->tag);
+  result.explicit_string = explicit_strings.contains(raw->start_mark.index);
   if (raw->type == YAML_SCALAR_NODE) {
     if (result.tag != kStringTag && result.tag != kIntTag &&
         result.tag != kNullTag)
-      fail(where(result) + ": unsupported YAML scalar tag '" + result.tag +
-           "'");
+      fail(where(result) + ": " + key_path + ": unsupported YAML scalar tag '" +
+           result.tag + "'");
     result.plain_scalar = raw->data.scalar.style == YAML_PLAIN_SCALAR_STYLE;
     const auto *bytes = reinterpret_cast<const char *>(raw->data.scalar.value);
     std::string scalar(bytes, raw->data.scalar.length);
     if (result.tag == kNullTag ||
         (raw->data.scalar.style == YAML_PLAIN_SCALAR_STYLE &&
-         (scalar == "null" || scalar == "Null" || scalar == "NULL" ||
-          scalar == "~"))) {
+         !result.explicit_string &&
+         (scalar.empty() || scalar == "null" || scalar == "Null" ||
+          scalar == "NULL" || scalar == "~"))) {
       result.value = std::monostate{};
     } else {
       result.value = std::move(scalar);
@@ -85,7 +93,8 @@ Node convert_node(yaml_document_t &document, yaml_node_t *raw,
     return result;
   }
   if (raw->type == YAML_SEQUENCE_NODE)
-    fail(where(result) + ": sequences are not valid configuration values");
+    fail(where(result) + ": " + key_path +
+         ": sequences are not valid configuration values");
   if (raw->type != YAML_MAPPING_NODE)
     fail(where(result) + ": unsupported YAML node");
   if (result.tag != kMapTag)
@@ -97,16 +106,18 @@ Node convert_node(yaml_document_t &document, yaml_node_t *raw,
     if (!key_node || key_node->type != YAML_SCALAR_NODE ||
         std::string_view(reinterpret_cast<const char *>(key_node->tag)) !=
             kStringTag) {
-      fail(where(result) + ": mapping keys must be strings");
+      fail(where(result) + ": " + key_path + ": mapping keys must be strings");
     }
     const std::string key(
         reinterpret_cast<const char *>(key_node->data.scalar.value),
         key_node->data.scalar.length);
+    const auto child_path =
+        key_path == "configuration" ? key : key_path + "." + key;
     if (entries.contains(key))
-      fail(where(result) + ": duplicate key '" + key + "'");
+      fail(where(result) + ": duplicate key '" + child_path + "'");
     yaml_node_t *child = yaml_document_get_node(&document, pair->value);
-    entries.emplace(key,
-                    convert_node(document, child, origin, active, depth + 1));
+    entries.emplace(key, convert_node(document, child, origin, active,
+                                      explicit_strings, depth + 1, child_path));
   }
   result.value = std::move(entries);
   return result;
@@ -120,6 +131,7 @@ public:
       fail("cannot read configuration file: " + path.string());
     std::string source((std::istreambuf_iterator<char>(input)),
                        std::istreambuf_iterator<char>());
+    const auto explicit_strings = string_tags(source, path);
     yaml_parser_t parser;
     if (!yaml_parser_initialize(&parser))
       fail("cannot initialize YAML parser");
@@ -146,7 +158,7 @@ public:
       fail(path.string() + ": empty YAML document");
     std::set<yaml_node_t *> active;
     Node result = convert_node(document, yaml_document_get_root_node(&document),
-                               path, active);
+                               path, active, explicit_strings);
     if (!std::holds_alternative<Node::Map>(result.value))
       fail(path.string() + ": document root must be a mapping");
     yaml_document_t next_document;
@@ -158,6 +170,42 @@ public:
     if (has_second_document)
       fail(path.string() + ": multiple YAML documents are not supported");
     return result;
+  }
+
+private:
+  // Document nodes resolve both implicit scalars and !!str to the same tag.
+  // Events retain that distinction, including tags following anchors.
+  static std::set<std::size_t> string_tags(const std::string &source,
+                                           const std::filesystem::path &path) {
+    yaml_parser_t parser;
+    if (!yaml_parser_initialize(&parser))
+      fail("cannot initialize YAML parser");
+    struct ParserGuard {
+      yaml_parser_t *value;
+      ~ParserGuard() { yaml_parser_delete(value); }
+    } guard{&parser};
+    yaml_parser_set_input_string(
+        &parser, reinterpret_cast<const unsigned char *>(source.data()),
+        source.size());
+    std::set<std::size_t> result;
+    for (;;) {
+      yaml_event_t event;
+      if (!yaml_parser_parse(&parser, &event)) {
+        std::ostringstream message;
+        message << path << ':' << parser.problem_mark.line + 1 << ':'
+                << parser.problem_mark.column + 1 << ": invalid YAML: "
+                << (parser.problem ? parser.problem : "parse error");
+        fail(message.str());
+      }
+      const bool complete = event.type == YAML_STREAM_END_EVENT;
+      if (event.type == YAML_SCALAR_EVENT && event.data.scalar.tag &&
+          std::string_view(reinterpret_cast<const char *>(
+              event.data.scalar.tag)) == kStringTag)
+        result.insert(event.start_mark.index);
+      yaml_event_delete(&event);
+      if (complete)
+        return result;
+    }
   }
 };
 
@@ -226,7 +274,7 @@ std::string scalar(const Node &node, std::string_view path) {
   std::transform(
       lowered.begin(), lowered.end(), lowered.begin(),
       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  if (node.plain_scalar) {
+  if (node.plain_scalar && !node.explicit_string) {
     static const std::regex date_pattern(R"(^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$)");
     static const std::regex datetime_pattern(
         R"(^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}(?:[Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9]{1,2}(?::[0-9]{2})?))?$)");
@@ -237,21 +285,14 @@ std::string scalar(const Node &node, std::string_view path) {
         lowered == "no" || lowered == "on" || lowered == "off")
       fail(where(node) + ": " + std::string(path) + " must be a string");
   }
-  std::int64_t numeric{};
-  if (node.plain_scalar && !value->empty()) {
-    const auto [end, error] =
-        std::from_chars(value->data(), value->data() + value->size(), numeric);
-    if (error == std::errc{} && end == value->data() + value->size())
-      fail(where(node) + ": " + std::string(path) + " must be a string");
-    char *float_end = nullptr;
-    (void)std::strtod(value->c_str(), &float_end);
-    const bool yaml_special_float = lowered == ".inf" || lowered == "+.inf" ||
-                                    lowered == "-.inf" || lowered == ".nan";
-    const bool parsed_float =
-        float_end == value->c_str() + value->size() &&
-        (value->find_first_of(".eE") != std::string::npos || lowered == "inf" ||
-         lowered == "+inf" || lowered == "-inf" || lowered == "nan");
-    if (yaml_special_float || parsed_float)
+  if (node.plain_scalar && !node.explicit_string && !value->empty()) {
+    // Match the shared YAML 1.1 scalar resolver before applying schema types.
+    static const std::regex integer_pattern(
+        R"(^([-+]?0b[0-1_]+|[-+]?0[0-7_]+|[-+]?(0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+|[-+]?[1-9][0-9_]*(:[0-5]?[0-9])+)$)");
+    static const std::regex float_pattern(
+        R"(^([-+]?[0-9][0-9_]*\.[0-9_]*([eE][-+][0-9]+)?|\.[0-9][0-9_]*([eE][-+][0-9]+)?|[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(inf|Inf|INF)|\.(nan|NaN|NAN))$)");
+    if (std::regex_match(*value, integer_pattern) ||
+        std::regex_match(*value, float_pattern))
       fail(where(node) + ": " + std::string(path) + " must be a string");
   }
   return *value;
@@ -259,7 +300,8 @@ std::string scalar(const Node &node, std::string_view path) {
 
 std::int64_t integer(const Node &node, std::string_view path) {
   const auto *value = std::get_if<std::string>(&node.value);
-  if (!value || (node.tag != kIntTag && !node.plain_scalar))
+  if (!value ||
+      (node.tag != kIntTag && (!node.plain_scalar || node.explicit_string)))
     fail(where(node) + ": " + std::string(path) + " must be an integer");
   std::int64_t result{};
   const auto [end, error] =
@@ -306,7 +348,7 @@ void validate_file(const Node &root) {
       {"version", "network", "pool", "queue", "server", "session", "client"});
   if (const Node *v = child(root, "version")) {
     if (integer(*v, "version") != 1)
-      fail(where(*v) + ": unsupported configuration version");
+      fail(where(*v) + ": version: unsupported configuration version");
   }
   if (const Node *n = child(root, "network")) {
     ensure_keys(*n, "network", {"transport", "unix", "tcp"});
@@ -419,10 +461,10 @@ class EndpointResolver {
 public:
   static std::string resolve(const Node &root) {
     const Node *network = child(root, "network");
-    std::string transport =
-        child(network ? *network : root, "transport")
-            ? scalar(*child(*network, "transport"), "network.transport")
-            : "unix";
+    const Node *transport_node =
+        network ? child(*network, "transport") : nullptr;
+    const auto transport =
+        transport_node ? scalar(*transport_node, "network.transport") : "unix";
     if (transport == "unix") {
       const Node *unix_node = child(network ? *network : root, "unix");
       const Node *path_node =
@@ -446,10 +488,12 @@ public:
     const Node *tcp = network ? child(*network, "tcp") : nullptr;
     const Node *host_node = tcp ? child(*tcp, "host") : nullptr;
     const Node *port_node = tcp ? child(*tcp, "port") : nullptr;
-    if (!host_node || !port_node)
-      fail(where(network ? *network : root) +
-           ": TCP transport requires explicit network.tcp.host and "
-           "network.tcp.port");
+    if (!host_node)
+      fail(where(transport_node ? *transport_node : root) +
+           ": network.tcp.host is required for TCP transport");
+    if (!port_node)
+      fail(where(transport_node ? *transport_node : root) +
+           ": network.tcp.port is required for TCP transport");
     std::string host = scalar(*host_node, "network.tcp.host");
     const auto port = integer(*port_node, "network.tcp.port");
     if (port < 1 || port > 65535)
@@ -497,7 +541,42 @@ public:
         optional_int(server ? child(*server, "shutdown_grace_ms") : nullptr);
     settings.rpc_timeout_ms =
         optional_int(client ? child(*client, "rpc_timeout_ms") : nullptr);
+    settings.effective_values = {
+        {"version", std::int64_t{1}},
+        {"network.transport", std::string{"unix"}},
+        {"network.unix.socket_path", std::monostate{}},
+        {"pool.size", std::int64_t{3}},
+        {"queue.size", std::int64_t{100}},
+        {"session.max_files", std::int64_t{100}},
+        {"session.max_memory_bytes", std::int64_t{2147483648}},
+        {"server.shutdown_grace_ms", std::monostate{}},
+        {"client.rpc_timeout_ms", std::monostate{}}};
+    for (const auto &[key, value] : settings.effective_values) {
+      (void)value;
+      settings.provenance[key] = "<defaults>";
+    }
+    expose_values(root, "", settings);
     return settings;
+  }
+
+private:
+  static void expose_values(const Node &node, const std::string &path,
+                            Settings &settings) {
+    if (const auto *map = std::get_if<Node::Map>(&node.value)) {
+      for (const auto &[key, value] : *map)
+        expose_values(value, path.empty() ? key : path + "." + key, settings);
+    } else {
+      ConfigValue value;
+      if (!is_null(node)) {
+        if (path == "network.transport" || path == "network.unix.socket_path" ||
+            path == "network.tcp.host")
+          value = scalar(node, path);
+        else
+          value = integer(node, path);
+      }
+      settings.effective_values[path] = std::move(value);
+      settings.provenance[path] = where(node);
+    }
   }
 };
 

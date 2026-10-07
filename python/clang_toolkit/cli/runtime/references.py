@@ -7,6 +7,7 @@ from typing import Any
 
 from .filesystem import FileSystemEntry
 from .values import render
+from clang_toolkit.match_values import MatchRow, MatchValue
 
 
 class ReferenceError(ValueError):
@@ -19,6 +20,14 @@ _FILE_PROPERTIES = frozenset(
 
 
 def property_value(value: Any, name: str) -> Any:
+    if isinstance(value, MatchValue):
+        if name == "length":
+            return len(value)
+        if name == "isEmpty":
+            return not len(value)
+        return value.binding(name)
+    if isinstance(value, MatchRow):
+        return value.binding(name)
     if isinstance(value, list):
         if name == "length":
             return len(value)

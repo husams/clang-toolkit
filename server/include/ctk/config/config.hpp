@@ -2,8 +2,10 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
+#include <variant>
 
 namespace ctk::config {
 
@@ -11,6 +13,8 @@ struct GrpcSettings {
   std::optional<int> max_receive_message_bytes;
   std::optional<int> max_send_message_bytes;
 };
+
+using ConfigValue = std::variant<std::monostate, std::string, std::int64_t>;
 
 struct Settings {
   std::string endpoint;
@@ -22,6 +26,10 @@ struct Settings {
   GrpcSettings client_grpc;
   std::optional<std::int64_t> rpc_timeout_ms;
   std::optional<std::int64_t> shutdown_grace_ms;
+  // Flattened merged scalar values, including defaults and explicit nulls.
+  // Socket values retain their supplied spelling; endpoint is fully resolved.
+  std::map<std::string, ConfigValue> effective_values;
+  std::map<std::string, std::string> provenance;
 };
 
 // Loads and validates every discovered layer, then resolves the winning

@@ -1,0 +1,5 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/semantic_types.proto";
+
+message CfgLoopExit { ctk.ast.v1.StatementValue loop = 1; }

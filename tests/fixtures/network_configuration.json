@@ -1,0 +1,108 @@
+{
+  "format": 1,
+  "description": "Shared Python, TypeScript and native YAML configuration conformance cases. Layer files live under ${ROOT}/etc, ${ROOT}/home, ${ROOT}/project and ${ROOT}/selected; ${TEMP} is the platform temporary directory. Expected dotted effective values and origins are subsets.",
+  "layers": {
+    "system": "etc/clang-toolkit.yaml",
+    "home": "home/clang-toolkit.yaml",
+    "home_hidden": "home/.clang-toolkit.yaml",
+    "cwd": "project/clang-toolkit.yaml",
+    "cwd_hidden": "project/.clang-toolkit.yaml",
+    "explicit": "selected/network.yaml"
+  },
+  "cases": [
+    {
+      "name": "default_unix",
+      "files": {},
+      "expected": {
+        "target": "unix://${TEMP}/ctk.sock",
+        "values": {"version": 1, "network.transport": "unix", "network.unix.socket_path": null, "pool.size": 3, "queue.size": 100, "session.max_files": 100, "session.max_memory_bytes": 2147483648},
+        "origins": {"network.transport": "<defaults>", "network.unix.socket_path": "<defaults>"}
+      }
+    },
+    {
+      "name": "recursive_tcp_and_hidden_precedence",
+      "files": {
+        "system": "network:\n  tcp:\n    host: 127.0.0.1\n    port: 5000\npool:\n  size: 4\n",
+        "home": "network:\n  tcp:\n    port: 5001\n",
+        "home_hidden": "network:\n  tcp:\n    port: 5002\n",
+        "cwd": "network:\n  transport: tcp\n  tcp:\n    port: 5003\n",
+        "cwd_hidden": "network:\n  tcp:\n    port: 5004\n",
+        "explicit": "network:\n  tcp:\n    port: 5005\nqueue:\n  size: 12\n"
+      },
+      "expected": {
+        "target": "127.0.0.1:5005",
+        "values": {"network.tcp.host": "127.0.0.1", "network.tcp.port": 5005, "pool.size": 4, "queue.size": 12},
+        "origins": {"network.tcp.host": "${ROOT}/etc/clang-toolkit.yaml", "network.tcp.port": "${ROOT}/selected/network.yaml", "network.transport": "${ROOT}/project/clang-toolkit.yaml"}
+      }
+    },
+    {
+      "name": "relative_socket_uses_winning_origin",
+      "files": {
+        "home_hidden": "network:\n  unix:\n    socket_path: run/ctk.sock\n",
+        "cwd_hidden": "queue:\n  size: 9\n",
+        "explicit": "pool:\n  size: 2\n"
+      },
+      "expected": {
+        "target": "unix://${ROOT}/home/run/ctk.sock",
+        "values": {"network.unix.socket_path": "run/ctk.sock", "queue.size": 9},
+        "origins": {"network.unix.socket_path": "${ROOT}/home/.clang-toolkit.yaml"}
+      }
+    },
+    {
+      "name": "optional_null_clears_lower_tuning",
+      "files": {
+        "system": "client:\n  rpc_timeout_ms: 600\n  grpc:\n    max_receive_message_bytes: 4096\nserver:\n  shutdown_grace_ms: 500\nnetwork:\n  unix:\n    socket_path: old.sock\n",
+        "explicit": "client:\n  rpc_timeout_ms: null\n  grpc:\n    max_receive_message_bytes: null\nserver:\n  shutdown_grace_ms: null\nnetwork:\n  unix:\n    socket_path: null\n"
+      },
+      "expected": {
+        "target": "unix://${TEMP}/ctk.sock",
+        "values": {"client.rpc_timeout_ms": null, "client.grpc.max_receive_message_bytes": null, "server.shutdown_grace_ms": null},
+        "origins": {"network.unix.socket_path": "${ROOT}/selected/network.yaml", "client.rpc_timeout_ms": "${ROOT}/selected/network.yaml"}
+      }
+    },
+    {
+      "name": "empty_mapping_inherits_and_signed_limits",
+      "files": {
+        "system": "client:\n  grpc:\n    max_receive_message_bytes: -1\n    max_send_message_bytes: 8192\n",
+        "explicit": "client:\n  grpc: {}\nserver:\n  shutdown_grace_ms: 0\n"
+      },
+      "expected": {
+        "target": "unix://${TEMP}/ctk.sock",
+        "values": {"client.grpc.max_receive_message_bytes": -1, "client.grpc.max_send_message_bytes": 8192, "server.shutdown_grace_ms": 0},
+        "origins": {"client.grpc.max_receive_message_bytes": "${ROOT}/etc/clang-toolkit.yaml"}
+      }
+    },
+    {
+      "name": "ipv6_loopback",
+      "files": {"explicit": "network:\n  transport: tcp\n  tcp:\n    host: '[::1]'\n    port: 8123\n"},
+      "expected": {"target": "[::1]:8123", "values": {"network.tcp.port": 8123}}
+    },
+    {
+      "name": "quoted_null_is_a_socket_filename",
+      "files": {"explicit": "network:\n  unix:\n    socket_path: !!str null\n"},
+      "expected": {"target": "unix://${ROOT}/selected/null", "values": {"network.unix.socket_path": "null"}}
+    },
+    {
+      "name": "empty_scalar_is_automatic_null",
+      "files": {"explicit": "network:\n  unix:\n    socket_path:\n"},
+      "expected": {"target": "unix://${TEMP}/ctk.sock", "values": {"network.unix.socket_path": null}}
+    },
+    {"name": "invalid_lower_layer_cannot_be_masked", "files": {"system": "pool:\n  size: -1\n", "explicit": "pool:\n  size: 2\n"}, "error_key": "pool.size"},
+    {"name": "duplicate_key", "files": {"explicit": "pool:\n  size: 1\n  size: 2\n"}, "error": true},
+    {"name": "unknown_key", "files": {"explicit": "network:\n  invented: true\n"}, "error_key": "network.invented"},
+    {"name": "version_mismatch", "files": {"explicit": "version: 2\n"}, "error_key": "version"},
+    {"name": "tcp_port_required", "files": {"explicit": "network:\n  transport: tcp\n  tcp:\n    host: localhost\n"}, "error_key": "network.tcp.port"},
+    {"name": "boolean_integer_rejected", "files": {"explicit": "pool:\n  size: true\n"}, "error_key": "pool.size"},
+    {"name": "tagged_string_integer_rejected", "files": {"explicit": "pool:\n  size: !!str 1\n"}, "error_key": "pool.size"},
+    {"name": "hexadecimal_integer_rejected", "files": {"explicit": "pool:\n  size: 0x10\n"}, "error": true},
+    {"name": "floating_integer_rejected", "files": {"explicit": "pool:\n  size: 1.0\n"}, "error_key": "pool.size"},
+    {"name": "mandatory_limit_null_rejected", "files": {"explicit": "session:\n  max_files: null\n"}, "error_key": "session.max_files"},
+    {"name": "inactive_branch_still_validated", "files": {"explicit": "network:\n  transport: unix\n  tcp:\n    port: false\n"}, "error_key": "network.tcp.port"},
+    {"name": "zero_grpc_limit_rejected", "files": {"explicit": "client:\n  grpc:\n    max_receive_message_bytes: 0\n"}, "error_key": "client.grpc.max_receive_message_bytes"},
+    {"name": "zero_rpc_timeout_rejected", "files": {"explicit": "client:\n  rpc_timeout_ms: 0\n"}, "error_key": "client.rpc_timeout_ms"},
+    {"name": "sequence_rejected", "files": {"explicit": "pool:\n  size: [1, 2]\n"}, "error": true},
+    {"name": "date_as_host_rejected", "files": {"explicit": "network:\n  tcp:\n    host: 2026-10-07\n"}, "error_key": "network.tcp.host"},
+    {"name": "nul_in_socket_rejected", "files": {"explicit": "network:\n  unix:\n    socket_path: \"bad\\0path\"\n"}, "error": true},
+    {"name": "recursive_alias_rejected", "files": {"explicit": "pool: &cycle\n  size: *cycle\n"}, "error": true}
+  ]
+}

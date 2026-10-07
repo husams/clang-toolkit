@@ -1,0 +1,10 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+// Preserve native adjacency slots, including null/pruned and alternate edges.
+// Indices describe blocks within this graph, never AST lookup handles.
+message CfgEdge {
+  optional uint64 reachable_block = 1;
+  optional uint64 possibly_unreachable_block = 2;
+  bool is_reachable = 3;
+}

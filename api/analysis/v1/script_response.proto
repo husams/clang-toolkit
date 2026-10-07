@@ -1,0 +1,6 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+import "analysis/v1/script_emission.proto";
+// Atomic publication: errors return no partial emissions or native handles.
+message ScriptResponse { repeated ScriptEmission emissions = 1; uint32 executed_steps = 2; }

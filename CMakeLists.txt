@@ -13,13 +13,13 @@ option(CTK_WITH_CLANG "Build the Clang API layer (requires LLVM/Clang dev libs)"
 option(CTK_BUILD_TESTS "Build C++ unit tests" ON)
 option(CTK_BUILD_APIS "Build the versioned AST protobuf API library" OFF)
 option(CTK_BUILD_NETWORK "Build the native gRPC query transport" ON)
+option(CTK_BUILD_SCRIPT "Build the ANTLR server scripting engine" ON)
 find_package(SQLite3 REQUIRED)
 if(NOT TARGET SQLite3::SQLite3)
   add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
 endif()
-if(CTK_BUILD_APIS OR CTK_BUILD_NETWORK OR CTK_WITH_CLANG)
-  add_subdirectory(api)
-endif()
+# The core scripting interface consumes the contract even when execution is disabled.
+add_subdirectory(api)
 
 add_subdirectory(server)
 

@@ -1,0 +1,13 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/semantic_types.proto";
+
+message CfgDestructor {
+  ctk.ast.v1.DeclarationSymbol destructor = 1;
+  bool is_no_return = 2;
+  ctk.ast.v1.DeclarationSymbol variable = 3;
+  ctk.ast.v1.DeclarationSymbol record = 4;
+  ctk.ast.v1.DeclarationSymbol field = 5;
+  ctk.ast.v1.CXXBaseSpecifier base = 6;
+  ctk.ast.v1.StatementValue trigger = 7;
+}

@@ -1,0 +1,43 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/common.proto";
+import "analysis/v1/cfg_statement.proto";
+import "analysis/v1/cfg_initializer.proto";
+import "analysis/v1/cfg_scope_event.proto";
+import "analysis/v1/cfg_new_allocator.proto";
+import "analysis/v1/cfg_loop_exit.proto";
+import "analysis/v1/cfg_destructor.proto";
+import "analysis/v1/cfg_cleanup.proto";
+
+message CfgElement {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    INITIALIZER = 1;
+    SCOPE_BEGIN = 2;
+    SCOPE_END = 3;
+    NEW_ALLOCATOR = 4;
+    LIFETIME_ENDS = 5;
+    LOOP_EXIT = 6;
+    STATEMENT = 7;
+    CONSTRUCTOR = 8;
+    CXX_RECORD_TYPED_CALL = 9;
+    AUTOMATIC_OBJECT_DTOR = 10;
+    DELETE_DTOR = 11;
+    BASE_DTOR = 12;
+    MEMBER_DTOR = 13;
+    TEMPORARY_DTOR = 14;
+    CLEANUP_FUNCTION = 15;
+  }
+  Kind kind = 1;
+  oneof value {
+    CfgStatement statement = 2;
+    CfgInitializer initializer = 3;
+    CfgScopeEvent scope = 4;
+    CfgNewAllocator allocator = 5;
+    CfgLoopExit loop_exit = 6;
+    CfgDestructor destructor = 7;
+    CfgCleanup cleanup = 8;
+  }
+  optional bool is_complete = 9;
+  repeated ctk.ast.v1.FieldAvailability availability = 10;
+}

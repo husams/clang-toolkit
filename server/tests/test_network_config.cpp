@@ -1,10 +1,15 @@
 #include "ctk/config/config.hpp"
 
+#include <google/protobuf/struct.pb.h>
+#include <google/protobuf/util/json_util.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -159,6 +164,112 @@ TEST(NetworkConfig, OptionalGrpcValuesCanBeClearedAndRespectRanges) {
   EXPECT_EQ(settings.shutdown_grace_ms, 0);
 }
 
+TEST(NetworkConfig, ExposesTypedDefaultsAndWinningValueOrigins) {
+  ConfigTree files;
+  const auto system = files.dir("system");
+  const auto home = files.dir("home");
+  const auto cwd = files.dir("project");
+  const auto system_file =
+      files.write(system, "clang-toolkit.yaml",
+                  "network:\n  unix:\n    socket_path: sockets/ctk.sock\n"
+                  "client:\n  grpc:\n    max_send_message_bytes: 1024\n");
+  const auto hidden_file = files.write(
+      home, ".clang-toolkit.yaml", "client:\n  grpc: {}\npool:\n  size: 7\n");
+  const auto selected =
+      files.write(files.dir("selected"), "config.yaml", "queue:\n  size: 9\n");
+  const auto settings = ctk::config::load(selected, cwd, home, system);
+  EXPECT_EQ(settings.provenance.at("network.unix.socket_path"),
+            system_file.string());
+  EXPECT_EQ(settings.provenance.at("client.grpc.max_send_message_bytes"),
+            system_file.string());
+  EXPECT_EQ(settings.provenance.at("pool.size"), hidden_file.string());
+  EXPECT_EQ(settings.provenance.at("queue.size"), selected.string());
+  EXPECT_EQ(settings.provenance.at("session.max_files"), "<defaults>");
+  EXPECT_EQ(std::get<std::string>(
+                settings.effective_values.at("network.unix.socket_path")),
+            "sockets/ctk.sock");
+  EXPECT_EQ(std::get<std::int64_t>(settings.effective_values.at("pool.size")),
+            7);
+  EXPECT_TRUE(std::holds_alternative<std::monostate>(
+      settings.effective_values.at("client.rpc_timeout_ms")));
+  EXPECT_FALSE(settings.provenance.contains("network.tcp.host"));
+  EXPECT_FALSE(settings.effective_values.contains(
+      "client.grpc.max_receive_message_bytes"));
+}
+
+TEST(NetworkConfig, ExplicitStringsAndEmptyNullsKeepYamlScalarTypes) {
+  ConfigTree files;
+  const auto cwd = files.dir("cwd");
+  const auto home = files.dir("home");
+  const auto system = files.dir("system");
+  auto numeric = files.write(cwd, "numeric.yaml", "pool:\n  size: !!str 1\n");
+  EXPECT_THROW(ctk::config::load(numeric, cwd, home, system),
+               std::runtime_error);
+  auto strings =
+      files.write(cwd, "strings.yaml",
+                  "network:\n  unix:\n    socket_path: &name !!str null\n");
+  auto settings = ctk::config::load(strings, cwd, home, system);
+  EXPECT_EQ(settings.endpoint, "unix://" + (cwd / "null").string());
+  EXPECT_EQ(std::get<std::string>(
+                settings.effective_values.at("network.unix.socket_path")),
+            "null");
+  auto empty =
+      files.write(cwd, "empty.yaml", "network:\n  unix:\n    socket_path:\n");
+  settings = ctk::config::load(empty, cwd, home, system);
+  EXPECT_EQ(settings.endpoint,
+            "unix://" +
+                (std::filesystem::temp_directory_path() / "ctk.sock").string());
+  EXPECT_EQ(settings.provenance.at("network.unix.socket_path"), empty.string());
+  EXPECT_TRUE(std::holds_alternative<std::monostate>(
+      settings.effective_values.at("network.unix.socket_path")));
+  auto explicit_integer =
+      files.write(cwd, "integer.yaml", "pool:\n  size: !!int '4'\n");
+  EXPECT_EQ(ctk::config::load(explicit_integer, cwd, home, system).pool_size,
+            4);
+}
+
+TEST(NetworkConfig, ScalarResolutionMatchesSharedYaml11Types) {
+  ConfigTree files;
+  const auto cwd = files.dir("cwd");
+  const auto home = files.dir("home");
+  const auto system = files.dir("system");
+  for (const auto &scalar : {"0x10", "1_000", "+3", "1.0e+3", ".inf"}) {
+    auto path = files.write(
+        cwd, "scalar.yaml",
+        std::string("network:\n  unix:\n    socket_path: ") + scalar + "\n");
+    EXPECT_THROW(ctk::config::load(path, cwd, home, system), std::runtime_error)
+        << scalar;
+  }
+  for (const auto &scalar : {"1e3", "1.0e3", "inf", "nan", "!!str 0x10"}) {
+    auto path = files.write(
+        cwd, "scalar.yaml",
+        std::string("network:\n  unix:\n    socket_path: ") + scalar + "\n");
+    EXPECT_NO_THROW(ctk::config::load(path, cwd, home, system)) << scalar;
+  }
+}
+
+TEST(NetworkConfig, DiagnosticsIncludeFullKeyAndOriginatingFile) {
+  ConfigTree files;
+  const auto cwd = files.dir("cwd");
+  const auto home = files.dir("home");
+  const auto system = files.dir("system");
+  for (const auto &[source, key] :
+       {std::pair{"pool:\n  size: 1\n  size: 2\n", "pool.size"},
+        std::pair{"pool:\n  size: [1]\n", "pool.size"},
+        std::pair{"version: 2\n", "version"},
+        std::pair{"network:\n  transport: tcp\n", "network.tcp.host"}}) {
+    const auto path = files.write(cwd, "bad.yaml", source);
+    try {
+      ctk::config::load(path, cwd, home, system);
+      FAIL() << "invalid configuration was accepted";
+    } catch (const std::runtime_error &error) {
+      EXPECT_NE(std::string(error.what()).find(path.string()),
+                std::string::npos);
+      EXPECT_NE(std::string(error.what()).find(key), std::string::npos);
+    }
+  }
+}
+
 TEST(NetworkConfig, ExplicitMissingFileIsAnError) {
   ConfigTree files;
   EXPECT_THROW(ctk::config::load(files.root() / "missing.yaml", files.root(),
@@ -255,6 +366,117 @@ TEST(NetworkConfig, RejectsImplicitTimestampsButAcceptsQuotedSocketPaths) {
     const auto settings = ctk::config::load(quoted, cwd, home, system);
     EXPECT_EQ(settings.endpoint,
               "unix://" + (directory / timestamp).lexically_normal().string());
+  }
+}
+
+TEST(NetworkConfig, SharedRuntimeConfigurationConformance) {
+  const auto fixture = std::filesystem::path(__FILE__)
+                           .parent_path()
+                           .parent_path()
+                           .parent_path() /
+                       "tests/fixtures/network_configuration.json";
+  std::ifstream input(fixture);
+  ASSERT_TRUE(input) << fixture;
+  std::stringstream source;
+  source << input.rdbuf();
+  google::protobuf::Struct document;
+  const auto parsed =
+      google::protobuf::util::JsonStringToMessage(source.str(), &document);
+  ASSERT_TRUE(parsed.ok()) << parsed.ToString();
+  const auto &layers = document.fields().at("layers").struct_value().fields();
+  const auto &cases = document.fields().at("cases").list_value().values();
+  ASSERT_GT(cases.size(), 0);
+  for (const auto &item : cases) {
+    const auto &test = item.struct_value().fields();
+    SCOPED_TRACE(test.at("name").string_value());
+    ConfigTree files;
+    const auto system = files.dir("etc");
+    const auto home = files.dir("home");
+    const auto cwd = files.dir("project");
+    std::vector<std::filesystem::path> supplied_files;
+    std::optional<std::filesystem::path> selected;
+    for (const auto &[role, contents] :
+         test.at("files").struct_value().fields()) {
+      const auto path = files.root() / layers.at(role).string_value();
+      std::filesystem::create_directories(path.parent_path());
+      std::ofstream(path) << contents.string_value();
+      supplied_files.push_back(path);
+      if (role == "explicit")
+        selected = path;
+    }
+    const auto error_key = test.find("error_key");
+    const bool expect_error =
+        error_key != test.end() ||
+        (test.find("error") != test.end() && test.at("error").bool_value());
+    auto expand = [&](std::string text) {
+      for (const auto &[marker, value] :
+           {std::pair{"${ROOT}", files.root().string()},
+            std::pair{"${TEMP}",
+                      std::filesystem::temp_directory_path().string()}}) {
+        std::size_t offset = 0;
+        while ((offset = text.find(marker, offset)) != std::string::npos) {
+          text.replace(offset, std::string(marker).size(), value);
+          offset += value.size();
+        }
+      }
+      if (text.starts_with("unix://"))
+        text =
+            "unix://" +
+            std::filesystem::path(text.substr(7)).lexically_normal().string();
+      return text;
+    };
+    try {
+      const auto settings = ctk::config::load(selected, cwd, home, system);
+      if (expect_error) {
+        ADD_FAILURE() << "invalid configuration was accepted";
+        continue;
+      }
+      const auto &expected = test.at("expected").struct_value().fields();
+      EXPECT_EQ(settings.endpoint,
+                expand(expected.at("target").string_value()));
+      if (const auto values = expected.find("values"); values != expected.end())
+        for (const auto &[key, value] :
+             values->second.struct_value().fields()) {
+          ASSERT_TRUE(settings.effective_values.contains(key)) << key;
+          const auto &actual = settings.effective_values.at(key);
+          if (value.kind_case() == google::protobuf::Value::kNullValue)
+            EXPECT_TRUE(std::holds_alternative<std::monostate>(actual)) << key;
+          else if (value.kind_case() == google::protobuf::Value::kStringValue) {
+            const auto *text = std::get_if<std::string>(&actual);
+            ASSERT_NE(text, nullptr) << key;
+            EXPECT_EQ(*text, value.string_value()) << key;
+          } else {
+            const auto *number = std::get_if<std::int64_t>(&actual);
+            ASSERT_NE(number, nullptr) << key;
+            EXPECT_EQ(*number, static_cast<std::int64_t>(value.number_value()))
+                << key;
+          }
+        }
+      if (const auto origins = expected.find("origins");
+          origins != expected.end())
+        for (const auto &[key, value] :
+             origins->second.struct_value().fields()) {
+          ASSERT_TRUE(settings.provenance.contains(key)) << key;
+          EXPECT_EQ(settings.provenance.at(key), expand(value.string_value()))
+              << key;
+        }
+    } catch (const std::runtime_error &error) {
+      if (!expect_error) {
+        ADD_FAILURE() << error.what();
+        continue;
+      }
+      const std::string message(error.what());
+      if (error_key != test.end())
+        EXPECT_NE(message.find(error_key->second.string_value()),
+                  std::string::npos)
+            << message;
+      EXPECT_TRUE(std::any_of(supplied_files.begin(), supplied_files.end(),
+                              [&](const auto &path) {
+                                return message.find(path.string()) !=
+                                       std::string::npos;
+                              }))
+          << message;
+    }
   }
 }
 

@@ -1,0 +1,36 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/semantic_types.proto";
+
+message CfgConstructionContext {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    SIMPLE_VARIABLE = 1;
+    CXX17_ELIDED_COPY_VARIABLE = 2;
+    SIMPLE_CONSTRUCTOR_INITIALIZER = 3;
+    CXX17_ELIDED_COPY_CONSTRUCTOR_INITIALIZER = 4;
+    NEW_ALLOCATED_OBJECT = 5;
+    SIMPLE_TEMPORARY_OBJECT = 6;
+    ELIDED_TEMPORARY_OBJECT = 7;
+    SIMPLE_RETURNED_VALUE = 8;
+    CXX17_ELIDED_COPY_RETURNED_VALUE = 9;
+    ARGUMENT = 10;
+    LAMBDA_CAPTURE = 11;
+  }
+  Kind kind = 1;
+  ctk.ast.v1.StatementValue decl_statement = 2;
+  ctk.ast.v1.CXXCtorInitializer initializer = 3;
+  ctk.ast.v1.ExpressionValue allocation = 4;
+  ctk.ast.v1.ExpressionValue temporary_binding = 5;
+  ctk.ast.v1.ExpressionValue materialization = 6;
+  ctk.ast.v1.ExpressionValue constructor_after_elision = 7;
+  CfgConstructionContext context_after_elision = 8;
+  ctk.ast.v1.StatementValue returned_value = 9;
+  ctk.ast.v1.ExpressionValue call_like_expression = 10;
+  optional uint64 argument_index = 11;
+  ctk.ast.v1.ExpressionValue lambda_expression = 12;
+  optional uint64 capture_index = 13;
+  ctk.ast.v1.ExpressionValue capture_initializer = 14;
+  ctk.ast.v1.DeclarationSymbol capture_field = 15;
+  ctk.ast.v1.ExpressionValue array_initialization_loop = 16;
+}

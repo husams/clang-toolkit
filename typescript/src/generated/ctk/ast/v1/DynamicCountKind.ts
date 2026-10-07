@@ -1,0 +1,23 @@
+// Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/ast/v1/semantic.proto
+
+export const DynamicCountKind = {
+  DYNAMIC_COUNT_KIND_UNSPECIFIED: 'DYNAMIC_COUNT_KIND_UNSPECIFIED',
+  DYNAMIC_COUNT_KIND_COUNTED_BY: 'DYNAMIC_COUNT_KIND_COUNTED_BY',
+  DYNAMIC_COUNT_KIND_SIZED_BY: 'DYNAMIC_COUNT_KIND_SIZED_BY',
+  DYNAMIC_COUNT_KIND_COUNTED_BY_OR_NULL: 'DYNAMIC_COUNT_KIND_COUNTED_BY_OR_NULL',
+  DYNAMIC_COUNT_KIND_SIZED_BY_OR_NULL: 'DYNAMIC_COUNT_KIND_SIZED_BY_OR_NULL',
+} as const;
+
+export type DynamicCountKind =
+  | 'DYNAMIC_COUNT_KIND_UNSPECIFIED'
+  | 0
+  | 'DYNAMIC_COUNT_KIND_COUNTED_BY'
+  | 1
+  | 'DYNAMIC_COUNT_KIND_SIZED_BY'
+  | 2
+  | 'DYNAMIC_COUNT_KIND_COUNTED_BY_OR_NULL'
+  | 3
+  | 'DYNAMIC_COUNT_KIND_SIZED_BY_OR_NULL'
+  | 4
+
+export type DynamicCountKind__Output = typeof DynamicCountKind[keyof typeof DynamicCountKind]

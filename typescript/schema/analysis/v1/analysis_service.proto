@@ -1,0 +1,20 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+import "analysis/v1/traverse_request.proto";
+import "analysis/v1/traverse_response.proto";
+import "analysis/v1/cfg_request.proto";
+import "analysis/v1/cfg_response.proto";
+
+import "analysis/v1/call_graph_request.proto";
+import "analysis/v1/call_graph_response.proto";
+import "analysis/v1/script_request.proto";
+import "analysis/v1/script_response.proto";
+service AnalysisService {
+  rpc RunScript(ScriptRequest) returns (ScriptResponse);
+  // Owned semantic values from a standalone native AST visitor. On node/byte
+  // limits or cancellation, no partial response is returned.
+  rpc Traverse(TraverseRequest) returns (TraverseResponse);
+  rpc CallGraph(CallGraphRequest) returns (CallGraphResponse);
+  rpc Cfg(CfgRequest) returns (CfgResponse);
+}

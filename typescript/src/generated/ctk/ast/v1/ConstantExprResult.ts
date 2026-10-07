@@ -1,0 +1,23 @@
+// Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/ast/v1/semantic.proto
+
+export const ConstantExprResult = {
+  CONSTANT_EXPR_RESULT_UNSPECIFIED: 'CONSTANT_EXPR_RESULT_UNSPECIFIED',
+  CONSTANT_EXPR_RESULT_SUCCEEDED: 'CONSTANT_EXPR_RESULT_SUCCEEDED',
+  CONSTANT_EXPR_RESULT_FAILED: 'CONSTANT_EXPR_RESULT_FAILED',
+  CONSTANT_EXPR_RESULT_SIDE_EFFECTS: 'CONSTANT_EXPR_RESULT_SIDE_EFFECTS',
+  CONSTANT_EXPR_RESULT_NOT_EVALUATED: 'CONSTANT_EXPR_RESULT_NOT_EVALUATED',
+} as const;
+
+export type ConstantExprResult =
+  | 'CONSTANT_EXPR_RESULT_UNSPECIFIED'
+  | 0
+  | 'CONSTANT_EXPR_RESULT_SUCCEEDED'
+  | 1
+  | 'CONSTANT_EXPR_RESULT_FAILED'
+  | 2
+  | 'CONSTANT_EXPR_RESULT_SIDE_EFFECTS'
+  | 3
+  | 'CONSTANT_EXPR_RESULT_NOT_EVALUATED'
+  | 4
+
+export type ConstantExprResult__Output = typeof ConstantExprResult[keyof typeof ConstantExprResult]

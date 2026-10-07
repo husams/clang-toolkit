@@ -1,0 +1,29 @@
+// Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/ast/v1/semantic.proto
+
+export const AtomicOpcode = {
+  ATOMIC_OPCODE_UNSPECIFIED: 'ATOMIC_OPCODE_UNSPECIFIED',
+  ATOMIC_OPCODE_LOAD: 'ATOMIC_OPCODE_LOAD',
+  ATOMIC_OPCODE_STORE: 'ATOMIC_OPCODE_STORE',
+  ATOMIC_OPCODE_EXCHANGE: 'ATOMIC_OPCODE_EXCHANGE',
+  ATOMIC_OPCODE_COMPARE_EXCHANGE: 'ATOMIC_OPCODE_COMPARE_EXCHANGE',
+  ATOMIC_OPCODE_FETCH: 'ATOMIC_OPCODE_FETCH',
+  ATOMIC_OPCODE_OTHER: 'ATOMIC_OPCODE_OTHER',
+} as const;
+
+export type AtomicOpcode =
+  | 'ATOMIC_OPCODE_UNSPECIFIED'
+  | 0
+  | 'ATOMIC_OPCODE_LOAD'
+  | 1
+  | 'ATOMIC_OPCODE_STORE'
+  | 2
+  | 'ATOMIC_OPCODE_EXCHANGE'
+  | 3
+  | 'ATOMIC_OPCODE_COMPARE_EXCHANGE'
+  | 4
+  | 'ATOMIC_OPCODE_FETCH'
+  | 5
+  | 'ATOMIC_OPCODE_OTHER'
+  | 6
+
+export type AtomicOpcode__Output = typeof AtomicOpcode[keyof typeof AtomicOpcode]

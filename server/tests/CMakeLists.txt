@@ -28,6 +28,16 @@ if(CTK_WITH_CLANG)
     test_expression_semantics.cpp
     test_type_semantics.cpp
     test_temporary_directory.cpp)
+  if(CTK_BUILD_NETWORK)
+    target_sources(ctk_tests PRIVATE test_match_cursors.cpp)
+  endif()
+endif()
+
+if(CTK_BUILD_SCRIPT)
+  target_sources(ctk_tests PRIVATE test_script_engine.cpp)
+  if(CTK_BUILD_NETWORK)
+    target_sources(ctk_tests PRIVATE test_script_controller.cpp)
+  endif()
 endif()
 
 include(GoogleTest)

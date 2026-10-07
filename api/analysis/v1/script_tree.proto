@@ -1,0 +1,6 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "match/v1/match_service.proto";
+
+// Describes a script's parsed tree; native ownership stays in the interpreter.
+message ScriptTree { ctk.match.v1.FileMatchTarget file = 1; }

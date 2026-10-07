@@ -1,0 +1,657 @@
+from . import semantic_pb2 as _semantic_pb2  # noqa: E402, F401
+from google.protobuf import descriptor as _descriptor
+from typing import ClassVar as _ClassVar
+from .semantic_pb2 import DeclarationSymbol as DeclarationSymbol
+from .semantic_pb2 import TypeDescription as TypeDescription
+from .semantic_pb2 import TemplateArgumentDescription as TemplateArgumentDescription
+from .semantic_pb2 import TemplateParameterDescription as TemplateParameterDescription
+from .semantic_pb2 import ConstraintDescription as ConstraintDescription
+from .semantic_pb2 import ExceptionDescription as ExceptionDescription
+from .semantic_pb2 import ParameterValue as ParameterValue
+from .semantic_pb2 import FunctionSignature as FunctionSignature
+from .semantic_pb2 import AttributeValue as AttributeValue
+from .semantic_pb2 import CleanupValue as CleanupValue
+from .semantic_pb2 import QualType as QualType
+from .semantic_pb2 import APIntBits as APIntBits
+from .semantic_pb2 import APSIntBits as APSIntBits
+from .semantic_pb2 import APFloatBits as APFloatBits
+from .semantic_pb2 import APFixedPointBits as APFixedPointBits
+from .semantic_pb2 import DeclarationName as DeclarationName
+from .semantic_pb2 import NestedNamespaceName as NestedNamespaceName
+from .semantic_pb2 import NestedNameSpecifier as NestedNameSpecifier
+from .semantic_pb2 import OverloadedTemplateName as OverloadedTemplateName
+from .semantic_pb2 import QualifiedTemplateName as QualifiedTemplateName
+from .semantic_pb2 import DependentTemplateName as DependentTemplateName
+from .semantic_pb2 import SubstitutedTemplateName as SubstitutedTemplateName
+from .semantic_pb2 import SubstitutedTemplatePack as SubstitutedTemplatePack
+from .semantic_pb2 import DeducedTemplateName as DeducedTemplateName
+from .semantic_pb2 import TemplateName as TemplateName
+from .semantic_pb2 import IntegralTemplateArgument as IntegralTemplateArgument
+from .semantic_pb2 import DeclarationTemplateArgument as DeclarationTemplateArgument
+from .semantic_pb2 import StructuralTemplateArgument as StructuralTemplateArgument
+from .semantic_pb2 import TemplateExpansionArgument as TemplateExpansionArgument
+from .semantic_pb2 import TemplateArgumentPack as TemplateArgumentPack
+from .semantic_pb2 import TemplateArgument as TemplateArgument
+from .semantic_pb2 import TemplateParameterList as TemplateParameterList
+from .semantic_pb2 import CXXBaseSpecifier as CXXBaseSpecifier
+from .semantic_pb2 import CXXCtorInitializer as CXXCtorInitializer
+from .semantic_pb2 import LambdaCapture as LambdaCapture
+from .semantic_pb2 import CXXTemporary as CXXTemporary
+from .semantic_pb2 import ConceptReference as ConceptReference
+from .semantic_pb2 import TypeConstraint as TypeConstraint
+from .semantic_pb2 import SubstitutionDiagnostic as SubstitutionDiagnostic
+from .semantic_pb2 import ConstraintDetail as ConstraintDetail
+from .semantic_pb2 import ConstraintSatisfaction as ConstraintSatisfaction
+from .semantic_pb2 import RequirementInfo as RequirementInfo
+from .semantic_pb2 import TypeRequirement as TypeRequirement
+from .semantic_pb2 import ReturnTypeRequirement as ReturnTypeRequirement
+from .semantic_pb2 import ExprRequirement as ExprRequirement
+from .semantic_pb2 import NestedRequirement as NestedRequirement
+from .semantic_pb2 import ConceptRequirement as ConceptRequirement
+from .semantic_pb2 import ComplexIntValue as ComplexIntValue
+from .semantic_pb2 import ComplexFloatValue as ComplexFloatValue
+from .semantic_pb2 import APValueSequence as APValueSequence
+from .semantic_pb2 import APArrayValue as APArrayValue
+from .semantic_pb2 import APStructBaseValue as APStructBaseValue
+from .semantic_pb2 import APStructFieldValue as APStructFieldValue
+from .semantic_pb2 import APStructValue as APStructValue
+from .semantic_pb2 import APUnionValue as APUnionValue
+from .semantic_pb2 import APTypeInfoLValue as APTypeInfoLValue
+from .semantic_pb2 import APDynamicAllocation as APDynamicAllocation
+from .semantic_pb2 import APLValueBase as APLValueBase
+from .semantic_pb2 import APLValuePathEntry as APLValuePathEntry
+from .semantic_pb2 import APLValue as APLValue
+from .semantic_pb2 import APMemberPointer as APMemberPointer
+from .semantic_pb2 import APAddrLabelDiff as APAddrLabelDiff
+from .semantic_pb2 import APValue as APValue
+from .semantic_pb2 import DeclInfo as DeclInfo
+from .semantic_pb2 import NamedDeclInfo as NamedDeclInfo
+from .semantic_pb2 import TypeDeclInfo as TypeDeclInfo
+from .semantic_pb2 import TagDeclInfo as TagDeclInfo
+from .semantic_pb2 import RecordDeclInfo as RecordDeclInfo
+from .semantic_pb2 import ValueDeclInfo as ValueDeclInfo
+from .semantic_pb2 import DeclaratorDeclInfo as DeclaratorDeclInfo
+from .semantic_pb2 import FunctionDeclInfo as FunctionDeclInfo
+from .semantic_pb2 import CXXMethodDeclInfo as CXXMethodDeclInfo
+from .semantic_pb2 import VarDeclInfo as VarDeclInfo
+from .semantic_pb2 import ExprInfo as ExprInfo
+from .semantic_pb2 import CallExprInfo as CallExprInfo
+from .semantic_pb2 import CastExprInfo as CastExprInfo
+from .semantic_pb2 import CXXConstructExprInfo as CXXConstructExprInfo
+from .semantic_pb2 import TypeInfo as TypeInfo
+from .semantic_pb2 import BlockCaptureInfo as BlockCaptureInfo
+from .semantic_pb2 import Designator as Designator
+from .semantic_pb2 import GenericAssociation as GenericAssociation
+from .semantic_pb2 import OffsetOfComponent as OffsetOfComponent
+from .semantic_pb2 import EmbedParameter as EmbedParameter
+from .semantic_pb2 import AsmOperand as AsmOperand
+from .semantic_pb2 import FunctionExtInfo as FunctionExtInfo
+from .semantic_pb2 import FunctionProtoExtInfo as FunctionProtoExtInfo
+from .semantic_pb2 import DeclarationValue as DeclarationValue
+from .semantic_pb2 import ExpressionValue as ExpressionValue
+from .semantic_pb2 import StatementValue as StatementValue
+from .semantic_pb2 import TypeValue as TypeValue
+from .semantic_pb2 import TranslationUnitDecl as TranslationUnitDecl
+from .semantic_pb2 import TopLevelStmtDecl as TopLevelStmtDecl
+from .semantic_pb2 import RequiresExprBodyDecl as RequiresExprBodyDecl
+from .semantic_pb2 import LinkageSpecDecl as LinkageSpecDecl
+from .semantic_pb2 import ExternCContextDecl as ExternCContextDecl
+from .semantic_pb2 import ExportDecl as ExportDecl
+from .semantic_pb2 import BlockDecl as BlockDecl
+from .semantic_pb2 import StaticAssertDecl as StaticAssertDecl
+from .semantic_pb2 import PragmaDetectMismatchDecl as PragmaDetectMismatchDecl
+from .semantic_pb2 import PragmaCommentDecl as PragmaCommentDecl
+from .semantic_pb2 import UnresolvedUsingValueDecl as UnresolvedUsingValueDecl
+from .semantic_pb2 import UnnamedGlobalConstantDecl as UnnamedGlobalConstantDecl
+from .semantic_pb2 import TemplateParamObjectDecl as TemplateParamObjectDecl
+from .semantic_pb2 import MSGuidDecl as MSGuidDecl
+from .semantic_pb2 import IndirectFieldDecl as IndirectFieldDecl
+from .semantic_pb2 import EnumConstantDecl as EnumConstantDecl
+from .semantic_pb2 import FunctionDecl as FunctionDecl
+from .semantic_pb2 import CXXMethodDecl as CXXMethodDecl
+from .semantic_pb2 import CXXDestructorDecl as CXXDestructorDecl
+from .semantic_pb2 import CXXConversionDecl as CXXConversionDecl
+from .semantic_pb2 import CXXConstructorDecl as CXXConstructorDecl
+from .semantic_pb2 import CXXDeductionGuideDecl as CXXDeductionGuideDecl
+from .semantic_pb2 import VarDecl as VarDecl
+from .semantic_pb2 import VarTemplateSpecializationDecl as VarTemplateSpecializationDecl
+from .semantic_pb2 import VarTemplatePartialSpecializationDecl as VarTemplatePartialSpecializationDecl
+from .semantic_pb2 import ParmVarDecl as ParmVarDecl
+from .semantic_pb2 import ImplicitParamDecl as ImplicitParamDecl
+from .semantic_pb2 import DecompositionDecl as DecompositionDecl
+from .semantic_pb2 import NonTypeTemplateParmDecl as NonTypeTemplateParmDecl
+from .semantic_pb2 import MSPropertyDecl as MSPropertyDecl
+from .semantic_pb2 import FieldDecl as FieldDecl
+from .semantic_pb2 import BindingDecl as BindingDecl
+from .semantic_pb2 import UsingShadowDecl as UsingShadowDecl
+from .semantic_pb2 import ConstructorUsingShadowDecl as ConstructorUsingShadowDecl
+from .semantic_pb2 import UsingPackDecl as UsingPackDecl
+from .semantic_pb2 import UsingDirectiveDecl as UsingDirectiveDecl
+from .semantic_pb2 import UnresolvedUsingIfExistsDecl as UnresolvedUsingIfExistsDecl
+from .semantic_pb2 import RecordDecl as RecordDecl
+from .semantic_pb2 import CXXRecordDecl as CXXRecordDecl
+from .semantic_pb2 import ClassTemplateSpecializationDecl as ClassTemplateSpecializationDecl
+from .semantic_pb2 import ClassTemplatePartialSpecializationDecl as ClassTemplatePartialSpecializationDecl
+from .semantic_pb2 import EnumDecl as EnumDecl
+from .semantic_pb2 import UnresolvedUsingTypenameDecl as UnresolvedUsingTypenameDecl
+from .semantic_pb2 import TypedefDecl as TypedefDecl
+from .semantic_pb2 import TypeAliasDecl as TypeAliasDecl
+from .semantic_pb2 import TemplateTypeParmDecl as TemplateTypeParmDecl
+from .semantic_pb2 import TemplateTemplateParmDecl as TemplateTemplateParmDecl
+from .semantic_pb2 import VarTemplateDecl as VarTemplateDecl
+from .semantic_pb2 import TypeAliasTemplateDecl as TypeAliasTemplateDecl
+from .semantic_pb2 import FunctionTemplateDecl as FunctionTemplateDecl
+from .semantic_pb2 import ClassTemplateDecl as ClassTemplateDecl
+from .semantic_pb2 import ConceptDecl as ConceptDecl
+from .semantic_pb2 import BuiltinTemplateDecl as BuiltinTemplateDecl
+from .semantic_pb2 import NamespaceDecl as NamespaceDecl
+from .semantic_pb2 import NamespaceAliasDecl as NamespaceAliasDecl
+from .semantic_pb2 import LabelDecl as LabelDecl
+from .semantic_pb2 import UsingEnumDecl as UsingEnumDecl
+from .semantic_pb2 import UsingDecl as UsingDecl
+from .semantic_pb2 import LifetimeExtendedTemporaryDecl as LifetimeExtendedTemporaryDecl
+from .semantic_pb2 import ImportDecl as ImportDecl
+from .semantic_pb2 import ImplicitConceptSpecializationDecl as ImplicitConceptSpecializationDecl
+from .semantic_pb2 import FriendTemplateDecl as FriendTemplateDecl
+from .semantic_pb2 import FriendDecl as FriendDecl
+from .semantic_pb2 import FileScopeAsmDecl as FileScopeAsmDecl
+from .semantic_pb2 import EmptyDecl as EmptyDecl
+from .semantic_pb2 import AccessSpecDecl as AccessSpecDecl
+from .semantic_pb2 import WhileStmt as WhileStmt
+from .semantic_pb2 import LabelStmt as LabelStmt
+from .semantic_pb2 import VAArgExpr as VAArgExpr
+from .semantic_pb2 import UnaryOperator as UnaryOperator
+from .semantic_pb2 import UnaryExprOrTypeTraitExpr as UnaryExprOrTypeTraitExpr
+from .semantic_pb2 import TypeTraitExpr as TypeTraitExpr
+from .semantic_pb2 import SubstNonTypeTemplateParmPackExpr as SubstNonTypeTemplateParmPackExpr
+from .semantic_pb2 import SubstNonTypeTemplateParmExpr as SubstNonTypeTemplateParmExpr
+from .semantic_pb2 import StringLiteral as StringLiteral
+from .semantic_pb2 import StmtExpr as StmtExpr
+from .semantic_pb2 import SourceLocExpr as SourceLocExpr
+from .semantic_pb2 import SizeOfPackExpr as SizeOfPackExpr
+from .semantic_pb2 import ShuffleVectorExpr as ShuffleVectorExpr
+from .semantic_pb2 import RequiresExpr as RequiresExpr
+from .semantic_pb2 import RecoveryExpr as RecoveryExpr
+from .semantic_pb2 import PseudoObjectExpr as PseudoObjectExpr
+from .semantic_pb2 import PredefinedExpr as PredefinedExpr
+from .semantic_pb2 import ParenListExpr as ParenListExpr
+from .semantic_pb2 import ParenExpr as ParenExpr
+from .semantic_pb2 import PackIndexingExpr as PackIndexingExpr
+from .semantic_pb2 import PackExpansionExpr as PackExpansionExpr
+from .semantic_pb2 import UnresolvedMemberExpr as UnresolvedMemberExpr
+from .semantic_pb2 import UnresolvedLookupExpr as UnresolvedLookupExpr
+from .semantic_pb2 import OpaqueValueExpr as OpaqueValueExpr
+from .semantic_pb2 import OffsetOfExpr as OffsetOfExpr
+from .semantic_pb2 import NoInitExpr as NoInitExpr
+from .semantic_pb2 import MemberExpr as MemberExpr
+from .semantic_pb2 import MatrixSubscriptExpr as MatrixSubscriptExpr
+from .semantic_pb2 import MatrixSingleSubscriptExpr as MatrixSingleSubscriptExpr
+from .semantic_pb2 import MaterializeTemporaryExpr as MaterializeTemporaryExpr
+from .semantic_pb2 import MSPropertySubscriptExpr as MSPropertySubscriptExpr
+from .semantic_pb2 import MSPropertyRefExpr as MSPropertyRefExpr
+from .semantic_pb2 import LambdaExpr as LambdaExpr
+from .semantic_pb2 import IntegerLiteral as IntegerLiteral
+from .semantic_pb2 import InitListExpr as InitListExpr
+from .semantic_pb2 import ImplicitValueInitExpr as ImplicitValueInitExpr
+from .semantic_pb2 import ImaginaryLiteral as ImaginaryLiteral
+from .semantic_pb2 import GenericSelectionExpr as GenericSelectionExpr
+from .semantic_pb2 import GNUNullExpr as GNUNullExpr
+from .semantic_pb2 import FunctionParmPackExpr as FunctionParmPackExpr
+from .semantic_pb2 import ExprWithCleanups as ExprWithCleanups
+from .semantic_pb2 import ConstantExpr as ConstantExpr
+from .semantic_pb2 import FloatingLiteral as FloatingLiteral
+from .semantic_pb2 import FixedPointLiteral as FixedPointLiteral
+from .semantic_pb2 import ExtVectorElementExpr as ExtVectorElementExpr
+from .semantic_pb2 import ExpressionTraitExpr as ExpressionTraitExpr
+from .semantic_pb2 import EmbedExpr as EmbedExpr
+from .semantic_pb2 import DesignatedInitUpdateExpr as DesignatedInitUpdateExpr
+from .semantic_pb2 import DesignatedInitExpr as DesignatedInitExpr
+from .semantic_pb2 import DependentScopeDeclRefExpr as DependentScopeDeclRefExpr
+from .semantic_pb2 import DependentCoawaitExpr as DependentCoawaitExpr
+from .semantic_pb2 import DeclRefExpr as DeclRefExpr
+from .semantic_pb2 import CoyieldExpr as CoyieldExpr
+from .semantic_pb2 import CoawaitExpr as CoawaitExpr
+from .semantic_pb2 import ConvertVectorExpr as ConvertVectorExpr
+from .semantic_pb2 import ConceptSpecializationExpr as ConceptSpecializationExpr
+from .semantic_pb2 import CompoundLiteralExpr as CompoundLiteralExpr
+from .semantic_pb2 import ChooseExpr as ChooseExpr
+from .semantic_pb2 import CharacterLiteral as CharacterLiteral
+from .semantic_pb2 import ImplicitCastExpr as ImplicitCastExpr
+from .semantic_pb2 import CXXStaticCastExpr as CXXStaticCastExpr
+from .semantic_pb2 import CXXReinterpretCastExpr as CXXReinterpretCastExpr
+from .semantic_pb2 import CXXDynamicCastExpr as CXXDynamicCastExpr
+from .semantic_pb2 import CXXConstCastExpr as CXXConstCastExpr
+from .semantic_pb2 import CXXAddrspaceCastExpr as CXXAddrspaceCastExpr
+from .semantic_pb2 import CXXFunctionalCastExpr as CXXFunctionalCastExpr
+from .semantic_pb2 import CStyleCastExpr as CStyleCastExpr
+from .semantic_pb2 import BuiltinBitCastExpr as BuiltinBitCastExpr
+from .semantic_pb2 import CallExpr as CallExpr
+from .semantic_pb2 import UserDefinedLiteral as UserDefinedLiteral
+from .semantic_pb2 import CXXOperatorCallExpr as CXXOperatorCallExpr
+from .semantic_pb2 import CXXMemberCallExpr as CXXMemberCallExpr
+from .semantic_pb2 import CXXUuidofExpr as CXXUuidofExpr
+from .semantic_pb2 import CXXUnresolvedConstructExpr as CXXUnresolvedConstructExpr
+from .semantic_pb2 import CXXTypeidExpr as CXXTypeidExpr
+from .semantic_pb2 import CXXThrowExpr as CXXThrowExpr
+from .semantic_pb2 import CXXThisExpr as CXXThisExpr
+from .semantic_pb2 import CXXStdInitializerListExpr as CXXStdInitializerListExpr
+from .semantic_pb2 import CXXScalarValueInitExpr as CXXScalarValueInitExpr
+from .semantic_pb2 import CXXRewrittenBinaryOperator as CXXRewrittenBinaryOperator
+from .semantic_pb2 import CXXPseudoDestructorExpr as CXXPseudoDestructorExpr
+from .semantic_pb2 import CXXParenListInitExpr as CXXParenListInitExpr
+from .semantic_pb2 import CXXNullPtrLiteralExpr as CXXNullPtrLiteralExpr
+from .semantic_pb2 import CXXNoexceptExpr as CXXNoexceptExpr
+from .semantic_pb2 import CXXNewExpr as CXXNewExpr
+from .semantic_pb2 import CXXInheritedCtorInitExpr as CXXInheritedCtorInitExpr
+from .semantic_pb2 import CXXFoldExpr as CXXFoldExpr
+from .semantic_pb2 import CXXDependentScopeMemberExpr as CXXDependentScopeMemberExpr
+from .semantic_pb2 import CXXDeleteExpr as CXXDeleteExpr
+from .semantic_pb2 import CXXDefaultInitExpr as CXXDefaultInitExpr
+from .semantic_pb2 import CXXDefaultArgExpr as CXXDefaultArgExpr
+from .semantic_pb2 import CXXConstructExpr as CXXConstructExpr
+from .semantic_pb2 import CXXTemporaryObjectExpr as CXXTemporaryObjectExpr
+from .semantic_pb2 import CXXBoolLiteralExpr as CXXBoolLiteralExpr
+from .semantic_pb2 import CXXBindTemporaryExpr as CXXBindTemporaryExpr
+from .semantic_pb2 import BlockExpr as BlockExpr
+from .semantic_pb2 import BinaryOperator as BinaryOperator
+from .semantic_pb2 import CompoundAssignOperator as CompoundAssignOperator
+from .semantic_pb2 import AtomicExpr as AtomicExpr
+from .semantic_pb2 import ArrayTypeTraitExpr as ArrayTypeTraitExpr
+from .semantic_pb2 import ArraySubscriptExpr as ArraySubscriptExpr
+from .semantic_pb2 import ArrayInitLoopExpr as ArrayInitLoopExpr
+from .semantic_pb2 import ArrayInitIndexExpr as ArrayInitIndexExpr
+from .semantic_pb2 import AddrLabelExpr as AddrLabelExpr
+from .semantic_pb2 import ConditionalOperator as ConditionalOperator
+from .semantic_pb2 import BinaryConditionalOperator as BinaryConditionalOperator
+from .semantic_pb2 import AttributedStmt as AttributedStmt
+from .semantic_pb2 import SwitchStmt as SwitchStmt
+from .semantic_pb2 import DefaultStmt as DefaultStmt
+from .semantic_pb2 import CaseStmt as CaseStmt
+from .semantic_pb2 import SEHTryStmt as SEHTryStmt
+from .semantic_pb2 import SEHLeaveStmt as SEHLeaveStmt
+from .semantic_pb2 import SEHFinallyStmt as SEHFinallyStmt
+from .semantic_pb2 import SEHExceptStmt as SEHExceptStmt
+from .semantic_pb2 import ReturnStmt as ReturnStmt
+from .semantic_pb2 import NullStmt as NullStmt
+from .semantic_pb2 import MSDependentExistsStmt as MSDependentExistsStmt
+from .semantic_pb2 import ContinueStmt as ContinueStmt
+from .semantic_pb2 import BreakStmt as BreakStmt
+from .semantic_pb2 import IndirectGotoStmt as IndirectGotoStmt
+from .semantic_pb2 import IfStmt as IfStmt
+from .semantic_pb2 import GotoStmt as GotoStmt
+from .semantic_pb2 import ForStmt as ForStmt
+from .semantic_pb2 import DoStmt as DoStmt
+from .semantic_pb2 import DeclStmt as DeclStmt
+from .semantic_pb2 import CoroutineBodyStmt as CoroutineBodyStmt
+from .semantic_pb2 import CoreturnStmt as CoreturnStmt
+from .semantic_pb2 import CompoundStmt as CompoundStmt
+from .semantic_pb2 import CXXTryStmt as CXXTryStmt
+from .semantic_pb2 import CXXForRangeStmt as CXXForRangeStmt
+from .semantic_pb2 import CXXCatchStmt as CXXCatchStmt
+from .semantic_pb2 import MSAsmStmt as MSAsmStmt
+from .semantic_pb2 import GCCAsmStmt as GCCAsmStmt
+from .semantic_pb2 import AdjustedType as AdjustedType
+from .semantic_pb2 import DecayedType as DecayedType
+from .semantic_pb2 import ConstantArrayType as ConstantArrayType
+from .semantic_pb2 import DependentSizedArrayType as DependentSizedArrayType
+from .semantic_pb2 import IncompleteArrayType as IncompleteArrayType
+from .semantic_pb2 import VariableArrayType as VariableArrayType
+from .semantic_pb2 import AtomicType as AtomicType
+from .semantic_pb2 import AttributedType as AttributedType
+from .semantic_pb2 import BTFTagAttributedType as BTFTagAttributedType
+from .semantic_pb2 import BitIntType as BitIntType
+from .semantic_pb2 import BlockPointerType as BlockPointerType
+from .semantic_pb2 import CountAttributedType as CountAttributedType
+from .semantic_pb2 import BuiltinType as BuiltinType
+from .semantic_pb2 import ComplexType as ComplexType
+from .semantic_pb2 import DecltypeType as DecltypeType
+from .semantic_pb2 import AutoType as AutoType
+from .semantic_pb2 import DeducedTemplateSpecializationType as DeducedTemplateSpecializationType
+from .semantic_pb2 import DependentAddressSpaceType as DependentAddressSpaceType
+from .semantic_pb2 import DependentBitIntType as DependentBitIntType
+from .semantic_pb2 import DependentNameType as DependentNameType
+from .semantic_pb2 import DependentSizedExtVectorType as DependentSizedExtVectorType
+from .semantic_pb2 import DependentVectorType as DependentVectorType
+from .semantic_pb2 import FunctionProtoType as FunctionProtoType
+from .semantic_pb2 import MacroQualifiedType as MacroQualifiedType
+from .semantic_pb2 import ConstantMatrixType as ConstantMatrixType
+from .semantic_pb2 import DependentSizedMatrixType as DependentSizedMatrixType
+from .semantic_pb2 import MemberPointerType as MemberPointerType
+from .semantic_pb2 import PackExpansionType as PackExpansionType
+from .semantic_pb2 import PackIndexingType as PackIndexingType
+from .semantic_pb2 import ParenType as ParenType
+from .semantic_pb2 import PointerType as PointerType
+from .semantic_pb2 import PredefinedSugarType as PredefinedSugarType
+from .semantic_pb2 import LValueReferenceType as LValueReferenceType
+from .semantic_pb2 import RValueReferenceType as RValueReferenceType
+from .semantic_pb2 import SubstBuiltinTemplatePackType as SubstBuiltinTemplatePackType
+from .semantic_pb2 import SubstTemplateTypeParmPackType as SubstTemplateTypeParmPackType
+from .semantic_pb2 import SubstTemplateTypeParmType as SubstTemplateTypeParmType
+from .semantic_pb2 import EnumType as EnumType
+from .semantic_pb2 import InjectedClassNameType as InjectedClassNameType
+from .semantic_pb2 import RecordType as RecordType
+from .semantic_pb2 import TemplateSpecializationType as TemplateSpecializationType
+from .semantic_pb2 import TemplateTypeParmType as TemplateTypeParmType
+from .semantic_pb2 import TypeOfExprType as TypeOfExprType
+from .semantic_pb2 import TypeOfType as TypeOfType
+from .semantic_pb2 import TypedefType as TypedefType
+from .semantic_pb2 import UnaryTransformType as UnaryTransformType
+from .semantic_pb2 import UnresolvedUsingType as UnresolvedUsingType
+from .semantic_pb2 import UsingType as UsingType
+from .semantic_pb2 import VectorType as VectorType
+from .semantic_pb2 import ExtVectorType as ExtVectorType
+from .semantic_pb2 import DependentTypeOfExprType as DependentTypeOfExprType
+from .semantic_pb2 import DependentDecltypeType as DependentDecltypeType
+from .semantic_pb2 import SymbolKind as SymbolKind
+from .semantic_pb2 import TemplateArgumentDescriptionKind as TemplateArgumentDescriptionKind
+from .semantic_pb2 import TemplateParameterDescriptionKind as TemplateParameterDescriptionKind
+from .semantic_pb2 import FloatingSemantics as FloatingSemantics
+from .semantic_pb2 import LambdaCaptureKind as LambdaCaptureKind
+from .semantic_pb2 import ExprRequirementSatisfactionStatus as ExprRequirementSatisfactionStatus
+from .semantic_pb2 import DeclLinkageLanguage as DeclLinkageLanguage
+from .semantic_pb2 import DeclTemplateSpecializationKind as DeclTemplateSpecializationKind
+from .semantic_pb2 import DeclPragmaCommentKind as DeclPragmaCommentKind
+from .semantic_pb2 import DeclBuiltinTemplateKind as DeclBuiltinTemplateKind
+from .semantic_pb2 import DeclVariableTLSKind as DeclVariableTLSKind
+from .semantic_pb2 import DeclVariableInitializationStyle as DeclVariableInitializationStyle
+from .semantic_pb2 import DeclDeductionCandidateKind as DeclDeductionCandidateKind
+from .semantic_pb2 import DeclSourceDeductionGuideKind as DeclSourceDeductionGuideKind
+from .semantic_pb2 import CharacterKind as CharacterKind
+from .semantic_pb2 import StringLiteralKind as StringLiteralKind
+from .semantic_pb2 import UnaryExprTrait as UnaryExprTrait
+from .semantic_pb2 import ConstantExprResult as ConstantExprResult
+from .semantic_pb2 import SourceLocExprKind as SourceLocExprKind
+from .semantic_pb2 import PredefinedIdentKind as PredefinedIdentKind
+from .semantic_pb2 import ArrayTypeTrait as ArrayTypeTrait
+from .semantic_pb2 import ExpressionTrait as ExpressionTrait
+from .semantic_pb2 import AtomicOpcode as AtomicOpcode
+from .semantic_pb2 import TypeTrait as TypeTrait
+from .semantic_pb2 import ArraySizeModifier as ArraySizeModifier
+from .semantic_pb2 import TypeOfKind as TypeOfKind
+from .semantic_pb2 import AutoKeyword as AutoKeyword
+from .semantic_pb2 import VectorKind as VectorKind
+from .semantic_pb2 import AttributedTypeKind as AttributedTypeKind
+from .semantic_pb2 import PredefinedTypeKind as PredefinedTypeKind
+from .semantic_pb2 import DynamicCountKind as DynamicCountKind
+from .semantic_pb2 import UnaryTransformKind as UnaryTransformKind
+from .semantic_pb2 import BuiltinKind as BuiltinKind
+from .semantic_pb2 import FunctionCallingConvention as FunctionCallingConvention
+from .semantic_pb2 import ExceptionSpecification as ExceptionSpecification
+
+DESCRIPTOR: _descriptor.FileDescriptor
+SYMBOL_KIND_UNSPECIFIED: _semantic_pb2.SymbolKind
+SYMBOL_KIND_NAMESPACE: _semantic_pb2.SymbolKind
+SYMBOL_KIND_RECORD: _semantic_pb2.SymbolKind
+SYMBOL_KIND_ENUM: _semantic_pb2.SymbolKind
+SYMBOL_KIND_TYPE_ALIAS: _semantic_pb2.SymbolKind
+SYMBOL_KIND_FUNCTION: _semantic_pb2.SymbolKind
+SYMBOL_KIND_METHOD: _semantic_pb2.SymbolKind
+SYMBOL_KIND_CONSTRUCTOR: _semantic_pb2.SymbolKind
+SYMBOL_KIND_DESTRUCTOR: _semantic_pb2.SymbolKind
+SYMBOL_KIND_VARIABLE: _semantic_pb2.SymbolKind
+SYMBOL_KIND_FIELD: _semantic_pb2.SymbolKind
+SYMBOL_KIND_PARAMETER: _semantic_pb2.SymbolKind
+SYMBOL_KIND_TEMPLATE: _semantic_pb2.SymbolKind
+SYMBOL_KIND_CONCEPT: _semantic_pb2.SymbolKind
+SYMBOL_KIND_LABEL: _semantic_pb2.SymbolKind
+SYMBOL_KIND_UNRESOLVED: _semantic_pb2.SymbolKind
+SYMBOL_KIND_OTHER: _semantic_pb2.SymbolKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_UNSPECIFIED: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_NULL: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_TYPE: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_DECLARATION: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_NULL_POINTER: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_INTEGRAL: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_STRUCTURAL_VALUE: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_TEMPLATE: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_TEMPLATE_EXPANSION: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_EXPRESSION: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_ARGUMENT_DESCRIPTION_KIND_PACK: _semantic_pb2.TemplateArgumentDescriptionKind
+TEMPLATE_PARAMETER_DESCRIPTION_KIND_UNSPECIFIED: _semantic_pb2.TemplateParameterDescriptionKind
+TEMPLATE_PARAMETER_DESCRIPTION_KIND_TYPE: _semantic_pb2.TemplateParameterDescriptionKind
+TEMPLATE_PARAMETER_DESCRIPTION_KIND_NON_TYPE: _semantic_pb2.TemplateParameterDescriptionKind
+TEMPLATE_PARAMETER_DESCRIPTION_KIND_TEMPLATE: _semantic_pb2.TemplateParameterDescriptionKind
+FLOATING_SEMANTICS_UNSPECIFIED: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_IEEE_HALF: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_BFLOAT: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_IEEE_SINGLE: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_IEEE_DOUBLE: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_IEEE_QUAD: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_X87_DOUBLE_EXTENDED: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_PPC_DOUBLE_DOUBLE: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_PPC_DOUBLE_DOUBLE_LEGACY: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT8_E5_M2: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT8_E5_M2_FNUZ: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT8_E4_M3: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT8_E4_M3_FN: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT8_E4_M3_FNUZ: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT8_E4_M3_B11_FNUZ: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT8_E3_M4: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT_TF32: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT8_E8_M0_FNU: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT6_E3_M2_FN: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT6_E2_M3_FN: _semantic_pb2.FloatingSemantics
+FLOATING_SEMANTICS_FLOAT4_E2_M1_FN: _semantic_pb2.FloatingSemantics
+LAMBDA_CAPTURE_KIND_UNSPECIFIED: _semantic_pb2.LambdaCaptureKind
+LAMBDA_CAPTURE_KIND_THIS: _semantic_pb2.LambdaCaptureKind
+LAMBDA_CAPTURE_KIND_STAR_THIS: _semantic_pb2.LambdaCaptureKind
+LAMBDA_CAPTURE_KIND_BY_COPY: _semantic_pb2.LambdaCaptureKind
+LAMBDA_CAPTURE_KIND_BY_REFERENCE: _semantic_pb2.LambdaCaptureKind
+LAMBDA_CAPTURE_KIND_VLA_TYPE: _semantic_pb2.LambdaCaptureKind
+EXPR_REQUIREMENT_SATISFACTION_STATUS_UNSPECIFIED: _semantic_pb2.ExprRequirementSatisfactionStatus
+EXPR_REQUIREMENT_SATISFACTION_STATUS_DEPENDENT: _semantic_pb2.ExprRequirementSatisfactionStatus
+EXPR_REQUIREMENT_SATISFACTION_STATUS_EXPR_SUBSTITUTION_FAILURE: _semantic_pb2.ExprRequirementSatisfactionStatus
+EXPR_REQUIREMENT_SATISFACTION_STATUS_NOEXCEPT_NOT_MET: _semantic_pb2.ExprRequirementSatisfactionStatus
+EXPR_REQUIREMENT_SATISFACTION_STATUS_TYPE_REQUIREMENT_SUBSTITUTION_FAILURE: _semantic_pb2.ExprRequirementSatisfactionStatus
+EXPR_REQUIREMENT_SATISFACTION_STATUS_CONSTRAINTS_NOT_SATISFIED: _semantic_pb2.ExprRequirementSatisfactionStatus
+EXPR_REQUIREMENT_SATISFACTION_STATUS_SATISFIED: _semantic_pb2.ExprRequirementSatisfactionStatus
+DECL_LINKAGE_LANGUAGE_UNSPECIFIED: _semantic_pb2.DeclLinkageLanguage
+DECL_LINKAGE_LANGUAGE_C: _semantic_pb2.DeclLinkageLanguage
+DECL_LINKAGE_LANGUAGE_CXX: _semantic_pb2.DeclLinkageLanguage
+DECL_TEMPLATE_SPECIALIZATION_KIND_UNSPECIFIED: _semantic_pb2.DeclTemplateSpecializationKind
+DECL_TEMPLATE_SPECIALIZATION_KIND_UNDECLARED: _semantic_pb2.DeclTemplateSpecializationKind
+DECL_TEMPLATE_SPECIALIZATION_KIND_IMPLICIT_INSTANTIATION: _semantic_pb2.DeclTemplateSpecializationKind
+DECL_TEMPLATE_SPECIALIZATION_KIND_EXPLICIT_SPECIALIZATION: _semantic_pb2.DeclTemplateSpecializationKind
+DECL_TEMPLATE_SPECIALIZATION_KIND_EXPLICIT_INSTANTIATION_DECLARATION: _semantic_pb2.DeclTemplateSpecializationKind
+DECL_TEMPLATE_SPECIALIZATION_KIND_EXPLICIT_INSTANTIATION_DEFINITION: _semantic_pb2.DeclTemplateSpecializationKind
+DECL_PRAGMA_COMMENT_KIND_UNSPECIFIED: _semantic_pb2.DeclPragmaCommentKind
+DECL_PRAGMA_COMMENT_KIND_UNKNOWN: _semantic_pb2.DeclPragmaCommentKind
+DECL_PRAGMA_COMMENT_KIND_LINKER: _semantic_pb2.DeclPragmaCommentKind
+DECL_PRAGMA_COMMENT_KIND_LIB: _semantic_pb2.DeclPragmaCommentKind
+DECL_PRAGMA_COMMENT_KIND_COMPILER: _semantic_pb2.DeclPragmaCommentKind
+DECL_PRAGMA_COMMENT_KIND_EXE_STR: _semantic_pb2.DeclPragmaCommentKind
+DECL_PRAGMA_COMMENT_KIND_USER: _semantic_pb2.DeclPragmaCommentKind
+DECL_BUILTIN_TEMPLATE_KIND_UNSPECIFIED: _semantic_pb2.DeclBuiltinTemplateKind
+DECL_BUILTIN_TEMPLATE_KIND_COMMON_TYPE: _semantic_pb2.DeclBuiltinTemplateKind
+DECL_BUILTIN_TEMPLATE_KIND_DEDUP_PACK: _semantic_pb2.DeclBuiltinTemplateKind
+DECL_BUILTIN_TEMPLATE_KIND_MAKE_INTEGER_SEQ: _semantic_pb2.DeclBuiltinTemplateKind
+DECL_BUILTIN_TEMPLATE_KIND_TYPE_PACK_ELEMENT: _semantic_pb2.DeclBuiltinTemplateKind
+DECL_VARIABLE_TLS_KIND_UNSPECIFIED: _semantic_pb2.DeclVariableTLSKind
+DECL_VARIABLE_TLS_KIND_NONE: _semantic_pb2.DeclVariableTLSKind
+DECL_VARIABLE_TLS_KIND_STATIC: _semantic_pb2.DeclVariableTLSKind
+DECL_VARIABLE_TLS_KIND_DYNAMIC: _semantic_pb2.DeclVariableTLSKind
+DECL_VARIABLE_INITIALIZATION_STYLE_UNSPECIFIED: _semantic_pb2.DeclVariableInitializationStyle
+DECL_VARIABLE_INITIALIZATION_STYLE_C: _semantic_pb2.DeclVariableInitializationStyle
+DECL_VARIABLE_INITIALIZATION_STYLE_CALL: _semantic_pb2.DeclVariableInitializationStyle
+DECL_VARIABLE_INITIALIZATION_STYLE_LIST: _semantic_pb2.DeclVariableInitializationStyle
+DECL_VARIABLE_INITIALIZATION_STYLE_PAREN_LIST: _semantic_pb2.DeclVariableInitializationStyle
+DECL_DEDUCTION_CANDIDATE_KIND_UNSPECIFIED: _semantic_pb2.DeclDeductionCandidateKind
+DECL_DEDUCTION_CANDIDATE_KIND_NORMAL: _semantic_pb2.DeclDeductionCandidateKind
+DECL_DEDUCTION_CANDIDATE_KIND_COPY: _semantic_pb2.DeclDeductionCandidateKind
+DECL_DEDUCTION_CANDIDATE_KIND_AGGREGATE: _semantic_pb2.DeclDeductionCandidateKind
+DECL_SOURCE_DEDUCTION_GUIDE_KIND_UNSPECIFIED: _semantic_pb2.DeclSourceDeductionGuideKind
+DECL_SOURCE_DEDUCTION_GUIDE_KIND_NONE: _semantic_pb2.DeclSourceDeductionGuideKind
+DECL_SOURCE_DEDUCTION_GUIDE_KIND_ALIAS: _semantic_pb2.DeclSourceDeductionGuideKind
+CHARACTER_KIND_UNSPECIFIED: _semantic_pb2.CharacterKind
+CHARACTER_KIND_ASCII: _semantic_pb2.CharacterKind
+CHARACTER_KIND_UTF8: _semantic_pb2.CharacterKind
+CHARACTER_KIND_UTF16: _semantic_pb2.CharacterKind
+CHARACTER_KIND_UTF32: _semantic_pb2.CharacterKind
+CHARACTER_KIND_WIDE: _semantic_pb2.CharacterKind
+STRING_LITERAL_KIND_UNSPECIFIED: _semantic_pb2.StringLiteralKind
+STRING_LITERAL_KIND_ORDINARY: _semantic_pb2.StringLiteralKind
+STRING_LITERAL_KIND_UTF8: _semantic_pb2.StringLiteralKind
+STRING_LITERAL_KIND_UTF16: _semantic_pb2.StringLiteralKind
+STRING_LITERAL_KIND_UTF32: _semantic_pb2.StringLiteralKind
+STRING_LITERAL_KIND_WIDE: _semantic_pb2.StringLiteralKind
+UNARY_EXPR_TRAIT_UNSPECIFIED: _semantic_pb2.UnaryExprTrait
+UNARY_EXPR_TRAIT_SIZEOF: _semantic_pb2.UnaryExprTrait
+UNARY_EXPR_TRAIT_ALIGNOF: _semantic_pb2.UnaryExprTrait
+UNARY_EXPR_TRAIT_OTHER: _semantic_pb2.UnaryExprTrait
+CONSTANT_EXPR_RESULT_UNSPECIFIED: _semantic_pb2.ConstantExprResult
+CONSTANT_EXPR_RESULT_SUCCEEDED: _semantic_pb2.ConstantExprResult
+CONSTANT_EXPR_RESULT_FAILED: _semantic_pb2.ConstantExprResult
+CONSTANT_EXPR_RESULT_SIDE_EFFECTS: _semantic_pb2.ConstantExprResult
+CONSTANT_EXPR_RESULT_NOT_EVALUATED: _semantic_pb2.ConstantExprResult
+SOURCE_LOC_EXPR_KIND_UNSPECIFIED: _semantic_pb2.SourceLocExprKind
+SOURCE_LOC_EXPR_KIND_LINE: _semantic_pb2.SourceLocExprKind
+SOURCE_LOC_EXPR_KIND_COLUMN: _semantic_pb2.SourceLocExprKind
+SOURCE_LOC_EXPR_KIND_FILE: _semantic_pb2.SourceLocExprKind
+SOURCE_LOC_EXPR_KIND_FUNCTION: _semantic_pb2.SourceLocExprKind
+PREDEFINED_IDENT_KIND_UNSPECIFIED: _semantic_pb2.PredefinedIdentKind
+PREDEFINED_IDENT_KIND_FUNC: _semantic_pb2.PredefinedIdentKind
+PREDEFINED_IDENT_KIND_FUNCTION: _semantic_pb2.PredefinedIdentKind
+PREDEFINED_IDENT_KIND_PRETTY_FUNCTION: _semantic_pb2.PredefinedIdentKind
+PREDEFINED_IDENT_KIND_OTHER: _semantic_pb2.PredefinedIdentKind
+ARRAY_TYPE_TRAIT_UNSPECIFIED: _semantic_pb2.ArrayTypeTrait
+ARRAY_TYPE_TRAIT_COUNT: _semantic_pb2.ArrayTypeTrait
+EXPRESSION_TRAIT_UNSPECIFIED: _semantic_pb2.ExpressionTrait
+EXPRESSION_TRAIT_IS_LVALUE: _semantic_pb2.ExpressionTrait
+EXPRESSION_TRAIT_IS_XVALUE: _semantic_pb2.ExpressionTrait
+EXPRESSION_TRAIT_IS_PRVALUE: _semantic_pb2.ExpressionTrait
+EXPRESSION_TRAIT_OTHER: _semantic_pb2.ExpressionTrait
+ATOMIC_OPCODE_UNSPECIFIED: _semantic_pb2.AtomicOpcode
+ATOMIC_OPCODE_LOAD: _semantic_pb2.AtomicOpcode
+ATOMIC_OPCODE_STORE: _semantic_pb2.AtomicOpcode
+ATOMIC_OPCODE_EXCHANGE: _semantic_pb2.AtomicOpcode
+ATOMIC_OPCODE_COMPARE_EXCHANGE: _semantic_pb2.AtomicOpcode
+ATOMIC_OPCODE_FETCH: _semantic_pb2.AtomicOpcode
+ATOMIC_OPCODE_OTHER: _semantic_pb2.AtomicOpcode
+TYPE_TRAIT_UNSPECIFIED: _semantic_pb2.TypeTrait
+TYPE_TRAIT_OTHER: _semantic_pb2.TypeTrait
+ARRAY_SIZE_MODIFIER_UNSPECIFIED: _semantic_pb2.ArraySizeModifier
+ARRAY_SIZE_MODIFIER_NORMAL: _semantic_pb2.ArraySizeModifier
+ARRAY_SIZE_MODIFIER_STATIC: _semantic_pb2.ArraySizeModifier
+ARRAY_SIZE_MODIFIER_STAR: _semantic_pb2.ArraySizeModifier
+TYPE_OF_KIND_UNSPECIFIED: _semantic_pb2.TypeOfKind
+TYPE_OF_KIND_QUALIFIED: _semantic_pb2.TypeOfKind
+TYPE_OF_KIND_UNQUALIFIED: _semantic_pb2.TypeOfKind
+AUTO_KEYWORD_UNSPECIFIED: _semantic_pb2.AutoKeyword
+AUTO_KEYWORD_AUTO: _semantic_pb2.AutoKeyword
+AUTO_KEYWORD_DECLTYPE_AUTO: _semantic_pb2.AutoKeyword
+AUTO_KEYWORD_GNU_AUTO_TYPE: _semantic_pb2.AutoKeyword
+VECTOR_KIND_UNSPECIFIED: _semantic_pb2.VectorKind
+VECTOR_KIND_GENERIC: _semantic_pb2.VectorKind
+VECTOR_KIND_ALTIVEC_VECTOR: _semantic_pb2.VectorKind
+VECTOR_KIND_ALTIVEC_PIXEL: _semantic_pb2.VectorKind
+VECTOR_KIND_ALTIVEC_BOOL: _semantic_pb2.VectorKind
+VECTOR_KIND_NEON: _semantic_pb2.VectorKind
+VECTOR_KIND_NEON_POLY: _semantic_pb2.VectorKind
+VECTOR_KIND_SVE_FIXED_DATA: _semantic_pb2.VectorKind
+VECTOR_KIND_SVE_FIXED_PREDICATE: _semantic_pb2.VectorKind
+VECTOR_KIND_RVV_FIXED_DATA: _semantic_pb2.VectorKind
+VECTOR_KIND_RVV_FIXED_MASK: _semantic_pb2.VectorKind
+VECTOR_KIND_RVV_FIXED_MASK_1: _semantic_pb2.VectorKind
+VECTOR_KIND_RVV_FIXED_MASK_2: _semantic_pb2.VectorKind
+VECTOR_KIND_RVV_FIXED_MASK_4: _semantic_pb2.VectorKind
+ATTRIBUTED_TYPE_KIND_UNSPECIFIED: _semantic_pb2.AttributedTypeKind
+ATTRIBUTED_TYPE_KIND_ADDRESS_SPACE: _semantic_pb2.AttributedTypeKind
+ATTRIBUTED_TYPE_KIND_NULLABILITY: _semantic_pb2.AttributedTypeKind
+ATTRIBUTED_TYPE_KIND_CALLING_CONVENTION: _semantic_pb2.AttributedTypeKind
+ATTRIBUTED_TYPE_KIND_VECTOR: _semantic_pb2.AttributedTypeKind
+ATTRIBUTED_TYPE_KIND_FIXED_POINT: _semantic_pb2.AttributedTypeKind
+ATTRIBUTED_TYPE_KIND_CPP_EXTENSION: _semantic_pb2.AttributedTypeKind
+PREDEFINED_TYPE_KIND_UNSPECIFIED: _semantic_pb2.PredefinedTypeKind
+PREDEFINED_TYPE_KIND_SIZE_T: _semantic_pb2.PredefinedTypeKind
+PREDEFINED_TYPE_KIND_SIGNED_SIZE_T: _semantic_pb2.PredefinedTypeKind
+PREDEFINED_TYPE_KIND_PTRDIFF_T: _semantic_pb2.PredefinedTypeKind
+DYNAMIC_COUNT_KIND_UNSPECIFIED: _semantic_pb2.DynamicCountKind
+DYNAMIC_COUNT_KIND_COUNTED_BY: _semantic_pb2.DynamicCountKind
+DYNAMIC_COUNT_KIND_SIZED_BY: _semantic_pb2.DynamicCountKind
+DYNAMIC_COUNT_KIND_COUNTED_BY_OR_NULL: _semantic_pb2.DynamicCountKind
+DYNAMIC_COUNT_KIND_SIZED_BY_OR_NULL: _semantic_pb2.DynamicCountKind
+UNARY_TRANSFORM_KIND_UNSPECIFIED: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_ADD_LVALUE_REFERENCE: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_ADD_POINTER: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_ADD_RVALUE_REFERENCE: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_DECAY: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_MAKE_SIGNED: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_MAKE_UNSIGNED: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_ALL_EXTENTS: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_CONST: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_CV: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_CV_REF: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_EXTENT: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_POINTER: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_REFERENCE: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_RESTRICT: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_REMOVE_VOLATILE: _semantic_pb2.UnaryTransformKind
+UNARY_TRANSFORM_KIND_ENUM_UNDERLYING_TYPE: _semantic_pb2.UnaryTransformKind
+BUILTIN_KIND_UNSPECIFIED: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_EXTENDED: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_VOID: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_BOOL: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_CHAR_U: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_UCHAR: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_CHAR16: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_CHAR32: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_USHORT: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_UINT: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_ULONG: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_ULONGLONG: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_UINT128: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_CHAR_S: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_SCHAR: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_SHORT: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_INT: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_LONG: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_LONGLONG: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_INT128: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_HALF: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_FLOAT: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_DOUBLE: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_LONGDOUBLE: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_FLOAT128: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_NULLPTR: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_OVERLOAD: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_DEPENDENT: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_FLOAT16: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_BFLOAT16: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_CHAR8: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_WCHAR_U: _semantic_pb2.BuiltinKind
+BUILTIN_KIND_WCHAR_S: _semantic_pb2.BuiltinKind
+FUNCTION_CALLING_CONVENTION_UNSPECIFIED: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_C: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_X86_STDCALL: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_X86_FASTCALL: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_X86_THISCALL: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_X86_VECTORCALL: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_WIN64: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_X86_64_SYSV: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_X86_REGCALL: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_AAPCS: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_AAPCS_VFP: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_SWIFT: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_SWIFT_ASYNC: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_PRESERVE_MOST: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_PRESERVE_ALL: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_AARCH64_VECTOR: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_AARCH64_SVE: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_PRESERVE_NONE: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_RISCV_VECTOR: _semantic_pb2.FunctionCallingConvention
+FUNCTION_CALLING_CONVENTION_TARGET_EXTENSION: _semantic_pb2.FunctionCallingConvention
+EXCEPTION_SPECIFICATION_UNSPECIFIED: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_NONE: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_DYNAMIC: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_COMPUTED_NOEXCEPT: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_NO_THROW: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_MS_ANY: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_MS_BASIC_NOEXCEPT: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_OTHER: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_DYNAMIC_NONE: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_DEPENDENT_NOEXCEPT: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_NOEXCEPT_FALSE: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_NOEXCEPT_TRUE: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_UNPARSED: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_UNINSTANTIATED: _semantic_pb2.ExceptionSpecification
+EXCEPTION_SPECIFICATION_UNEVALUATED: _semantic_pb2.ExceptionSpecification

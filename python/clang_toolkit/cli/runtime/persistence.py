@@ -14,6 +14,7 @@ import yaml
 
 from .filesystem import Directory, File, FileSystemEntry
 from .values import MatchSet, MatcherExpr, QualifiedName
+from clang_toolkit.match_values import BindingSelection, MatchValue, ParsedTree
 
 
 class PersistenceError(ValueError):
@@ -25,6 +26,10 @@ _TYPES = {"str", "bool", "int", "float"}
 
 
 def _encode(value: Any) -> dict[str, Any]:
+    if isinstance(value, MatchValue):
+        return {"type": "match_snapshot", "value": [_encode(row.to_dict()) for row in value.rows]}
+    if isinstance(value, ParsedTree | BindingSelection):
+        raise PersistenceError("native trees and binding selections cannot be saved")
     if value is None:
         return {"type": "null", "value": None}
     if isinstance(value, bool):

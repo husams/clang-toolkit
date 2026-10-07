@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package ctk.ast.v1;
+
+// Semantic flags and qualifiers; no object handles or source metadata.
+
+enum FieldState {
+  FIELD_STATE_UNSPECIFIED = 0;
+  FIELD_STATE_PRESENT = 1;
+  FIELD_STATE_SEMANTICALLY_ABSENT = 2;
+  FIELD_STATE_UNREQUESTED = 3;
+  FIELD_STATE_INAPPLICABLE = 4;
+  FIELD_STATE_UNAVAILABLE = 5;
+  FIELD_STATE_TRUNCATED = 6;
+}
+
+enum AccessSpecifier {
+  ACCESS_SPECIFIER_UNSPECIFIED = 0;
+  ACCESS_SPECIFIER_NONE = 1;
+  ACCESS_SPECIFIER_PUBLIC = 2;
+  ACCESS_SPECIFIER_PROTECTED = 3;
+  ACCESS_SPECIFIER_PRIVATE = 4;
+}
+
+enum ValueCategory {
+  VALUE_CATEGORY_UNSPECIFIED = 0;
+  VALUE_CATEGORY_PRVALUE = 1;
+  VALUE_CATEGORY_LVALUE = 2;
+  VALUE_CATEGORY_XVALUE = 3;
+}
+
+enum ObjectKind {
+  OBJECT_KIND_UNSPECIFIED = 0;
+  OBJECT_KIND_ORDINARY = 1;
+  OBJECT_KIND_BIT_FIELD = 2;
+  OBJECT_KIND_VECTOR_COMPONENT = 3;
+  OBJECT_KIND_MATRIX_COMPONENT = 4;
+}
+
+enum RefQualifier {
+  REF_QUALIFIER_UNSPECIFIED = 0;
+  REF_QUALIFIER_NONE = 1;
+  REF_QUALIFIER_LVALUE = 2;
+  REF_QUALIFIER_RVALUE = 3;
+}
+
+enum StorageClass {
+  STORAGE_CLASS_UNSPECIFIED = 0;
+  STORAGE_CLASS_NONE = 1;
+  STORAGE_CLASS_EXTERN = 2;
+  STORAGE_CLASS_STATIC = 3;
+  STORAGE_CLASS_PRIVATE_EXTERN = 4;
+  STORAGE_CLASS_AUTO = 5;
+  STORAGE_CLASS_REGISTER = 6;
+}
+
+enum ConstructionKind {
+  CONSTRUCTION_KIND_UNSPECIFIED = 0;
+  CONSTRUCTION_KIND_COMPLETE_OBJECT = 1;
+  CONSTRUCTION_KIND_NONVIRTUAL_BASE = 2;
+  CONSTRUCTION_KIND_VIRTUAL_BASE = 3;
+  CONSTRUCTION_KIND_DELEGATING = 4;
+}
+
+enum TagKind {
+  TAG_KIND_UNSPECIFIED = 0;
+  TAG_KIND_STRUCT = 1;
+  TAG_KIND_UNION = 2;
+  TAG_KIND_CLASS = 3;
+  TAG_KIND_ENUM = 4;
+  TAG_KIND_INTERFACE = 5;
+}
+
+message Empty {
+}
+
+message AddressSpace {
+  oneof value {
+    Empty default_space = 1;
+    uint32 target_space = 2;
+    string language_space = 3;
+  }
+}
+
+message Qualifiers {
+  optional bool is_const = 1;
+  optional bool is_volatile = 2;
+  optional bool is_restrict = 3;
+  optional bool is_unaligned = 4;
+  AddressSpace address_space = 5;
+}
+
+message FieldAvailability {
+  reserved 1;
+  reserved "node";
+  optional string field_path = 2;
+  optional FieldState state = 3;
+  optional string reason = 4;
+}

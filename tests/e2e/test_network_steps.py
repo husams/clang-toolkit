@@ -17,10 +17,110 @@ import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from clang_toolkit.client import AsyncClient, QueryError
+from clang_toolkit.cursors import CursorError
+from clang_toolkit.analysis_error import AnalysisError
 
 pytestmark = pytest.mark.e2e
 scenarios("network.feature")
 
+
+
+@given("a C++ file controlled by a client compilation profile", target_fixture="profile_source")
+def client_profile_source(tmp_path: Path) -> Path:
+    directory = tmp_path / "client-profile"
+    directory.mkdir()
+    path = directory / "profile.cc"
+    path.write_text(
+        "#if CLIENT_PROFILE\nint profile_function(){return 7;}\n"
+        "#else\nint default_function(){return 9;}\n#endif\n",
+        encoding="utf-8",
+    )
+    return path
+
+@when("I run native parse blocks through the SDKs and real console without a default file", target_fixture="profile_results")
+def native_client_profile(server: RunningServer, profile_source: Path, tmp_path: Path):
+    import json
+    import sys
+    from clang_toolkit import Client
+
+    source = '''let analysis = in parse "profile.cc" {
+        let functions = match functionDecl(hasName("profile_function")).bind("f");
+        yield functions;
+    }; emit analysis;'''
+    options = {"working_directory": profile_source.parent,
+               "compile_arguments": ["-std=c++23", "-DCLIENT_PROFILE=1"]}
+    with Client(config_path=server.config) as client:
+        synchronous = client.run_script(source, **options)
+
+    async def run():
+        async with AsyncClient(config_path=server.config) as client:
+            return await client.run_script(source, **options)
+
+    asynchronous = asyncio.run(run())
+    (profile_source.parent / ".clang_tools.yaml").write_text(
+        "extra_args: ['-std=c++23', '-DCLIENT_PROFILE=1']\n", encoding="utf-8")
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "-c", str(server.config)],
+        input=f'script {json.dumps(source)}\nprint "PROFILE_COMPLETE"\nquit\n',
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        cwd=profile_source.parent,
+        env=dict(os.environ, XDG_STATE_HOME=str(tmp_path / "profile-state")),
+        timeout=30, check=False,
+    )
+    assert console.returncode == 0, console.stdout
+    return synchronous, asynchronous, console.stdout
+
+@then("the client working directory and compiler flags select the profile function")
+def native_client_profile_matches(profile_results):
+    synchronous, asynchronous, console = profile_results
+    for response in (synchronous, asynchronous):
+        assert len(response.emissions) == 1
+        rows = response.emissions[0].value.matches.rows
+        assert len(rows) == 1 and rows[0].bindings["f"].node.HasField("function_decl")
+    assert "PROFILE_COMPLETE" in console and "profile_function" in console
+    assert "error:" not in console and "syntax error" not in console
+
+@given("a C++ file containing a cursor workflow", target_fixture="cursor_source")
+def cursor_source(tmp_path: Path) -> Path:
+    path = tmp_path / "cursor.cc"
+    path.write_text("int target(int x){return x;} int f(){return target(7);}", encoding="utf-8")
+    return path
+
+@when("I continue, restart and close the matching cursor", target_fixture="cursor_result")
+def cursor_workflow(server: RunningServer, cursor_source: Path):
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            first = await client.match_file(cursor_source, 'functionDecl(hasName("f")).bind("f")')
+            assert first.result_revision == 1 and len(first.results) == 1
+            with pytest.raises(CursorError) as invalid:
+                await client.restart_match(first.session_id, "invalidMatcher()", expected_result_revision=1)
+            assert invalid.value.code == grpc.StatusCode.INVALID_ARGUMENT
+            continuation = await client.continue_match(first.session_id, "f", 'callExpr().bind("call")',
+                                                       match_index=0, expected_result_revision=1)
+            assert continuation.result_revision == 2 and len(continuation.results) == 1
+            assert continuation.results[0].HasField("source_match_index")
+            assert continuation.results[0].source_match_index == 0
+            assert continuation.results[0].bindings["call"].node.HasField("call_expr")
+            with pytest.raises(CursorError) as stale:
+                await client.restart_match(first.session_id, "callExpr()", expected_result_revision=1)
+            assert stale.value.code == grpc.StatusCode.ABORTED
+            restarted = await client.restart_match(first.session_id, 'integerLiteral().bind("n")',
+                                                   expected_result_revision=2)
+            assert restarted.result_revision == 3
+            assert restarted.results[0].bindings["n"].node.integer_literal.value.unsigned_decimal == "7"
+            await client.close_match(first.session_id)
+            await client.close_match(first.session_id)
+            with pytest.raises(CursorError) as closed:
+                await client.restart_match(first.session_id, "callExpr()")
+            assert closed.value.code == grpc.StatusCode.NOT_FOUND
+            return first, continuation, restarted
+    return asyncio.run(run())
+
+@then("the cursor preserved its bindings on failure and advanced only successful revisions")
+def verify_cursor_workflow(cursor_result):
+    first, continued, restarted = cursor_result
+    assert first.session_id == continued.session_id == restarted.session_id
+    assert [first.result_revision, continued.result_revision, restarted.result_revision] == [1, 2, 3]
 
 @dataclass
 class RunningServer:
@@ -28,8 +128,8 @@ class RunningServer:
     endpoint: str
     config: Path
 
-
-def _launch_server(transport: str, tmp_path: Path, request, *, max_files: int = 100) -> RunningServer:
+def _launch_server(transport: str, tmp_path: Path, request, *, max_files: int = 100,
+                   max_send_bytes: int | None = None) -> RunningServer:
     root = Path(__file__).parents[2]
     executable = Path(os.environ.get("CTK_SERVER", root / "build/dev/server/ctk-server"))
     if not executable.is_file():
@@ -71,6 +171,8 @@ def _launch_server(transport: str, tmp_path: Path, request, *, max_files: int = 
         endpoint = f"127.0.0.1:{port}"
         content = f"network:\n  transport: tcp\n  tcp:\n    host: 127.0.0.1\n    port: {port}\n"
     content += f"session:\n  max_files: {max_files}\n"
+    if max_send_bytes is not None:
+        content += f"server:\n  grpc:\n    max_send_message_bytes: {max_send_bytes}\n"
     config.write_text(content, encoding="utf-8")
     env = dict(os.environ, HOME=str(home))
     env.pop("CLANG_TOOLKIT_HOME", None)
@@ -99,23 +201,42 @@ def _launch_server(transport: str, tmp_path: Path, request, *, max_files: int = 
         pytest.fail(f"ctk-server did not become ready: {output}")
     return RunningServer(process, endpoint, config)
 
-
 @given(parsers.parse("a query server using {transport}"), target_fixture="server")
 def start_server(transport: str, tmp_path: Path, request) -> RunningServer:
     return _launch_server(transport, tmp_path, request)
-
 
 @given("a query server with a one-file limit", target_fixture="server")
 def start_limited_server(tmp_path: Path, request) -> RunningServer:
     return _launch_server("unix", tmp_path, request, max_files=1)
 
+@given("a cursor server with a 128-byte response limit", target_fixture="server")
+def start_cursor_byte_limited_server(tmp_path: Path, request) -> RunningServer:
+    return _launch_server("unix", tmp_path, request, max_send_bytes=128)
+
+@when("I request an oversized cursor replacement", target_fixture="cursor_limited_result")
+def oversized_cursor_replacement(server: RunningServer, cursor_source: Path):
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            first = await client.match_file(cursor_source, 'functionDecl(hasName("f"))')
+            with pytest.raises(CursorError) as rejected:
+                await client.restart_match(first.session_id, 'functionDecl().bind("f")',
+                                           expected_result_revision=1)
+            assert rejected.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+            preserved = await client.restart_match(first.session_id, 'functionDecl(hasName("f"))',
+                                                   expected_result_revision=1)
+            await client.close_match(first.session_id)
+            return preserved
+    return asyncio.run(run())
+
+@then("the oversized response leaves revision one available for replacement")
+def cursor_wire_limit_preserves_revision(cursor_limited_result):
+    assert cursor_limited_result.result_revision == 2
 
 @given("a C++ file containing a declaration", target_fixture="source")
 def create_cpp_source(tmp_path: Path) -> Path:
     source = tmp_path / "query.cpp"
     source.write_text("int network_client_marker = 1;\n", encoding="utf-8")
     return source
-
 
 @when("I run the declaration query", target_fixture="events")
 def run_declaration_query(server: RunningServer, source: Path):
@@ -127,7 +248,6 @@ def run_declaration_query(server: RunningServer, source: Path):
             )
     return asyncio.run(run())
 
-
 @then("the stream contains a match and successful completion")
 def has_match_and_completion(events) -> None:
     kinds = [event.WhichOneof("event") for event in events]
@@ -135,7 +255,6 @@ def has_match_and_completion(events) -> None:
     assert kinds[-1] == "completed"
     completed = next(event.completed for event in events if event.WhichOneof("event") == "completed")
     assert completed.match_count >= 1
-
 
 @when("I run the query through a bidirectional session", target_fixture="session_events")
 def run_bidi_query(server: RunningServer, source: Path):
@@ -151,13 +270,11 @@ def run_bidi_query(server: RunningServer, source: Path):
             return events
     return asyncio.run(run())
 
-
 @then("the session stream contains a match and completion")
 def has_session_match_and_completion(session_events) -> None:
     kinds = [event.WhichOneof("event") for event in session_events]
     assert "match" in kinds
     assert "completed" in kinds
-
 
 @when("I define two queries in one bidirectional session", target_fixture="rejection")
 def define_two_queries(server: RunningServer):
@@ -173,12 +290,10 @@ def define_two_queries(server: RunningServer):
             return events
     return asyncio.run(run())
 
-
 @then("the session reports a command rejection")
 def has_command_rejection(rejection) -> None:
     assert any(event.WhichOneof("event") == "rejected" for event in rejection)
     assert any(event.WhichOneof("event") == "completed" for event in rejection)
-
 
 @when("I cancel an active bidirectional session", target_fixture="cancellation")
 def cancel_bidi_session(server: RunningServer):
@@ -196,12 +311,10 @@ def cancel_bidi_session(server: RunningServer):
                 await session.aclose()
     return asyncio.run(run())
 
-
 @then("the session reports cancellation")
 def has_cancellation(cancellation) -> None:
     assert isinstance(cancellation, QueryError)
     assert "CANCELLED" in str(cancellation)
-
 
 @when("I match the first file and add a second file", target_fixture="limited_events")
 def run_limited_batch(server: RunningServer, source: Path, tmp_path: Path):
@@ -222,7 +335,6 @@ def run_limited_batch(server: RunningServer, source: Path, tmp_path: Path):
             await session.aclose()
             return events, match_request_id, rejected_request_id
     return asyncio.run(run())
-
 
 @then("the second batch is rejected while the first file completes")
 def checks_limited_batch(limited_events, source: Path) -> None:
@@ -247,7 +359,6 @@ def checks_limited_batch(limited_events, source: Path) -> None:
     assert "paused" in actions
     assert "resumed" in actions
 
-
 @then("the declaration contains a complete typed initializer and exact type")
 def has_typed_semantic_declaration(events) -> None:
     match = next(event.match for event in events if event.WhichOneof("event") == "match")
@@ -262,3 +373,238 @@ def has_typed_semantic_declaration(events) -> None:
     assert variable.initializer.is_complete
     assert variable.initializer.integer_literal.value.unsigned_decimal == "1"
     assert variable.initializer.integer_literal.info.type.type.builtin_type.info.spelling == "int"
+
+@given("a C++ file containing multiple expression roots", target_fixture="expression_source")
+def expression_source(tmp_path: Path) -> Path:
+    path = tmp_path / "expressions.cc"
+    path.write_text(
+        "int target(int x){return x;}\n"
+        "int one(){return target(7);}\n"
+        "int two(){return target(9);}\n", encoding="utf-8",
+    )
+    return path
+
+@when("I parse and match independent tree and binding values", target_fixture="expression_values")
+def immutable_expression_values(server: RunningServer, expression_source: Path):
+    from clang_toolkit.match_values import MatchValueError
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            tree = await client.parse(expression_source)
+            functions = await client.match_in(
+                'functionDecl(anyOf(hasName("one"),hasName("two"))).bind("f")', tree,
+            )
+            assert len(functions) == 2
+            calls = await client.match_in('callExpr().bind("call")', functions.binding("f"))
+            repeated = await client.match_in('callExpr().bind("call")', functions.binding("f"))
+            first = await client.match_in('callExpr().bind("call")', functions[0].binding("f"))
+            assert len(calls) == len(repeated) == 2 and len(first) == 1
+            assert [row.source_match_index for row in calls] == [0, 1]
+            tree.close()
+            literals = await client.match_in('integerLiteral().bind("n")', calls.binding("call"))
+            assert [row.bindings["n"].node.integer_literal.value.unsigned_decimal
+                    for row in literals] == ["7", "9"]
+            fresh = await client.match_in('integerLiteral().bind("n")', expression_source)
+            empty = await client.match_in('functionDecl(hasName("absent")).bind("f")', expression_source)
+            assert len(await client.match_in('callExpr().bind("call")', empty.binding("f"))) == 0
+            with pytest.raises(MatchValueError):
+                functions[2]
+            with pytest.raises(MatchValueError):
+                functions.binding("missing")
+            with pytest.raises(CursorError) as invalid:
+                await client.match_in('invalidMatcher()', functions.binding("f"))
+            assert invalid.value.code == grpc.StatusCode.INVALID_ARGUMENT
+            after_error = await client.match_in('callExpr().bind("call")', functions.binding("f"))
+            calls.close()
+            # A child owns its native tree even after its parent is closed.
+            child = await client.match_in('integerLiteral().bind("n")', literals.binding("n"))
+            return len(functions), len(after_error), len(fresh), len(child)
+
+    return asyncio.run(run())
+
+@then("every result remains selectable after continuations and tree release")
+def expression_values_preserved(expression_values):
+    assert expression_values == (2, 2, 2, 2)
+
+@when("I run the approved scoped expressions in the interactive runtime", target_fixture="console_expressions")
+def scoped_console_expression_values(server: RunningServer, expression_source: Path, tmp_path: Path):
+    import json
+    from clang_toolkit.client import Client
+    from clang_toolkit.cli.runtime import Runtime
+
+    with Client(server.endpoint) as client:
+        runtime = Runtime(client, cwd=tmp_path, environment={})
+        try:
+            path = json.dumps(str(expression_source))
+            runtime.execute(f'let tree = parse {path};')
+            runtime.execute('let functions = match functionDecl(isDefinition()).bind("f") in $tree;')
+            runtime.execute('let calls = match callExpr().bind("call") in $functions.f;')
+            runtime.execute('let first = match callExpr().bind("call") in $functions[1].f;')
+            runtime.execute(f'let literals = match integerLiteral().bind("n") in {path};')
+            runtime.execute(f'''let analysis = in parse {path} {{
+                let functions = match functionDecl(isDefinition()).bind("f");
+                let local_calls = match callExpr().bind("call") in $functions.f;
+                yield local_calls;
+            }};''')
+            assert "local_calls" not in runtime.bindings
+            assert len(runtime.bindings["functions"]) == 3
+            runtime.execute('let yielded = match integerLiteral().bind("n") in $analysis.call;')
+            retained = runtime.bindings["analysis"]
+            with pytest.raises(Exception):
+                runtime.execute(f'''let analysis = in parse {path} {{
+                    let broken = match invalidMatcher();
+                    yield broken;
+                }};''')
+            assert runtime.bindings["analysis"] is retained
+            runtime.execute('let repeated = match callExpr().bind("call") in $functions.f;')
+            return tuple(len(runtime.bindings[name]) for name in
+                         ("calls", "first", "literals", "analysis", "yielded", "repeated"))
+        finally:
+            runtime.close()
+
+@then("the yielded value survives lexical cleanup and failed assignments")
+def console_values_preserved(console_expressions):
+    assert console_expressions == (2, 1, 2, 2, 2, 2)
+
+@when("I evaluate scoped parse and match expressions in the native script", target_fixture="native_expressions")
+def native_scoped_expression_values(server: RunningServer, expression_source: Path):
+    import json
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            path = json.dumps(str(expression_source))
+            source = f'''let tree = parse {path};
+                let functions = match functionDecl(isDefinition()).bind("f") in $tree;
+                let calls = match callExpr().bind("call") in $functions.f;
+                let repeated = match callExpr().bind("call") in $functions.f;
+                let first = match callExpr().bind("call") in $functions[1].f;
+                let analysis = in parse {path} {{
+                    let functions = match functionDecl(isDefinition()).bind("f");
+                    let inner = match callExpr().bind("call") in $functions.f;
+                    yield inner;
+                }};
+                let yielded = match integerLiteral().bind("n") in $analysis.call;
+                let empty = match functionDecl(hasName("absent")).bind("f") in $tree;
+                let still_empty = match callExpr().bind("call") in $empty.f;
+                emit functions; emit calls; emit repeated; emit first; emit yielded; emit still_empty;'''
+            result = await client.run_script(source, max_steps=1000)
+            with pytest.raises(AnalysisError) as invalid:
+                await client.run_script(f'''let analysis = in parse {path} {{
+                    let broken = match invalidMatcher(); yield broken;
+                }}; emit analysis;''')
+            assert invalid.value.code == grpc.StatusCode.INVALID_ARGUMENT
+            return result
+
+    return asyncio.run(run())
+
+@then("native continuation uses all rows and keeps yielded results usable")
+def native_script_values_preserved(native_expressions):
+    assert [len(item.value.matches.rows) for item in native_expressions.emissions] == [3, 2, 2, 1, 2, 0]
+    assert [row.bindings["n"].node.integer_literal.value.unsigned_decimal
+            for row in native_expressions.emissions[4].value.matches.rows] == ["7", "9"]
+
+@when("I enter parse and match expressions through the real console", target_fixture="real_console_output")
+def real_expression_console(server: RunningServer, expression_source: Path, tmp_path: Path):
+    import json
+    import sys
+
+    path = json.dumps(str(expression_source))
+    commands = f'''let tree = parse {path};
+let functions = match functionDecl(isDefinition()).bind("f") in $tree;
+let calls = match callExpr().bind("call") in $functions.f;
+let analysis = in parse {path} {{
+let functions = match functionDecl(isDefinition()).bind("f");
+let calls = match callExpr().bind("call") in $functions.f;
+yield calls;
+}};
+let numbers = match integerLiteral().bind("n") in $analysis.call;
+print $numbers
+print "CONSOLE_COMPLETE"
+quit
+'''
+    env = dict(os.environ, XDG_STATE_HOME=str(tmp_path / "console-state"))
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "-c", str(server.config)],
+        input=commands, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=tmp_path, env=env,
+        timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stdout
+    return result.stdout
+
+@then("the console prints both yielded literals and exits cleanly")
+def real_console_completed(real_console_output):
+    assert "CONSOLE_COMPLETE" in real_console_output
+    assert "unsigned_decimal" in real_console_output
+    assert "syntax error" not in real_console_output
+    assert "error:" not in real_console_output
+    assert "'7'" in real_console_output or '"7"' in real_console_output
+    assert "'9'" in real_console_output or '"9"' in real_console_output
+
+@when("I use configured synchronous and asynchronous result contexts", target_fixture="context_values")
+def configured_result_contexts(server: RunningServer, expression_source: Path, tmp_path: Path, monkeypatch):
+    from clang_toolkit import Client
+    from clang_toolkit.match_values import MatchValueError
+
+    config_dir = tmp_path / "client-project"
+    config_dir.mkdir()
+    (config_dir / ".clang-toolkit.yaml").write_text(server.config.read_text(), encoding="utf-8")
+    monkeypatch.chdir(config_dir)
+    monkeypatch.setenv("HOME", str(tmp_path / "client-home"))
+    query = 'functionDecl(isDefinition()).bind("f")'
+
+    with Client() as client:
+        with client.match(query, file=expression_source) as functions:
+            alias = functions
+            with functions.binding("f").match('callExpr().bind("call")') as calls:
+                sync_calls = len(calls)
+                child = calls.binding("call").match('integerLiteral().bind("n")')
+            with pytest.raises(MatchValueError):
+                calls.binding("call").match('integerLiteral().bind("n")')
+        with pytest.raises(MatchValueError):
+            alias.binding("f").match('callExpr().bind("call")')
+        with child:
+            sync_numbers = [row.bindings["n"].node.integer_literal.value.unsigned_decimal for row in child]
+        child.close()
+        with pytest.raises(RuntimeError, match="context body"):
+            with client.parse(expression_source) as tree:
+                raise RuntimeError("context body")
+        with pytest.raises(MatchValueError):
+            tree.match(query)
+
+    async def run():
+        async with AsyncClient(config_path=server.config) as client:
+            async with await client.match(query, file=expression_source) as functions:
+                async with await functions.binding("f").match('callExpr().bind("call")') as calls:
+                    async_calls = len(calls)
+                    child = await calls.binding("call").match('integerLiteral().bind("n")')
+            async with child:
+                async_numbers = [row.bindings["n"].node.integer_literal.value.unsigned_decimal for row in child]
+            await child.aclose()
+            with pytest.raises(MatchValueError):
+                await functions.binding("f").match('callExpr().bind("call")')
+            return async_calls, async_numbers
+
+    return (sync_calls, sync_numbers), asyncio.run(run())
+
+@then("context cleanup preserves children and invalidates closed aliases")
+def result_contexts_preserved(context_values):
+    assert context_values == ((2, ["7", "9"]), (2, ["7", "9"]))
+
+@when("I parse with a configured 16-byte receive limit", target_fixture="configured_receive_error")
+def configured_receive_limit(server: RunningServer, expression_source: Path, tmp_path: Path, monkeypatch):
+    selected = tmp_path / "limited-client.yaml"
+    selected.write_text(server.config.read_text() + "client:\n  grpc:\n    max_receive_message_bytes: 16\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path / "client-home"))
+
+    async def run():
+        async with AsyncClient(config_path=selected) as client:
+            with pytest.raises(CursorError) as rejected:
+                await client.parse(expression_source)
+            return rejected.value.code
+
+    return asyncio.run(run())
+
+@then("the configured client rejects the oversized response")
+def configured_response_rejected(configured_receive_error):
+    assert configured_receive_error == grpc.StatusCode.RESOURCE_EXHAUSTED

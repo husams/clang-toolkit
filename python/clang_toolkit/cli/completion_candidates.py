@@ -12,6 +12,16 @@ from clang_toolkit.cli.completion_cursor import CursorContext
 from clang_toolkit.cli.language import parser
 
 _REGEX_LITERALS = {
+    "PARSE": "parse",
+    "YIELD": "yield",
+    "CURSOR": "cursor",
+    "OPEN": "open",
+    "CONTINUE": "continue",
+    "RESTART": "restart",
+    "ROW": "row",
+    "CURSOR_SCOPE": "scope",
+    "REVISION": "revision",
+    "CLOSE": "close",
     "BIND": ".bind",
     "CALLGRAPH": "callgraph",
     "CFG": "cfg",
@@ -52,7 +62,7 @@ _REGEX_LITERALS = {
     "MODE": "mode",
     "REPLACE": "replace",
 }
-_NO_VALUE_TERMINALS = {"STRING", "OPEN_STRING", "NUMBER", "DOLLAR"}
+_NO_VALUE_TERMINALS = {"STRING", "OPEN_STRING", "NUMBER", "DOLLAR", "SEMICOLON"}
 _PUNCTUATION = {"(", ")", "]", "}", ",", "."}
 
 

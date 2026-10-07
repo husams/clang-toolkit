@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "ctk/cache/snapshot.hpp"
 #include "match/v1/match_result.pb.h"
 
 namespace ctk::clang_layer {
@@ -53,6 +54,11 @@ public:
   virtual QueryResult match(const FileInput &file, const std::string &query,
                             const Checkpoint &checkpoint,
                             const MatchCallback &on_match) = 0;
+  // Clang-free ownership for cursor execution. Existing injected query engines
+  // need not implement retained matching.
+  virtual ctk::cache::SnapshotPtr acquire_snapshot(const FileInput &) {
+    return {};
+  }
 };
 
 std::shared_ptr<IQueryEngine> make_query_engine();

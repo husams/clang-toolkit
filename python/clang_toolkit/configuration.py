@@ -7,8 +7,10 @@ import ipaddress
 import os
 import re
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import yaml
@@ -30,6 +32,8 @@ class NetworkConfig:
     queue_size: int
     max_files: int
     max_memory_bytes: int
+    provenance: Mapping[str, str] = field(default_factory=dict)
+    effective_values: Mapping[str, Any] = field(default_factory=dict)
 
 
 _DEFAULTS: dict[str, Any] = {
@@ -62,13 +66,18 @@ class _UniqueKeyLoader(yaml.SafeLoader):
 
 def _mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode) -> dict[Any, Any]:
     result: dict[Any, Any] = {}
+    prefix = getattr(loader, "_key_path", ())
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=True)
         if not isinstance(key, str):
             raise ConfigurationError("configuration mapping keys must be strings")
         if key in result:
-            raise ConfigurationError(f"duplicate YAML key: {key}")
-        result[key] = loader.construct_object(value_node, deep=True)
+            raise ConfigurationError(f"duplicate YAML key: {'.'.join((*prefix, key))}")
+        loader._key_path = (*prefix, key)
+        try:
+            result[key] = loader.construct_object(value_node, deep=True)
+        finally:
+            loader._key_path = prefix
     return result
 
 
@@ -80,7 +89,8 @@ _UniqueKeyLoader.add_constructor(
 def _decimal_integer(loader: _UniqueKeyLoader, node: yaml.ScalarNode) -> int:
     value = loader.construct_scalar(node)
     if re.fullmatch(r"-?[0-9]+", value) is None:
-        raise ConfigurationError("configuration integers must use base-10 notation")
+        path = ".".join(getattr(loader, "_key_path", ()))
+        raise ConfigurationError(f"{path or 'configuration'}: configuration integers must use base-10 notation")
     return int(value, 10)
 
 
@@ -138,8 +148,11 @@ def _load_file(path: Path) -> dict[str, Any]:
         raise ConfigurationError(f"cannot load {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise ConfigurationError(f"{path}: top-level YAML value must be a mapping")
-    _validate_keys(value)
-    _validate_supplied_values(value)
+    try:
+        _validate_keys(value)
+        _validate_supplied_values(value)
+    except ConfigurationError as exc:
+        raise ConfigurationError(f"{path}: {exc}") from exc
     return value
 
 
@@ -267,9 +280,11 @@ def load_network_config(
     else:
         host, port = tcp.get("host"), tcp.get("port")
         if not isinstance(host, str) or not host.strip():
-            raise ConfigurationError("network.tcp.host is required for TCP")
+            source = origins.get("network.transport", "<defaults>")
+            raise ConfigurationError(f"{source}: network.tcp.host is required for TCP")
         if type(port) is not int or not 1 <= port <= 65535:
-            raise ConfigurationError("network.tcp.port must be an integer from 1 to 65535")
+            source = origins.get("network.tcp.port", origins.get("network.transport", "<defaults>"))
+            raise ConfigurationError(f"{source}: network.tcp.port must be an integer from 1 to 65535")
         host = host.strip()
         unwrapped = host[1:-1] if host.startswith("[") and host.endswith("]") else host
         if unwrapped != "localhost":
@@ -298,7 +313,7 @@ def load_network_config(
         if value is not None:
             if type(value) is not int or (value != -1 and value <= 0):
                 raise ConfigurationError(f"client.grpc.{option} must be null, -1, or a positive integer")
-            client_options.append((f"grpc.{option}", value))
+            client_options.append((f"grpc.{option.removesuffix('_bytes')}_length", value))
     timeout_ms = config["client"]["rpc_timeout_ms"]
     if timeout_ms is not None and (type(timeout_ms) is not int or timeout_ms <= 0):
         raise ConfigurationError("client.rpc_timeout_ms must be a positive integer or null")
@@ -312,10 +327,24 @@ def load_network_config(
     grace = config["server"]["shutdown_grace_ms"]
     if grace is not None and (type(grace) is not int or grace < 0):
         raise ConfigurationError("server.shutdown_grace_ms must be a nonnegative integer or null")
+    effective = _flatten(config)
     return NetworkConfig(
         target, transport, tuple(client_options),
-        tuple((f"grpc.{key}", value) for key, value in config["server"]["grpc"].items() if value is not None),
+        tuple((f"grpc.{key.removesuffix('_bytes')}_length", value) for key, value in config["server"]["grpc"].items() if value is not None),
         None if timeout_ms is None else timeout_ms / 1000,
         None if grace is None else grace / 1000,
         pool_size, queue_size, max_files, max_memory,
+        MappingProxyType({key: str(origins.get(key, "<defaults>")) for key in effective}),
+        MappingProxyType(effective),
     )
+
+
+def _flatten(value: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    flattened: dict[str, Any] = {}
+    for key, child in value.items():
+        dotted = f"{prefix}.{key}" if prefix else key
+        if isinstance(child, dict):
+            flattened.update(_flatten(child, dotted))
+        else:
+            flattened[dotted] = child
+    return flattened

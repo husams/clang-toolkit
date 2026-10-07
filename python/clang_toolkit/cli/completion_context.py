@@ -10,6 +10,8 @@ from lark.exceptions import UnexpectedInput
 from clang_toolkit.cli.language import parser
 
 _KEYWORD_TYPES = {
+    "PARSE",
+    "YIELD",
     "LET",
     "MATCH",
     "CFG",

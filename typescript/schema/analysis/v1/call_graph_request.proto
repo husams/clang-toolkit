@@ -1,0 +1,10 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "match/v1/match_service.proto";
+message CallGraphRequest {
+  ctk.match.v1.FileMatchTarget file = 1;
+  optional bool visit_implicit_code = 2; // Native default: true.
+  optional bool visit_template_instantiations = 3; // Native default: true.
+  optional uint64 max_nodes = 4; // Default 10000; hard maximum 100000, including root.
+  optional uint64 max_edges = 5; // Default 100000; hard maximum 1000000, including root edges.
+}

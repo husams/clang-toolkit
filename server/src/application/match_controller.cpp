@@ -1,0 +1,234 @@
+#include "ctk/application/match_controller.hpp"
+#include "cursor_registry.hpp"
+#include "file_target_validation.hpp"
+#include "query_executor.hpp"
+#include <algorithm>
+#include <future>
+
+namespace ctk::application {
+using ctk::clang_layer::MatchCode;
+using namespace ctk::match::v1;
+namespace {
+MatchReply failure(MatchCode code, std::string message) {
+  return {code, std::move(message), {}};
+}
+std::string invalid_request(const ParseRequest &request) {
+  FileMatchTarget file;
+  file.set_file_path(request.file_path());
+  file.set_working_directory(request.working_directory());
+  file.mutable_compile_arguments()->CopyFrom(request.compile_arguments());
+  return detail::invalid_file_target(file);
+}
+std::string invalid_request(const MatchRequest &request) {
+  if (request.query().empty())
+    return "query must not be empty";
+  if (!MatchTraversalMode_IsValid(request.traversal_mode()))
+    return "invalid traversal mode";
+  if (request.target_case() == MatchRequest::TARGET_NOT_SET)
+    return "one target is required";
+  if (request.has_file()) {
+    return detail::invalid_file_target(request.file());
+  } else {
+    const auto &id = request.has_session() ? request.session().session_id()
+                                           : request.binding().session_id();
+    if (!detail::CursorRegistry::valid_id(id))
+      return "session_id must be a canonical UUIDv4";
+    if (request.has_session() &&
+        request.session().has_expected_result_revision() &&
+        request.session().expected_result_revision() == 0)
+      return "revision must be positive";
+    if (request.has_binding()) {
+      const auto &binding = request.binding();
+      if (binding.bind().empty())
+        return "bind must not be empty";
+      if (!BindingMatchScope_IsValid(binding.scope()))
+        return "invalid binding scope";
+      if (binding.has_expected_result_revision() &&
+          binding.expected_result_revision() == 0)
+        return "revision must be positive";
+    }
+  }
+  return {};
+}
+} // namespace
+
+struct MatchController::Impl {
+  CursorSettings settings;
+  std::shared_ptr<ctk::clang_layer::IMatchBackend> backend;
+  detail::CursorRegistry registry;
+  std::shared_ptr<OperationExecutor> executor;
+  Impl(CursorSettings config,
+       std::shared_ptr<ctk::clang_layer::IMatchBackend> native,
+       std::shared_ptr<OperationExecutor> work)
+      : settings(config), backend(std::move(native)), registry(config),
+        executor(work ? std::move(work)
+                      : make_operation_executor(config.workers,
+                                                config.pending_requests)) {}
+  MatchReply
+  run_parse(const std::string &owner, const ParseRequest &request,
+            const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+    if (!backend)
+      return failure(MatchCode::FailedPrecondition,
+                     "Clang analysis is disabled");
+    registry.find(owner, "");
+    auto cursor = std::make_shared<detail::ResultCursor>();
+    cursor->owner = owner;
+    std::lock_guard operation(cursor->operation);
+    auto result = backend->parse(request, checkpoint, settings.results);
+    if (result.code != MatchCode::Ok)
+      return failure(result.code, result.message);
+    if (!result.rows.empty())
+      return failure(MatchCode::Internal, "parse returned match rows");
+    return registry.commit(cursor, std::move(result), checkpoint, true);
+  }
+  MatchReply
+  run(const std::string &owner, const MatchRequest &request,
+      const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+    if (!backend)
+      return failure(MatchCode::FailedPrecondition,
+                     "Clang analysis is disabled");
+    std::shared_ptr<detail::ResultCursor> cursor;
+    if (request.has_file()) {
+      // Prune expired cursors before a fresh publication.
+      registry.find(owner, "");
+      cursor = std::make_shared<detail::ResultCursor>();
+      cursor->owner = owner;
+    } else {
+      cursor = registry.find(owner, request.has_session()
+                                        ? request.session().session_id()
+                                        : request.binding().session_id());
+      if (!cursor)
+        return failure(MatchCode::NotFound, "cursor unavailable");
+    }
+    std::lock_guard operation(cursor->operation);
+    if (!request.has_file()) {
+      if (cursor->closed ||
+          cursor->deadline <= std::chrono::steady_clock::now())
+        return failure(MatchCode::NotFound, "cursor expired or closed");
+      const bool guard = request.has_session()
+                             ? request.session().has_expected_result_revision()
+                             : request.binding().has_expected_result_revision();
+      const auto revision = request.has_session()
+                                ? request.session().expected_result_revision()
+                                : request.binding().expected_result_revision();
+      if (guard && revision != cursor->response.result_revision())
+        return failure(MatchCode::Aborted, "cursor result revision changed");
+      if (request.has_binding()) {
+        const auto &target = request.binding();
+        bool selected = false;
+        const auto scope = target.scope() == BINDING_MATCH_SCOPE_UNSPECIFIED
+                               ? BINDING_MATCH_SCOPE_SUBTREE
+                               : target.scope();
+        for (int i = 0; i < cursor->response.results_size(); ++i) {
+          if (target.has_match_index() &&
+              target.match_index() != static_cast<std::uint64_t>(i))
+            continue;
+          const auto &bindings = cursor->response.results(i).bindings();
+          const auto found = bindings.find(target.bind());
+          if (found == bindings.end())
+            continue;
+          selected = true;
+          const auto &scopes = found->second.supported_scopes();
+          if (std::find(scopes.begin(), scopes.end(), scope) == scopes.end())
+            return failure(MatchCode::FailedPrecondition,
+                           "binding does not support requested scope");
+        }
+        if (!selected &&
+            !(request.preserve_source() && cursor->response.results().empty() &&
+              !target.has_match_index()))
+          return failure(MatchCode::NotFound, "binding or row unavailable");
+      }
+    }
+    auto result =
+        backend->execute(request, cursor->state, checkpoint, settings.results);
+    if (result.code != MatchCode::Ok)
+      return failure(result.code, result.message);
+    if (!request.has_file() && request.preserve_source()) {
+      auto fork = std::make_shared<detail::ResultCursor>();
+      fork->owner = owner;
+      std::lock_guard fork_operation(fork->operation);
+      return registry.commit(fork, std::move(result), checkpoint, true);
+    }
+    return registry.commit(cursor, std::move(result), checkpoint,
+                           request.has_file());
+  }
+};
+
+MatchController::MatchController(
+    CursorSettings settings,
+    std::shared_ptr<ctk::clang_layer::IMatchBackend> backend,
+    std::shared_ptr<OperationExecutor> executor) {
+  if (settings.max_cursors == 0 || settings.max_memory_bytes == 0 ||
+      settings.idle_ttl.count() <= 0 || settings.results.max_rows == 0 ||
+      settings.results.max_bytes == 0)
+    throw std::invalid_argument("cursor limits and TTL must be positive");
+#ifdef CTK_WITH_CLANG
+  if (!backend)
+    backend = ctk::clang_layer::make_match_backend();
+#endif
+  impl_ =
+      std::make_unique<Impl>(settings, std::move(backend), std::move(executor));
+}
+MatchController::~MatchController() = default;
+ParseReply MatchController::parse(
+    const std::string &owner, const ParseRequest &request,
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+  const auto invalid = invalid_request(request);
+  if (owner.empty() || !invalid.empty())
+    return {MatchCode::InvalidArgument,
+            owner.empty() ? "caller owner is required" : invalid,
+            {}};
+  auto promise = std::make_shared<std::promise<MatchReply>>();
+  auto future = promise->get_future();
+  if (!impl_->executor->enqueue([this, promise, owner, request, checkpoint] {
+        try {
+          promise->set_value(impl_->run_parse(owner, request, checkpoint));
+        } catch (const std::exception &error) {
+          promise->set_value(failure(MatchCode::Internal, error.what()));
+        } catch (...) {
+          promise->set_value(
+              failure(MatchCode::Internal, "native parsing failed"));
+        }
+      }))
+    return {MatchCode::ResourceExhausted,
+            "match executor queue is full or stopped",
+            {}};
+  auto result = future.get();
+  ParseReply reply{result.code, std::move(result.message), {}};
+  if (result.code == MatchCode::Ok) {
+    reply.response.set_session_id(result.response.session_id());
+    reply.response.set_result_revision(result.response.result_revision());
+    reply.response.mutable_expires_at()->Swap(
+        result.response.mutable_expires_at());
+  }
+  return reply;
+}
+MatchReply MatchController::match(
+    const std::string &owner, const MatchRequest &request,
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+  const auto invalid = invalid_request(request);
+  if (owner.empty() || !invalid.empty())
+    return failure(MatchCode::InvalidArgument,
+                   owner.empty() ? "caller owner is required" : invalid);
+  auto promise = std::make_shared<std::promise<MatchReply>>();
+  auto future = promise->get_future();
+  if (!impl_->executor->enqueue([this, promise, owner, request, checkpoint] {
+        try {
+          promise->set_value(impl_->run(owner, request, checkpoint));
+        } catch (const std::exception &error) {
+          promise->set_value(failure(MatchCode::Internal, error.what()));
+        } catch (...) {
+          promise->set_value(
+              failure(MatchCode::Internal, "native matching failed"));
+        }
+      }))
+    return failure(MatchCode::ResourceExhausted,
+                   "match executor queue is full or stopped");
+  return future.get();
+}
+MatchReply MatchController::close(const std::string &owner,
+                                  const std::string &id) {
+  return impl_->registry.close(owner, id);
+}
+void MatchController::stop_admission() { impl_->executor->stop_admission(); }
+} // namespace ctk::application

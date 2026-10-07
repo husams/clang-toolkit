@@ -2,6 +2,11 @@
 
 This is the versioned interface directory for clang-toolkit, shared by the server, interactive CLI, Python API and one-shot CLI. The initial operations remain `open_project`, `match` (AST matchers), `traverse`, `cfg`, `callgraph`, `run_script` and `cache_stats`. The server transport is gRPC over a Unix domain socket locally and TLS remotely. The definitions below use package `ctk.ast.v1`; this migration changes only the unreleased draft package and build integration.
 
+`ctk.match.v1.MatchService` now implements retained file queries, guarded
+whole-tree restarts, binding continuations and idempotent `CloseSession`; see
+[result cursor semantics](../docs/result-cursors.md). Its existing v1 field
+numbers and typed matcher-result contract are preserved.
+
 The contract returns directly usable names, qualified names, types, signatures, constants, operators, arguments, initializers, bodies, members and constraints. Opaque node IDs, lookup tables, snapshot handles, source locations and TypeLoc contracts have been removed. This replaces the unreleased graph draft and is incompatible with that draft's changed field types.
 
 | File | Contents |
@@ -55,3 +60,19 @@ Generated bindings and descriptors stay in `build/dev/api/generated`; assembled 
 `node_tags.json` owns protobuf payload field tags, not AST object identifiers. Surviving tags remain fixed; removed TypeLoc names/numbers are reserved. Regenerate or check the generated union with `uv run python api/generate_nodes.py` and `uv run python api/generate_nodes.py --check`.
 
 See the [design Page](https://chatgpt.com/space/page_4b91284d97d88191a4fe1463e732cc17) and [catalog Page](https://chatgpt.com/space/page_9ad19ee5b3bc8191a754557451c0e565) for the reviewed design and node inventory. Update both alongside intentional contract changes.
+
+Server query composition: see [server scripting](../docs/server-scripting.md).
+
+Parsed-tree and immutable result expressions: `MatchService.Parse` acquires a
+zero-row tree cursor; `MatchRequest.preserve_source` creates independent results
+from retained trees or bindings. See [syntax and ownership](../docs/parse-match-expressions.md),
+the existing [Python API](../python/clang_toolkit/client.py), and the packaged
+[TypeScript SDK](../typescript/README.md). Existing cursor replacement defaults
+and streaming query commands retain their behavior.
+
+`AnalysisService.RunScript` accepts an independent `ScriptCompilationProfile`
+(`ScriptRequest.profile = 4`) for explicit parse/file expressions. SDKs populate
+the caller's working directory and compiler flags without requiring a default
+file. Omitting this additive field preserves the legacy file-profile behavior.
+Python generation includes `.pyi` message stubs so nested semantic values keep
+their concrete types in installed SDK consumers.

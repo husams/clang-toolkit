@@ -1,0 +1,9 @@
+syntax = "proto3";
+package ctk.match.v1;
+
+// Same file/profile validation as FileMatchTarget; no matcher is required.
+message ParseRequest {
+  string file_path = 1;
+  repeated string compile_arguments = 2;
+  string working_directory = 3;
+}

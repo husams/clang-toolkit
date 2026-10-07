@@ -1,0 +1,5 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+import "match/v1/match_result.proto";
+message ScriptMatchRows { repeated ctk.match.v1.MatchResult rows = 1; }

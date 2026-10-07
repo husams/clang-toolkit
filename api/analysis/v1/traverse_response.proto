@@ -1,0 +1,10 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+import "analysis/v1/traversal_node.proto";
+
+message TraverseResponse {
+  repeated TraversalNode nodes = 1;
+  // True when descendants were deliberately pruned by max_depth.
+  bool depth_limited = 2;
+}

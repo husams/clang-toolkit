@@ -1,0 +1,15 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "ast/v1/semantic_types.proto";
+import "ast/v1/common.proto";
+import "analysis/v1/cfg_block.proto";
+
+message CfgGraph {
+  ctk.ast.v1.DeclarationSymbol function = 1;
+  uint64 entry_block = 2;
+  uint64 exit_block = 3;
+  repeated CfgBlock blocks = 4; // Ordered by block_index.
+  bool is_linear = 5;
+  optional bool is_complete = 6;
+  repeated ctk.ast.v1.FieldAvailability availability = 7;
+}
