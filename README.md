@@ -38,10 +38,12 @@ RHEL repositories or use the supplied Rocky Linux 9 container for all dependenci
 
 Like facts-tool, SQLite is built from the pinned 3.53.4 amalgamation and linked
 statically on every platform; Clang/LLVM and other system libraries retain their
-normal linkage. Its verified upstream archive is included in `third_party/sqlite/`,
-so SQLite does not require a network download. The RHEL script checks that `ldd`
-reports no shared SQLite dependency. Other dependency downloads are cached under
-`.deps/`. `SQLITE_SOURCE_DIR=/path/to/amalgamation`
+normal linkage. Verified upstream archives for SQLite, ANTLR's C++ runtime, and
+GoogleTest are included in `third_party/`; native CMake builds do not download
+dependencies. Initial system/Python dependency installation still needs repository
+access. The RHEL script checks that `ldd` reports no shared SQLite dependency.
+Extracted native dependencies are cached under `.deps/`.
+`SQLITE_SOURCE_DIR=/path/to/amalgamation`
 selects a local SQLite source directory. Direct CMake builds accept the equivalent
 `-DCTK_SQLITE_SOURCE_DIR=/path/to/amalgamation`; `-DCTK_SYSTEM_SQLITE=ON` requires
 an installed static SQLite archive of version 3.35 or later and rejects shared libraries.
@@ -56,7 +58,9 @@ INSTALL=1 INSTALL_PREFIX=/usr/local ./scripts/build-rhel9.sh
 ```
 
 Container validation uses the same script through
-[packaging/rhel9.Containerfile](packaging/rhel9.Containerfile).
+[packaging/rhel9.Containerfile](packaging/rhel9.Containerfile). The image installs
+Python dependencies during creation, so a fresh native build and all tests run with
+`podman run --rm --network=none ctk-rhel9` after building the image.
 The build discovers Homebrew LLVM on macOS and system LLVM on RHEL; use
 `-DCTK_LLVM_ROOT=/path/to/llvm` to select another installation.
 
