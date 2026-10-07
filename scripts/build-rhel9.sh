@@ -35,8 +35,24 @@ fi
 if [[ "${SKIP_DEPS:-0}" != 1 ]]; then
   "${privilege[@]}" dnf -y install dnf-plugins-core
   if [[ "$ID" == rhel ]]; then
-    "${privilege[@]}" subscription-manager repos \
-      --enable "codeready-builder-for-rhel-9-$(arch)-rpms"
+    # UBI containers and RHUI hosts already configure repositories and may not
+    # provide subscription-manager. Preserve RHSM management on registered hosts.
+    builder_repo="$("${privilege[@]}" dnf -q repolist --all | awk '
+      $1 == "ubi-9-codeready-builder-rpms" ||
+      ($1 ~ /^codeready-builder-for-rhel-9-/ && $1 ~ /-rpms$/ &&
+       $1 !~ /-(debug|source)-rpms$/) { if (!repo) repo = $1 }
+      END { print repo }
+    ')"
+    if [[ "$builder_repo" == ubi-* || "$builder_repo" == *rhui* ]]; then
+      "${privilege[@]}" dnf config-manager --set-enabled "$builder_repo"
+    elif command -v subscription-manager >/dev/null; then
+      "${privilege[@]}" subscription-manager repos \
+        --enable "codeready-builder-for-rhel-9-$(arch)-rpms"
+    elif [[ -n "$builder_repo" ]]; then
+      "${privilege[@]}" dnf config-manager --set-enabled "$builder_repo"
+    else
+      printf 'No CodeReady Builder repository configured; using existing repositories.\n'
+    fi
   else
     "${privilege[@]}" dnf config-manager --set-enabled crb
   fi
@@ -52,7 +68,8 @@ if [[ "${SKIP_DEPS:-0}" != 1 ]]; then
     gcc-toolset-15-gcc-c++ gcc-toolset-15-libstdc++-devel \
     grpc-devel protobuf-devel protobuf-compiler libyaml-devel openssl-devel \
     zlib-devel libzstd-devel libxml2-devel ncurses-devel libffi-devel python3 \
-    "${curl_package[@]}"
+    "${curl_package[@]}" \
+    || fail 'Dependency installation failed; full RHEL 9 AppStream/CodeReady repositories are required. UBI repositories alone lack some packages; alternatively use packaging/rhel9.Containerfile.'
 fi
 
 export PATH="$HOME/.local/bin:$PATH"

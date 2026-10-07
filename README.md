@@ -30,6 +30,12 @@ build the native server and Python environment, and run all tests with:
 ./scripts/build-rhel9.sh
 ```
 
+RHEL containers and RHUI hosts enable their configured CodeReady Builder repository
+with DNF; registered RHEL hosts retain `subscription-manager`. When that command
+is absent, the script uses the configured builder or existing custom repositories.
+UBI's repository subset lacks `protobuf-devel` and `protobuf-compiler`; enable full
+RHEL repositories or use the supplied Rocky Linux 9 container for all dependencies.
+
 Like facts-tool, SQLite is built from the pinned 3.53.4 amalgamation and linked
 statically on every platform; Clang/LLVM and other system libraries retain their
 normal linkage. The RHEL script checks that `ldd` reports no shared SQLite dependency.
