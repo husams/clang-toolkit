@@ -121,7 +121,13 @@ MatchReply CursorRegistry::commit(
   next.mutable_expires_at()->set_nanos(nanos % 1000000000);
   if (next.ByteSizeLong() > settings_.results.max_bytes)
     return failure(MatchCode::ResourceExhausted,
-                   "complete match response exceeds byte limit");
+                   "complete match response exceeds byte limit (limit " +
+                       std::to_string(settings_.results.max_bytes) +
+                       " bytes, response " +
+                       std::to_string(next.ByteSizeLong()) +
+                       " bytes); increase server.grpc.max_send_message_bytes "
+                       "and client.grpc.max_receive_message_bytes; "
+                       "no cursor state committed");
   Entry candidate{cursor, execution.state->snapshot(),
                   next.ByteSizeLong() + execution.state->retained_bytes() +
                       sizeof(ResultCursor)};

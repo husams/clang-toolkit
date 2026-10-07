@@ -103,6 +103,20 @@ for (const transport of ["unix", "tcp"] as const) {
       });
     }
 
+    it("receives broad matches larger than four MiB with default channel limits", async () => {
+      const source = resolve(directory, "large.cc");
+      await writeFile(
+        source,
+        Array.from({ length: 3000 }, (_, index) =>
+          `void function_${index}_${"x".repeat(1000)}();`,
+        ).join("\n"),
+      );
+      await using connected = client();
+      await using tree = await connected.parse(source);
+      await using rows = await connected.match('functionDecl().bind("x")', tree);
+      expect(rows.length).toBe(3000);
+    }, 20_000);
+
     it("connects from shared discovery and an optional config path without an address", async () => {
       await using configured = await Client.connect({
         configPath,

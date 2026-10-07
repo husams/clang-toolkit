@@ -22,8 +22,8 @@ struct Settings {
   int queue_size{100};
   int max_files{100};
   std::int64_t max_memory_bytes{2147483648};
-  GrpcSettings server_grpc;
-  GrpcSettings client_grpc;
+  GrpcSettings server_grpc{std::nullopt, 64 * 1024 * 1024};
+  GrpcSettings client_grpc{64 * 1024 * 1024, std::nullopt};
   std::optional<std::int64_t> rpc_timeout_ms;
   std::optional<std::int64_t> shutdown_grace_ms;
   // Flattened merged scalar values, including defaults and explicit nulls.

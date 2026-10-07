@@ -223,6 +223,41 @@ TEST_F(MatchCursors, ForkResultLimitsLeaveSourceSelectable) {
   EXPECT_EQ(fork(root).code, MatchCode::Ok);
 }
 
+TEST_F(MatchCursors, ByteLimitReportsBudgetAndPreservesParsedTree) {
+  CursorSettings settings;
+  settings.results.max_bytes = 128;
+  reset(settings);
+  const auto parsed =
+      controller->parse("owner", parse_request(), [] { return true; });
+  ASSERT_EQ(parsed.code, MatchCode::Ok) << parsed.message;
+  const auto tree = tree_response(parsed.response);
+  const auto rejected = fork(session(tree, "functionDecl().bind(\"f\")"));
+  ASSERT_EQ(rejected.code, MatchCode::ResourceExhausted);
+  EXPECT_NE(rejected.message.find("limit 128 bytes"), std::string::npos);
+  EXPECT_NE(rejected.message.find("next row"), std::string::npos);
+  EXPECT_NE(rejected.message.find("server.grpc.max_send_message_bytes"),
+            std::string::npos);
+  EXPECT_NE(rejected.message.find("no cursor state committed"),
+            std::string::npos);
+  EXPECT_EQ(fork(session(tree, "functionDecl()")).code, MatchCode::Ok);
+}
+
+TEST_F(MatchCursors, DefaultBudgetAcceptsResponseLargerThanFourMiB) {
+  std::ofstream source(directory.path() / "fixture.cc");
+  for (int index = 0; index < 3000; ++index)
+    source << "void function_" << index << "_" << std::string(1000, 'x')
+           << "();\n";
+  source.close();
+  const auto parsed =
+      controller->parse("owner", parse_request(), [] { return true; });
+  ASSERT_EQ(parsed.code, MatchCode::Ok) << parsed.message;
+  const auto result = fork(
+      session(tree_response(parsed.response), "functionDecl().bind(\"x\")"));
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  EXPECT_EQ(result.response.results_size(), 3000);
+  EXPECT_GT(result.response.ByteSizeLong(), 4U * 1024 * 1024);
+}
+
 TEST_F(MatchCursors, ConcurrentForksAcceptSameSourceRevisionIndependently) {
   const auto source = run(file("callExpr()"));
   ASSERT_EQ(source.code, MatchCode::Ok) << source.message;

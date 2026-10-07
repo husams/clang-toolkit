@@ -65,11 +65,11 @@ network:
     port: 50051
 client:
   grpc:
-    max_receive_message_bytes: 4194304
+    max_receive_message_bytes: 67108864
   rpc_timeout_ms: 20000
 ```
 
-`client.configuration` exposes immutable `effectiveValues`, `provenance`, and the loaded `files`. Leaf keys are dotted YAML keys; integer values use `bigint` to preserve signed 64-bit limits, and provenance is the absolute winning file or `<defaults>`. Socket values remain raw in `effectiveValues`; `target` contains the resolved address. There is no default RPC deadline or configured gRPC message limit. Explicit `channelOptions` and `timeoutMs` override YAML settings; `timeoutMs: null` clears a configured deadline. `connectTimeoutMs` controls only connection readiness and defaults to 30 seconds.
+`client.configuration` exposes immutable `effectiveValues`, `provenance`, and the loaded `files`. Leaf keys are dotted YAML keys; integer values use `bigint` to preserve signed 64-bit limits, and provenance is the absolute winning file or `<defaults>`. Socket values remain raw in `effectiveValues`; `target` contains the resolved address. Server send and client receive limits default to 64 MiB; there is no default RPC deadline. Raise both limits together for larger responses, as described in [network configuration](../docs/network.md). Explicit `channelOptions` and `timeoutMs` override YAML settings; `timeoutMs: null` clears a configured deadline. `connectTimeoutMs` controls only connection readiness and defaults to 30 seconds.
 
 `parse()` acquires a native tree without running a matcher. Paths are server-side paths, relative to the explicit `workingDirectory` or the Node process's current directory. Compilation flags are ordered and remain attached to a retained tree. Every retained-target match creates an independent result cursor with a revision guard; previous trees and rows stay selectable, and closing the source does not close its forks.
 

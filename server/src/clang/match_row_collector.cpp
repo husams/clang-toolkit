@@ -12,7 +12,9 @@ void RowCollector::run(const MatchFinder::MatchResult &found) {
     return;
   if (result_.rows.size() >= limits_.max_rows) {
     result_.code = MatchCode::ResourceExhausted;
-    result_.message = "match row limit exceeded; no cursor state committed";
+    result_.message = "match row limit exceeded (limit " +
+                      std::to_string(limits_.max_rows) +
+                      " rows); no cursor state committed";
     return;
   }
   MatchResult row;
@@ -35,7 +37,11 @@ void RowCollector::run(const MatchFinder::MatchResult &found) {
   if (size > limits_.max_bytes - bytes_) {
     result_.code = MatchCode::ResourceExhausted;
     result_.message =
-        "match response limit exceeded; no cursor state committed";
+        "match response byte limit exceeded (limit " +
+        std::to_string(limits_.max_bytes) + " bytes, collected " +
+        std::to_string(bytes_) + " bytes, next row " + std::to_string(size) +
+        " bytes); increase server.grpc.max_send_message_bytes and "
+        "client.grpc.max_receive_message_bytes; no cursor state committed";
     return;
   }
   bytes_ += size;

@@ -19,7 +19,8 @@ def test_default_endpoint_and_application_limits(tmp_path):
     assert config.transport == "unix"
     assert (config.pool_size, config.queue_size) == (3, 100)
     assert (config.max_files, config.max_memory_bytes) == (100, 2_147_483_648)
-    assert config.client_options == ()
+    assert config.client_options == (("grpc.max_receive_message_length", 67_108_864),)
+    assert config.server_options == (("grpc.max_send_message_length", 67_108_864),)
 
 
 def test_configuration_layers_merge_and_hidden_file_wins(tmp_path):
@@ -136,7 +137,7 @@ def test_shared_network_configuration_conformance(tmp_path, case):
 
 def test_provenance_effective_values_are_read_only_and_defaults_are_explicit(tmp_path):
     config = load_network_config(cwd=tmp_path, home=tmp_path / "home", system_dir=tmp_path / "etc")
-    assert len(config.effective_values) == len(config.provenance) == 9
+    assert len(config.effective_values) == len(config.provenance) == 11
     assert set(config.provenance.values()) == {"<defaults>"}
     assert "network.tcp.host" not in config.effective_values
     assert "client.grpc.max_send_message_bytes" not in config.effective_values

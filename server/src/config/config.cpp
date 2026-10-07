@@ -527,10 +527,10 @@ public:
     }
     auto fill_grpc = [](const Node *section, GrpcSettings &output) {
       if (const Node *grpc = section ? child(*section, "grpc") : nullptr) {
-        output.max_receive_message_bytes =
-            optional_int(child(*grpc, "max_receive_message_bytes"));
-        output.max_send_message_bytes =
-            optional_int(child(*grpc, "max_send_message_bytes"));
+        if (const Node *value = child(*grpc, "max_receive_message_bytes"))
+          output.max_receive_message_bytes = optional_int(value);
+        if (const Node *value = child(*grpc, "max_send_message_bytes"))
+          output.max_send_message_bytes = optional_int(value);
       }
     };
     const Node *server = child(root, "server");
@@ -549,6 +549,8 @@ public:
         {"queue.size", std::int64_t{100}},
         {"session.max_files", std::int64_t{100}},
         {"session.max_memory_bytes", std::int64_t{2147483648}},
+        {"server.grpc.max_send_message_bytes", std::int64_t{67108864}},
+        {"client.grpc.max_receive_message_bytes", std::int64_t{67108864}},
         {"server.shutdown_grace_ms", std::monostate{}},
         {"client.rpc_timeout_ms", std::monostate{}}};
     for (const auto &[key, value] : settings.effective_values) {

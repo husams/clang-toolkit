@@ -381,6 +381,58 @@ def start_cursor_byte_limited_server(tmp_path: Path, request) -> RunningServer:
     return _launch_server("unix", tmp_path, request, max_send_bytes=128)
 
 
+@given("a cursor server with a 16-MiB response limit", target_fixture="server")
+def start_large_cursor_server(tmp_path: Path, request) -> RunningServer:
+    return _launch_server("unix", tmp_path, request, max_send_bytes=16 * 1024 * 1024)
+
+
+@given("a C++ file with a large function declaration result", target_fixture="large_source")
+def large_source(tmp_path: Path) -> Path:
+    source = tmp_path / "large.cc"
+    source.write_text("void marker();\n" + "\n".join(
+        f"void function_{index}_" + "x" * 1000 + "();" for index in range(3000)))
+    return source
+
+
+@when("I match the large result through both SDKs and the console", target_fixture="large_result")
+def match_large_result(server: RunningServer, large_source: Path):
+    import sys
+    from clang_toolkit import Client
+
+    with Client(server.endpoint) as client:
+        with client.parse(large_source) as tree:
+            with client.match_in('functionDecl().bind("x")', tree) as rows:
+                assert len(rows) == 3001
+        response = client.match_file(large_source, 'functionDecl().bind("x")')
+        assert response.ByteSize() > 4 * 1024 * 1024
+        assert len(response.results) == 3001
+        client.close_match(response.session_id)
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            async with await client.parse(large_source) as tree:
+                async with await client.match_in('functionDecl().bind("x")', tree) as rows:
+                    assert len(rows) == 3001
+    asyncio.run(run())
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+        input=f'let tree = parse "{large_source}"\nlet rows = match functionDecl().bind("x") in $tree\n'
+              'let one = match functionDecl(hasName("marker")).bind("x") in $tree\nprint $one\nquit\n',
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+        check=False,
+    )
+    return console, response.ByteSize()
+
+
+@then("every client receives all function declarations")
+def verify_large_result(large_result):
+    console, size = large_result
+    assert console.returncode == 0, console.stdout
+    assert "error:" not in console.stdout, console.stdout
+    assert "marker" in console.stdout
+    assert size > 4 * 1024 * 1024
+
+
 @when("I request an oversized cursor replacement", target_fixture="cursor_limited_result")
 def oversized_cursor_replacement(server: RunningServer, cursor_source: Path):
     async def run():
@@ -390,6 +442,8 @@ def oversized_cursor_replacement(server: RunningServer, cursor_source: Path):
                 await client.restart_match(first.session_id, 'functionDecl().bind("f")',
                                            expected_result_revision=1)
             assert rejected.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+            assert "limit 128 bytes" in str(rejected.value)
+            assert "server.grpc.max_send_message_bytes" in str(rejected.value)
             preserved = await client.restart_match(first.session_id, 'functionDecl(hasName("f"))',
                                                    expected_result_revision=1)
             await client.close_match(first.session_id)

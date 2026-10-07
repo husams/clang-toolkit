@@ -59,8 +59,7 @@ application::CursorSettings cursor_settings(const config::Settings &settings) {
   // Reject oversized responses before publishing a new cursor revision.
   if (const auto configured = settings.server_grpc.max_send_message_bytes;
       configured && *configured > 0)
-    result.results.max_bytes = std::min(result.results.max_bytes,
-                                        static_cast<std::size_t>(*configured));
+    result.results.max_bytes = static_cast<std::size_t>(*configured);
   return result;
 }
 } // namespace

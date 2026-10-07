@@ -148,6 +148,23 @@ Feature: gRPC network client
     When I request an oversized cursor replacement
     Then the oversized response leaves revision one available for replacement
 
+  Scenario Outline: Broad match exceeds four MiB using the default response budget
+    Given a query server using <transport>
+    And a C++ file with a large function declaration result
+    When I match the large result through both SDKs and the console
+    Then every client receives all function declarations
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
+  Scenario: Configured response budget can exceed the old four MiB cap
+    Given a cursor server with a 16-MiB response limit
+    And a C++ file with a large function declaration result
+    When I match the large result through both SDKs and the console
+    Then every client receives all function declarations
+
   Scenario Outline: Query over the configured local transport
     Given a query server using <transport>
     And a C++ file containing a declaration

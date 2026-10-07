@@ -63,8 +63,10 @@ operation and releases retained state.
 The bounded executor and registry enforce cursor count, estimated retained
 memory, row count and the complete serialized response size. Snapshot estimates
 are counted once per unique snapshot within this registry. Defaults are 100
-cursors, 2 GiB estimated retained memory, 100,000 rows, and slightly less than
-4 MiB per response. These cursor budgets are independent of the streaming
+cursors, 2 GiB estimated retained memory, 100,000 rows, and 64 MiB per response.
+The response budget follows a positive `server.grpc.max_send_message_bytes`;
+configure `client.grpc.max_receive_message_bytes` to receive responses of that size.
+These cursor budgets are independent of the streaming
 query controller's existing analysis-session budgets; they do not constitute
 one combined process-memory cap. Native parsing/traversal cancellation is
 cooperative, and publication has a final cancellation checkpoint.

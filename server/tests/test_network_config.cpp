@@ -67,7 +67,7 @@ TEST(NetworkConfig, MergesEveryLayerAndResolvesRelativePathFromWinningFile) {
   EXPECT_EQ(settings.endpoint, "unix://" + (cwd / ".ctk/run.sock").string());
 }
 
-TEST(NetworkConfig, DefaultsToTemporaryUnixEndpointAndKeepsGrpcUnset) {
+TEST(NetworkConfig, DefaultsToTemporaryUnixEndpointAnd64MiBResponses) {
   ConfigTree files;
   const auto cwd = files.dir("empty");
   const auto settings =
@@ -79,6 +79,8 @@ TEST(NetworkConfig, DefaultsToTemporaryUnixEndpointAndKeepsGrpcUnset) {
   EXPECT_EQ(settings.queue_size, 100);
   EXPECT_FALSE(settings.server_grpc.max_receive_message_bytes);
   EXPECT_FALSE(settings.client_grpc.max_send_message_bytes);
+  EXPECT_EQ(settings.server_grpc.max_send_message_bytes, 67108864);
+  EXPECT_EQ(settings.client_grpc.max_receive_message_bytes, 67108864);
   EXPECT_FALSE(settings.rpc_timeout_ms);
   EXPECT_FALSE(settings.shutdown_grace_ms);
 }
@@ -193,8 +195,9 @@ TEST(NetworkConfig, ExposesTypedDefaultsAndWinningValueOrigins) {
   EXPECT_TRUE(std::holds_alternative<std::monostate>(
       settings.effective_values.at("client.rpc_timeout_ms")));
   EXPECT_FALSE(settings.provenance.contains("network.tcp.host"));
-  EXPECT_FALSE(settings.effective_values.contains(
-      "client.grpc.max_receive_message_bytes"));
+  EXPECT_EQ(std::get<std::int64_t>(settings.effective_values.at(
+                "client.grpc.max_receive_message_bytes")),
+            67108864);
 }
 
 TEST(NetworkConfig, ExplicitStringsAndEmptyNullsKeepYamlScalarTypes) {

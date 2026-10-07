@@ -37,17 +37,40 @@ session:
   max_files: 100
   max_memory_bytes: 2147483648
 server:
-  grpc: {}
+  grpc:
+    max_send_message_bytes: 67108864
 client:
-  grpc: {}
+  grpc:
+    max_receive_message_bytes: 67108864
 ```
 
 The Unix default is `<platform-temporary-directory>/ctk.sock`. A relative override
 uses its supplying file's directory. TCP requires an explicit loopback host and
 port; there is no default TCP port. IPv6 targets use brackets. Missing discovered
 files are normal; explicit missing files and invalid supplied fields are errors,
-even if a higher layer would override them. Optional gRPC fields are applied only
-when configured, and null clears an inherited override.
+even if a higher layer would override them. Server send and client receive limits
+default to 64 MiB. Other gRPC fields use the library defaults unless configured;
+null clears an inherited setting, including these response defaults.
+
+The server send limit also sets the complete response budget for parse/match
+cursors and native analysis operations. Raising it raises that application budget;
+raise the client receive limit to the same value. For example, use the following
+settings with both the server and client for 128 MiB responses:
+
+```yaml
+server:
+  grpc:
+    max_send_message_bytes: 134217728
+client:
+  grpc:
+    max_receive_message_bytes: 134217728
+```
+
+A server send value of `null` or `-1` retains the finite 64 MiB application budget.
+Oversized matches report the byte budget and collected size and preserve existing
+cursor revisions. Broad matchers include declarations from headers; use
+`functionDecl(isExpansionInMainFile()).bind("x")` when only the source file's
+functions are needed.
 
 ## Python API
 

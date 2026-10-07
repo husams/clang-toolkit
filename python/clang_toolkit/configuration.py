@@ -41,9 +41,9 @@ _DEFAULTS: dict[str, Any] = {
     "network": {"transport": "unix", "unix": {"socket_path": None}, "tcp": {}},
     "pool": {"size": 3},
     "queue": {"size": 100},
-    "server": {"grpc": {}, "shutdown_grace_ms": None},
+    "server": {"grpc": {"max_send_message_bytes": 67_108_864}, "shutdown_grace_ms": None},
     "session": {"max_files": 100, "max_memory_bytes": 2_147_483_648},
-    "client": {"grpc": {}, "rpc_timeout_ms": None},
+    "client": {"grpc": {"max_receive_message_bytes": 67_108_864}, "rpc_timeout_ms": None},
 }
 _ALLOWED = {
     "": {"version", "network", "pool", "queue", "server", "session", "client"},
