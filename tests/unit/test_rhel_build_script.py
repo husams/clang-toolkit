@@ -85,3 +85,54 @@ arch() { printf 'x86_64\n'; }
     assert changes == ([] if expected is None else [expected])
     if distribution == "rhel" and expected is None:
         assert "using existing repositories" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("package", "install", "already_installed", "action"),
+    [(False, False, False, None), (True, False, False, None),
+     (False, True, False, "install"), (False, True, True, "reinstall")],
+)
+def test_rpm_package_install(
+    tmp_path: Path, package: bool, install: bool, already_installed: bool,
+    action: str | None,
+) -> None:
+    script = (Path(__file__).resolve().parents[2] / "scripts/build-rhel9.sh").read_text()
+    phase = script[script.index('if [[ "${PACKAGE:-0}" == 1'):]
+    (tmp_path / "ctk-rpm-filename.txt").write_text("server.rpm\n")
+    package_file = tmp_path / "packages/server.rpm"
+    log = tmp_path / "commands.log"
+    log.touch()
+    environment = os.environ | {
+        "PACKAGE": str(int(package)), "INSTALL": str(int(install)),
+        "RPM_INSTALLED": str(int(already_installed)),
+        "BUILD_PATH": str(tmp_path), "RPM_PATH": str(package_file),
+        "COMMAND_LOG": str(log),
+    }
+    result = subprocess.run(["bash", "-c", """
+set -euo pipefail
+build_dir="$BUILD_PATH"
+server_binary="$BUILD_PATH/ctk-server"
+privilege=(sudo)
+sudo() { "$@"; }
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+rpmbuild() { :; }
+cpack() {
+  printf 'cpack %s\n' "$*" >> "$COMMAND_LOG"
+  mkdir -p "$(dirname "$RPM_PATH")"
+  touch "$RPM_PATH"
+}
+rpm() {
+  if [[ "$1" == -qp ]]; then
+    printf 'clang-toolkit-server-0.1.0-1.el9.x86_64'
+  else
+    [[ "$RPM_INSTALLED" == 1 ]]
+  fi
+}
+dnf() { printf 'dnf %s\n' "$*" >> "$COMMAND_LOG"; }
+""" + phase], env=environment, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    commands = log.read_text().splitlines()
+    packages = [command for command in commands if command.startswith("cpack ")]
+    assert len(packages) == int(package or install)
+    transactions = [command for command in commands if command.startswith("dnf ")]
+    assert transactions == ([] if action is None else [f"dnf -y {action} {package_file}"])

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Install RHEL 9 dependencies, build clang-toolkit, and run its test suites.
 # DEPS_ONLY=1 installs host tools; SKIP_DEPS=1 reuses installed dependencies.
-# SKIP_TESTS=1 omits tests; INSTALL=1 installs the native server after validation.
+# SKIP_TESTS=1 omits tests; PACKAGE=1 builds an RPM; INSTALL=1 installs it with DNF.
 # BUILD_DIR, JOBS, INSTALL_PREFIX, and SQLITE_SOURCE_DIR override their defaults.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_dir="${BUILD_DIR:-$repo_root/build/rhel9}"
 jobs="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
-install_prefix="${INSTALL_PREFIX:-/usr/local}"
+install_prefix="${INSTALL_PREFIX:-/usr}"
 sqlite_source_dir="${SQLITE_SOURCE_DIR:-}"
 
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -64,7 +64,7 @@ if [[ "${SKIP_DEPS:-0}" != 1 ]]; then
   curl_package=()
   command -v curl >/dev/null || curl_package=(curl)
   "${privilege[@]}" dnf -y install \
-    clang clang-devel llvm-devel cmake ninja-build make git tar unzip \
+    clang clang-devel llvm-devel cmake ninja-build make git tar unzip rpm-build \
     gcc-toolset-15-gcc-c++ gcc-toolset-15-libstdc++-devel \
     grpc-devel protobuf-devel protobuf-compiler libyaml-devel openssl-devel \
     zlib-devel libzstd-devel libxml2-devel ncurses-devel libffi-devel python3 \
@@ -116,7 +116,20 @@ if [[ "${SKIP_TESTS:-0}" != 1 ]]; then
   CTK_SERVER="$server_binary" uv run --project "$repo_root" python -m pytest \
     "$repo_root/tests/e2e" -m e2e
 fi
-if [[ "${INSTALL:-0}" == 1 ]]; then
-  "${privilege[@]}" cmake --install "$build_dir" --component ctk-server
+if [[ "${PACKAGE:-0}" == 1 || "${INSTALL:-0}" == 1 ]]; then
+  command -v rpmbuild >/dev/null || fail 'rpmbuild is missing; install rpm-build or run without SKIP_DEPS'
+  package_dir="$build_dir/packages"
+  cpack --config "$build_dir/CPackConfig.cmake" -G RPM -B "$package_dir"
+  rpm_file="$package_dir/$(cat "$build_dir/ctk-rpm-filename.txt")"
+  [[ -f "$rpm_file" ]] || fail 'CPack did not produce the expected server RPM'
+  printf 'Built RPM: %s\n' "$rpm_file"
+  if [[ "${INSTALL:-0}" == 1 ]]; then
+    rpm_nevra="$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$rpm_file")"
+    if rpm -q "$rpm_nevra" >/dev/null 2>&1; then
+      "${privilege[@]}" dnf -y reinstall "$rpm_file"
+    else
+      "${privilege[@]}" dnf -y install "$rpm_file"
+    fi
+  fi
 fi
 printf 'Built clang-toolkit: %s\n' "$server_binary"

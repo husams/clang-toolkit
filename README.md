@@ -51,11 +51,19 @@ an installed static SQLite archive of version 3.35 or later and rejects shared l
 `DEPS_ONLY=1` installs host dependencies without building the project;
 `SKIP_DEPS=1` reuses installed host dependencies; `SKIP_TESTS=1` omits tests.
 `BUILD_DIR` and `JOBS` select the build directory and parallel build count.
-To install the server after building and testing:
+`PACKAGE=1` creates a `clang-toolkit-server` RPM under `build/rhel9/packages/`.
+`INSTALL=1` builds that RPM and installs it with DNF after testing; its default
+prefix is `/usr`, and RPM records the server, license notices, and runtime
+dependencies. Rebuilding an already installed package reinstalls it through DNF.
+The Python API/CLI remains in the `uv` environment created by the script.
+
+To build, test, package, and install the native server:
 
 ```sh
-INSTALL=1 INSTALL_PREFIX=/usr/local ./scripts/build-rhel9.sh
+INSTALL=1 ./scripts/build-rhel9.sh
 ```
+
+Remove the installed server with `sudo dnf remove clang-toolkit-server`.
 
 Container validation uses the same script through
 [packaging/rhel9.Containerfile](packaging/rhel9.Containerfile). The image installs

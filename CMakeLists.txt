@@ -24,3 +24,5 @@ if(CTK_BUILD_TESTS)
   enable_testing()
   add_subdirectory(server/tests)
 endif()
+
+include(cmake/Packaging.cmake)
