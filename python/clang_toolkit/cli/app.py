@@ -21,6 +21,7 @@ from clang_toolkit.cursors import CursorError
 from clang_toolkit.match_values import MatchValueError
 from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.configuration import ConfigurationError, load_network_config
+from clang_toolkit.version import client_version
 
 
 def dispatch(client: Client, line: str, runtime: Runtime | None = None) -> str | None:
@@ -63,6 +64,8 @@ async def _prompt(session, prompt: str) -> str:
 
 async def _run() -> int:
     parser = argparse.ArgumentParser(prog="ctk")
+    parser.add_argument("--version", action="version", version=client_version().format("ctk"))
+    parser.add_argument("--server-version", action="store_true", help="print the connected server version and exit")
     parser.add_argument("--compile-commands", help="server-side compile_commands.json file or directory")
     parser.add_argument("--server", help="override the configured gRPC endpoint")
     parser.add_argument("-c", "--cofing", "--config-path", dest="config_path")
@@ -80,6 +83,14 @@ async def _run() -> int:
         return 1
     if args.print_config:
         print(args.server or network_config.target)
+        return 0
+    if args.server_version:
+        try:
+            async with AsyncClient(args.server, args.config_path, network_config) as client:
+                print((await client.server_version()).format("ctk-server"))
+        except QueryError as exc:
+            print(f"error: {exc}")
+            return 1
         return 0
     if args.background and not args.query:
         parser.error("--background requires --query")

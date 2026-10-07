@@ -1,8 +1,19 @@
 #include "ctk/net/network_service.hpp"
 #include "ctk/net/query_call_state.hpp"
+#include "ctk/version.hpp"
 #include <stdexcept>
 
 namespace ctk::net {
+grpc::ServerUnaryReactor *
+NetworkServiceAdapter::GetVersion(grpc::CallbackServerContext *context,
+                                  const query::v1::VersionRequest *,
+                                  query::v1::VersionResponse *response) {
+  response->set_version(std::string(ctk::build::version));
+  response->set_revision(std::string(ctk::build::revision));
+  auto *reactor = context->DefaultReactor();
+  reactor->Finish(grpc::Status::OK);
+  return reactor;
+}
 namespace {
 class QueryStreamReactor final
     : public grpc::ServerWriteReactor<query::v1::QueryEvent> {

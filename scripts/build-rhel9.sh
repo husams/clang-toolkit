@@ -87,7 +87,7 @@ uv python install 3.14
 [[ "${DEPS_ONLY:-0}" != 1 ]] || exit 0
 
 cd "$repo_root"
-uv sync --project "$repo_root"
+uv sync --project "$repo_root" --reinstall-package clang-toolkit
 python_binary="$(uv run --project "$repo_root" python -c 'import sys; print(sys.executable)')"
 sqlite_args=()
 if [[ -n "$sqlite_source_dir" ]]; then

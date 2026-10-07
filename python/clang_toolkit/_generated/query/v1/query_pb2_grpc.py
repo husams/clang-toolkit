@@ -4,6 +4,7 @@ import grpc
 
 from . import commands_pb2 as query_dot_v1_dot_commands__pb2  # noqa: E402, F401
 from . import events_pb2 as query_dot_v1_dot_events__pb2  # noqa: E402, F401
+from . import query_pb2 as query_dot_v1_dot_query__pb2  # noqa: E402, F401
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -36,6 +37,11 @@ class QueryServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.GetVersion = channel.unary_unary(
+                '/ctk.query.v1.QueryService/GetVersion',
+                request_serializer=query_dot_v1_dot_query__pb2.VersionRequest.SerializeToString,
+                response_deserializer=query_dot_v1_dot_query__pb2.VersionResponse.FromString,
+                _registered_method=True)
         self.Query = channel.unary_stream(
                 '/ctk.query.v1.QueryService/Query',
                 request_serializer=query_dot_v1_dot_commands__pb2.QueryRequest.SerializeToString,
@@ -52,6 +58,13 @@ class QueryServiceServicer:
     """All calls share the application's retained analysis session. Completing a
     query does not release that session's retained file/profile resources.
     """
+
+    def GetVersion(self, request, context):
+        """Identifies the running server binary without starting an analysis session.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def Query(self, request, context):
         """Fixed-file query. Foreground and background clients use the same RPC;
@@ -74,6 +87,11 @@ class QueryServiceServicer:
 
 def add_QueryServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'GetVersion': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetVersion,
+                    request_deserializer=query_dot_v1_dot_query__pb2.VersionRequest.FromString,
+                    response_serializer=query_dot_v1_dot_query__pb2.VersionResponse.SerializeToString,
+            ),
             'Query': grpc.unary_stream_rpc_method_handler(
                     servicer.Query,
                     request_deserializer=query_dot_v1_dot_commands__pb2.QueryRequest.FromString,
@@ -96,6 +114,33 @@ class QueryService:
     """All calls share the application's retained analysis session. Completing a
     query does not release that session's retained file/profile resources.
     """
+
+    @staticmethod
+    def GetVersion(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.query.v1.QueryService/GetVersion',
+            query_dot_v1_dot_query__pb2.VersionRequest.SerializeToString,
+            query_dot_v1_dot_query__pb2.VersionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def Query(request,

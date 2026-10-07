@@ -8,6 +8,9 @@ class NetworkServiceAdapter final
 public:
   explicit NetworkServiceAdapter(application::IQueryController &controller)
       : controller_(controller) {}
+  grpc::ServerUnaryReactor *GetVersion(grpc::CallbackServerContext *,
+                                       const query::v1::VersionRequest *,
+                                       query::v1::VersionResponse *) override;
   grpc::ServerWriteReactor<query::v1::QueryEvent> *
   Query(grpc::CallbackServerContext *,
         const query::v1::QueryRequest *) override;

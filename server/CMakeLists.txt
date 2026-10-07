@@ -1,5 +1,6 @@
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_library(ctk_cache
   src/cache/cache_state.cpp
@@ -34,6 +35,14 @@ target_link_libraries(ctk_storage PRIVATE ctk::sqlite OpenSSL::Crypto)
 add_library(ctk_core
   src/script/engine.cpp
 )
+set(_version_header "${CMAKE_CURRENT_BINARY_DIR}/generated/ctk/version.hpp")
+add_custom_target(ctk_version_header
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/generate_version.py"
+          "--cpp=${_version_header}"
+  BYPRODUCTS "${_version_header}"
+  VERBATIM)
+add_dependencies(ctk_core ctk_version_header)
+target_include_directories(ctk_core PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_include_directories(ctk_core PUBLIC include)
 target_compile_features(ctk_core PUBLIC cxx_std_23)
 target_link_libraries(ctk_core PUBLIC ctk_cache ctk_storage)

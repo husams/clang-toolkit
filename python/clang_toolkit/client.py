@@ -21,6 +21,7 @@ from google.protobuf.message import DecodeError
 
 from clang_toolkit._generated.query.v1 import query_pb2, query_pb2_grpc
 from clang_toolkit.configuration import NetworkConfig, load_network_config
+from clang_toolkit.version import VersionInfo
 from clang_toolkit.cursors import CursorError, file_request, retained_request
 from clang_toolkit._generated.match.v1 import match_service_pb2, match_service_pb2_grpc
 from clang_toolkit._generated.match.v1 import match_result_pb2
@@ -163,6 +164,18 @@ class AsyncClient:
             self._channel = grpc.aio.insecure_channel(target, options=self.config.client_options)
             self._stub = query_pb2_grpc.QueryServiceStub(self._channel)
         return self._stub
+
+    async def server_version(self) -> VersionInfo:
+        """Return the connected server binary's build identity."""
+        stub = self._ensure_stub()
+        assert self.config is not None
+        try:
+            response = await stub.GetVersion(query_pb2.VersionRequest(), timeout=self.config.rpc_timeout or 5.0)
+        except grpc.aio.AioRpcError as error:
+            if error.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise QueryError("connected server does not support version reporting; update and restart it") from error
+            raise QueryError(f"server version request failed: {error.code().name}: {error.details()}") from error
+        return VersionInfo(response.version, response.revision)
 
     async def iter_events(
         self,
@@ -846,6 +859,10 @@ class Client:
                 if self.config_path is not None else self.config or load_network_config())
             self.config = self._resolved_config
         return self._resolved_config
+
+    def server_version(self) -> VersionInfo:
+        """Return the connected server binary's build identity."""
+        return self._cursor_call("server_version")
 
     def _own_value(self, response: Any) -> CursorOwner[Client]:
         owner = CursorOwner(cast(Client, self), response.session_id, response.result_revision,

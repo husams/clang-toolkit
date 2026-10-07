@@ -1,4 +1,14 @@
 Feature: gRPC network client
+  Scenario Outline: Version commands identify the client and running server
+    Given a query server using <transport>
+    When I request versions through the CLI and SDK
+    Then the remote version matches the running binary and both revisions are printed
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
   Scenario: Parse failures expose Clang diagnostics through the SDK and console
     Given a query server using unix
     And a C++ file with a missing project header

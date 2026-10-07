@@ -24,6 +24,39 @@ pytestmark = pytest.mark.e2e
 scenarios("network.feature")
 
 
+@when("I request versions through the CLI and SDK", target_fixture="reported_versions")
+def reported_versions(server: RunningServer):
+    import sys
+    from clang_toolkit import Client
+    from clang_toolkit.version import client_version
+
+    def command(*arguments):
+        result = subprocess.run(arguments, text=True, capture_output=True, timeout=15, check=True)
+        return result.stdout.strip()
+
+    executable = os.environ.get("CTK_SERVER", str(Path(__file__).parents[2] / "build/dev/server/ctk-server"))
+    binary = command(executable, "--version", "-c", "/nonexistent/version-test.yaml")
+    local = command(sys.executable, "-m", "clang_toolkit.cli.app", "--version", "-c", "/nonexistent/version-test.yaml")
+    remote = command(sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint, "--server-version")
+    with Client(server.endpoint) as client:
+        sync = client.server_version().format("ctk-server")
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            return (await client.server_version()).format("ctk-server")
+
+    return binary, local, remote, sync, asyncio.run(run()), client_version().format("ctk")
+
+
+@then("the remote version matches the running binary and both revisions are printed")
+def verify_reported_versions(reported_versions):
+    binary, local, remote, sync, asynchronous, expected = reported_versions
+    assert binary == remote == sync == asynchronous
+    assert local == expected
+    assert "revision " in binary and "revision " in local
+    assert "revision unknown" not in local
+
+
 @given("a C++ file with a missing project header", target_fixture="invalid_source")
 def invalid_source(tmp_path: Path) -> Path:
     source = tmp_path / "invalid.cc"

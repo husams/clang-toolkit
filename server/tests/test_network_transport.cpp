@@ -2,6 +2,7 @@
 #include "ctk/net/outbound_event_queue.hpp"
 #include "ctk/net/protocol_adapter.hpp"
 #include "ctk/net/server.hpp"
+#include "ctk/version.hpp"
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -137,6 +138,25 @@ ctk::config::Settings isolated_settings() {
       "-" + std::to_string(number++) + ".sock";
   return settings;
 }
+TEST(NetworkTransport, VersionReportsRunningBuildWithoutStartingAQuery) {
+  FakeController controller;
+  auto settings = isolated_settings();
+  ctk::net::GrpcServerHost host(settings, controller);
+  host.start();
+  auto stub = wire::QueryService::NewStub(grpc::CreateChannel(
+      settings.endpoint, grpc::InsecureChannelCredentials()));
+  grpc::ClientContext context;
+  context.set_deadline(std::chrono::system_clock::now() +
+                       std::chrono::seconds(5));
+  wire::VersionResponse response;
+  ASSERT_TRUE(
+      stub->GetVersion(&context, wire::VersionRequest{}, &response).ok());
+  EXPECT_EQ(response.version(), ctk::build::version);
+  EXPECT_EQ(response.revision(), ctk::build::revision);
+  EXPECT_FALSE(controller.task);
+  host.shutdown();
+}
+
 TEST(OutboundEventQueue, OverflowPreservesOrderAcrossMemoryAndDisk) {
   ctk::net::OutboundEventQueue queue;
   for (int i = 0; i < 300; ++i)

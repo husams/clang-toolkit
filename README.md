@@ -101,6 +101,23 @@ Or start the interactive console:
 uv run ctk
 ```
 
+Check installed client and server builds, or identify the running server:
+
+```sh
+uv run ctk --version
+ctk-server --version                    # or build/dev/server/ctk-server
+uv run ctk --server-version             # uses the configured endpoint
+uv run ctk --server unix:///tmp/ctk.sock --server-version
+```
+
+Both show the package version and the Git revision captured at build/install
+time. `--version` works without configuration or a running server;
+`--server-version` queries the connected process. Older servers report that
+version reporting is unsupported. Python SDKs expose `client_version()` from
+`clang_toolkit.version` and `Client.server_version()` / `AsyncClient.server_version()`.
+After pulling updates, use `uv sync --reinstall-package clang-toolkit` to refresh
+the editable client's installation stamp; the RHEL build script does this automatically.
+
 Enter each expression as a separate console input:
 
 ```text

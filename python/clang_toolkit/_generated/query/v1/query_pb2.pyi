@@ -2,7 +2,8 @@ from . import commands_pb2 as _commands_pb2  # noqa: E402, F401
 from . import errors_pb2 as _errors_pb2  # noqa: E402, F401
 from . import events_pb2 as _events_pb2  # noqa: E402, F401
 from google.protobuf import descriptor as _descriptor
-from typing import ClassVar as _ClassVar
+from google.protobuf import message as _message
+from typing import ClassVar as _ClassVar, Optional as _Optional
 from .commands_pb2 import FileInput as FileInput
 from .commands_pb2 import QueryRequest as QueryRequest
 from .commands_pb2 import StartQuery as StartQuery
@@ -23,3 +24,15 @@ from .events_pb2 import Control as Control
 from .events_pb2 import QueryEvent as QueryEvent
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class VersionRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class VersionResponse(_message.Message):
+    __slots__ = ("version", "revision")
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    REVISION_FIELD_NUMBER: _ClassVar[int]
+    version: str
+    revision: str
+    def __init__(self, version: _Optional[str] = ..., revision: _Optional[str] = ...) -> None: ...

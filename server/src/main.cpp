@@ -1,4 +1,5 @@
 #include "ctk/net/server.hpp"
+#include "ctk/version.hpp"
 #include <chrono>
 #include <csignal>
 #include <iostream>
@@ -20,10 +21,15 @@ int main(int argc, char **argv) {
         if (++index == argc)
           throw std::invalid_argument(argument + " requires a file pathname");
         selected = argv[index];
+      } else if (argument == "--version") {
+        std::cout << "ctk-server " << ctk::build::version << " (revision "
+                  << ctk::build::revision << ")\n";
+        return 0;
       } else if (argument == "--print-config")
         print_config = true;
       else if (argument == "--help" || argument == "-h") {
-        std::cout << "ctk-server [-c FILE | --cofing FILE] [--print-config]\n";
+        std::cout << "ctk-server [-c FILE | --cofing FILE] [--print-config] "
+                     "[--version]\n";
         return 0;
       } else
         throw std::invalid_argument("unknown option: " + argument);

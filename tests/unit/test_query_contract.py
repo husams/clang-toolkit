@@ -44,7 +44,13 @@ def test_rpc_paths_and_streaming_directions_are_preserved():
     service = query_pb2.DESCRIPTOR.services_by_name["QueryService"]
     current = descriptor_pb2.ServiceDescriptorProto()
     service.CopyToProto(current)
-    assert current == original.service[0]
+    methods = {method.name: method for method in current.method}
+    for method in original.service[0].method:
+        assert methods[method.name] == method
+    version = methods["GetVersion"]
+    assert not version.client_streaming and not version.server_streaming
+    assert version.input_type == ".ctk.query.v1.VersionRequest"
+    assert version.output_type == ".ctk.query.v1.VersionResponse"
     assert service.full_name == "ctk.query.v1.QueryService"
 
 

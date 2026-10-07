@@ -30,13 +30,17 @@ from .commands_pb2 import *  # noqa: E402, F403
 from .errors_pb2 import *  # noqa: E402, F403
 from .events_pb2 import *  # noqa: E402, F403
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14query/v1/query.proto\x12\x0c\x63tk.query.v1\x1a\x17query/v1/commands.proto\x1a\x15query/v1/errors.proto\x1a\x15query/v1/events.proto2\x99\x01\n\x0cQueryService\x12?\n\x05Query\x12\x1a.ctk.query.v1.QueryRequest\x1a\x18.ctk.query.v1.QueryEvent0\x01\x12H\n\x0cQuerySession\x12\x1a.ctk.query.v1.QueryCommand\x1a\x18.ctk.query.v1.QueryEvent(\x01\x30\x01P\x00P\x01P\x02\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14query/v1/query.proto\x12\x0c\x63tk.query.v1\x1a\x17query/v1/commands.proto\x1a\x15query/v1/errors.proto\x1a\x15query/v1/events.proto\"\x10\n\x0eVersionRequest\"4\n\x0fVersionResponse\x12\x0f\n\x07version\x18\x01 \x01(\t\x12\x10\n\x08revision\x18\x02 \x01(\t2\xe4\x01\n\x0cQueryService\x12I\n\nGetVersion\x12\x1c.ctk.query.v1.VersionRequest\x1a\x1d.ctk.query.v1.VersionResponse\x12?\n\x05Query\x12\x1a.ctk.query.v1.QueryRequest\x1a\x18.ctk.query.v1.QueryEvent0\x01\x12H\n\x0cQuerySession\x12\x1a.ctk.query.v1.QueryCommand\x1a\x18.ctk.query.v1.QueryEvent(\x01\x30\x01P\x00P\x01P\x02\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'query.v1.query_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_QUERYSERVICE']._serialized_start=110
-  _globals['_QUERYSERVICE']._serialized_end=263
+  _globals['_VERSIONREQUEST']._serialized_start=109
+  _globals['_VERSIONREQUEST']._serialized_end=125
+  _globals['_VERSIONRESPONSE']._serialized_start=127
+  _globals['_VERSIONRESPONSE']._serialized_end=179
+  _globals['_QUERYSERVICE']._serialized_start=182
+  _globals['_QUERYSERVICE']._serialized_end=410
 # @@protoc_insertion_point(module_scope)

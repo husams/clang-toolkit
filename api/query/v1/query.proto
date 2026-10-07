@@ -9,6 +9,8 @@ import public "query/v1/events.proto";
 // All calls share the application's retained analysis session. Completing a
 // query does not release that session's retained file/profile resources.
 service QueryService {
+  // Identifies the running server binary without starting an analysis session.
+  rpc GetVersion(VersionRequest) returns (VersionResponse);
   // Fixed-file query. Foreground and background clients use the same RPC;
   // background execution is client scheduling, not a separate server job API.
   rpc Query(QueryRequest) returns (stream QueryEvent);
@@ -18,4 +20,11 @@ service QueryService {
   // A paused call must be resumed before half-close to finish, or cancelled
   // through gRPC. The server drains accepted work and writes before finishing.
   rpc QuerySession(stream QueryCommand) returns (stream QueryEvent);
+}
+
+message VersionRequest {}
+message VersionResponse {
+  string version = 1;
+  // Git revision captured when the binary was built; "unknown" for unstamped sources.
+  string revision = 2;
 }
