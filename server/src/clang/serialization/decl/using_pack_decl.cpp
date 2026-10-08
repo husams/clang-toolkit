@@ -13,7 +13,7 @@ bool UsingPackDeclSerializer::serialize(const clang::DynTypedNode &node,
   helpers::write_symbol(*native->getInstantiatedFromUsingDecl(),
                         *payload->mutable_using_declaration(), context);
   for (const auto *expansion : native->expansions()) {
-    if (!helpers::can_expand("using_pack_decl.expansions", context))
+    if (!helpers::can_expand(*payload, "expansions", context))
       break;
     helpers::write_symbol(*expansion, *payload->add_expansions(), context);
   }

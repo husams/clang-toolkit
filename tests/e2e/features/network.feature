@@ -148,6 +148,17 @@ Feature: gRPC network client
     When I request an oversized cursor replacement
     Then the oversized response leaves revision one available for replacement
 
+  Scenario Outline: Retained matches stream beyond a single message limit
+    Given a streaming cursor server using <transport> with an 8192-byte message limit
+    And a C++ file containing many small function definitions
+    When I stream retained matches through both SDKs and the real console
+    Then all rows arrive incrementally and remain reusable beyond the message limit
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
   Scenario Outline: Broad match exceeds four MiB using the default response budget
     Given a query server using <transport>
     And a C++ file with a large function declaration result
@@ -171,6 +182,17 @@ Feature: gRPC network client
     When I match the large result through both SDKs and the console
     Then every client receives all function declarations
     And the complete response exceeds 64 MiB without special settings
+
+  Scenario Outline: Dependent vector conversions preserve a usable server
+    Given a query server using <transport>
+    And a C++ file including dependent vector conversions
+    When I match every function through the SDK and real console
+    Then the vector functions are returned and the server remains usable
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
 
   Scenario Outline: Query over the configured local transport
     Given a query server using <transport>
@@ -205,11 +227,11 @@ Feature: gRPC network client
     When I match the first file and add a second file
     Then the second batch is rejected while the first file completes
 
-  Scenario: Nested semantic values arrive as complete typed payloads
+  Scenario: Shallow declaration results report omitted children and support follow-up queries
     Given a query server using unix
     And a C++ file containing a declaration
     When I run the declaration query
-    Then the declaration contains a complete typed initializer and exact type
+    Then the declaration exposes a type summary and the follow-up query exposes its literal
 
   Scenario Outline: Cursor continuation, revision checks, restart and close
     Given a query server using <transport>

@@ -11,7 +11,7 @@ bool DeclStmtSerializer::serialize(const clang::DynTypedNode &node,
     return false;
   auto *payload = binding.mutable_node()->mutable_decl_stmt();
   for (const auto *decl : native->decls()) {
-    if (!helpers::can_expand("DeclStmt.declarations", context))
+    if (!helpers::can_expand(*payload, "declarations", context))
       break;
     helpers::write_decl(decl, *payload->add_declarations(), context);
   }

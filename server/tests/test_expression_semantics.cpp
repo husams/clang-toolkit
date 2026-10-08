@@ -9,6 +9,24 @@
 
 namespace ctk::clang_layer {
 namespace {
+bool has_unrequested(const ctk::match::v1::MatchBinding &binding,
+                     const std::string &suffix) {
+  for (const auto &entry : binding.availability())
+    if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
+        entry.field_path().ends_with(suffix))
+      return true;
+  return false;
+}
+
+bool has_unrequested_exact(const ctk::match::v1::MatchBinding &binding,
+                           const std::string &path) {
+  for (const auto &entry : binding.availability())
+    if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
+        entry.field_path() == path)
+      return true;
+  return false;
+}
+
 class ExpressionFixture {
 public:
   ctk::platform::TemporaryDirectory directory{"ctk-expression-fields"};
@@ -42,9 +60,10 @@ TEST(ExpressionSemantics, OwnsNestedOperatorsAndPreservesComputationTypes) {
           [](const auto &binding) {
             const auto &node = binding.node().compound_assign_operator();
             EXPECT_EQ(node.opcode(), ctk::ast::v1::BINARY_OPCODE_ADD_ASSIGN);
-            EXPECT_EQ(node.left().decl_ref_expr().declaration().name(), "x");
-            EXPECT_EQ(node.right().integer_literal().value().unsigned_decimal(),
-                      "2");
+            EXPECT_FALSE(node.has_left());
+            EXPECT_FALSE(node.has_right());
+            EXPECT_TRUE(has_unrequested(binding, "left"));
+            EXPECT_TRUE(has_unrequested(binding, "right"));
             EXPECT_TRUE(node.has_computation_lhs_type());
             EXPECT_TRUE(node.has_computation_result_type());
             EXPECT_TRUE(node.info().has_value_category());
@@ -57,15 +76,104 @@ TEST(ExpressionSemantics, OwnsNestedOperatorsAndPreservesComputationTypes) {
                                       ctk::ast::v1::UNARY_OPCODE_MINUS);
                             EXPECT_TRUE(node.has_is_postfix());
                             EXPECT_FALSE(node.is_postfix());
-                            ASSERT_TRUE(node.operand().has_paren_expr());
-                            EXPECT_EQ(node.operand()
-                                          .paren_expr()
-                                          .subexpression()
-                                          .binary_operator()
-                                          .opcode(),
-                                      ctk::ast::v1::BINARY_OPCODE_ADD);
+                            EXPECT_FALSE(node.has_operand());
+                            EXPECT_TRUE(binding.is_complete());
+                            EXPECT_TRUE(has_unrequested(binding, "operand"));
                           }),
             1U);
+}
+
+TEST(ExpressionSemantics,
+     PreservesConcreteAndDependentConvertVectorTypesWithoutAborting) {
+  ExpressionFixture fixture{
+      "typedef int int4 __attribute__((vector_size(16)));\n"
+      "int4 concrete(int4 value) {\n"
+      "  return __builtin_convertvector(value, int4);\n"
+      "}\n"
+      "template<class D, class S> D dependent(S value) {\n"
+      "  return __builtin_convertvector(value, D);\n"
+      "}\n"
+      "template<int N, class S> auto sized(S value) {\n"
+      "  typedef int D __attribute__((vector_size(N)));\n"
+      "  return __builtin_convertvector(value, D);\n"
+      "}\n"
+      "template<int N, class S> auto extSized(S value) {\n"
+      "  typedef float D __attribute__((ext_vector_type(N)));\n"
+      "  return __builtin_convertvector(value, D);\n"
+      "}\n"};
+
+  auto engine = fixture.engine;
+  const auto check_conversion = [&](const std::string &function_name,
+                                    const auto &check) {
+    std::size_t matches = 0;
+    const auto result = engine->match(
+        {fixture.path.string(),
+         {"-std=c++20"},
+         std::filesystem::current_path().string()},
+        "returnStmt(hasAncestor(functionDecl(hasName(\"" + function_name +
+            "\"))), hasReturnValue(expr().bind(\"conversion\")))",
+        [] { return true; },
+        [&](const IQueryEngine::Bindings &row) {
+          ++matches;
+          check(row.at("conversion").value);
+        });
+    EXPECT_TRUE(result.ok) << result.message;
+    EXPECT_EQ(matches, 1U);
+  };
+
+  check_conversion("concrete", [](const auto &binding) {
+    const auto &conversion = binding.node().convert_vector_expr();
+    ASSERT_TRUE(conversion.has_destination_element_type());
+    ASSERT_TRUE(conversion.info().has_type());
+    EXPECT_TRUE(conversion.destination_element_type().description().has_spelling());
+    EXPECT_TRUE(conversion.info().type().description().has_spelling());
+    EXPECT_TRUE(binding.is_complete());
+  });
+
+  check_conversion("dependent", [](const auto &binding) {
+    const auto &conversion = binding.node().convert_vector_expr();
+    EXPECT_FALSE(conversion.has_destination_element_type());
+    EXPECT_TRUE(conversion.info().type().description().has_spelling());
+    EXPECT_FALSE(binding.is_complete());
+    bool unavailable = false;
+    for (const auto &entry : binding.availability())
+      unavailable |=
+          entry.state() == ctk::ast::v1::FIELD_STATE_UNAVAILABLE &&
+          entry.field_path().ends_with("destination_element_type");
+    EXPECT_TRUE(unavailable);
+  });
+
+  const auto check_known_element = [](const auto &binding) {
+    const auto &conversion = binding.node().convert_vector_expr();
+    ASSERT_TRUE(conversion.has_destination_element_type());
+    EXPECT_TRUE(conversion.destination_element_type().description().has_spelling());
+    EXPECT_TRUE(binding.is_complete());
+  };
+  check_conversion("sized", [&](const auto &binding) {
+    check_known_element(binding);
+  });
+  check_conversion("extSized", [&](const auto &binding) {
+    check_known_element(binding);
+  });
+
+  // A bound declaration reports its direct facts and omits its body.
+  std::size_t functions = 0;
+  const auto result = engine->match(
+      {fixture.path.string(),
+       {"-std=c++20"},
+       std::filesystem::current_path().string()},
+      "functionDecl(hasName(\"dependent\")).bind(\"function\")",
+      [] { return true; },
+      [&](const IQueryEngine::Bindings &row) {
+        ++functions;
+        const auto &binding = row.at("function").value;
+        ASSERT_TRUE(binding.node().has_function_decl());
+        EXPECT_FALSE(binding.node().function_decl().function().has_body());
+        EXPECT_TRUE(binding.is_complete());
+        EXPECT_TRUE(has_unrequested(binding, "body"));
+      });
+  EXPECT_TRUE(result.ok) << result.message;
+  EXPECT_EQ(functions, 1U);
 }
 
 TEST(ExpressionSemantics, PreservesFloatingBitsAndEmbeddedNullStringBytes) {
@@ -108,24 +216,20 @@ TEST(ExpressionSemantics, PreservesQualifiedObjectAndDerivedMemberCallFields) {
                       EXPECT_EQ(node.method_declaration().name(), "get");
                       EXPECT_EQ(node.record_declaration().name(), "Box");
                       EXPECT_EQ(node.call().direct_callee().name(), "get");
-                      ASSERT_EQ(node.call().arguments_size(), 1);
-                      EXPECT_EQ(node.call()
-                                    .arguments(0)
-                                    .integer_literal()
-                                    .value()
-                                    .unsigned_decimal(),
-                                "7");
+                      EXPECT_EQ(node.call().arguments_size(), 0);
+                      EXPECT_TRUE(has_unrequested_exact(
+                          binding, "CallExprInfo.arguments"));
                       EXPECT_TRUE(node.object_type().qualifiers().is_const());
-                      EXPECT_EQ(node.implicit_object_argument()
-                                    .decl_ref_expr()
-                                    .declaration()
-                                    .name(),
-                                "b");
+                      EXPECT_EQ(node.object_type().description().spelling(),
+                                "const Box");
+                      EXPECT_FALSE(node.has_implicit_object_argument());
+                      EXPECT_TRUE(has_unrequested(binding, "implicit_object_argument"));
+                      EXPECT_TRUE(binding.is_complete());
                     }),
       1U);
 }
 
-TEST(ExpressionSemantics, PreservesExplicitCastTypeAndFiniteBasePath) {
+TEST(ExpressionSemantics, PreservesExplicitCastTypeAndAbsentBasePath) {
   ExpressionFixture fixture{
       "struct Base {}; struct Derived : Base {}; Base *run(Derived *p) { "
       "return static_cast<Base *>(p); }"};
@@ -134,15 +238,13 @@ TEST(ExpressionSemantics, PreservesExplicitCastTypeAndFiniteBasePath) {
                 [](const auto &binding) {
                   const auto &node = binding.node().cxx_static_cast_expr();
                   EXPECT_EQ(node.cast().kind(), ctk::ast::v1::CAST_KIND_NO_OP);
-                  ASSERT_TRUE(node.cast().operand().has_implicit_cast_expr());
-                  const auto &conversion =
-                      node.cast().operand().implicit_cast_expr().cast();
-                  EXPECT_EQ(conversion.kind(),
-                            ctk::ast::v1::CAST_KIND_DERIVED_TO_BASE);
-                  ASSERT_EQ(conversion.base_path_size(), 1);
-                  EXPECT_FALSE(conversion.base_path(0).is_virtual());
+                  EXPECT_FALSE(node.cast().has_operand());
+                  EXPECT_TRUE(has_unrequested(binding, "operand"));
+                  EXPECT_EQ(node.cast().base_path_size(), 0);
                   EXPECT_TRUE(node.has_target_type());
-                  EXPECT_TRUE(node.cast().has_operand());
+                  EXPECT_EQ(node.target_type().description().spelling(),
+                            "Base *");
+                  EXPECT_TRUE(binding.is_complete());
                 }),
             1U);
 }
@@ -178,14 +280,11 @@ TEST(ExpressionSemantics, CapturesLambdaVariablesAndTheirInitializers) {
                       EXPECT_EQ(node.call_operator().name(), "operator()");
                       EXPECT_TRUE(node.is_mutable());
                       EXPECT_FALSE(node.is_generic_lambda());
-                      ASSERT_EQ(node.captures_size(), 2);
-                      EXPECT_EQ(node.captures(0).kind(),
-                                ctk::ast::v1::LAMBDA_CAPTURE_KIND_BY_COPY);
-                      EXPECT_EQ(node.captures(0).variable().name(), "x");
-                      EXPECT_EQ(node.captures(1).kind(),
-                                ctk::ast::v1::LAMBDA_CAPTURE_KIND_BY_REFERENCE);
-                      EXPECT_EQ(node.captures(1).variable().name(), "y");
-                      EXPECT_EQ(node.capture_initializers_size(), 2);
+                      EXPECT_EQ(node.captures_size(), 0);
+                      EXPECT_EQ(node.capture_initializers_size(), 0);
+                      EXPECT_TRUE(has_unrequested(binding, "captures"));
+                      EXPECT_TRUE(has_unrequested(binding, "capture_initializers"));
+                      EXPECT_TRUE(binding.is_complete());
                     }),
       1U);
 }
@@ -204,11 +303,13 @@ TEST(ExpressionSemantics, KeepsNewArrayAndPlacementArgumentSemantics) {
                   EXPECT_FALSE(node.is_placement());
                   EXPECT_FALSE(node.is_global_new());
                   EXPECT_EQ(node.placement_arguments_size(), 0);
-                  EXPECT_TRUE(node.has_array_size());
-                  EXPECT_TRUE(node.has_initializer());
+                  EXPECT_FALSE(node.has_array_size());
+                  EXPECT_FALSE(node.has_initializer());
+                  EXPECT_TRUE(has_unrequested(binding, "array_size"));
+                  EXPECT_TRUE(has_unrequested(binding, "initializer"));
                   EXPECT_EQ(node.operator_new().name(), "operator new[]");
-                  EXPECT_EQ(node.allocated_type().type().builtin_type().kind(),
-                            ctk::ast::v1::BUILTIN_KIND_INT);
+                  EXPECT_EQ(node.allocated_type().description().spelling(), "int");
+                  EXPECT_TRUE(binding.is_complete());
                 }),
             1U);
 }
@@ -224,11 +325,9 @@ TEST(ExpressionSemantics, SerializesRequiresRequirementsAndDependentPresence) {
       return;
     ++requirements;
     const auto &node = binding.node().requires_expr();
-    EXPECT_TRUE(node.has_body_declaration());
-    ASSERT_EQ(node.requirements_size(), 3);
-    EXPECT_TRUE(node.requirements(0).has_type());
-    EXPECT_TRUE(node.requirements(1).has_expression());
-    EXPECT_TRUE(node.requirements(2).has_nested());
+    EXPECT_FALSE(node.has_body_declaration());
+    EXPECT_EQ(node.requirements_size(), 0);
+    EXPECT_TRUE(binding.is_complete());
     if (node.info().is_value_dependent())
       EXPECT_FALSE(node.has_is_satisfied());
   });
@@ -245,10 +344,11 @@ TEST(ExpressionSemantics,
       return;
     ++offsets;
     const auto &node = binding.node().offset_of_expr();
-    ASSERT_EQ(node.components_size(), 2);
-    EXPECT_EQ(node.components(0).field().name(), "values");
-    EXPECT_TRUE(node.components(1).has_index_expression());
-    EXPECT_EQ(node.byte_offset().unsigned_decimal(), "8");
+    EXPECT_EQ(node.components_size(), 0);
+    EXPECT_TRUE(has_unrequested_exact(binding, "OffsetOfExpr.components"));
+    EXPECT_FALSE(node.has_byte_offset());
+    EXPECT_TRUE(has_unrequested_exact(binding, "OffsetOfExpr.byte_offset"));
+    EXPECT_TRUE(binding.is_complete());
   });
   EXPECT_EQ(offsets, 1U);
 }
@@ -280,7 +380,8 @@ TEST(ExpressionSemantics, PreservesTypeTraitIdentityAndValue) {
     EXPECT_EQ(node.trait_name(), "IsSame");
     EXPECT_TRUE(node.trait_value());
     EXPECT_TRUE(node.has_trait_value());
-    EXPECT_EQ(node.queried_types_size(), 2);
+    EXPECT_EQ(node.queried_types_size(), 0);
+    EXPECT_TRUE(binding.is_complete());
   });
   EXPECT_EQ(traits, 1U);
 }
@@ -295,12 +396,14 @@ TEST(ExpressionSemantics, PreservesUndefinedShuffleMaskSentinel) {
       return;
     ++shuffles;
     const auto &node = binding.node().shuffle_vector_expr();
-    EXPECT_EQ(node.arguments_size(), 6);
-    ASSERT_EQ(node.signed_shuffle_mask_size(), 4);
-    EXPECT_EQ(node.signed_shuffle_mask(0), -1);
-    EXPECT_EQ(node.signed_shuffle_mask(1), 0);
-    EXPECT_EQ(node.signed_shuffle_mask(2), 5);
-    EXPECT_EQ(node.signed_shuffle_mask(3), 3);
+    EXPECT_EQ(node.arguments_size(), 0);
+    EXPECT_TRUE(has_unrequested_exact(binding, "ShuffleVectorExpr.arguments"));
+    EXPECT_EQ(node.signed_shuffle_mask_size(), 0);
+    EXPECT_EQ(node.shuffle_mask_size(), 0);
+    EXPECT_TRUE(has_unrequested_exact(
+        binding, "ShuffleVectorExpr.signed_shuffle_mask"));
+    EXPECT_TRUE(
+        has_unrequested_exact(binding, "ShuffleVectorExpr.shuffle_mask"));
   });
   EXPECT_EQ(shuffles, 1U);
 }

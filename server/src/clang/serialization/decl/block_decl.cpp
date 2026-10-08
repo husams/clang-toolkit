@@ -11,14 +11,14 @@ bool BlockDeclSerializer::serialize(const clang::DynTypedNode &node,
   auto *payload = binding.mutable_node()->mutable_block_decl();
   helpers::write_common(*native, *payload, context);
   for (const auto *parameter : native->parameters()) {
-    if (!helpers::can_expand("block_decl.parameters", context))
+    if (!helpers::can_expand(*payload, "parameters", context))
       break;
     helpers::write_decl(parameter, *payload->add_parameters(), context);
   }
   if (native->getBody())
     helpers::write_stmt(native->getBody(), *payload->mutable_body(), context);
   for (const auto &capture : native->captures()) {
-    if (!helpers::can_expand("block_decl.captures", context))
+    if (!helpers::can_expand(*payload, "captures", context))
       break;
 
     auto *value = payload->add_captures();

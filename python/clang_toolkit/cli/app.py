@@ -10,7 +10,11 @@ from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.language import lex, parser as command_parser
 from clang_toolkit.cli.help import COMMANDS, render_help
-from clang_toolkit.cli.prompt import create_session
+from clang_toolkit.cli.syntax_diagnostics import (
+    syntax_diagnostic,
+    unknown_command_diagnostic,
+)
+from clang_toolkit.cli.prompt import PersistentPromptHistory, create_session
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
 from clang_toolkit.cli.runtime.config import ConfigError
 from clang_toolkit.cli.runtime.history import HistoryError, HistoryStore
@@ -37,10 +41,15 @@ def dispatch(client: Client, line: str, runtime: Runtime | None = None) -> str |
         runtime = runtime or Runtime(client)
         return runtime.execute(line)
     except UnexpectedInput as exc:
+        if runtime is not None and runtime.history is not None:
+            try:
+                runtime.history.append(line, runtime.session_id, runtime.label)
+            except HistoryError as history_error:
+                return f"error: {history_error}"
         first = next(token for token in lex(line) if token.type != "WS")
         if first.type == "NAME" and str(first) not in COMMANDS:
-            return f"unknown command: {first}"
-        return f"syntax error at line {exc.line}, column {exc.column}"
+            return unknown_command_diagnostic(line, str(first), COMMANDS)
+        return syntax_diagnostic(line, exc)
     except (
         EvaluationError,
         ConfigError,
@@ -53,6 +62,14 @@ def dispatch(client: Client, line: str, runtime: Runtime | None = None) -> str |
         MatchValueError,
     ) as exc:
         return f"error: {exc}"
+
+
+def _load_prompt_history(store: HistoryStore) -> PersistentPromptHistory | None:
+    try:
+        return PersistentPromptHistory(store)
+    except HistoryError as exc:
+        print(f"error: {exc}; persistent history disabled for this session")
+        return None
 
 
 async def _prompt(session, prompt: str) -> str:
@@ -102,16 +119,30 @@ async def _run() -> int:
         if args.config_path is None
         else Client(args.server, args.config_path, **compilation_options)
     )
+    history_store: HistoryStore | None = HistoryStore()
+    prompt_history = _load_prompt_history(history_store)
+    if prompt_history is None:
+        history_store = None
+    runtime = None
     try:
-        runtime = Runtime(client, history=HistoryStore())
+        runtime = Runtime(client, history=history_store)
+        session = create_session(
+            references=runtime.completion_references,
+            field_resolver=runtime.completion_suggestions,
+            presence_resolver=runtime.completion_presence_fields,
+            history=prompt_history,
+            cwd=runtime.cwd,
+        )
     except (ConfigError, OutputError) as exc:
         print(f"error: {exc}")
+        if runtime is not None:
+            runtime.close()
+        client.close()
         return 1
     if args.compile_commands is not None:
         runtime.config_store.effective["compile_commands"] = args.compile_commands
     if runtime.config_store.effective["compile_commands"] is not None:
         compilation_options["compilation_database"] = runtime.config_store.effective["compile_commands"]
-    session = create_session(references=runtime.completion_references, cwd=runtime.cwd)
     query_session = None
     session_reader = None
     exit_code = 0

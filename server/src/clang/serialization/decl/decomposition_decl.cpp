@@ -11,7 +11,7 @@ bool DecompositionDeclSerializer::serialize(
   auto *payload = binding.mutable_node()->mutable_decomposition_decl();
   helpers::write_common(*native, *payload, context);
   for (const auto *binding : native->bindings()) {
-    if (!helpers::can_expand("decomposition_decl.bindings", context))
+    if (!helpers::can_expand(*payload, "bindings", context))
       break;
     helpers::write_decl(binding, *payload->add_bindings(), context);
   }

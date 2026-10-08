@@ -16,12 +16,13 @@ bool SwitchStmtSerializer::serialize(const clang::DynTypedNode &node,
     helpers::write_expr(child, *payload->mutable_condition(), context);
   if (auto *child = native->getBody())
     helpers::write_stmt(child, *payload->mutable_body(), context);
-  for (const auto *item = native->getSwitchCaseList(); item;
-       item = item->getNextSwitchCase())
-    if (auto *d = llvm::dyn_cast<clang::DefaultStmt>(item)) {
-      helpers::write_stmt(d, *payload->mutable_default_case(), context);
-      break;
-    }
+  if (helpers::can_expand(*payload, "default_case", context))
+    for (const auto *item = native->getSwitchCaseList(); item;
+         item = item->getNextSwitchCase())
+      if (auto *d = llvm::dyn_cast<clang::DefaultStmt>(item)) {
+        helpers::write_stmt(d, *payload->mutable_default_case(), context);
+        break;
+      }
   payload->set_is_constexpr(false);
   payload->set_is_all_enum_cases_covered(native->isAllEnumCasesCovered());
   helpers::finish_binding(binding, context);

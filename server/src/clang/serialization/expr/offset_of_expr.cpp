@@ -15,7 +15,7 @@ bool OffsetOfExprSerializer::serialize(const clang::DynTypedNode &node,
   helpers::write_type(native->getTypeSourceInfo()->getType(),
                       *payload->mutable_queried_type(), context);
   for (unsigned i = 0; i < native->getNumComponents(); ++i) {
-    if (!helpers::can_expand("components", context))
+    if (!helpers::can_expand(*payload, "components", context))
       break;
 
     const auto &native_component = native->getComponent(i);
@@ -42,7 +42,8 @@ bool OffsetOfExprSerializer::serialize(const clang::DynTypedNode &node,
     }
     }
   }
-  if (!native->isValueDependent()) {
+  if (!native->isValueDependent() &&
+      helpers::can_expand(*payload, "byte_offset", context)) {
     clang::Expr::EvalResult evaluated;
     if (native->EvaluateAsInt(evaluated, context.ast_context))
       helpers::write_apint(evaluated.Val.getInt(),

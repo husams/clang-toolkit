@@ -42,10 +42,11 @@ bool VarDeclSerializer::serialize(const clang::DynTypedNode &node,
 #endif
   }
   payload->set_is_static_data_member(native->isStaticDataMember());
-  if (native->getAnyInitializer())
-    helpers::write_expr(native->getAnyInitializer(),
-                        *payload->mutable_initializer_from_any_declaration(),
-                        context);
+  if (helpers::can_expand(*payload, "initializer_from_any_declaration", context))
+    if (const auto *initializer = native->getAnyInitializer())
+      helpers::write_expr(initializer,
+                          *payload->mutable_initializer_from_any_declaration(),
+                          context);
   helpers::finish_binding(binding, context);
   return true;
 }

@@ -10,14 +10,19 @@ bool CXXRecordDeclSerializer::serialize(const clang::DynTypedNode &node,
     return false;
   auto *payload = binding.mutable_node()->mutable_cxx_record_decl();
   helpers::write_common(*native, *payload, context);
-  if (const auto *definition = native->getDefinition()) {
+  if (context.projection == ProjectionPolicy::Shallow) {
+    (void)helpers::can_expand(*payload, "definition_bases", context);
+    (void)helpers::can_expand(*payload, "friends", context);
+    if (native->isCompleteDefinition())
+      payload->set_is_structural(native->isStructural());
+  } else if (const auto *definition = native->getDefinition()) {
     for (const auto &base : definition->bases()) {
-      if (!helpers::can_expand("cxx_record_decl.definition_bases", context))
+      if (!helpers::can_expand(*payload, "definition_bases", context))
         break;
       helpers::write_base(base, *payload->add_definition_bases(), context);
     }
     for (const auto *friend_decl : definition->friends()) {
-      if (!helpers::can_expand("cxx_record_decl.friends", context))
+      if (!helpers::can_expand(*payload, "friends", context))
         break;
       helpers::write_decl(friend_decl, *payload->add_friends(), context);
     }

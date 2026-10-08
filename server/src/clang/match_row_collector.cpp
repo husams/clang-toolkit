@@ -4,13 +4,14 @@
 namespace ctk::clang_layer {
 RowCollector::RowCollector(MatchExecution &result, CapturedBindingState &state,
                            const IMatchBackend::Checkpoint &checkpoint,
-                           const MatchLimits &limits)
-    : result_(result), state_(state), checkpoint_(checkpoint), limits_(limits) {
-}
+                           const MatchLimits &limits,
+                           const IMatchBackend::RowSink *sink)
+    : result_(result), state_(state), checkpoint_(checkpoint), limits_(limits),
+      sink_(sink) {}
 void RowCollector::run(const MatchFinder::MatchResult &found) {
   if (result_.code != MatchCode::Ok || !checkpoint_())
     return;
-  if (result_.rows.size() >= limits_.max_rows) {
+  if (state_.rows.size() >= limits_.max_rows) {
     result_.code = MatchCode::ResourceExhausted;
     result_.message = "match row limit exceeded (limit " +
                       std::to_string(limits_.max_rows) +
@@ -22,7 +23,8 @@ void RowCollector::run(const MatchFinder::MatchResult &found) {
   if (source_row)
     row.set_source_match_index(*source_row);
   for (const auto &[name, node] : found.Nodes.getMap()) {
-    serialization::SerializationContext context{*found.Context};
+    serialization::SerializationContext context{
+        *found.Context, serialization::ProjectionPolicy::Shallow};
     auto &value = (*row.mutable_bindings())[name];
     if (!serialization::NodeSerializerDispatcher::serialize(node, value,
                                                             context) &&
@@ -34,7 +36,7 @@ void RowCollector::run(const MatchFinder::MatchResult &found) {
     native.emplace(name, node);
   }
   const auto size = row.ByteSizeLong();
-  if (size > limits_.max_bytes - bytes_) {
+  if (!sink_ && size > limits_.max_bytes - bytes_) {
     result_.code = MatchCode::ResourceExhausted;
     result_.message =
         "match response byte limit exceeded (limit " +
@@ -44,8 +46,28 @@ void RowCollector::run(const MatchFinder::MatchResult &found) {
         "client.grpc.max_receive_message_bytes; no cursor state committed";
     return;
   }
-  bytes_ += size;
+  if (sink_) {
+    std::string message;
+    const auto code = (*sink_)(row, message);
+    if (code != MatchCode::Ok) {
+      result_.code = code;
+      result_.message = std::move(message);
+      return;
+    }
+    MatchResult metadata;
+    if (row.has_source_match_index())
+      metadata.set_source_match_index(row.source_match_index());
+    for (const auto &[name, full] : row.bindings()) {
+      auto &thin = (*metadata.mutable_bindings())[name];
+      for (const auto scope : full.supported_scopes())
+        thin.add_supported_scopes(
+            static_cast<ctk::match::v1::BindingMatchScope>(scope));
+    }
+    result_.rows.push_back(std::move(metadata));
+  } else {
+    bytes_ += size;
+    result_.rows.push_back(std::move(row));
+  }
   state_.append(std::move(native));
-  result_.rows.push_back(std::move(row));
 }
 } // namespace ctk::clang_layer

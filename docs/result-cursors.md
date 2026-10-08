@@ -1,7 +1,7 @@
 # Retained matcher results
 
-The registered `ctk.match.v1.MatchService` exposes unary `Match` and
-`CloseSession` alongside the existing streaming query service. The v1
+The registered `ctk.match.v1.MatchService` exposes `StreamMatch`, legacy unary
+`Match`, `Parse` and `CloseSession` alongside the streaming query service. The v1
 `session_id` identifies one result cursor, not a project or transport channel.
 A file query acquires an independent cursor and an immutable cached AST
 generation. Whole-tree restarts and binding continuations reuse that generation.
@@ -12,6 +12,24 @@ Each successful replacement, including zero matches, increments
 stale work with `ABORTED`. Invalid queries, cancellation before commit and
 resource failures preserve both the previous semantic rows and native bindings.
 Results own their typed protobuf values and remain readable after closure.
+
+`StreamMatch(MatchRequest)` emits complete semantic rows during native matcher
+callbacks, followed by one completion containing the cursor identity, revision,
+expiry and row count. Zero matches still produce a completion. Rows are provisional:
+clients require exactly one completion and terminal gRPC OK before publishing a
+reusable result. Cancellation, write failure and limits before commit preserve
+the previous cursor. A disconnect after commit can leave an unobserved successful
+cursor, which expires normally. Transport writes apply backpressure to production.
+
+Python `match_in`, TypeScript `match`, and retained console expressions use this
+stream by default. SDK collectors spool rows and their offset index to temporary
+storage, keeping collection memory bounded. Iteration and indexed access load rows
+on demand; `.rows` explicitly materializes a complete snapshot. Python `on_row`
+and TypeScript `onRow` callbacks process provisional rows while they arrive;
+async callbacks are awaited. Successful semantic stores remain readable after
+native cursor closure and are reclaimed when their local value is released.
+Failed collectors discard their temporary stores. Legacy low-level cursor methods
+and server script emissions continue to use complete unary responses.
 
 Continuation selects the named binding from all latest result rows, or the
 optional zero-based `match_index` (presence matters for row zero). Each selected
@@ -65,12 +83,16 @@ reclaimed on subsequent requests. Closing waits for the cursor's active
 operation and releases retained state.
 
 The bounded executor and registry enforce cursor count, estimated retained
-memory, row count and the complete serialized response size. Snapshot estimates
+memory, row count and serialized message size. Snapshot estimates
 are counted once per unique snapshot within this registry. Defaults are 100
 cursors, 2 GiB estimated retained memory, and 100,000 rows. There is no configured
-response wire cap by default; complete results remain bounded by the memory
-budget. A positive `server.grpc.max_send_message_bytes` adds a response cap;
-the client receive limit must also accommodate that size.
+wire cap by default. Streamed cursors retain native bindings and thin row selection
+metadata rather than complete semantic payloads; the memory budget applies to
+that retained state. Wire limits apply to each stream event, allowing aggregate
+output beyond a single protobuf message's 2 GiB limit. A positive
+`server.grpc.max_send_message_bytes` adds a per-message cap, and the client receive
+limit must accommodate each message. Unary operations remain bounded by their
+complete serialized response size.
 These cursor budgets are independent of the streaming
 query controller's existing analysis-session budgets; they do not constitute
 one combined process-memory cap. Native parsing/traversal cancellation is

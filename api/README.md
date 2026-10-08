@@ -27,9 +27,9 @@ Coverage is 66 declarations, 29 statements, 104 expressions and 52 types. Each c
 
 ## Direct values
 
-Owned children are embedded in `DeclarationValue`, `ExpressionValue`, `StatementValue` and `TypeValue`. Call arguments contain expression payloads, function bodies contain statements, and `QualType.type` contains the type value with separate qualifiers. No node lookup is needed to read a result.
+Match results serialize each bound node's immediate fields and inherited same-node metadata. They do not expand function bodies, parameter declarations, initializers, operands, record members or nested type nodes. These child fields carry `FIELD_STATE_UNREQUESTED`; an intentionally omitted child does not make `MatchBinding.is_complete` false. Native binding continuation remains available to match those nodes separately. Explicitly binding a child in the original matcher also returns that child's immediate fields.
 
-A referenced declaration is a finite `DeclarationSymbol` containing its name, qualified name, kind, type and applicable function signature. Overloaded functions and methods carry parameter/return types, qualifiers, calling convention and exception information. Symbols do not recursively expand another definition's body or members. Symbol type/signature descriptions contain normalized type names and qualifiers rather than full AST values; template arguments and constraints have finite descriptions. Named record types therefore remain finite.
+A `QualType` carries `description` with spelling, canonical spelling, qualifiers and dependence, plus its direct qualifiers. Its recursive `type` value is unrequested in shallow results. Referenced declarations retain concise symbols with their names, kinds and type descriptions; referenced signatures and template expansions are omitted. The recursive wrappers remain in the schema for compatibility and internal serializer fixtures, but public matching uses the shallow projection.
 
 Each concrete node stays maintained in its dedicated source schema. `assemble_ast.py` places the mutually recursive definitions and helpers in the generated `semantic.proto` compilation unit, then emits public-import facades at the original paths. This permits typed recursion without cyclic imports. C++ include paths and Python module imports remain available; reflection descriptors for the concrete messages now report `ast/v1/semantic.proto`. `catalog.json` records the dedicated source paths, and the checker verifies that every source defines exactly its one catalog node. [Protobuf public imports](https://protobuf.dev/programming-guides/proto3/#importing-definitions) provide the forwarding mechanism.
 
@@ -80,6 +80,13 @@ from retained trees or bindings. See [syntax and ownership](../docs/parse-match-
 the existing [Python API](../python/clang_toolkit/client.py), and the packaged
 [TypeScript SDK](../typescript/README.md). Existing cursor replacement defaults
 and streaming query commands retain their behavior.
+
+`MatchService.StreamMatch(MatchRequest)` is an additive server-streaming RPC.
+`match/v1/match_stream.proto` defines ordered row events and a single completion
+with cursor identity, revision, expiry and row count. Clients require terminal OK
+as well as completion before publishing a reusable value. Wire limits apply per
+event. Python retained matches, TypeScript retained matches and console expressions
+use this RPC; legacy unary `Match` and script responses remain compatible.
 
 `AnalysisService.RunScript` accepts an independent `ScriptCompilationProfile`
 (`ScriptRequest.profile = 4`) for explicit parse/file expressions. SDKs populate

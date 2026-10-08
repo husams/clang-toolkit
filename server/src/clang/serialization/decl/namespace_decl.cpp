@@ -10,15 +10,20 @@ bool NamespaceDeclSerializer::serialize(const clang::DynTypedNode &node,
     return false;
   auto *payload = binding.mutable_node()->mutable_namespace_decl();
   helpers::write_common(*native, *payload, context);
-  helpers::write_symbol(*native->getCanonicalDecl(),
-                        *payload->mutable_original_namespace(), context);
-  if (native->getAnonymousNamespace())
-    helpers::write_symbol(*native->getAnonymousNamespace(),
-                          *payload->mutable_anonymous_namespace(), context);
+  if (context.projection == ProjectionPolicy::Shallow) {
+    (void)helpers::can_expand(*payload, "original_namespace", context);
+    (void)helpers::can_expand(*payload, "anonymous_namespace", context);
+  } else {
+    helpers::write_symbol(*native->getCanonicalDecl(),
+                          *payload->mutable_original_namespace(), context);
+    if (native->getAnonymousNamespace())
+      helpers::write_symbol(*native->getAnonymousNamespace(),
+                            *payload->mutable_anonymous_namespace(), context);
+  }
   payload->set_is_inline(native->isInline());
   payload->set_is_anonymous(native->isAnonymousNamespace());
   for (const auto *declaration : native->decls()) {
-    if (!helpers::can_expand("namespace_decl.declarations", context))
+    if (!helpers::can_expand(*payload, "declarations", context))
       break;
     helpers::write_decl(declaration, *payload->add_declarations(), context);
   }

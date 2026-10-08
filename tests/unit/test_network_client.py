@@ -2,17 +2,20 @@ import asyncio
 from pathlib import Path
 
 import pytest
+import grpc
 
 from clang_toolkit import client as client_module
 from clang_toolkit._generated.query.v1 import query_pb2
 from clang_toolkit.client import AsyncClient, Client, QueryError, _format_violation
 from clang_toolkit.configuration import ConfigurationError, load_network_config
 from clang_toolkit._generated.match.v1 import match_service_pb2, parse_response_pb2
+from clang_toolkit._generated.match.v1 import match_stream_pb2
 
 
 class Stream:
-    def __init__(self, events):
+    def __init__(self, events, status=grpc.StatusCode.OK):
         self.events = events
+        self.status = status
         self.cancelled = False
 
     def __aiter__(self):
@@ -31,6 +34,12 @@ class Stream:
     def cancel(self):
         self.cancelled = True
         return True
+
+    async def code(self):
+        return self.status
+
+    def details(self):
+        return ""
 
 
 class Stub:
@@ -171,6 +180,16 @@ def patch_native_transport(monkeypatch):
             count += 1
             requests.append(request)
             return match_service_pb2.MatchResponse(session_id=f"native-{count}", result_revision=1)
+
+        def StreamMatch(self, request, *, timeout=None):
+            nonlocal count
+            count += 1
+            requests.append(request)
+            done = match_stream_pb2.MatchStreamCompleted(
+                session_id=f"native-{count}", result_revision=1, row_count=0,
+            )
+            done.expires_at.GetCurrentTime()
+            return Stream([match_stream_pb2.MatchStreamEvent(completed=done)])
 
         async def CloseSession(self, request, *, timeout=None):
             return match_service_pb2.CloseSessionResponse()

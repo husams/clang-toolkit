@@ -16,7 +16,7 @@ bool GCCAsmStmtSerializer::serialize(const clang::DynTypedNode &node,
   payload->set_is_goto(native->isAsmGoto());
   payload->set_dialect("gnu");
   for (unsigned i = 0; i < native->getNumOutputs(); ++i) {
-    if (!helpers::can_expand("gcc_asm_stmt.outputs", context))
+    if (!helpers::can_expand(*payload, "outputs", context))
       break;
     auto *operand = payload->add_outputs();
     operand->set_constraint(native->getOutputConstraint(i));
@@ -26,7 +26,7 @@ bool GCCAsmStmtSerializer::serialize(const clang::DynTypedNode &node,
       helpers::write_expr(expr, *operand->mutable_expression(), context);
   }
   for (unsigned i = 0; i < native->getNumInputs(); ++i) {
-    if (!helpers::can_expand("gcc_asm_stmt.inputs", context))
+    if (!helpers::can_expand(*payload, "inputs", context))
       break;
     auto *operand = payload->add_inputs();
     operand->set_constraint(native->getInputConstraint(i));
@@ -38,7 +38,7 @@ bool GCCAsmStmtSerializer::serialize(const clang::DynTypedNode &node,
   for (unsigned i = 0; i < native->getNumClobbers(); ++i)
     payload->add_clobbers(native->getClobber(i));
   for (unsigned i = 0; i < native->getNumLabels(); ++i) {
-    if (!helpers::can_expand("GCCAsmStmt.goto_labels", context))
+    if (!helpers::can_expand(*payload, "goto_labels", context))
       break;
     helpers::write_symbol(*native->getLabelExpr(i)->getLabel(),
                           *payload->add_goto_labels(), context);

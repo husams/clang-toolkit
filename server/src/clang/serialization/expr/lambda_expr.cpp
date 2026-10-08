@@ -19,7 +19,7 @@ bool LambdaExprSerializer::serialize(const clang::DynTypedNode &node,
   payload->set_is_generic_lambda(native->isGenericLambda());
   payload->set_is_mutable(native->isMutable());
   for (const auto &capture : native->captures()) {
-    if (!helpers::can_expand("captures", context))
+    if (!helpers::can_expand(*payload, "captures", context))
       break;
 
     auto *target = payload->add_captures();
@@ -47,7 +47,7 @@ bool LambdaExprSerializer::serialize(const clang::DynTypedNode &node,
     target->set_is_pack_expansion(capture.isPackExpansion());
   }
   for (const auto *initializer : native->capture_inits()) {
-    if (!helpers::can_expand("capture_initializers", context))
+    if (!helpers::can_expand(*payload, "capture_initializers", context))
       break;
 
     if (initializer)

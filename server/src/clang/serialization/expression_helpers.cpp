@@ -200,7 +200,7 @@ void write_call(const clang::CallExpr &native,
   if (auto *callee = native.getDirectCallee())
     write_symbol(*callee, *payload.mutable_direct_callee(), context);
   for (const auto *argument : native.arguments()) {
-    if (!helpers::can_expand("arguments", context))
+    if (!helpers::can_expand(payload, "arguments", context))
       break;
     write_expr(argument, *payload.add_arguments(), context);
   }
@@ -218,7 +218,7 @@ void write_cast(const clang::CastExpr &native,
     unavailable("cast.kind",
                 "Native cast kind has no protocol enum alternative", context);
   for (const auto *base : native.path()) {
-    if (!helpers::can_expand("base_path", context))
+    if (!helpers::can_expand(payload, "base_path", context))
       break;
     write_base(*base, *payload.add_base_path(), context);
   }
@@ -230,7 +230,7 @@ void write_construction(const clang::CXXConstructExpr &native,
   if (auto *constructor = native.getConstructor())
     write_symbol(*constructor, *payload.mutable_constructor(), context);
   for (const auto *argument : native.arguments()) {
-    if (!helpers::can_expand("arguments", context))
+    if (!helpers::can_expand(payload, "arguments", context))
       break;
     write_expr(argument, *payload.add_arguments(), context);
   }

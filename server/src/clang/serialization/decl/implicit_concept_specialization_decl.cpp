@@ -13,7 +13,7 @@ bool ImplicitConceptSpecializationDeclSerializer::serialize(
   helpers::write_common(*native, *payload, context);
   for (const auto &argument : native->getTemplateArguments()) {
     if (!helpers::can_expand(
-            "implicit_concept_specialization_decl.template_arguments", context))
+            *payload, "template_arguments", context))
       break;
     helpers::write_template_argument(
         argument, *payload->add_template_arguments(), context);

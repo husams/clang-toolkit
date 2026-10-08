@@ -19,6 +19,7 @@ bool WhileStmtSerializer::serialize(const clang::DynTypedNode &node,
   payload->set_is_constexpr(false);
   bool constant_condition;
   if (native->getCond() && !native->getCond()->isValueDependent() &&
+      helpers::can_expand(*payload, "is_condition_false", context) &&
       native->getCond()->EvaluateAsBooleanCondition(constant_condition,
                                                     context.ast_context))
     payload->set_is_condition_false(!constant_condition);

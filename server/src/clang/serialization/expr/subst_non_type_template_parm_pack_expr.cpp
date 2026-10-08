@@ -16,7 +16,7 @@ bool SubstNonTypeTemplateParmPackExprSerializer::serialize(
   if (auto *value = native->getParameterPack())
     helpers::write_symbol(*value, *payload->mutable_parameter_pack(), context);
   for (const auto &argument : native->getArgumentPack().pack_elements()) {
-    if (!helpers::can_expand("template_arguments", context))
+    if (!helpers::can_expand(*payload, "template_arguments", context))
       break;
 
     helpers::write_template_argument(

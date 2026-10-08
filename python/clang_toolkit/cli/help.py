@@ -35,6 +35,7 @@ _ENTRIES = (
         (
             "No topic: list commands. A topic: purpose, usage, arguments and examples.",
             "Help and errors always appear in the console, regardless of output routing.",
+            "Every syntax error explains the expected input and marks its location with a caret; unknown commands suggest help.",
         ),
         ("help match", "parse?", "help cursor open", "cursor open?"),
     ),
@@ -58,16 +59,32 @@ _ENTRIES = (
         "Match native nodes and optionally retain the resulting rows.",
         ("match MATCHER [in TARGET]", "let rows = match MATCHER [in TARGET]"),
         (
+            "Use `match` after `=` to assign query results; a bare matcher assignment constructs a matcher and accepts no `in` target.",
             'MATCHER: root matcher call or $matcher; .bind("name") names a selected node.',
             "TARGET: quoted file path, File, file list, parsed tree, match value or binding selection.",
+            "Target variables must already exist; bind labels name bindings in the new results.",
+            "A missing `match` in this assignment form shows its insertion point and a corrected command.",
             "Without in: use the enclosing block tree, otherwise configured files (default []).",
-            "Rows use zero-based indices: $rows[0].binding; $rows.binding selects that binding across rows.",
+            "Rows use zero-based indices: $rows[0].f; $rows.f selects bind label f across rows.",
+            "Semantic fields continue from the bound node, for example $rows[0].f.value.node.",
+            "For function declarations, node exposes concrete and inherited declaration fields directly; exact schema paths remain available.",
+            "node.name is a typed DeclarationName; ordinary names use node.name.identifier. node.qualified_name is a string; spelling belongs to type information.",
+            "Completion labels active payloads, fields and methods, and offers inherited fields such as name, qualified_name and return_type.",
+            "Match values contain immediate fields; bodies, parameters, operands and other child AST values are unrequested. Retrieve child nodes with a follow-up match.",
+            "Read type text through return_type.description.spelling; return_type.type is unrequested.",
+            'hasField("field") checks field presence; Tab inside its argument offers quoted field names. A field name is required.',
             "Uses extra_args (default []) and traversal (default AsIs); server validates matcher types.",
         ),
         (
             'match functionDecl().bind("f") in "examples/parse_match.cc"',
             'let rows = match functionDecl().bind("f") in "examples/parse_match.cc"',
+            'let m = match functionDecl(isExpansionInMainFile()).bind("f") in $f',
             "match callExpr() in $rows.f",
+            "$rows[0].f.value.node.qualified_name",
+            "$rows[0].f.value.node.name.identifier",
+            "$rows[0].f.value.node.function_decl.function.declarator.value.named.qualified_name",
+            "$rows[0].f.value.node.cxx_method_decl.method.function.declarator.value.named.qualified_name",
+            '$rows[0].f.value.node.hasField("body")',
         ),
     ),
     CommandHelp(
@@ -141,7 +158,7 @@ _ENTRIES = (
         (
             "LIST must evaluate to a list (at most 10000 elements); the body is one value expression.",
             "The iterator shadows outer names only during the body. A multiline do requires done.",
-            "Returns a list; let captures it silently. Errors report the element index.",
+            "Returns a new ordinary list of body results; let captures it silently. Errors report the element index.",
         ),
         (
             'let files = glob("examples/*.cc")',
@@ -253,6 +270,8 @@ _ENTRIES = (
         ("history save PATH", "history clear"),
         (
             "The console records timestamped commands with a session UUID and optional label.",
+            "Up/Down recall submitted commands across console restarts; Ctrl+R searches saved command history.",
+            "Multiline commands remain one history entry. Syntax errors are recorded too; cancelled edits are not submitted.",
             "Default store: $XDG_STATE_HOME/clang_tools/history.jsonl, or ~/.local/state/clang_tools/history.jsonl.",
             "See help history save / help history clear.",
         ),
@@ -269,7 +288,7 @@ _ENTRIES = (
     ),
     CommandHelp(
         "history clear",
-        "Clear the local persisted command history.",
+        "Clear saved commands and interactive recall history.",
         ("history clear",),
         ("No arguments or options; history must be enabled.",),
         ("history clear",),

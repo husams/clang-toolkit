@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package ctk.match.v1;
+
+import "google/protobuf/timestamp.proto";
+import "match/v1/match_result.proto";
+
+// One ordered callback row or the single successful completion. Preserve row
+// multiplicity, empty binding maps and source_match_index. No row may follow
+// completion. Application failures terminate without completion; a transport
+// failure may follow completion, so clients must also require terminal OK.
+message MatchStreamEvent {
+  oneof event {
+    MatchResult row = 1;
+    MatchStreamCompleted completed = 2;
+  }
+}
+
+// Published after the atomic cursor commit. Clients also require terminal OK
+// before publishing a reusable collection; rows alone confer no cursor identity.
+// Zero matches still yield this completion with row_count = 0.
+message MatchStreamCompleted {
+  string session_id = 1;
+  uint64 result_revision = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  uint64 row_count = 4;
+}

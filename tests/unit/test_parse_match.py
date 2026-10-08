@@ -12,10 +12,15 @@ import grpc
 from lark.exceptions import UnexpectedInput
 
 from clang_toolkit import AsyncClient, Client, MatchValue, MatchValueError, ParsedTree
+from clang_toolkit import client as client_module
 from clang_toolkit.cursors import CursorError
 from clang_toolkit._generated.match.v1 import match_result_pb2 as results
 from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
 from clang_toolkit._generated.match.v1 import parse_response_pb2
+from clang_toolkit._generated.match.v1 import match_stream_pb2
+from clang_toolkit._row_store import RowStore
+from clang_toolkit._generated.match.v1 import match_stream_pb2
+from clang_toolkit._row_store import RowStore
 from clang_toolkit.cli.app import dispatch
 from clang_toolkit.cli.input_state import input_state
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
@@ -39,6 +44,21 @@ def response(identifier: str, query: str = "functionDecl()") -> pb.MatchResponse
     return value
 
 
+async def streamed_response(value, on_row=None):
+    store = RowStore()
+    for row in value.results:
+        encoded = row.SerializeToString()
+        store.append(encoded)
+        if on_row is not None:
+            on_row(row)
+    completion = match_stream_pb2.MatchStreamCompleted(
+        session_id=value.session_id, result_revision=value.result_revision,
+        row_count=len(value.results),
+    )
+    completion.expires_at.GetCurrentTime()
+    return completion, store
+
+
 @pytest.fixture
 def owned_client(monkeypatch):
     client = Client()
@@ -51,6 +71,25 @@ def owned_client(monkeypatch):
         if method == "close_match":
             closed.append(args[0])
             return None
+        if method == "_stream_cursor_match":
+            request = args[0]
+            counter += 1
+            identifier = f"cursor-{counter}"
+            requests.append(("_stream_cursor_match", (request,), kwargs))
+            result = response(identifier, request.query)
+            store = RowStore()
+            callback = kwargs.get("on_row")
+            for row in result.results:
+                encoded = row.SerializeToString()
+                store.append(encoded)
+                if callback is not None:
+                    detached = results.MatchResult.FromString(encoded)
+                    callback(detached)
+            completion = match_stream_pb2.MatchStreamCompleted(
+                session_id=identifier, result_revision=1, row_count=len(result.results)
+            )
+            completion.expires_at.GetCurrentTime()
+            return completion, store
         counter += 1
         identifier = f"cursor-{counter}"
         requests.append((method, args, kwargs))
@@ -100,6 +139,42 @@ def test_all_rows_and_explicit_zero_use_original_result_revision(owned_client):
     copied = functions[0].bindings["f"]
     copied.unsupported.clang_kind = "changed"
     assert functions[0].bindings["f"].unsupported.clang_kind == "FunctionDecl"
+
+
+def test_sync_on_row_callback_is_incremental_and_cannot_mutate_stored_rows(owned_client):
+    client, _, _ = owned_client
+    seen = []
+
+    def on_row(value):
+        seen.append(value.bindings["f"].unsupported.clang_kind)
+        value.bindings["f"].unsupported.clang_kind = "mutated"
+
+    functions = client.match_in('functionDecl().bind("f")', "example.cc", on_row=on_row)
+    assert seen == ["FunctionDecl", "FunctionDecl"]
+    assert functions[0].bindings["f"].unsupported.clang_kind == "FunctionDecl"
+
+
+def test_match_value_equality_and_hash_use_serialized_rows(owned_client):
+    client, _, _ = owned_client
+    empty = client.match_in("none()", "example.cc")
+    populated = client.match_in("functionDecl()", "example.cc")
+    same_rows = client.match_in("functionDecl()", "example.cc")
+
+    assert empty != populated
+    assert populated == same_rows
+    assert hash(populated) == hash(same_rows)
+
+
+def test_cli_completion_uses_binding_names_without_eager_rows(owned_client, tmp_path, monkeypatch):
+    client, _, _ = owned_client
+    functions = client.match_in("functionDecl()", "example.cc")
+    monkeypatch.setattr(MatchValue, "rows", property(lambda _self: (_ for _ in ()).throw(
+        AssertionError("eager row snapshot requested"))))
+    runtime = Runtime(client, cwd=tmp_path)
+    runtime.bindings["functions"] = functions
+    assert runtime.completion_references()["functions"] == (
+        "call", "f", "isEmpty", "length", "n"
+    )
 
 
 @pytest.mark.parametrize("index", [-1, 2, 1.5, True])
@@ -226,8 +301,8 @@ def test_stale_native_revision_is_reported_without_mutating_value(owned_client, 
     original = client._cursor_call
 
     def call(method, *args, **kwargs):
-        if method == "_cursor_match":
-            assert args[0].session.expected_result_revision == 1
+        if method == "_stream_cursor_match":
+            assert args[0].session.session_id == tree._owner.session_id
             raise CursorError(grpc.StatusCode.ABORTED, "stale result revision")
         return original(method, *args, **kwargs)
 
@@ -294,18 +369,18 @@ def test_async_values_cleanup_revision_guard_and_execute(monkeypatch, tmp_path):
             count += 1
             return parse_response_pb2.ParseResponse(session_id=f"async-{count}", result_revision=1)
 
-        async def match(request):
+        async def match(request, *, on_row=None, source_session_id=None):
             nonlocal count
             requests.append(request)
             count += 1
-            return response(f"async-{count}", request.query)
+            return await streamed_response(response(f"async-{count}", request.query), on_row)
 
         async def close(identifier):
             closed.append(identifier)
 
         monkeypatch.setattr(client, "_ensure_stub", ensure)
         monkeypatch.setattr(client, "_parse_response", parse)
-        monkeypatch.setattr(client, "_cursor_match", match)
+        monkeypatch.setattr(client, "_stream_cursor_match", match)
         monkeypatch.setattr(client, "close_match", close)
         tree = await client.parse("example.cc")
         functions = await client.match_in("functionDecl()", tree)
@@ -334,7 +409,7 @@ def test_async_cancelled_block_unwinds_before_execution_returns(monkeypatch, tmp
         async def parse(*args, **kwargs):
             return parse_response_pb2.ParseResponse(session_id="cancel-tree", result_revision=1)
 
-        async def match(request):
+        async def match(request, *, on_row=None, source_session_id=None):
             entered.set()
             try:
                 await asyncio.Future()
@@ -346,7 +421,7 @@ def test_async_cancelled_block_unwinds_before_execution_returns(monkeypatch, tmp
 
         monkeypatch.setattr(client, "_ensure_stub", lambda: None)
         monkeypatch.setattr(client, "_parse_response", parse)
-        monkeypatch.setattr(client, "_cursor_match", match)
+        monkeypatch.setattr(client, "_stream_cursor_match", match)
         monkeypatch.setattr(client, "close_match", close)
         operation = asyncio.create_task(client.execute('''let value = in parse "example.cc" {
             let functions = match functionDecl(); yield functions;
@@ -378,17 +453,17 @@ def test_async_shutdown_drains_accepted_requests_and_rejects_new_ones(monkeypatc
                 await release.wait()
             return parse_response_pb2.ParseResponse(session_id="shutdown-tree", result_revision=1)
 
-        async def match(request):
+        async def match(request, *, on_row=None, source_session_id=None):
             started.set()
             await release.wait()
-            return response("shutdown-results", request.query)
+            return await streamed_response(response("shutdown-results", request.query), on_row)
 
         async def close(identifier):
             closed.append(identifier)
 
         monkeypatch.setattr(client, "_ensure_stub", lambda: None)
         monkeypatch.setattr(client, "_parse_response", parse)
-        monkeypatch.setattr(client, "_cursor_match", match)
+        monkeypatch.setattr(client, "_stream_cursor_match", match)
         monkeypatch.setattr(client, "close_match", close)
         if operation == "parse":
             accepted = asyncio.create_task(client.parse("example.cc"))
@@ -780,17 +855,17 @@ def test_async_singular_matches_tree_contexts_and_ergonomic_continuation(monkeyp
             count += 1
             return parse_response_pb2.ParseResponse(session_id=f"context-{count}", result_revision=1)
 
-        async def match(request):
+        async def match(request, *, on_row=None, source_session_id=None):
             nonlocal count
             count += 1
-            return response(f"context-{count}", request.query)
+            return await streamed_response(response(f"context-{count}", request.query), on_row)
 
         async def close(identifier):
             closed.append(identifier)
 
         monkeypatch.setattr(client, "_ensure_stub", lambda: None)
         monkeypatch.setattr(client, "_parse_response", parse)
-        monkeypatch.setattr(client, "_cursor_match", match)
+        monkeypatch.setattr(client, "_stream_cursor_match", match)
         monkeypatch.setattr(client, "close_match", close)
         async with client:
             async with await client.parse("example.cc") as tree:

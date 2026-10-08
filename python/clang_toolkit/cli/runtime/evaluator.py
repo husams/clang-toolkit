@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 from lark import Token, Tree
+from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.language import parser
 from clang_toolkit.cli.help import HAS_NATIVE_ANALYSIS_GRAMMAR, render_help
@@ -18,18 +20,35 @@ from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, M
 
 from .config import ConfigError, ConfigStore
 from .filesystem import Directory, File, FileSystemEntry, from_path
-from .references import ReferenceError, call_method, property_value
+from .references import (
+    ReferenceError,
+    call_method,
+    field_names,
+    index_value,
+    is_semantic_view,
+    property_value,
+)
+from .semantic import MessageView, field_sources
 from .templates import TemplateError, evaluate_string
 from .history import HistoryStore
 from .output import OutputSink
 from .persistence import load, save
-from .values import MatchSet, MatcherExpr, QualifiedName, matcher_text, render
+from .values import MatchSet, MatcherExpr, QualifiedName, matcher_text, render, render_inspection
 from .cursors import execute_cursor
 from .traversal import execute_traversal
 
 
 class EvaluationError(ValueError):
     """A valid sentence that cannot be evaluated in this runtime."""
+
+
+@dataclass(frozen=True)
+class CompletionField:
+    """A local completion option with runtime-derived display metadata."""
+
+    name: str
+    kind: str
+    display_meta: str
 
 
 _KNOWN_NON_ROOT = frozenset(NESTED_MATCHERS) - frozenset(ROOT_MATCHERS)
@@ -210,6 +229,8 @@ class Runtime:
             )
         if kind == "print":
             return self.output.emit(render(self._evaluate(statement.children[1])))
+        if kind == "inspect":
+            return self.output.emit(render_inspection(self._evaluate(statement.children[1])))
         if kind == "display":
             return self.output.emit(render(self._evaluate(statement.children[0])))
         if kind == "cfg_file":
@@ -241,8 +262,7 @@ class Runtime:
         fields: dict[str, tuple[str, ...]] = {}
         for name, value in sources.items():
             if isinstance(value, MatchValue):
-                fields[name] = tuple(sorted({binding for row in value.rows
-                    for binding in row.bindings} | {"length", "isEmpty"}))
+                fields[name] = tuple(sorted(value.binding_names() | {"length", "isEmpty"}))
             elif isinstance(value, MatchRow):
                 fields[name] = tuple(value.bindings)
             elif isinstance(value, ParsedTree):
@@ -264,6 +284,101 @@ class Runtime:
                 fields[name] = tuple(field for field in
                     getattr(type(value), "__dataclass_fields__", {}) if not field.startswith("_"))
         return fields
+
+    def completion_fields(self, reference: str) -> tuple[str, ...]:
+        """Return local schema fields after resolving a complete reference."""
+        return tuple(
+            suggestion.name for suggestion in self.completion_suggestions(reference)
+        )
+
+    def completion_suggestions(self, reference: str) -> tuple[CompletionField, ...]:
+        """Return local field names with runtime/schema-derived annotations."""
+        try:
+            from clang_toolkit.cli.language import reference_parser
+
+            parsed = reference_parser().parse(reference).children[0]
+            if not isinstance(parsed, Tree) or parsed.data != "reference":
+                return ()
+            value = self._reference(parsed)
+            sources = (
+                field_sources(value) if isinstance(value, MessageView) else {}
+            )
+            messages = {}
+            results = []
+            for name in field_names(value):
+                source = sources.get(name)
+                if source is not None:
+                    owner, field = source
+                    kind = "field"
+                    oneof = field.containing_oneof
+                    if id(owner) not in messages:
+                        messages[id(owner)] = owner._message()
+                    message = messages[id(owner)]
+                    if (
+                        oneof is not None
+                        and len(oneof.fields) > 1
+                        and message.WhichOneof(oneof.name) == name
+                    ):
+                        if field.message_type is not None:
+                            meta = (
+                                f"active payload · {field.message_type.name} · "
+                                "continue with ."
+                            )
+                        else:
+                            meta = "active field"
+                            if field.enum_type is not None:
+                                meta += f" · {field.enum_type.name}"
+                    else:
+                        value_type = field.message_type or field.enum_type
+                        meta = (
+                            f"field · {value_type.name}"
+                            if value_type is not None
+                            else "field"
+                        )
+                elif name == "hasField" and is_semantic_view(value):
+                    kind = "method"
+                    meta = "method · checks field presence"
+                elif name == "joinWith" and isinstance(value, list):
+                    kind = "method"
+                    meta = "method · joins list values"
+                else:
+                    kind = "property"
+                    meta = "property"
+                results.append(CompletionField(name, kind, meta))
+            return tuple(results)
+        except (
+            ValueError,
+            TypeError,
+            IndexError,
+            KeyError,
+            MatchValueError,
+            UnexpectedInput,
+        ):
+            return ()
+
+    def completion_presence_fields(self, reference: str) -> tuple[str, ...]:
+        """Offer local fields accepted by hasField, including inactive payloads."""
+        try:
+            from clang_toolkit.cli.language import reference_parser
+
+            parsed = reference_parser().parse(reference).children[0]
+            if not isinstance(parsed, Tree) or parsed.data != "reference":
+                return ()
+            value = self._reference(parsed)
+            if not isinstance(value, MessageView):
+                return ()
+            return tuple(
+                name
+                for name, (_, field) in field_sources(
+                    value, include_inactive=True
+                ).items()
+                if field.has_presence
+            )
+        except (
+            ValueError, TypeError, IndexError, KeyError, MatchValueError,
+            UnexpectedInput,
+        ):
+            return ()
 
     def close(self) -> None:
         self.bindings.clear()
@@ -474,25 +589,61 @@ class Runtime:
     def _punctuation(node: Any) -> bool:
         return isinstance(node, Token) and node.type in _PUNCTUATION
 
+    @staticmethod
+    def _output_size_hint(value: Any, limit: int = 1_000_001) -> int:
+        """Estimate retained output without formatting or consuming a view."""
+        if limit <= 0:
+            return limit
+        if isinstance(value, str):
+            return min(len(value.encode("utf-8")), limit)
+        if isinstance(value, bytes):
+            return min(len(value), limit)
+        if isinstance(value, list | tuple):
+            size = 0
+            for item in value:
+                size += Runtime._output_size_hint(item, limit - size)
+                if size >= limit:
+                    break
+            return size
+        if isinstance(value, Mapping):
+            size = 0
+            for key, item in value.items():
+                size += len(str(key).encode("utf-8"))
+                size += Runtime._output_size_hint(item, limit - size)
+                if size >= limit:
+                    break
+            return size
+        data = getattr(value, "_data", None)
+        if isinstance(data, bytes):
+            return min(len(data), limit)
+        return min(len(render(value).encode("utf-8")), limit)
+
     def _reference(self, node: Tree) -> Any:
         children = node.children
         name = str(children[1])
-        steps: list[tuple[str, str, Any | None]] = []
+        steps: list[tuple[str, Any, Any | None, str, int, int]] = []
         index = 2
         while index < len(children):
             if isinstance(children[index], Token) and children[index].type == "LSQB":
                 raw = str(children[index + 1])
-                if not raw.isdigit():
-                    raise EvaluationError("row index must be a zero-based integer")
-                steps.append(("index", raw, None))
+                token = children[index + 1]
+                if isinstance(token, Token) and token.type == "STRING":
+                    key: Any = self._string(raw)
+                    segment = f"[{raw}]"
+                else:
+                    if not raw.isdigit():
+                        raise EvaluationError("index must be a zero-based integer or string key")
+                    key = int(raw)
+                    segment = f"[{raw}]"
+                steps.append(("index", key, None, segment, token.line, token.column))
                 index += 3
                 continue
             token = children[index + 1]
-            if isinstance(token, Token) and token.type == "JOIN_WITH":
-                steps.append(("method", str(token), children[index + 3]))
+            if isinstance(token, Token) and token.type in {"JOIN_WITH", "HAS_FIELD"}:
+                steps.append(("method", str(token), children[index + 3], f".{token}(...)", token.line, token.column))
                 index += 5
             else:
-                steps.append(("property", str(token), None))
+                steps.append(("property", str(token), None, f".{token}", token.line, token.column))
                 index += 2
 
         if name in {"env", "config"} and steps and steps[0][0] == "property":
@@ -503,18 +654,23 @@ class Runtime:
             value: Any = source[key]
         else:
             value = self._resolve_name(name)
-        for operation, field, argument in steps:
+        row_context: int | None = None
+        for operation, field, argument, segment, line, column in steps:
+            previous = value
             try:
                 if operation == "method":
                     value = call_method(value, field, [self._evaluate(argument)])
                 elif operation == "index":
-                    if not isinstance(value, MatchValue | list):
-                        raise ReferenceError("index requires match results or a list")
-                    value = value[int(field)]
+                    value = index_value(value, field)
                 else:
                     value = property_value(value, field)
-            except (ReferenceError, MatchValueError, IndexError) as exc:
-                raise EvaluationError(str(exc)) from exc
+                if operation == "index" and isinstance(previous, MatchValue) and type(field) is int:
+                    row_context = field
+            except (ReferenceError, MatchValueError, IndexError, KeyError) as exc:
+                row = f" in row {row_context}" if row_context is not None else ""
+                raise EvaluationError(
+                    f"{exc}{row} at {segment} (line {line}, column {column})"
+                ) from exc
         return value
 
     def _resolve_name(self, name: str) -> Any:
@@ -621,16 +777,33 @@ class Runtime:
         if len(names) != 1 or len(iterator.children) != 2:
             raise EvaluationError("foreach iterator cannot use a field")
         items = self._evaluate(node.children[3])
-        if not isinstance(items, list):
-            raise EvaluationError("foreach requires a list")
-        if len(items) > 10_000:
-            raise EvaluationError("foreach list exceeds 10000 elements")
+        from .semantic import RepeatedView
+
+        if isinstance(items, MatchValue):
+            iterable = items.iter_rows()
+            known_length = len(items)
+        elif isinstance(items, RepeatedView | list):
+            iterable = iter(items)
+            known_length = len(items)
+        else:
+            raise EvaluationError("foreach requires match results, a repeated field, or a list")
+        if known_length > 10_000:
+            raise EvaluationError("foreach exceeds 10000 elements")
         results: list[Any] = []
-        for index, item in enumerate(items):
+        output_size = 0
+        for index, item in enumerate(iterable):
+            if index >= 10_000:
+                raise EvaluationError("foreach exceeds 10000 elements")
             self._scopes.append({names[0]: item})
             try:
-                results.append(self._evaluate(node.children[5]))
+                result = self._evaluate(node.children[5])
+                output_size += self._output_size_hint(result)
+                if output_size > 1_000_000:
+                    raise EvaluationError("foreach output exceeds 1000000 bytes")
+                results.append(result)
             except EvaluationError as exc:
+                if "foreach output exceeds" in str(exc):
+                    raise
                 raise EvaluationError(f"foreach element {index}: {exc}") from exc
             finally:
                 self._scopes.pop()

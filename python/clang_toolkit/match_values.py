@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import hashlib
 import inspect
 from collections.abc import Awaitable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -14,6 +14,7 @@ from google.protobuf.json_format import MessageToDict
 from clang_toolkit._generated.match.v1 import match_result_pb2 as results
 from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
 from clang_toolkit._value_lifecycle import CursorOwner, MatchValueError
+from clang_toolkit._row_store import RowStore
 
 if TYPE_CHECKING:
     from clang_toolkit.client import AsyncClient, Client
@@ -81,6 +82,16 @@ class BindingSelection(Generic[ClientT]):
     _owner: CursorOwner[ClientT] = field(repr=False, compare=False)
     _index: int | None = field(default=None, repr=False)
     scope: int = results.BINDING_MATCH_SCOPE_SUBTREE
+    _binding_data: bytes | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def value(self) -> results.MatchBinding:
+        """Return a detached copy of this binding's serialized semantic value."""
+        if self._index is None or self._binding_data is None:
+            raise MatchValueError("binding value requires an explicit row index")
+        value = results.MatchBinding()
+        value.ParseFromString(self._binding_data)
+        return value
 
     @overload
     def match(self: BindingSelection[Client], query: str, *,
@@ -131,46 +142,91 @@ class MatchRow(Generic[ClientT]):
 
     def binding(self, name: str, *,
                 scope: int = results.BINDING_MATCH_SCOPE_SUBTREE) -> BindingSelection[ClientT]:
-        if name not in self.bindings:
+        bindings = self.bindings
+        if name not in bindings:
             raise MatchValueError(f"unknown binding: {name}")
-        return BindingSelection(name, self._owner, self._index, scope)
+        return BindingSelection(
+            name, self._owner, self._index, scope,
+            _binding_data=bindings[name].SerializeToString(),
+        )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class MatchValue(Generic[ClientT]):
     """Reusable immutable matching results on their own retained cursor."""
 
-    _data: tuple[bytes, ...] = field(repr=False)
+    _store: RowStore = field(repr=False, compare=False)
     _owner: CursorOwner[ClientT] = field(repr=False, compare=False)
 
     @classmethod
     def _from_response(cls, response: pb.MatchResponse,
                        owner: CursorOwner[ClientT]) -> MatchValue[ClientT]:
-        return cls(tuple(row.SerializeToString() for row in response.results), owner)
+        store = RowStore()
+        try:
+            for row in response.results:
+                store.append(row.SerializeToString(), binding_names=row.bindings)
+        except BaseException:
+            store.close()
+            raise
+        return cls(store, owner)
+
+    @classmethod
+    def _from_store(cls, store: RowStore,
+                    owner: CursorOwner[ClientT]) -> MatchValue[ClientT]:
+        return cls(store, owner)
 
     @property
     def rows(self) -> tuple[MatchRow[ClientT], ...]:
-        return tuple(MatchRow(data, self._owner, index)
-                     for index, data in enumerate(self._data))
+        return tuple(self.iter_rows())
+
+    def iter_rows(self) -> Iterator[MatchRow[ClientT]]:
+        """Yield immutable rows without materializing the full collection."""
+        for index, data in enumerate(self._store.iter_bytes()):
+            yield MatchRow(data, self._owner, index)
 
     def __len__(self) -> int:
-        return len(self._data)
+        return len(self._store)
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self):
+            return False
+        if len(self) != len(other):
+            return False
+        return all(
+            left == right
+            for left, right in zip(
+                self._store.iter_bytes(), other._store.iter_bytes(), strict=True
+            )
+        )
+
+    def __hash__(self) -> int:
+        """Hash framed row bytes with constant extra memory."""
+        digest = hashlib.blake2b(digest_size=32)
+        digest.update(len(self).to_bytes(8, "big"))
+        for data in self._store.iter_bytes():
+            digest.update(len(data).to_bytes(8, "big"))
+            digest.update(data)
+        return hash(digest.digest())
 
     def __iter__(self) -> Iterator[MatchRow[ClientT]]:
-        return iter(self.rows)
+        return self.iter_rows()
 
     def __getitem__(self, index: int) -> MatchRow[ClientT]:
-        if type(index) is not int or index < 0 or index >= len(self._data):
+        if type(index) is not int or index < 0 or index >= len(self._store):
             raise MatchValueError("match row index must be a valid zero-based integer")
-        return MatchRow(self._data[index], self._owner, index)
+        return MatchRow(self._store.read(index), self._owner, index)
 
     def binding(self, name: str, *,
                 scope: int = results.BINDING_MATCH_SCOPE_SUBTREE) -> BindingSelection[ClientT]:
         if not isinstance(name, str) or not name:
             raise MatchValueError("binding name must be nonempty")
-        if self._data and not any(name in row.bindings for row in self.rows):
+        if len(self) and name not in self.binding_names():
             raise MatchValueError(f"unknown binding: {name}")
         return BindingSelection(name, self._owner, scope=scope)
+
+    def binding_names(self) -> set[str]:
+        """Return distinct bind names while retaining only the names in memory."""
+        return self._store.binding_names()
 
     def close(self) -> None:
         self._owner.check_loop()

@@ -2,6 +2,7 @@
 #include "ctk/platform/temporary_directory.hpp"
 #include <fstream>
 #include <gtest/gtest.h>
+#include <memory>
 #include <vector>
 
 namespace ctk::clang_layer {
@@ -27,40 +28,41 @@ std::vector<ctk::match::v1::MatchBinding> query(const FileInput &file,
   EXPECT_TRUE(status.ok) << status.message;
   return result;
 }
-TEST(StatementSemantics, ConditionsPreserveAbsentBranchesAndOwnedDeclarations) {
+bool has_unrequested(const ctk::match::v1::MatchBinding &binding,
+                     const std::string &suffix) {
+  for (const auto &entry : binding.availability())
+    if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
+        entry.field_path().ends_with(suffix))
+      return true;
+  return false;
+}
+TEST(StatementSemantics, ConditionsPreserveFlagsAndReportUnrequestedBranches) {
   Fixture f("int f(int x) { if (int y = x; y) ++x; for (int i=0;i<3;++i) x+=i; "
             "while(false) ; return x; }");
   auto values = query(f.file, "ifStmt().bind(\"node\")");
   ASSERT_EQ(values.size(), 1U);
   const auto &branch = values[0].node().if_stmt();
-  ASSERT_TRUE(branch.has_init_statement());
-  ASSERT_TRUE(branch.init_statement().has_decl_stmt());
-  ASSERT_EQ(branch.init_statement().decl_stmt().declarations_size(), 1);
-  const auto &decl =
-      branch.init_statement().decl_stmt().declarations(0).var_decl();
-  EXPECT_EQ(decl.variable().declarator().value().named().qualified_name(), "y");
-  EXPECT_TRUE(decl.variable().has_initializer());
-  EXPECT_FALSE(branch.has_else_statement());
+  EXPECT_FALSE(branch.has_init_statement());
   EXPECT_FALSE(branch.has_condition_variable());
+  EXPECT_TRUE(has_unrequested(values[0], "init_statement"));
+  EXPECT_FALSE(branch.has_else_statement());
   EXPECT_TRUE(branch.has_is_constexpr());
   EXPECT_FALSE(branch.is_constexpr());
   EXPECT_TRUE(values[0].is_complete());
   auto loop = query(f.file, "forStmt().bind(\"node\")");
   ASSERT_EQ(loop.size(), 1U);
-  EXPECT_TRUE(loop[0].node().for_stmt().has_increment());
-  EXPECT_EQ(loop[0]
-                .node()
-                .for_stmt()
-                .body()
-                .expression()
-                .compound_assign_operator()
-                .opcode(),
-            ctk::ast::v1::BINARY_OPCODE_ADD_ASSIGN);
+  EXPECT_FALSE(loop[0].node().for_stmt().has_increment());
+  EXPECT_FALSE(loop[0].node().for_stmt().has_body());
+  EXPECT_TRUE(loop[0].is_complete());
+  EXPECT_TRUE(has_unrequested(loop[0], "increment"));
+  EXPECT_TRUE(has_unrequested(loop[0], "body"));
   auto whiles = query(f.file, "whileStmt().bind(\"node\")");
   ASSERT_EQ(whiles.size(), 1U);
-  EXPECT_TRUE(whiles[0].node().while_stmt().is_condition_false());
-  EXPECT_TRUE(whiles[0].node().while_stmt().body().has_null_stmt());
+  EXPECT_FALSE(whiles[0].node().while_stmt().has_is_condition_false());
+  EXPECT_TRUE(has_unrequested(whiles[0], "WhileStmt.is_condition_false"));
+  EXPECT_FALSE(whiles[0].node().while_stmt().has_body());
   EXPECT_TRUE(whiles[0].is_complete());
+  EXPECT_TRUE(has_unrequested(whiles[0], "body"));
 }
 TEST(StatementSemantics, SwitchCasesTryHandlersAndFiniteGotoSymbols) {
   Fixture f("int f(int x) { switch(x) { case 1: break; default: x=0; } try { "
@@ -68,19 +70,16 @@ TEST(StatementSemantics, SwitchCasesTryHandlersAndFiniteGotoSymbols) {
             "return x; }");
   auto values = query(f.file, "switchStmt().bind(\"node\")");
   ASSERT_EQ(values.size(), 1U);
-  EXPECT_TRUE(values[0].node().switch_stmt().default_case().has_default_stmt());
-  EXPECT_TRUE(values[0].node().switch_stmt().has_condition());
+  EXPECT_FALSE(values[0].node().switch_stmt().has_default_case());
+  EXPECT_FALSE(values[0].node().switch_stmt().has_condition());
+  EXPECT_TRUE(values[0].is_complete());
+  EXPECT_TRUE(has_unrequested(values[0], "default_case"));
   auto tries = query(f.file, "cxxTryStmt().bind(\"node\")");
   ASSERT_EQ(tries.size(), 1U);
-  ASSERT_EQ(tries[0].node().cxx_try_stmt().handlers_size(), 2);
-  const auto &first =
-      tries[0].node().cxx_try_stmt().handlers(0).cxx_catch_stmt();
-  EXPECT_TRUE(first.has_exception_declaration());
-  EXPECT_FALSE(first.is_catch_all());
-  const auto &second =
-      tries[0].node().cxx_try_stmt().handlers(1).cxx_catch_stmt();
-  EXPECT_FALSE(second.has_exception_declaration());
-  EXPECT_TRUE(second.is_catch_all());
+  EXPECT_EQ(tries[0].node().cxx_try_stmt().handlers_size(), 0);
+  EXPECT_FALSE(tries[0].node().cxx_try_stmt().has_try_block());
+  EXPECT_TRUE(tries[0].is_complete());
+  EXPECT_TRUE(has_unrequested(tries[0], "handlers"));
   auto gotos = query(f.file, "gotoStmt().bind(\"node\")");
   ASSERT_EQ(gotos.size(), 1U);
   EXPECT_EQ(gotos[0].node().goto_stmt().target_label().name(), "end");
@@ -96,31 +95,30 @@ TEST(StatementSemantics, ProtobufValuesSurviveNativeOwnersAndRoundTrip) {
   EXPECT_EQ(copied.node().integer_literal().value().unsigned_decimal(),
             "4275878552");
   EXPECT_TRUE(copied.is_complete());
-  EXPECT_EQ(copied.availability_size(), 0);
+  EXPECT_TRUE(has_unrequested(copied, "QualType.type"));
+  for (const auto &entry : copied.availability()) {
+    EXPECT_NE(entry.state(), ctk::ast::v1::FIELD_STATE_UNAVAILABLE);
+    EXPECT_NE(entry.state(), ctk::ast::v1::FIELD_STATE_TRUNCATED);
+  }
   EXPECT_EQ(copied.supported_scopes_size(), 2);
 }
 TEST(StatementSemantics,
-     ExpansionLimitsAreExplicitAndDoNotPoisonOtherBindings) {
+     PublicExpressionProjectionDoesNotExpandOrTruncateNestedOperators) {
   std::string expression = "1";
   for (unsigned i = 0; i < 60; ++i)
     expression += "+1";
   Fixture f("int f() { return " + expression + "; }");
   auto values = query(f.file, "binaryOperator().bind(\"node\")");
   ASSERT_EQ(values.size(), 60U);
-  unsigned complete = 0, truncated = 0;
   for (const auto &binding : values) {
     ctk::match::v1::MatchBinding copy;
     EXPECT_TRUE(copy.ParseFromString(binding.SerializeAsString()));
-    if (binding.is_complete())
-      ++complete;
+    EXPECT_TRUE(binding.is_complete());
+    EXPECT_FALSE(binding.node().binary_operator().has_left());
+    EXPECT_FALSE(binding.node().binary_operator().has_right());
     for (const auto &entry : binding.availability())
-      if (entry.state() == ctk::ast::v1::FIELD_STATE_TRUNCATED) {
-        ++truncated;
-        break;
-      }
+      EXPECT_NE(entry.state(), ctk::ast::v1::FIELD_STATE_TRUNCATED);
   }
-  EXPECT_GT(complete, 0U);
-  EXPECT_GT(truncated, 0U);
 }
 TEST(StatementSemantics, BindingRowsPreserveMultiplicityAndAutomaticRoot) {
   Fixture f("int f() { return 1+2; }");
@@ -150,25 +148,39 @@ TEST(StatementSemantics, BindingRowsPreserveMultiplicityAndAutomaticRoot) {
   EXPECT_TRUE(result.ok) << result.message;
   EXPECT_EQ(rows, 2U);
 }
-TEST(StatementSemantics, StructuralConstantsKeepNativeFieldIndices) {
-  Fixture f("struct P { unsigned : 0; int value; }; template<auto V> constexpr "
-            "auto constant() { return V; } constexpr auto out = constant<P{7}>();");
-  auto values = query(f.file, "declRefExpr(to(decl().bind(\"node\")))");
-  unsigned checked = 0;
-  for (const auto &binding : values) {
-    if (!binding.node().has_template_param_object_decl())
-      continue;
-    const auto &constant =
-        binding.node().template_param_object_decl().value_as_constant();
-    ASSERT_TRUE(constant.has_structure());
-    ASSERT_EQ(constant.structure().field_values_size(), 1);
-    EXPECT_EQ(constant.structure().field_values(0).field().name(), "value");
-    EXPECT_EQ(
-        constant.structure().field_values(0).value().integer().decimal_value(),
-        "7");
-    ++checked;
+TEST(StatementSemantics, CachedConstantValuesKeepScalars) {
+  Fixture f("enum E { negative = -7 };");
+  const auto query_constants = [&](const std::shared_ptr<IQueryEngine> &engine,
+                                   std::vector<ctk::match::v1::MatchBinding> &rows) {
+    const auto status = engine->match(
+        f.file, "constantExpr().bind(\"node\")", [] { return true; },
+        [&](const IQueryEngine::Bindings &bindings) {
+          rows.push_back(bindings.at("node").value);
+        });
+    EXPECT_TRUE(status.ok) << status.message;
+    return status;
+  };
+  std::vector<ctk::match::v1::MatchBinding> seeded;
+  const auto first = query_constants(make_query_engine(), seeded);
+  ASSERT_TRUE(first.ok) << first.message;
+
+  std::vector<ctk::match::v1::MatchBinding> loaded;
+  const auto reloaded = query_constants(make_query_engine(), loaded);
+  ASSERT_TRUE(reloaded.ok) << reloaded.message;
+  EXPECT_TRUE(reloaded.storage_hit) << reloaded.storage_message;
+
+  bool saw_scalar = false;
+  for (const auto &binding : loaded) {
+    const auto &constant = binding.node().constant_expr();
+    if (constant.value().has_integer() &&
+        constant.value().integer().decimal_value() == "-7") {
+      saw_scalar = true;
+      EXPECT_TRUE(binding.is_complete());
+      EXPECT_EQ(constant.value().integer().decimal_value(), "-7");
+    }
   }
-  EXPECT_GT(checked, 0U);
+  EXPECT_TRUE(saw_scalar);
 }
+
 } // namespace
 } // namespace ctk::clang_layer

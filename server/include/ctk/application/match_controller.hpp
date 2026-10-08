@@ -2,7 +2,9 @@
 #include "ctk/application/operation_executor.hpp"
 
 #include "ctk/clang/matching.hpp"
+#include "match/v1/match_stream.pb.h"
 #include <chrono>
+#include <functional>
 #include <memory>
 
 namespace ctk::application {
@@ -24,6 +26,8 @@ struct ParseReply {
 };
 class MatchController final {
 public:
+  using StreamSink = std::function<ctk::clang_layer::MatchCode(
+      const ctk::match::v1::MatchStreamEvent &, std::string &)>;
   explicit MatchController(
       CursorSettings settings = {},
       std::shared_ptr<ctk::clang_layer::IMatchBackend> backend = {},
@@ -35,6 +39,11 @@ public:
   MatchReply
   match(const std::string &owner, const ctk::match::v1::MatchRequest &request,
         const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint);
+  MatchReply
+  stream_match(const std::string &owner,
+               const ctk::match::v1::MatchRequest &request,
+               const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+               const StreamSink &sink);
   MatchReply close(const std::string &owner, const std::string &id);
   void stop_admission();
 

@@ -15,7 +15,7 @@ bool FunctionParmPackExprSerializer::serialize(
   if (auto *value = native->getParameterPack())
     helpers::write_symbol(*value, *payload->mutable_parameter_pack(), context);
   for (const auto *value : *native) {
-    if (!helpers::can_expand("expansions", context))
+    if (!helpers::can_expand(*payload, "expansions", context))
       break;
     helpers::write_symbol(*value, *payload->add_expansions(), context);
   }

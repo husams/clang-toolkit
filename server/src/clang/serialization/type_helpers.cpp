@@ -210,7 +210,7 @@ void write_function_proto_ext(const clang::FunctionProtoType &native,
                               SerializationContext &context) {
   payload.set_exception_specification(exception_specification(native.getExceptionSpecType()));
   for (auto exception : native.exceptions()) {
-    if (!helpers::can_expand("exception_types", context)) break;
+    if (!helpers::can_expand(payload, "exception_types", context)) break;
     helpers::write_type(exception, *payload.add_exception_types(), context);
   }
   switch (native.getRefQualifier()) {

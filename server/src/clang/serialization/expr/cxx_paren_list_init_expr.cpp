@@ -13,7 +13,7 @@ bool CXXParenListInitExprSerializer::serialize(
   auto *payload = binding.mutable_node()->mutable_cxx_paren_list_init_expr();
   helpers::write_common(*native, *payload, context);
   for (const auto *value : native->getInitExprs()) {
-    if (!helpers::can_expand("initializers", context))
+    if (!helpers::can_expand(*payload, "initializers", context))
       break;
     helpers::write_expr(value, *payload->add_initializers(), context);
   }

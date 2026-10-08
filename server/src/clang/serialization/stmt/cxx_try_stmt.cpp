@@ -13,7 +13,7 @@ bool CXXTryStmtSerializer::serialize(const clang::DynTypedNode &node,
   if (auto *child = native->getTryBlock())
     helpers::write_stmt(child, *payload->mutable_try_block(), context);
   for (unsigned i = 0; i < native->getNumHandlers(); ++i) {
-    if (!helpers::can_expand("CXXTryStmt.handlers", context))
+    if (!helpers::can_expand(*payload, "handlers", context))
       break;
     helpers::write_stmt(native->getHandler(i), *payload->add_handlers(),
                         context);

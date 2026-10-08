@@ -61,7 +61,8 @@ TEST(ClangQuery, ParsesFixedQueryAndCopiesSemanticBindings) {
                 .name()
                 .identifier(),
             "target");
-  EXPECT_FALSE(found.value.is_complete());
+  EXPECT_TRUE(found.value.is_complete());
+  EXPECT_FALSE(found.value.node().function_decl().function().has_body());
 }
 
 TEST(ClangQuery, SerializesIntegerLiteralValueIntoItsConcretePayload) {
@@ -121,8 +122,10 @@ TEST(ClangQuery, BaseMatcherDispatchesToDerivedMemberCallSerializer) {
           const auto &member = node.cxx_member_call_expr();
           EXPECT_EQ(member.method_declaration().name(), "get");
           EXPECT_EQ(member.record_declaration().name(), "Box");
-          EXPECT_TRUE(member.has_implicit_object_argument());
-          EXPECT_TRUE(member.object_type().type().payload_case() != ctk::ast::v1::TypeValue::PAYLOAD_NOT_SET || !member.object_type().type().is_complete());
+          EXPECT_FALSE(member.has_implicit_object_argument());
+          EXPECT_TRUE(member.object_type().description().has_spelling());
+          EXPECT_EQ(member.object_type().type().payload_case(),
+                    ctk::ast::v1::TypeValue::PAYLOAD_NOT_SET);
           EXPECT_EQ(member.call().direct_callee().name(), "get");
           saw_member_call = true;
         }

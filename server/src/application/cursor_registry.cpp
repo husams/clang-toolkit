@@ -98,8 +98,8 @@ bool CursorRegistry::fits(const std::string &replacing,
 MatchReply CursorRegistry::commit(
     std::shared_ptr<ResultCursor> cursor,
     ctk::clang_layer::MatchExecution execution,
-    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
-    bool create) {
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint, bool create,
+    bool streaming) {
   if (!execution.state)
     return failure(MatchCode::Internal,
                    "backend returned no binding ownership");
@@ -119,7 +119,7 @@ MatchReply CursorRegistry::commit(
                          .count();
   next.mutable_expires_at()->set_seconds(nanos / 1000000000);
   next.mutable_expires_at()->set_nanos(nanos % 1000000000);
-  if (next.ByteSizeLong() > settings_.results.max_bytes)
+  if (!streaming && next.ByteSizeLong() > settings_.results.max_bytes)
     return failure(MatchCode::ResourceExhausted,
                    "complete match response exceeds byte limit (limit " +
                        std::to_string(settings_.results.max_bytes) +
@@ -128,8 +128,23 @@ MatchReply CursorRegistry::commit(
                        " bytes); increase server.grpc.max_send_message_bytes "
                        "and client.grpc.max_receive_message_bytes; "
                        "no cursor state committed");
+  ctk::match::v1::MatchResponse retained;
+  retained.set_session_id(next.session_id());
+  retained.set_result_revision(next.result_revision());
+  retained.mutable_expires_at()->CopyFrom(next.expires_at());
+  for (const auto &row : next.results()) {
+    auto *metadata = retained.add_results();
+    if (row.has_source_match_index())
+      metadata->set_source_match_index(row.source_match_index());
+    for (const auto &[name, binding] : row.bindings()) {
+      auto &thin = (*metadata->mutable_bindings())[name];
+      for (const auto scope : binding.supported_scopes())
+        thin.add_supported_scopes(
+            static_cast<ctk::match::v1::BindingMatchScope>(scope));
+    }
+  }
   Entry candidate{cursor, execution.state->snapshot(),
-                  next.ByteSizeLong() + execution.state->retained_bytes() +
+                  retained.ByteSizeLong() + execution.state->retained_bytes() +
                       sizeof(ResultCursor)};
   // Copy before committing; allocation failure cannot publish a partial
   // revision.
@@ -155,7 +170,7 @@ MatchReply CursorRegistry::commit(
   } else {
     cursors_.at(cursor->id) = std::move(candidate);
   }
-  cursor->response.Swap(&next);
+  cursor->response.Swap(&retained);
   // execution retains the old native state until after the registry guard is
   // destroyed; AST/store ownership must never be released under this lock.
   cursor->state.swap(execution.state);

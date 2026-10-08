@@ -13,7 +13,7 @@ bool VarTemplateSpecializationDeclSerializer::serialize(
   helpers::write_common(*native, *payload, context);
   for (const auto &argument : native->getTemplateArgs().asArray()) {
     if (!helpers::can_expand(
-            "var_template_specialization_decl.template_arguments", context))
+            *payload, "template_arguments", context))
       break;
     helpers::write_template_argument(
         argument, *payload->add_template_arguments(), context);

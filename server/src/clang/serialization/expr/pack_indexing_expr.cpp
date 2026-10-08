@@ -25,7 +25,7 @@ bool PackIndexingExprSerializer::serialize(
                         *payload->mutable_selected_expression(), context);
   }
   for (const auto *value : native->getExpressions()) {
-    if (!helpers::can_expand("substituted_expressions", context))
+    if (!helpers::can_expand(*payload, "substituted_expressions", context))
       break;
     helpers::write_expr(value, *payload->add_substituted_expressions(),
                         context);

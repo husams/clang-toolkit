@@ -389,6 +389,8 @@ import type { MatchRequest as _ctk_match_v1_MatchRequest, MatchRequest__Output a
 import type { MatchResponse as _ctk_match_v1_MatchResponse, MatchResponse__Output as _ctk_match_v1_MatchResponse__Output } from './ctk/match/v1/MatchResponse.js';
 import type { MatchResult as _ctk_match_v1_MatchResult, MatchResult__Output as _ctk_match_v1_MatchResult__Output } from './ctk/match/v1/MatchResult.js';
 import type { MatchServiceClient as _ctk_match_v1_MatchServiceClient, MatchServiceDefinition as _ctk_match_v1_MatchServiceDefinition } from './ctk/match/v1/MatchService.js';
+import type { MatchStreamCompleted as _ctk_match_v1_MatchStreamCompleted, MatchStreamCompleted__Output as _ctk_match_v1_MatchStreamCompleted__Output } from './ctk/match/v1/MatchStreamCompleted.js';
+import type { MatchStreamEvent as _ctk_match_v1_MatchStreamEvent, MatchStreamEvent__Output as _ctk_match_v1_MatchStreamEvent__Output } from './ctk/match/v1/MatchStreamEvent.js';
 import type { ParseRequest as _ctk_match_v1_ParseRequest, ParseRequest__Output as _ctk_match_v1_ParseRequest__Output } from './ctk/match/v1/ParseRequest.js';
 import type { ParseResponse as _ctk_match_v1_ParseResponse, ParseResponse__Output as _ctk_match_v1_ParseResponse__Output } from './ctk/match/v1/ParseResponse.js';
 import type { SessionMatchTarget as _ctk_match_v1_SessionMatchTarget, SessionMatchTarget__Output as _ctk_match_v1_SessionMatchTarget__Output } from './ctk/match/v1/SessionMatchTarget.js';
@@ -847,6 +849,8 @@ export interface ProtoGrpcType {
         MatchResponse: MessageTypeDefinition<_ctk_match_v1_MatchResponse, _ctk_match_v1_MatchResponse__Output>
         MatchResult: MessageTypeDefinition<_ctk_match_v1_MatchResult, _ctk_match_v1_MatchResult__Output>
         MatchService: SubtypeConstructor<typeof grpc.Client, _ctk_match_v1_MatchServiceClient> & { service: _ctk_match_v1_MatchServiceDefinition }
+        MatchStreamCompleted: MessageTypeDefinition<_ctk_match_v1_MatchStreamCompleted, _ctk_match_v1_MatchStreamCompleted__Output>
+        MatchStreamEvent: MessageTypeDefinition<_ctk_match_v1_MatchStreamEvent, _ctk_match_v1_MatchStreamEvent__Output>
         MatchTraversalMode: EnumTypeDefinition
         ParseRequest: MessageTypeDefinition<_ctk_match_v1_ParseRequest, _ctk_match_v1_ParseRequest__Output>
         ParseResponse: MessageTypeDefinition<_ctk_match_v1_ParseResponse, _ctk_match_v1_ParseResponse__Output>

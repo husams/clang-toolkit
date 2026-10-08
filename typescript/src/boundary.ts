@@ -3,6 +3,10 @@ import { z } from "zod";
 const unsigned = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const revision = unsigned.refine((value) => BigInt(value) > 0n);
 const session = z.string().uuid();
+const timestamp = z.looseObject({
+  seconds: z.string().regex(/^(0|[1-9][0-9]*)$/),
+  nanos: z.number().int().min(0).max(999_999_999),
+});
 const semantic = z.looseObject({});
 const binding = z.looseObject({
   node: semantic.nullish(),
@@ -23,6 +27,28 @@ export const parseResponseSchema = z.looseObject({
 export const matchResponseSchema = parseResponseSchema.extend({
   results: z.array(rowSchema),
 });
+export const matchStreamCompletedSchema = z.looseObject({
+  sessionId: session,
+  resultRevision: revision,
+  expiresAt: timestamp,
+  rowCount: unsigned,
+});
+export const matchStreamEventSchema = z
+  .looseObject({
+    event: z.enum(["row", "completed"]),
+    row: rowSchema.optional(),
+    completed: matchStreamCompletedSchema.optional(),
+  })
+  .refine(
+    (event) =>
+      (event.event === "row" &&
+        event.row !== undefined &&
+        event.completed === undefined) ||
+      (event.event === "completed" &&
+        event.completed !== undefined &&
+        event.row === undefined),
+    "stream event must contain exactly its selected payload",
+  );
 export const scriptResponseSchema = z.looseObject({
   executedSteps: z.number().int().nonnegative(),
   emissions: z.array(

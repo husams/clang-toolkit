@@ -17,6 +17,7 @@ import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from clang_toolkit.client import AsyncClient, QueryError
+from clang_toolkit._generated.ast.v1 import common_pb2
 from clang_toolkit.cursors import CursorError
 from clang_toolkit.analysis_error import AnalysisError
 
@@ -62,6 +63,63 @@ def invalid_source(tmp_path: Path) -> Path:
     source = tmp_path / "invalid.cc"
     source.write_text('#include <ctk_missing_project_header.hpp>\nint value;\n')
     return source
+
+
+@given("a C++ file including dependent vector conversions", target_fixture="vector_source")
+def dependent_vector_source(tmp_path: Path) -> Path:
+    (tmp_path / "conversions.hpp").write_text(
+        "template<class D, class S> D convert(S value) {\n"
+        "  return __builtin_convertvector(value, D);\n}\n"
+        "using IntVector = int __attribute__((ext_vector_type(2)));\n"
+        "using FloatVector = float __attribute__((ext_vector_type(2)));\n"
+        "FloatVector concrete(IntVector value) {\n"
+        "  return __builtin_convertvector(value, FloatVector);\n}\n",
+        encoding="utf-8",
+    )
+    source = tmp_path / "vectors.cc"
+    source.write_text('#include "conversions.hpp"\nint main() { return 0; }\n',
+                      encoding="utf-8")
+    return source
+
+
+@when("I match every function through the SDK and real console", target_fixture="vector_results")
+def match_vector_functions(server: RunningServer, vector_source: Path, tmp_path: Path):
+    import sys
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            tree = await client.parse(vector_source)
+            rows = await client.match_in('functionDecl().bind("x")', tree)
+            assert len(rows) == 3
+            assert all(row.bindings["x"].node.HasField("function_decl") for row in rows)
+            assert server.process.poll() is None
+            await client.server_version()
+            followup = await client.match_in('functionDecl(hasName("main")).bind("x")', tree)
+            assert len(followup) == 1
+            return len(rows)
+
+    count = asyncio.run(run())
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+        input=f'let x = parse "{vector_source}"\n'
+              'let m = match functionDecl().bind("x") in $x\n'
+              'print $m\nprint "VECTOR_MATCH_OK"\nquit\n',
+        env=dict(os.environ, XDG_STATE_HOME=str(tmp_path / "vector-state")),
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        timeout=30, check=False,
+    )
+    return count, console
+
+
+@then("the vector functions are returned and the server remains usable")
+def vector_server_remains_usable(server: RunningServer, vector_results):
+    count, console = vector_results
+    assert count == 3
+    assert console.returncode == 0, console.stdout
+    assert "VECTOR_MATCH_OK" in console.stdout
+    assert "convert" in console.stdout and "concrete" in console.stdout
+    assert "error:" not in console.stdout and "syntax error" not in console.stdout
+    assert server.process.poll() is None
 
 
 @when("I parse the invalid source through the SDK and real console", target_fixture="parse_errors")
@@ -132,14 +190,18 @@ def parse_database_project(server: RunningServer, database_project):
 
     async def run():
         async with AsyncClient(server.endpoint, compilation_database=selected) as client:
-            first = await client.match_in('functionDecl(hasName("before")).bind("f")', source)
+            first = await client.match_in('functionDecl(hasName("before")).bind("f")', source,
+                                          working_directory=root)
             command["arguments"][3] = "-DPROFILE=22"
             database.write_text(json.dumps([command]))
-            updated = await client.match_in('functionDecl(hasName("after")).bind("f")', source)
-            old = await client.match_in('functionDecl(hasName("before")).bind("f")', source)
+            updated = await client.match_in('functionDecl(hasName("after")).bind("f")', source,
+                                            working_directory=root)
+            old = await client.match_in('functionDecl(hasName("before")).bind("f")', source,
+                                        working_directory=root)
             pinned = await client.match_in('functionDecl(hasName("before")).bind("f")', first)
-            traversal = await client.traverse(source)
-            events = await client.query('functionDecl(hasName("after")).bind("f")', [source])
+            traversal = await client.traverse(source, working_directory=root)
+            events = await client.query('functionDecl(hasName("after")).bind("f")', [source],
+                                        working_directory=root)
             return len(first), len(updated), len(old), len(pinned), len(traversal.nodes), sum(event.HasField("match") for event in events)
     return asyncio.run(run()), root
 
@@ -386,6 +448,93 @@ def start_large_cursor_server(tmp_path: Path, request) -> RunningServer:
     return _launch_server("unix", tmp_path, request, max_send_bytes=16 * 1024 * 1024)
 
 
+@given(parsers.parse("a streaming cursor server using {transport} with an 8192-byte message limit"),
+       target_fixture="server")
+def start_streaming_cursor_server(transport: str, tmp_path: Path, request) -> RunningServer:
+    return _launch_server(transport, tmp_path, request, max_send_bytes=8192)
+
+
+@given("a C++ file containing many small function definitions", target_fixture="stream_source")
+def small_function_definitions(tmp_path: Path) -> tuple[Path, int]:
+    source = tmp_path / "stream.cc"
+    count = 96
+    source.write_text("\n".join(f"int streamed_{index}() {{ return {index}; }}"
+                                for index in range(count)), encoding="utf-8")
+    return source, count
+
+
+@when("I stream retained matches through both SDKs and the real console", target_fixture="streamed_result")
+def stream_retained_matches(server: RunningServer, stream_source: tuple[Path, int], tmp_path: Path):
+    import sys
+    from clang_toolkit import Client
+    source, count = stream_source
+    query = 'functionDecl().bind("f")'
+    with Client(server.endpoint) as client:
+        with client.parse(source, working_directory=source.parent) as tree:
+            with pytest.raises(CursorError) as rejected:
+                client.match_file(source, query, working_directory=source.parent)
+            assert rejected.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+            received = []
+            sizes = []
+
+            def on_row(row):
+                sizes.append(row.ByteSize())
+                received.append(row.bindings["f"].node.function_decl.function.declarator.value.named.qualified_name)
+                row.Clear()
+
+            with client.match_in(query, tree, on_row=on_row) as functions:
+                assert len(functions) == len(received) == count
+                assert "f" in functions[0].bindings
+                with client.match_in('integerLiteral().bind("n")', functions.binding("f")) as literals:
+                    assert len(literals) == count
+                    assert [row.source_match_index for row in literals] == list(range(count))
+            assert functions[0].bindings["f"].node.HasField("function_decl")
+            with client.match_in('functionDecl(hasName("missing"))', tree) as empty:
+                assert len(empty) == 0
+            with pytest.raises(RuntimeError, match="stop streamed callback"):
+                client.match_in(query, tree, on_row=lambda _row: (_ for _ in ()).throw(
+                    RuntimeError("stop streamed callback")))
+            with client.match_in('functionDecl(hasName("streamed_0"))', tree) as after_cancel:
+                assert len(after_cancel) == 1
+            assert sum(sizes) > 8192 and max(sizes) < 8192
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            async with await client.parse(source, working_directory=source.parent) as tree:
+                observed = []
+
+                async def on_row(row):
+                    observed.append(row.bindings["f"].node.function_decl.function.declarator.value.named.qualified_name)
+                    await asyncio.sleep(0)
+
+                async with await client.match_in(query, tree, on_row=on_row) as functions:
+                    assert len(functions) == len(observed) == count
+                    return observed
+
+    asynchronous = asyncio.run(run())
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+        input=f'let tree = parse "{source}"\nlet rows = match {query} in $tree\n'
+              'let literals = match integerLiteral().bind("n") in $rows[0].f\n'
+              'print $literals\nprint "STREAM_MATCH_OK"\nquit\n',
+        env=dict(os.environ, XDG_STATE_HOME=str(tmp_path / "stream-state")),
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60, check=False,
+    )
+    return received, asynchronous, console, count
+
+
+@then("all rows arrive incrementally and remain reusable beyond the message limit")
+def verify_streamed_retained_matches(server: RunningServer, streamed_result):
+    synchronous, asynchronous, console, count = streamed_result
+    assert len(synchronous) == len(asynchronous) == count
+    assert synchronous == asynchronous
+    assert console.returncode == 0, console.stdout
+    assert "STREAM_MATCH_OK" in console.stdout
+    assert "integer_literal" in console.stdout
+    assert "error:" not in console.stdout, console.stdout
+    assert server.process.poll() is None
+
+
 @given("a C++ file with a large function declaration result", target_fixture="large_source")
 def large_source(tmp_path: Path) -> tuple[Path, int]:
     return _included_function_source(tmp_path, 3000)
@@ -487,20 +636,29 @@ def create_cpp_source(tmp_path: Path) -> Path:
 def run_declaration_query(server: RunningServer, source: Path):
     async def run():
         async with AsyncClient(server.endpoint) as client:
-            return await client.query(
+            declaration_events = await client.query(
                 'varDecl(hasName("network_client_marker")).bind("decl")',
                 [source], working_directory=source.parent,
             )
+            child_events = await client.query(
+                'integerLiteral().bind("literal")',
+                [source], working_directory=source.parent,
+            )
+            return declaration_events, child_events
     return asyncio.run(run())
 
 
 @then("the stream contains a match and successful completion")
 def has_match_and_completion(events) -> None:
-    kinds = [event.WhichOneof("event") for event in events]
-    assert "match" in kinds
-    assert kinds[-1] == "completed"
-    completed = next(event.completed for event in events if event.WhichOneof("event") == "completed")
-    assert completed.match_count >= 1
+    for event_stream in events:
+        kinds = [event.WhichOneof("event") for event in event_stream]
+        assert "match" in kinds
+        assert kinds[-1] == "completed"
+        completed = next(
+            event.completed for event in event_stream
+            if event.WhichOneof("event") == "completed"
+        )
+        assert completed.match_count >= 1
 
 
 @when("I run the query through a bidirectional session", target_fixture="session_events")
@@ -614,20 +772,23 @@ def checks_limited_batch(limited_events, source: Path) -> None:
     assert "resumed" in actions
 
 
-@then("the declaration contains a complete typed initializer and exact type")
-def has_typed_semantic_declaration(events) -> None:
-    match = next(event.match for event in events if event.WhichOneof("event") == "match")
+@then("the declaration exposes a type summary and the follow-up query exposes its literal")
+def has_shallow_semantic_declaration(events) -> None:
+    declaration_events, child_events = events
+    match = next(event.match for event in declaration_events if event.WhichOneof("event") == "match")
     binding = match.semantic_result.bindings["decl"]
     assert binding.is_complete
-    assert not binding.availability
     assert binding.node.WhichOneof("payload") == "var_decl"
     variable = binding.node.var_decl.variable
     assert variable.declarator.value.named.qualified_name == "network_client_marker"
-    assert variable.declarator.value.type.type.WhichOneof("payload") == "builtin_type"
-    assert variable.initializer.WhichOneof("payload") == "integer_literal"
-    assert variable.initializer.is_complete
-    assert variable.initializer.integer_literal.value.unsigned_decimal == "1"
-    assert variable.initializer.integer_literal.info.type.type.builtin_type.info.spelling == "int"
+    assert variable.declarator.value.type.description.spelling == "int"
+    assert not variable.HasField("initializer")
+    omissions = {item.field_path: item.state for item in binding.availability}
+    assert omissions["VarDeclInfo.initializer"] == common_pb2.FIELD_STATE_UNREQUESTED
+
+    literal_match = next(event.match for event in child_events if event.WhichOneof("event") == "match")
+    literal = literal_match.semantic_result.bindings["literal"].node.integer_literal
+    assert literal.value.unsigned_decimal == "1"
 
 
 @when("I build the function CFG and reject a limited result", target_fixture="cfg_result")

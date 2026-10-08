@@ -5,6 +5,7 @@ import type {
   Metadata,
 } from "@grpc/grpc-js";
 import type { ConfigurationOptions } from "./configuration-types.js";
+import type { SemanticRow } from "./semantic-types.js";
 
 export interface FileOptions {
   workingDirectory?: string;
@@ -21,6 +22,7 @@ export interface ClientOptions extends FileOptions, ConfigurationOptions {
 export interface MatchOptions extends FileOptions {
   traversal?: "asIs" | "spelled";
   scope?: "subtree" | "rootOnly";
+  onRow?: (row: SemanticRow, index: number) => void | Promise<void>;
   callOptions?: CallOptions;
 }
 export interface ScriptOptions extends FileOptions {

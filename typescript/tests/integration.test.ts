@@ -57,7 +57,8 @@ for (const transport of ["unix", "tcp"] as const) {
       await writeFile(configPath, network);
       await writeFile(resolve(directory, "clang-toolkit.yaml"), network);
       processHandle = spawn(
-        resolve(process.cwd(), "../build/dev/server/ctk-server"),
+        process.env.CTK_SERVER ??
+          resolve(process.cwd(), "../build/dev/server/ctk-server"),
         ["-c", configPath],
         {
           env: {
@@ -107,19 +108,37 @@ for (const transport of ["unix", "tcp"] as const) {
       const source = resolve(directory, "large.cc");
       await writeFile(
         resolve(directory, "large.hpp"),
-        Array.from({ length: 3000 }, (_, index) =>
-          `void function_${index}_${"x".repeat(1000)}();`,
+        Array.from(
+          { length: 3000 },
+          (_, index) => `void function_${index}_${"x".repeat(1000)}();`,
         ).join("\n"),
       );
-      await writeFile(source, '#include "large.hpp"\nvoid source_function();\n');
-      await using connected = client();
+      await writeFile(
+        source,
+        '#include "large.hpp"\nvoid source_function();\n',
+      );
+      await using connected = new Client(endpoint, {
+        workingDirectory: directory,
+        credentials: credentials.createInsecure(),
+        channelOptions: { "grpc.max_receive_message_length": 64 * 1024 },
+      });
       await using tree = await connected.parse(source);
-      await using rows = await connected.match('functionDecl().bind("x")', tree);
+      let streamedRows = 0;
+      await using rows = await connected.match(
+        'functionDecl().bind("x")',
+        tree,
+        {
+          onRow: () => {
+            streamedRows += 1;
+          },
+        },
+      );
       expect(rows.length).toBe(3001);
-      expect(Object.keys(rows.rows[0]?.bindings ?? {}).sort()).toEqual(["root", "x"]);
+      expect(streamedRows).toBe(3001);
+      expect(Object.keys(rows.row(0).bindings).sort()).toEqual(["root", "x"]);
       await using roots = await connected.match("functionDecl()", tree);
       expect(roots.length).toBe(3001);
-      expect(Object.keys(roots.rows[0]?.bindings ?? {})).toEqual(["root"]);
+      expect(Object.keys(roots.row(0).bindings)).toEqual(["root"]);
     }, 20_000);
 
     it("connects from shared discovery and an optional config path without an address", async () => {
@@ -226,7 +245,7 @@ for (const transport of ["unix", "tcp"] as const) {
       };
       const database = resolve(build, "compile_commands.json");
       await writeFile(database, JSON.stringify([command]));
-      await using client = new Client(endpoint);
+      await using client = new Client(endpoint, { workingDirectory: project });
       await using automatic = await client.parse(file);
       await using before = await client.match(
         'functionDecl(hasName("before")).bind("f")',
@@ -235,6 +254,7 @@ for (const transport of ["unix", "tcp"] as const) {
       expect(before.length).toBe(1);
       await using explicitClient = new Client(endpoint, {
         compilationDatabase: database,
+        workingDirectory: project,
       });
       await using explicit = await explicitClient.parse(file);
       command.arguments[3] = "-DVALUE=22";
@@ -260,6 +280,18 @@ for (const transport of ["unix", "tcp"] as const) {
         tree,
       );
       expect(functions.length).toBe(3);
+      const binding = functions.row(0).bindings.f;
+      const own = binding?.node?.functionDecl?.function;
+      expect(own?.returnType?.description?.spelling).toBe("int");
+      expect(own?.body).toBeNull();
+      expect(own?.parameters).toEqual([]);
+      expect(binding?.isComplete).toBe(true);
+      expect(binding?.availability).toContainEqual(
+        expect.objectContaining({
+          fieldPath: "FunctionDeclInfo.body",
+          state: "FIELD_STATE_UNREQUESTED",
+        }),
+      );
       const all = await sdk.match(
         'callExpr().bind("call")',
         functions.binding("f"),

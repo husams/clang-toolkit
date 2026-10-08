@@ -11,7 +11,7 @@ bool ExportDeclSerializer::serialize(const clang::DynTypedNode &node,
   auto *payload = binding.mutable_node()->mutable_export_decl();
   helpers::write_common(*native, *payload, context);
   for (const auto *declaration : native->decls()) {
-    if (!helpers::can_expand("export_decl.declarations", context))
+    if (!helpers::can_expand(*payload, "declarations", context))
       break;
     helpers::write_decl(declaration, *payload->add_declarations(), context);
   }

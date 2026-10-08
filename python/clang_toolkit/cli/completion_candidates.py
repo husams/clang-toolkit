@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
 from lark.lexer import PatternStr
+from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.completion_context import reference_base
 from clang_toolkit.cli.completion_cursor import CursorContext
-from clang_toolkit.cli.language import parser
+from clang_toolkit.cli.language import parser, reference_parser
 
 _REGEX_LITERALS = {
     "BACKGROUND": "background",
@@ -75,6 +76,7 @@ _REGEX_LITERALS = {
 }
 _NO_VALUE_TERMINALS = {"STRING", "OPEN_STRING", "NUMBER", "DOLLAR", "SEMICOLON"}
 _PUNCTUATION = {"(", ")", "]", "}", ",", "."}
+_METHOD_NAMES = {"hasField", "joinWith"}
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,7 @@ class Candidate:
     text: str
     display: str
     start_position: int
+    display_meta: str | None = None
 
 
 def candidates_for(
@@ -91,27 +94,53 @@ def candidates_for(
     nested_matchers: Iterable[str],
     references: Mapping[str, Iterable[str]],
     source_before_cursor: str,
+    field_resolver: Callable[[str], Iterable[object]] | None = None,
 ) -> list[Candidate]:
     """Build candidates for accepted terminal roles and the current prefix."""
-    names: list[tuple[str, bool, bool]] = []
+    names: list[tuple[str, bool, bool, str | None]] = []
     matcher_roles = {"ROOT_MATCHER_NAME", "MATCHER_NAME"}
     root_role = "ROOT_MATCHER_NAME" in accepted
     if root_role:
-        names.extend((name, True, True) for name in root_matchers)
+        names.extend((name, True, True, None) for name in root_matchers)
         if (
             source_before_cursor.lstrip().startswith("let ")
             and "=" in source_before_cursor
         ):
-            names.extend((name, True, True) for name in nested_matchers)
+            names.extend((name, True, True, None) for name in nested_matchers)
     if "MATCHER_NAME" in accepted:
-        names.extend((name, False, True) for name in nested_matchers)
+        names.extend((name, False, True, None) for name in nested_matchers)
 
     previous = context.prefix_tokens[-1].type if context.prefix_tokens else None
     if "NAME" in accepted and previous == "DOLLAR":
-        names.extend((name, False, False) for name in references)
-    elif "NAME" in accepted and previous == "DOT":
-        fields = references.get(reference_base(context.prefix_tokens), ())
-        names.extend((name, False, name == "joinWith") for name in fields)
+        names.extend((name, False, False, None) for name in references)
+    elif ({"NAME", "JOIN_WITH", "HAS_FIELD"} & accepted) and previous == "DOT":
+        reference = _reference_before_terminal_dot(context, source_before_cursor)
+        fields: tuple[object, ...] = ()
+        if reference is not None and field_resolver is not None:
+            try:
+                fields = tuple(field_resolver(reference))
+            except (KeyError, LookupError, TypeError, ValueError):
+                fields = ()
+        if not fields and reference is not None:
+            # Keep the original root-level mapping API working for callers that
+            # have not supplied a resolver. Never apply it to nested paths.
+            root = reference_base(context.prefix_tokens)
+            if reference == f"${root}":
+                fields = references.get(root, ())
+        for field in fields:
+            if isinstance(field, str):
+                # Preserve the original callback and mapping API. Structured
+                # runtime results carry their method/property kind explicitly.
+                name = field
+                is_method = name in _METHOD_NAMES
+                display_meta = "method" if is_method else "field"
+            else:
+                name = str(getattr(field, "name", ""))
+                if not name:
+                    continue
+                is_method = getattr(field, "kind", None) == "method"
+                display_meta = getattr(field, "display_meta", None)
+            names.append((name, False, is_method, display_meta))
 
     candidates: list[Candidate] = []
     for terminal in accepted - _NO_VALUE_TERMINALS - matcher_roles:
@@ -124,7 +153,7 @@ def candidates_for(
         and bool(source_before_cursor)
         and not source_before_cursor[-1].isspace()
     )
-    for name, is_root, is_matcher in names:
+    for name, is_root, is_matcher, display_meta in names:
         if not name.startswith(context.partial):
             continue
         after = context.after
@@ -137,7 +166,9 @@ def candidates_for(
             start_position = 0
         else:
             start_position = -len(context.partial)
-        candidates.append(Candidate(insertion, name + suffix, start_position))
+        candidates.append(
+            Candidate(insertion, name + suffix, start_position, display_meta)
+        )
 
     seen: set[tuple[str, int]] = set()
     result: list[Candidate] = []
@@ -151,6 +182,35 @@ def candidates_for(
             seen.add(key)
             result.append(item)
     return result
+
+
+def _reference_before_terminal_dot(
+    context: CursorContext, source_before_cursor: str
+) -> str | None:
+    """Return a grammar-validated reference immediately before its final dot."""
+    dots = [token for token in context.prefix_tokens if token.type == "DOT"]
+    if not dots:
+        return None
+    dot = dots[-1]
+    start = getattr(dot, "start_pos", None)
+    if start is None:
+        return None
+    prefix = source_before_cursor[: int(start)]
+    dollar_positions = [
+        int(token.start_pos)
+        for token in context.prefix_tokens
+        if token.type == "DOLLAR"
+        and getattr(token, "start_pos", None) is not None
+        and int(token.start_pos) < int(start)
+    ]
+    for reference_start in reversed(dollar_positions):
+        candidate = prefix[reference_start:]
+        try:
+            reference_parser().parse(candidate)
+        except UnexpectedInput:
+            continue
+        return candidate
+    return None
 
 
 def _literal_for(terminal: str) -> str | None:

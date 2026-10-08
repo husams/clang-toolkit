@@ -51,7 +51,8 @@ public:
           engine_->acquire_snapshot({request.file_path(),
                                      {request.compile_arguments().begin(),
                                       request.compile_arguments().end()},
-                                     request.working_directory(), request.compilation_database()});
+                                     request.working_directory(),
+                                     request.compilation_database()});
       if (!snapshot)
         return failure(MatchCode::FailedPrecondition,
                        "native snapshot unavailable");
@@ -74,6 +75,24 @@ public:
                          std::shared_ptr<const NativeBindingState> previous,
                          const Checkpoint &checkpoint,
                          const MatchLimits &limits) override {
+    return execute_impl(request, std::move(previous), checkpoint, limits,
+                        nullptr);
+  }
+  MatchExecution
+  execute_stream(const MatchRequest &request,
+                 std::shared_ptr<const NativeBindingState> previous,
+                 const Checkpoint &checkpoint, const MatchLimits &limits,
+                 const RowSink &sink) override {
+    return execute_impl(request, std::move(previous), checkpoint, limits,
+                        &sink);
+  }
+
+private:
+  MatchExecution
+  execute_impl(const MatchRequest &request,
+               std::shared_ptr<const NativeBindingState> previous,
+               const Checkpoint &checkpoint, const MatchLimits &limits,
+               const RowSink *sink) {
     MatchExecution result;
     dynamic::Diagnostics diagnostics;
     llvm::StringRef text(request.query());
@@ -99,7 +118,8 @@ public:
         snapshot = engine_->acquire_snapshot(
             {file.file_path(),
              {file.compile_arguments().begin(), file.compile_arguments().end()},
-             file.working_directory(), file.compilation_database()});
+             file.working_directory(),
+             file.compilation_database()});
       } else if (old) {
         snapshot = old->snapshot();
       }
@@ -112,7 +132,7 @@ public:
       if (!owner || !owner->unit)
         return failure(MatchCode::Internal, "invalid native snapshot owner");
       auto state = std::make_shared<CapturedBindingState>(snapshot);
-      RowCollector callback(result, *state, checkpoint, limits);
+      RowCollector callback(result, *state, checkpoint, limits, sink);
       MatchFinder finder;
       if (!finder.addDynamicMatcher(query, &callback))
         return failure(MatchCode::InvalidArgument,

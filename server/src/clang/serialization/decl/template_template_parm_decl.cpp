@@ -26,7 +26,7 @@ bool TemplateTemplateParmDeclSerializer::serialize(
     for (unsigned index = 0;
          index < native->getNumExpansionTemplateParameters(); ++index) {
       if (!helpers::can_expand(
-              "template_template_parm_decl.expanded_template_parameters",
+              *payload, "expanded_template_parameters",
               context))
         break;
       helpers::write_template_parameters(

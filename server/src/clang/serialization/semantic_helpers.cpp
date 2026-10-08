@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <clang/AST/NestedNameSpecifier.h>
 #include <llvm/ADT/SmallString.h>
+#include <stdexcept>
 
 namespace ctk::clang_layer::serialization::helpers {
 namespace {
@@ -79,6 +80,8 @@ void set_complete(google::protobuf::Message &value, bool complete) {
 void write_child(const clang::DynTypedNode &native,
                  google::protobuf::Message &value,
                  SerializationContext &context) {
+  if (context.projection == ProjectionPolicy::Shallow)
+    return;
   ctk::match::v1::MatchBinding binding;
   const bool selected =
       NodeSerializerDispatcher::serialize(native, binding, context);
@@ -104,23 +107,54 @@ void write_child(const clang::DynTypedNode &native,
       ->CopyFrom(node.GetReflection()->GetMessage(node, source_field));
 }
 } // namespace
-bool can_expand(const std::string &field_path, SerializationContext &context) {
-  if (context.depth < context.max_depth && context.nodes < context.max_nodes)
-    return true;
+namespace {
+void mark_truncated(const std::string &field_path,
+                    SerializationContext &context) {
   context.complete = false;
   for (const auto &entry : context.availability)
     if (entry.state() == ctk::ast::v1::FIELD_STATE_TRUNCATED &&
         entry.field_path() == field_path)
-      return false;
+      return;
   auto &entry = context.availability.emplace_back();
   entry.set_field_path(field_path);
   entry.set_state(ctk::ast::v1::FIELD_STATE_TRUNCATED);
   entry.set_reason("semantic expansion limit reached");
+}
+} // namespace
+bool can_expand(const std::string &field_path, SerializationContext &context) {
+  if (context.projection == ProjectionPolicy::Shallow) {
+    for (const auto &entry : context.availability)
+      if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
+          entry.field_path() == field_path)
+        return false;
+    auto &entry = context.availability.emplace_back();
+    entry.set_field_path(field_path);
+    entry.set_state(ctk::ast::v1::FIELD_STATE_UNREQUESTED);
+    entry.set_reason("owned child expansion is not part of the shallow projection");
+    return false;
+  }
+  if (context.depth < context.max_depth && context.nodes < context.max_nodes)
+    return true;
+  mark_truncated(field_path, context);
   return false;
+}
+bool can_expand(const google::protobuf::Message &owner,
+                const std::string &field, SerializationContext &context) {
+  const auto *descriptor = owner.GetDescriptor();
+  if (!descriptor->FindFieldByName(field))
+    throw std::logic_error(
+        "shallow projection field " +
+        std::string(descriptor->name().data(), descriptor->name().size()) +
+        "." + field + " does not exist in the protobuf schema");
+  const auto name = descriptor->name();
+  return can_expand(std::string(name.data(), name.size()) + "." + field,
+                    context);
 }
 ExpansionFrame::ExpansionFrame(const std::string &field_path,
                                SerializationContext &c)
-    : context(c), allowed(can_expand(field_path, c)) {
+    : context(c), allowed(c.depth < c.max_depth && c.nodes < c.max_nodes) {
+  if (!allowed)
+    mark_truncated(field_path, c);
   if (allowed) {
     ++context.depth;
     ++context.nodes;
@@ -167,6 +201,8 @@ void write_stmt(const clang::Stmt *native, ctk::ast::v1::StatementValue &value,
                 SerializationContext &context) {
   if (!native)
     return;
+  if (context.projection == ProjectionPolicy::Shallow)
+    return;
   if (const auto *expr = llvm::dyn_cast<clang::Expr>(native)) {
     write_expr(expr, *value.mutable_expression(), context);
     value.set_is_complete(value.expression().is_complete());
@@ -184,6 +220,7 @@ void write_type(clang::QualType native, ctk::ast::v1::QualType &value,
   if (native.isNull())
     return;
   write_qualifiers(native.getLocalQualifiers(), *value.mutable_qualifiers());
+  write_type_description(native, *value.mutable_description(), context);
   write_type_value(native, *value.mutable_type(), context);
 }
 void write_qualifiers(clang::Qualifiers native,
@@ -226,6 +263,9 @@ void write_type_description(clang::QualType native,
 void write_nested_name(clang::NestedNameSpecifier native,
                        ctk::ast::v1::NestedNameSpecifier &value,
                        SerializationContext &context) {
+  if (context.projection == ProjectionPolicy::Shallow) {
+    return;
+  }
   ExpansionFrame frame("NestedNameSpecifier.value", context);
   if (!frame.allowed)
     return;
@@ -262,6 +302,9 @@ void write_nested_name(clang::NestedNameSpecifier native,
 void write_nested_name(const clang::NestedNameSpecifier *native,
                        ctk::ast::v1::NestedNameSpecifier &value,
                        SerializationContext &context) {
+  if (context.projection == ProjectionPolicy::Shallow) {
+    return;
+  }
   ExpansionFrame frame("NestedNameSpecifier.value", context);
   if (!frame.allowed)
     return;

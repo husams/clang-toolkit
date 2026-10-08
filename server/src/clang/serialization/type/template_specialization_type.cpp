@@ -11,7 +11,7 @@ bool TemplateSpecializationTypeSerializer::serialize(const clang::DynTypedNode &
   helpers::write_common(*native, *payload, context);
   helpers::write_template_name(native->getTemplateName(), *payload->mutable_template_name(), context);
   for (const auto &argument : native->template_arguments()) {
-    if (!helpers::can_expand("arguments", context)) break;
+    if (!helpers::can_expand(*payload, "arguments", context)) break;
     helpers::write_template_argument(argument, *payload->add_arguments(), context);
   }
   payload->set_has_alias(native->isTypeAlias());

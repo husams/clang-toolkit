@@ -16,7 +16,7 @@ bool ConceptSpecializationExprSerializer::serialize(
     helpers::write_concept_reference(
         *reference, *payload->mutable_concept_reference(), context);
   for (const auto &argument : native->getTemplateArguments()) {
-    if (!helpers::can_expand("template_arguments", context))
+    if (!helpers::can_expand(*payload, "template_arguments", context))
       break;
     helpers::write_template_argument(
         argument, *payload->add_template_arguments(), context);

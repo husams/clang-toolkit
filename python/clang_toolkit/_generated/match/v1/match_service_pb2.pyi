@@ -2,6 +2,7 @@ import datetime
 
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from . import match_result_pb2 as _match_result_pb2
+from . import match_stream_pb2 as _match_stream_pb2
 from . import parse_request_pb2 as _parse_request_pb2
 from . import parse_response_pb2 as _parse_response_pb2
 from google.protobuf.internal import containers as _containers

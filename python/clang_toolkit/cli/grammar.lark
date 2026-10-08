@@ -14,6 +14,7 @@ assignment: LET NAME EQUAL value_expression
 ?command: MATCH root_expression [IN path_value_expression] -> match
         | BACKGROUND root_expression [IN path_value_expression] -> background
         | PRINT value_expression         -> print
+        | INSPECT reference              -> inspect
         | SET USER? setting              -> set_command
         | CLEAR USER? NAME               -> clear_command
         | ADD EXTRA_ARG STRING           -> add_arg
@@ -147,7 +148,7 @@ target_matcher: NAME LPAR [target_arguments] RPAR bind? -> matcher
 
 target_arguments: target_expression (COMMA target_expression)*
 
-reference: DOLLAR NAME (DOT NAME | DOT JOIN_WITH LPAR value_expression RPAR | LSQB NUMBER RSQB)*
+reference: DOLLAR NAME (DOT NAME | DOT JOIN_WITH LPAR value_expression RPAR | DOT HAS_FIELD LPAR value_expression RPAR | LSQB (NUMBER | STRING) RSQB)*
 qualified_name: NAME (SCOPE NAME)+
 
 // Keep the editor lexer lossless, including strings open at end of input.
@@ -159,6 +160,7 @@ editor_start: editor_token*
              | MATCH
              | BACKGROUND
              | PRINT
+             | INSPECT
              | FOREACH
              | IN
              | DO
@@ -193,6 +195,7 @@ editor_start: editor_token*
              | MODE
              | REPLACE
              | JOIN_WITH
+             | HAS_FIELD
              | CFG
              | CALLGRAPH
              | HELP
@@ -244,6 +247,7 @@ YIELD.2: /yield(?![a-zA-Z0-9_])/
 MATCH.2: /match(?![a-zA-Z0-9_])/
 BACKGROUND.2: /background(?![a-zA-Z0-9_])/
 PRINT.2: /print(?![a-zA-Z0-9_])/
+INSPECT.2: /inspect(?![a-zA-Z0-9_])/
 FOREACH.2: /foreach(?![a-zA-Z0-9_])/
 IN.2: /in(?![a-zA-Z0-9_])/
 DO.2: /do(?![a-zA-Z0-9_])/
@@ -277,6 +281,7 @@ CLOSE.2: /close(?![a-zA-Z0-9_])/
 MODE.2: /mode(?![a-zA-Z0-9_])/
 REPLACE.3: /replace(?![a-zA-Z0-9_])/
 JOIN_WITH.3: /joinWith(?![a-zA-Z0-9_])/
+HAS_FIELD.3: /hasField(?![a-zA-Z0-9_])/
 CFG.2: /cfg(?![a-zA-Z0-9_])/
 CALLGRAPH.2: /callgraph(?![a-zA-Z0-9_])/
 HELP.2: /help(?![a-zA-Z0-9_])/

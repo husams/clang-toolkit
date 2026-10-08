@@ -13,6 +13,15 @@ namespace ctk::clang_layer {
 namespace {
 namespace pb = ctk::ast::v1;
 
+bool has_unrequested(const ctk::match::v1::MatchBinding &binding,
+                     const std::string &suffix) {
+  for (const auto &entry : binding.availability())
+    if (entry.state() == pb::FIELD_STATE_UNREQUESTED &&
+        entry.field_path().ends_with(suffix))
+      return true;
+  return false;
+}
+
 class DeclarationSemantics : public ::testing::Test {
 protected:
   ctk::platform::TemporaryDirectory directory_{"ctk-declaration-semantics"};
@@ -42,7 +51,7 @@ protected:
   }
 };
 
-TEST_F(DeclarationSemantics, FunctionOwnsTypedParametersDefaultAndBody) {
+TEST_F(DeclarationSemantics, FunctionReportsImmediateFieldsAndUnrequestedChildren) {
   auto rows =
       match("constexpr int sum(const int value = 9) { return value + 2; }",
             "functionDecl(hasName(\"sum\"))");
@@ -52,43 +61,24 @@ TEST_F(DeclarationSemantics, FunctionOwnsTypedParametersDefaultAndBody) {
   EXPECT_TRUE(function.is_constexpr());
   EXPECT_TRUE(function.is_this_declaration_a_definition());
   EXPECT_EQ(function.storage_class(), pb::STORAGE_CLASS_NONE);
-  EXPECT_EQ(function.return_type().type().builtin_type().info().spelling(),
-            "int");
-  ASSERT_EQ(function.parameters_size(), 1);
-  ASSERT_TRUE(function.parameters(0).has_parm_var_decl());
-  const auto &parameter = function.parameters(0).parm_var_decl();
-  EXPECT_EQ(
-      parameter.variable().declarator().value().named().name().identifier(),
-      "value");
-  EXPECT_TRUE(
-      parameter.variable().declarator().value().type().qualifiers().is_const());
-  EXPECT_EQ(
-      parameter.default_argument().integer_literal().value().unsigned_decimal(),
-      "9");
-  EXPECT_EQ(parameter.function_scope_index(), 0U);
-  EXPECT_EQ(parameter.function_scope_depth(), 0U);
-  EXPECT_FALSE(parameter.is_parameter_pack());
-  ASSERT_TRUE(function.body().has_compound_stmt());
+  EXPECT_EQ(function.return_type().description().spelling(), "int");
+  EXPECT_EQ(function.parameters_size(), 0);
+  EXPECT_FALSE(function.has_body());
   EXPECT_FALSE(value.is_deleted());
   EXPECT_FALSE(value.is_defaulted());
-  EXPECT_FALSE(rows[0].is_complete());
-  bool return_initializer_unavailable = false;
-  bool noreturn_unavailable = false;
+  EXPECT_TRUE(rows[0].is_complete());
+  bool parameters_unrequested = false;
+  bool body_unrequested = false;
   for (const auto &availability : rows[0].availability()) {
-    if (availability.field_path() == "ReturnStmt.return_value_init") {
-      EXPECT_EQ(availability.state(), pb::FIELD_STATE_UNAVAILABLE);
-      return_initializer_unavailable = true;
-    }
-    if (availability.field_path() == "ReturnStmt.is_noreturn") {
-      EXPECT_EQ(availability.state(), pb::FIELD_STATE_UNAVAILABLE);
-      noreturn_unavailable = true;
-    }
+    if (availability.state() != pb::FIELD_STATE_UNREQUESTED)
+      continue;
+    if (availability.field_path().ends_with("parameters"))
+      parameters_unrequested = true;
+    if (availability.field_path().ends_with("body"))
+      body_unrequested = true;
   }
-  EXPECT_TRUE(return_initializer_unavailable);
-  EXPECT_TRUE(noreturn_unavailable);
-  // Every child remains readable after destroying the AST owner.
-  engine_.reset();
-  EXPECT_EQ(function.body().compound_stmt().body_size(), 1);
+  EXPECT_TRUE(parameters_unrequested);
+  EXPECT_TRUE(body_unrequested);
 }
 
 TEST_F(DeclarationSemantics,
@@ -105,17 +95,17 @@ TEST_F(DeclarationSemantics,
                     .type()
                     .qualifiers()
                     .is_const());
-    EXPECT_EQ(variable.initializer_from_any_declaration()
-                  .integer_literal()
-                  .value()
-                  .unsigned_decimal(),
-              "17");
+    EXPECT_FALSE(variable.has_initializer_from_any_declaration());
+    EXPECT_FALSE(variable.variable().has_initializer());
     EXPECT_EQ(variable.tls_kind(), pb::DECL_VARIABLE_TLS_KIND_NONE);
     EXPECT_EQ(variable.initialization_style(),
               pb::DECL_VARIABLE_INITIALIZATION_STYLE_C);
+    EXPECT_TRUE(has_unrequested(row, "VarDecl.initializer_from_any_declaration"));
   }
   EXPECT_FALSE(rows[0].node().var_decl().variable().has_initializer());
-  EXPECT_TRUE(rows[1].node().var_decl().variable().has_initializer());
+  EXPECT_FALSE(rows[1].node().var_decl().variable().has_initializer());
+  EXPECT_TRUE(rows[0].is_complete());
+  EXPECT_TRUE(rows[1].is_complete());
   rows = match("thread_local int local = 3;", "varDecl(hasName(\"local\"))");
   ASSERT_EQ(rows.size(), 1U);
   EXPECT_EQ(rows[0].node().var_decl().tls_kind(),
@@ -123,7 +113,7 @@ TEST_F(DeclarationSemantics,
 }
 
 TEST_F(DeclarationSemantics,
-       InstantiatedParameterRetainsItsUninstantiatedDefaultExpression) {
+       ParameterDefaultExpressionIsReportedAsUnrequested) {
   const auto rows = match(
       "template<class T> int function(int value = sizeof(T)) { return value; }"
       "int use() { return function<int>(4); }",
@@ -131,18 +121,17 @@ TEST_F(DeclarationSemantics,
   ASSERT_EQ(rows.size(), 2U);
   for (const auto &row : rows) {
     const auto &parameter = row.node().parm_var_decl();
-    ASSERT_TRUE(parameter.has_default_argument());
-    ASSERT_TRUE(parameter.default_argument().has_implicit_cast_expr());
-    const auto &operand =
-        parameter.default_argument().implicit_cast_expr().cast().operand();
-    ASSERT_TRUE(operand.has_unary_expr_or_type_trait_expr());
-    EXPECT_EQ(operand.unary_expr_or_type_trait_expr().trait(),
-              pb::UNARY_EXPR_TRAIT_SIZEOF);
+    EXPECT_FALSE(parameter.has_default_argument());
     EXPECT_TRUE(row.is_complete());
+    bool unrequested = false;
+    for (const auto &entry : row.availability())
+      unrequested |= entry.state() == pb::FIELD_STATE_UNREQUESTED &&
+                     entry.field_path().ends_with("default_argument");
+    EXPECT_TRUE(unrequested);
   }
 }
 
-TEST_F(DeclarationSemantics, FieldBitWidthAndInitializerAreOwnedExpressions) {
+TEST_F(DeclarationSemantics, FieldBitWidthAndInitializerAreUnrequestedChildren) {
   auto rows = match("struct Bits { mutable unsigned code : 3 = 5; };",
                     "fieldDecl(hasName(\"code\"))");
   ASSERT_EQ(rows.size(), 1U);
@@ -150,14 +139,10 @@ TEST_F(DeclarationSemantics, FieldBitWidthAndInitializerAreOwnedExpressions) {
   EXPECT_TRUE(field.is_mutable());
   EXPECT_TRUE(field.is_bit_field());
   EXPECT_FALSE(field.is_anonymous_struct_or_union());
-  EXPECT_EQ(field.bit_width()
-                .constant_expr()
-                .subexpression()
-                .integer_literal()
-                .value()
-                .unsigned_decimal(),
-            "3");
-  ASSERT_TRUE(field.has_in_class_initializer());
+  EXPECT_FALSE(field.has_bit_width());
+  EXPECT_FALSE(field.has_in_class_initializer());
+  EXPECT_TRUE(has_unrequested(rows[0], "bit_width"));
+  EXPECT_TRUE(has_unrequested(rows[0], "in_class_initializer"));
   EXPECT_TRUE(rows[0].is_complete());
 }
 
@@ -169,16 +154,14 @@ TEST_F(DeclarationSemantics, ConstructorsCarryTargetsAndExplicitValue) {
   const auto &constructor = rows[0].node().cxx_constructor_decl();
   EXPECT_TRUE(constructor.is_explicit());
   EXPECT_TRUE(constructor.is_explicit_specifier_value());
-  ASSERT_TRUE(constructor.has_explicit_specifier_expression());
+  EXPECT_FALSE(constructor.has_explicit_specifier_expression());
   EXPECT_FALSE(constructor.is_converting_constructor());
   EXPECT_FALSE(constructor.is_copy_constructor());
   EXPECT_FALSE(constructor.is_move_constructor());
-  ASSERT_EQ(constructor.initializers_size(), 1);
-  EXPECT_EQ(constructor.initializers(0).member().name(), "value");
-  EXPECT_FALSE(constructor.initializers(0).is_virtual_base());
-  EXPECT_FALSE(constructor.initializers(0).is_pack_expansion());
-  EXPECT_TRUE(constructor.initializers(0).has_initializer());
-  EXPECT_EQ(constructor.method().parent_record().name(), "Box");
+  EXPECT_EQ(constructor.initializers_size(), 0);
+  EXPECT_TRUE(has_unrequested(rows[0], "initializers"));
+  EXPECT_TRUE(has_unrequested(rows[0], "explicit_specifier_expression"));
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics, MethodSymbolPreservesCvRefAndOverriddenSignature) {
@@ -193,15 +176,8 @@ TEST_F(DeclarationSemantics, MethodSymbolPreservesCvRefAndOverriddenSignature) {
   EXPECT_TRUE(method.is_const());
   EXPECT_FALSE(method.is_volatile());
   EXPECT_EQ(method.ref_qualifier(), pb::REF_QUALIFIER_LVALUE);
-  ASSERT_EQ(method.overridden_methods_size(), 1);
-  const auto &symbol = method.overridden_methods(0);
-  EXPECT_EQ(symbol.qualified_name(), "Base::get");
-  EXPECT_EQ(symbol.clang_class(), "CXXMethodDecl");
-  EXPECT_EQ(symbol.kind(), pb::SYMBOL_KIND_METHOD);
-  ASSERT_EQ(symbol.function().parameters_size(), 1);
-  EXPECT_EQ(symbol.function().parameters(0).type().spelling(), "int");
-  EXPECT_TRUE(symbol.function().exception_specification().is_noexcept());
-  EXPECT_EQ(symbol.function().ref_qualifier(), pb::REF_QUALIFIER_LVALUE);
+  EXPECT_EQ(method.overridden_methods_size(), 0);
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -213,54 +189,36 @@ TEST_F(DeclarationSemantics,
   const auto &record = rows[0].node().cxx_record_decl();
   EXPECT_EQ(record.record().tag().tag_kind(), pb::TAG_KIND_STRUCT);
   EXPECT_TRUE(record.record().tag().is_complete_definition());
-  const auto &declared_type =
-      record.record().tag().type_declaration().declared_type();
-  ASSERT_TRUE(declared_type.has_record_type());
-  EXPECT_EQ(declared_type.record_type().declaration().name(), "Derived");
-  ASSERT_EQ(record.definition_bases_size(), 1);
-  EXPECT_TRUE(record.definition_bases(0).is_virtual());
-  EXPECT_EQ(record.definition_bases(0).access(),
-            pb::ACCESS_SPECIFIER_PROTECTED);
-  const auto &base_type = record.definition_bases(0).type().type();
-  if (base_type.has_record_type()) {
-    EXPECT_EQ(base_type.record_type().declaration().name(), "Base");
-  } else {
-    // Clang 21 retains an ElaboratedType here, outside this exact-type catalog.
-    EXPECT_EQ(base_type.payload_case(), pb::TypeValue::PAYLOAD_NOT_SET);
-    EXPECT_FALSE(base_type.is_complete());
-    EXPECT_FALSE(rows[0].is_complete());
-    bool elaborated_type_unavailable = false;
-    for (const auto &availability : rows[0].availability()) {
-      if (availability.field_path() == "ElaboratedType") {
-        EXPECT_EQ(availability.state(), pb::FIELD_STATE_UNAVAILABLE);
-        elaborated_type_unavailable = true;
-      }
-    }
-    EXPECT_TRUE(elaborated_type_unavailable);
-  }
-  ASSERT_EQ(record.friends_size(), 1);
-  EXPECT_EQ(record.friends(0).friend_decl().friend_declaration().name(),
-            "friend_fn");
-  EXPECT_GT(record.record().members_size(), 0);
+  EXPECT_EQ(record.record().tag().type_declaration().declared_type().payload_case(),
+            pb::TypeValue::PAYLOAD_NOT_SET);
+  EXPECT_EQ(record.definition_bases_size(), 0);
+  EXPECT_EQ(record.friends_size(), 0);
+  EXPECT_EQ(record.record().members_size(), 0);
+  EXPECT_TRUE(has_unrequested(rows[0], "definition_bases"));
+  EXPECT_TRUE(has_unrequested(rows[0], "friends"));
+  EXPECT_TRUE(has_unrequested(rows[0], "members"));
   EXPECT_FALSE(record.is_lambda());
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
-TEST_F(DeclarationSemantics, EnumValueRetainsSignedBitsAndUnderlyingType) {
+TEST_F(DeclarationSemantics, EnumValueRetainsValueAndOmitsInitializerChild) {
   auto rows = match("enum class Shade : long long { dark = -7, bright = 12 };",
                     "enumConstantDecl(hasName(\"dark\"))");
   ASSERT_EQ(rows.size(), 1U);
   const auto &constant = rows[0].node().enum_constant_decl();
   EXPECT_EQ(constant.evaluated_value().decimal_value(), "-7");
   EXPECT_FALSE(constant.evaluated_value().is_unsigned());
-  EXPECT_TRUE(constant.has_initializer());
+  EXPECT_FALSE(constant.has_initializer());
+  EXPECT_TRUE(rows[0].is_complete());
   rows = match("enum class Shade : long long { dark = -7 };",
                "enumDecl(hasName(\"Shade\"))");
   ASSERT_EQ(rows.size(), 1U);
   const auto &enumeration = rows[0].node().enum_decl();
   EXPECT_TRUE(enumeration.is_scoped());
   EXPECT_TRUE(enumeration.is_fixed());
-  EXPECT_EQ(enumeration.integer_type().type().builtin_type().info().spelling(),
-            "long long");
+  EXPECT_EQ(enumeration.integer_type().type().payload_case(),
+            pb::TypeValue::PAYLOAD_NOT_SET);
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -271,35 +229,20 @@ TEST_F(DeclarationSemantics,
   ASSERT_EQ(rows.size(), 1U);
   const auto &specialization =
       rows[0].node().class_template_specialization_decl();
-  ASSERT_EQ(specialization.template_arguments_size(), 2);
-  EXPECT_EQ(specialization.template_arguments(0)
-                .type()
-                .type()
-                .builtin_type()
-                .info()
-                .spelling(),
-            "long");
-  EXPECT_EQ(
-      specialization.template_arguments(1).integral().value().decimal_value(),
-      "7");
+  EXPECT_EQ(specialization.template_arguments_size(), 0);
   EXPECT_EQ(specialization.specialized_template().name(), "Array");
   EXPECT_EQ(specialization.specialization_kind(),
             pb::DECL_TEMPLATE_SPECIALIZATION_KIND_IMPLICIT_INSTANTIATION);
+  EXPECT_TRUE(rows[0].is_complete());
   rows =
       match("template<class T = int, int N = 4> struct Array { T data[N]; };",
             "classTemplateDecl(hasName(\"Array\"))");
   ASSERT_EQ(rows.size(), 1U);
   const auto &parameters =
       rows[0].node().class_template_decl().template_parameters();
-  ASSERT_EQ(parameters.parameters_size(), 2);
-  const auto &type = parameters.parameters(0).template_type_parm_decl();
-  EXPECT_EQ(type.depth(), 0U);
-  EXPECT_EQ(type.position(), 0U);
-  EXPECT_FALSE(type.is_parameter_pack());
-  EXPECT_TRUE(type.default_argument().has_type());
-  const auto &non_type = parameters.parameters(1).non_type_template_parm_decl();
-  EXPECT_EQ(non_type.position(), 1U);
-  EXPECT_TRUE(non_type.default_argument().has_expression());
+  EXPECT_EQ(parameters.parameters_size(), 0);
+  EXPECT_TRUE(rows[0].is_complete());
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -312,20 +255,20 @@ TEST_F(DeclarationSemantics,
   ASSERT_EQ(rows.size(), 1U);
   const auto &parameter = rows[0].node().template_type_parm_decl();
   ASSERT_TRUE(parameter.has_type_constraint());
-  EXPECT_EQ(parameter.type_constraint()
-                .concept_reference()
-                .concept_declaration()
-                .name(),
+  EXPECT_EQ(parameter.type_constraint().concept_reference().name().identifier(),
             "Number");
-  ASSERT_TRUE(
-      parameter.type_constraint().has_immediately_declared_constraint());
+  EXPECT_FALSE(parameter.type_constraint().has_immediately_declared_constraint());
+  EXPECT_TRUE(has_unrequested(rows[0],
+                             "TypeConstraint.immediately_declared_constraint"));
+  EXPECT_TRUE(rows[0].is_complete());
   rows = match("template<class T> concept Number = sizeof(T) > 0;",
                "conceptDecl(hasName(\"Number\"))");
   ASSERT_EQ(rows.size(), 1U);
   const auto &concept_value = rows[0].node().concept_decl();
   EXPECT_TRUE(concept_value.has_definition());
   EXPECT_TRUE(concept_value.is_type_concept());
-  EXPECT_TRUE(concept_value.constraint_expression().has_binary_operator());
+  EXPECT_FALSE(concept_value.has_constraint_expression());
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -335,8 +278,8 @@ TEST_F(DeclarationSemantics,
                     "usingDecl()");
   ASSERT_EQ(rows.size(), 1U);
   const auto &using_value = rows[0].node().using_decl();
-  ASSERT_EQ(using_value.shadows_size(), 1);
-  EXPECT_EQ(using_value.shadows(0).name(), "target");
+  EXPECT_EQ(using_value.shadows_size(), 0);
+  EXPECT_TRUE(has_unrequested(rows[0], "UsingDecl.shadows"));
   EXPECT_EQ(using_value.name().identifier(), "target");
   EXPECT_FALSE(using_value.has_typename());
   EXPECT_FALSE(using_value.is_access_declaration());
@@ -359,13 +302,11 @@ TEST_F(DeclarationSemantics,
   ASSERT_EQ(rows.size(), 1U);
   const auto &parameter = rows[0].node().non_type_template_parm_decl();
   ASSERT_TRUE(parameter.has_type_constraint());
-  const auto &reference = parameter.type_constraint().concept_reference();
-  EXPECT_EQ(reference.concept_declaration().qualified_name(), "traits::Number");
-  EXPECT_EQ(reference.found_declaration().qualified_name(), "traits::Number");
-  ASSERT_TRUE(reference.qualifier().has_namespace_name());
-  EXPECT_EQ(reference.qualifier().namespace_name().declaration().name(),
-            "traits");
-  EXPECT_EQ(reference.arguments_size(), 0);
+  EXPECT_EQ(parameter.type_constraint().concept_reference().name().identifier(),
+            "Number");
+  EXPECT_FALSE(parameter.type_constraint().has_immediately_declared_constraint());
+  EXPECT_TRUE(has_unrequested(rows[0],
+                             "TypeConstraint.immediately_declared_constraint"));
   EXPECT_TRUE(rows[0].is_complete());
 }
 
@@ -377,9 +318,9 @@ TEST_F(DeclarationSemantics, StructuredBindingCarriesItsActualExpression) {
   ASSERT_EQ(rows.size(), 1U);
   const auto &binding = rows[0].node().binding_decl();
   EXPECT_EQ(binding.value().named().name().identifier(), "first");
-  EXPECT_TRUE(binding.has_binding());
-  EXPECT_TRUE(binding.binding().has_array_subscript_expr());
+  EXPECT_FALSE(binding.has_binding());
   EXPECT_FALSE(binding.has_holding_variable());
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -389,8 +330,9 @@ TEST_F(DeclarationSemantics,
   ASSERT_EQ(rows.size(), 1U);
   const auto &assertion = rows[0].node().static_assert_decl();
   EXPECT_FALSE(assertion.is_failed());
-  EXPECT_TRUE(assertion.has_assertion_expression());
-  EXPECT_EQ(assertion.message_expression().string_literal().value(), "sum");
+  EXPECT_FALSE(assertion.has_assertion_expression());
+  EXPECT_FALSE(assertion.has_message_expression());
+  EXPECT_TRUE(rows[0].is_complete());
   rows = match("asm(\"\");", "decl()");
   unsigned assembly_declarations = 0;
   for (const auto &row : rows) {
@@ -398,8 +340,7 @@ TEST_F(DeclarationSemantics,
       continue;
     ++assembly_declarations;
     const auto &assembly = row.node().file_scope_asm_decl().assembly_string();
-    ASSERT_TRUE(assembly.has_string_literal());
-    EXPECT_EQ(assembly.string_literal().value(), "");
+    EXPECT_EQ(assembly.payload_case(), pb::ExpressionValue::PAYLOAD_NOT_SET);
   }
   EXPECT_EQ(assembly_declarations, 1U);
 }
@@ -417,11 +358,9 @@ TEST_F(DeclarationSemantics,
                          .value()
                          .named()
                          .declaration();
-  ASSERT_EQ(info.attributes_size(), 1);
-  EXPECT_EQ(info.attributes(0).clang_class(), "DeprecatedAttr");
-  EXPECT_EQ(info.attributes(0).state(), pb::FIELD_STATE_UNAVAILABLE);
-  EXPECT_FALSE(rows[0].is_complete());
-  EXPECT_GT(rows[0].availability_size(), 0);
+  EXPECT_EQ(info.attributes_size(), 0);
+  EXPECT_TRUE(has_unrequested(rows[0], "DeclInfo.attributes"));
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -431,13 +370,17 @@ TEST_F(DeclarationSemantics,
   ASSERT_EQ(rows.size(), 1U);
   const auto &alias = rows[0].node().type_alias_decl();
   EXPECT_EQ(alias.type_declaration().named().name().identifier(), "Ref");
-  ASSERT_TRUE(alias.underlying_type().type().has_l_value_reference_type());
+  EXPECT_EQ(alias.underlying_type().description().spelling(), "Count &");
+  EXPECT_EQ(alias.underlying_type().type().payload_case(),
+            pb::TypeValue::PAYLOAD_NOT_SET);
+  EXPECT_TRUE(rows[0].is_complete());
   rows = match("template<class T> using Pointer = T *;",
                "typeAliasTemplateDecl(hasName(\"Pointer\"))");
   ASSERT_EQ(rows.size(), 1U);
   const auto &template_alias = rows[0].node().type_alias_template_decl();
-  EXPECT_TRUE(template_alias.templated_declaration().has_type_alias_decl());
-  ASSERT_EQ(template_alias.template_parameters().parameters_size(), 1);
+  EXPECT_FALSE(template_alias.has_templated_declaration());
+  EXPECT_EQ(template_alias.template_parameters().parameters_size(), 0);
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -448,9 +391,8 @@ TEST_F(DeclarationSemantics,
   ASSERT_EQ(rows.size(), 1U);
   const auto &partial =
       rows[0].node().class_template_partial_specialization_decl();
-  ASSERT_EQ(partial.template_arguments_size(), 1);
-  EXPECT_TRUE(partial.template_arguments(0).type().type().has_pointer_type());
-  ASSERT_EQ(partial.template_parameters().parameters_size(), 1);
+  EXPECT_EQ(partial.template_arguments_size(), 0);
+  EXPECT_EQ(partial.template_parameters().parameters_size(), 0);
   EXPECT_EQ(partial.specialized_template().name(), "Box");
   EXPECT_EQ(partial.specialized_template_or_partial().name(), "Box");
 }
@@ -465,11 +407,16 @@ TEST_F(DeclarationSemantics,
   EXPECT_EQ(parameter.depth(), 0U);
   EXPECT_EQ(parameter.position(), 0U);
   EXPECT_FALSE(parameter.is_parameter_pack());
-  ASSERT_EQ(parameter.template_parameters().parameters_size(), 1);
-  const auto &name = parameter.default_argument().template_name();
-  const auto &unqualified =
-      name.has_qualified() ? name.qualified().unqualified() : name;
-  EXPECT_EQ(unqualified.declaration().name(), "Box");
+  EXPECT_EQ(parameter.template_parameters().parameters_size(), 0);
+  ASSERT_TRUE(parameter.has_default_argument());
+  ASSERT_TRUE(parameter.default_argument().has_template_name());
+  const auto &template_name = parameter.default_argument().template_name();
+  const auto &underlying = template_name.has_qualified()
+                               ? template_name.qualified().unqualified()
+                               : template_name;
+  EXPECT_EQ(underlying.declaration().name(), "Box")
+      << template_name.DebugString();
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics, NamespaceOwnsDeclarationsAndOriginalScopeSymbol) {
@@ -481,8 +428,10 @@ TEST_F(DeclarationSemantics, NamespaceOwnsDeclarationsAndOriginalScopeSymbol) {
     const auto &name_space = row.node().namespace_decl();
     EXPECT_TRUE(name_space.is_inline());
     EXPECT_FALSE(name_space.is_anonymous());
-    EXPECT_EQ(name_space.original_namespace().name(), "version");
-    ASSERT_EQ(name_space.declarations_size(), 1);
+    EXPECT_FALSE(name_space.has_original_namespace());
+    EXPECT_TRUE(has_unrequested(row, "NamespaceDecl.original_namespace"));
+    EXPECT_EQ(name_space.declarations_size(), 0);
+    EXPECT_TRUE(row.is_complete());
   }
 }
 
@@ -492,22 +441,11 @@ TEST_F(DeclarationSemantics, BlocksOwnParametersCapturesAndTheirSignature) {
                     "blockDecl()", {"-fblocks"});
   ASSERT_EQ(rows.size(), 1U);
   const auto &block = rows[0].node().block_decl();
-  ASSERT_EQ(block.parameters_size(), 1);
-  EXPECT_EQ(block.parameters(0)
-                .parm_var_decl()
-                .variable()
-                .declarator()
-                .value()
-                .named()
-                .name()
-                .identifier(),
-            "n");
-  ASSERT_EQ(block.captures_size(), 1);
-  EXPECT_EQ(block.captures(0).variable().name(), "captured");
-  EXPECT_FALSE(block.captures(0).is_by_ref());
-  EXPECT_FALSE(block.captures(0).is_nested());
-  EXPECT_TRUE(block.body().has_compound_stmt());
+  EXPECT_EQ(block.parameters_size(), 0);
+  EXPECT_EQ(block.captures_size(), 0);
+  EXPECT_FALSE(block.has_body());
   EXPECT_FALSE(block.is_variadic());
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics, ConditionalConversionRetainsExplicitExpression) {
@@ -518,15 +456,9 @@ TEST_F(DeclarationSemantics, ConditionalConversionRetainsExplicitExpression) {
   const auto &conversion = rows[0].node().cxx_conversion_decl();
   EXPECT_FALSE(conversion.is_explicit());
   EXPECT_FALSE(conversion.is_explicit_specifier_value());
-  EXPECT_TRUE(conversion.explicit_specifier_expression().has_constant_expr());
+  EXPECT_FALSE(conversion.has_explicit_specifier_expression());
   EXPECT_TRUE(conversion.method().is_const());
-  EXPECT_TRUE(conversion.method()
-                  .function()
-                  .declarator()
-                  .value()
-                  .named()
-                  .name()
-                  .has_conversion_type());
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -539,16 +471,10 @@ TEST_F(DeclarationSemantics,
   ASSERT_EQ(rows.size(), 1U);
   const auto &specialization =
       rows[0].node().var_template_specialization_decl();
-  ASSERT_EQ(specialization.template_arguments_size(), 1);
-  EXPECT_EQ(specialization.template_arguments(0)
-                .type()
-                .type()
-                .builtin_type()
-                .info()
-                .spelling(),
-            "long");
+  EXPECT_EQ(specialization.template_arguments_size(), 0);
   EXPECT_EQ(specialization.specialized_template().name(), "count");
   EXPECT_TRUE(specialization.variable().is_constexpr());
+  EXPECT_TRUE(rows[0].is_complete());
 }
 
 TEST_F(DeclarationSemantics,
@@ -559,9 +485,11 @@ TEST_F(DeclarationSemantics,
                     {}, "declaration");
   ASSERT_EQ(rows.size(), 1U);
   const auto &label = rows[0].node().label_decl();
-  EXPECT_TRUE(label.statement().has_label_stmt());
+  EXPECT_FALSE(label.has_statement());
+  EXPECT_TRUE(rows[0].is_complete());
   EXPECT_FALSE(label.is_gnu_local());
-  EXPECT_EQ(label.named().declaration().containing_scope().name(), "function");
+  EXPECT_FALSE(label.named().declaration().has_containing_scope());
+  EXPECT_TRUE(has_unrequested(rows[0], "DeclInfo.containing_scope"));
 }
 
 } // namespace

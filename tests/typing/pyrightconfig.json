@@ -1,0 +1,14 @@
+{
+  "include": [
+    "match_stream_callbacks.py",
+    "match_stream_transport.py"
+  ],
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.14",
+  "executionEnvironments": [
+    {
+      "root": "../..",
+      "extraPaths": ["../../python"]
+    }
+  ]
+}

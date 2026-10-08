@@ -7,6 +7,7 @@ import {
 } from "../src/boundary.js";
 import { CursorOwner } from "../src/cursor-owner.js";
 import type { MatchResult__Output } from "../src/generated/ctk/match/v1/MatchResult.js";
+import { DiskMatchRowStore } from "../src/match-row-store.js";
 import { MatchValue } from "../src/match-value.js";
 import { ParsedTree } from "../src/parsed-tree.js";
 
@@ -54,6 +55,28 @@ describe("immutable values and shared native ownership", () => {
     expect(() => child.assertOpen(identity)).toThrow(
       expect.objectContaining({ code: status.FAILED_PRECONDITION }),
     );
+  });
+
+  it("keeps spooled semantic rows readable after native cursor close", async () => {
+    const store = DiskMatchRowStore.create();
+    await store.append({ bindings: {}, sourceMatchIndex: "0" });
+    store.seal();
+    const owner = new CursorOwner(
+      {},
+      id,
+      "1",
+      async () => {},
+      () => true,
+    );
+    const value = new MatchValue(owner, store);
+    const extracted = value.row(0);
+
+    await value.close();
+
+    expect(value.row(0).index).toBe(0);
+    expect([...value][0]?.sourceMatchIndex).toBe("0");
+    expect(extracted.bindings).toEqual({});
+    store.discard();
   });
 
   it("rejects cross-client owners and invalid selectors before a query", () => {

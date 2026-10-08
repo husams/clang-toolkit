@@ -14,7 +14,7 @@ bool ClassTemplatePartialSpecializationDeclSerializer::serialize(
   helpers::write_common(*native, *payload, context);
   for (const auto &argument : native->getTemplateArgs().asArray()) {
     if (!helpers::can_expand(
-            "class_template_partial_specialization_decl.template_arguments",
+            *payload, "template_arguments",
             context))
       break;
     helpers::write_template_argument(

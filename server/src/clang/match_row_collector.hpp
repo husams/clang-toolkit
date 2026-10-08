@@ -11,7 +11,8 @@ class RowCollector final : public MatchFinder::MatchCallback {
 public:
   RowCollector(MatchExecution &result, CapturedBindingState &state,
                const IMatchBackend::Checkpoint &checkpoint,
-               const MatchLimits &limits);
+               const MatchLimits &limits,
+               const IMatchBackend::RowSink *sink = nullptr);
   std::optional<std::uint64_t> source_row;
   void run(const MatchFinder::MatchResult &found) override;
 
@@ -20,6 +21,7 @@ private:
   CapturedBindingState &state_;
   const IMatchBackend::Checkpoint &checkpoint_;
   const MatchLimits &limits_;
+  const IMatchBackend::RowSink *sink_;
   std::size_t bytes_{};
 };
 

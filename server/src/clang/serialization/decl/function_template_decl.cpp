@@ -16,7 +16,7 @@ bool FunctionTemplateDeclSerializer::serialize(
                                      *payload->mutable_template_parameters(),
                                      context);
   for (const auto *specialization : native->specializations()) {
-    if (!helpers::can_expand("function_template_decl.specializations", context))
+    if (!helpers::can_expand(*payload, "specializations", context))
       break;
     helpers::write_symbol(*specialization, *payload->add_specializations(),
                           context);

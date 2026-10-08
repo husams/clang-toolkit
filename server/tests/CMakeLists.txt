@@ -31,6 +31,7 @@ if(CTK_WITH_CLANG)
     test_declaration_semantics.cpp
     test_expression_semantics.cpp
     test_type_semantics.cpp
+    ../src/clang/serialization/testing/test_cached_values.cpp
     test_temporary_directory.cpp test_project_facade.cpp test_snapshot_closure.cpp)
   if(CTK_BUILD_NETWORK)
     target_sources(ctk_tests PRIVATE test_match_cursors.cpp test_ast_traversal.cpp test_cfg.cpp test_call_graph.cpp)

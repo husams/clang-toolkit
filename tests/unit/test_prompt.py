@@ -11,16 +11,42 @@ from prompt_toolkit.validation import ValidationError
 from clang_toolkit.cli.prompt import InputValidator, create_session
 
 
-@pytest.mark.parametrize("text", ["([)]", "foo(]", ")", "foo(@)"])
-def test_invalid_delimiters_are_reported(text):
-    with pytest.raises(ValidationError, match="mismatched"):
+@pytest.mark.parametrize(
+    ("text", "expected", "position"),
+    [
+        ("match functionDecl([)]", "expected `]`", len("match functionDecl([")),
+        ("match functionDecl(]", "expected `)`", len("match functionDecl(")),
+        ("match functionDecl())", "unexpected `)`", len("match functionDecl()")),
+        ("match functionDecl(@)", "unexpected character", len("match functionDecl(")),
+    ],
+)
+def test_invalid_delimiters_are_reported_with_syntax_details(text, expected, position):
+    with pytest.raises(ValidationError) as raised:
         InputValidator().validate(Document(text))
 
+    assert expected.lower() in raised.value.message.lower()
+    assert "syntax error at line 1, column" in raised.value.message
+    assert raised.value.cursor_position == position
+    assert "\n" not in raised.value.message
 
-@pytest.mark.parametrize("text", ["foo(", 'foo("open', "[{}", "{"])
-def test_forced_submission_cannot_bypass_incomplete_input(text):
-    with pytest.raises(ValidationError, match="Close"):
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("match functionDecl(", "expected `)`"),
+        ('match functionDecl(hasName("open', "unterminated quoted string"),
+        ('match functionDecl() in ["file.cc"', "expected `]`"),
+        ('in parse "file.cc" {', "expected `}`"),
+        ('foreach $x in $items do\n"${x}"', "expected `done`"),
+    ],
+)
+def test_forced_submission_cannot_bypass_incomplete_input(text, expected):
+    with pytest.raises(ValidationError) as raised:
         InputValidator().validate(Document(text))
+
+    assert expected in raised.value.message
+    assert "syntax error at line" in raised.value.message
+    assert raised.value.cursor_position == len(text)
 
 
 def test_enter_continues_then_submits_balanced_matcher():

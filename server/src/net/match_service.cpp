@@ -37,6 +37,25 @@ MatchServiceAdapter::Match(grpc::ServerContext *context,
     response->Swap(&reply.response);
   return match_status(reply.code, reply.message, *context);
 }
+grpc::Status MatchServiceAdapter::StreamMatch(
+    grpc::ServerContext *context, const ctk::match::v1::MatchRequest *request,
+    grpc::ServerWriter<ctk::match::v1::MatchStreamEvent> *writer) {
+  auto reply = controller_.stream_match(
+      owner(*context), *request, [context] { return !context->IsCancelled(); },
+      [context, writer](const ctk::match::v1::MatchStreamEvent &event,
+                        std::string &message) {
+        if (context->IsCancelled()) {
+          message = "match stream cancelled";
+          return ctk::clang_layer::MatchCode::Cancelled;
+        }
+        if (!writer->Write(event)) {
+          message = "match stream consumer disconnected";
+          return ctk::clang_layer::MatchCode::Cancelled;
+        }
+        return ctk::clang_layer::MatchCode::Ok;
+      });
+  return match_status(reply.code, reply.message, *context);
+}
 grpc::Status MatchServiceAdapter::CloseSession(
     grpc::ServerContext *context,
     const ctk::match::v1::CloseSessionRequest *request,

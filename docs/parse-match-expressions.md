@@ -26,6 +26,62 @@ filesystem; the server must be able to read the source.
 two functions, two calls, one call in the first row and the literals 7 and 9.
 There are no UUIDs or revision numbers to manage in this flow.
 
+The name in `.bind("f")` is the binding label: `$functions[0].f.name` returns
+`"f"`. A row's `$functions[0].name` instead asks for a binding labeled
+`"name"`. To reach fields on the bound protobuf node, continue through
+`.value.node`; for example:
+
+```text
+$functions[0].f.value.node.qualified_name
+$functions[0].f.value.node.name.identifier
+```
+
+Completion follows each live value through nested fields and zero-based row
+indices. Optional protobuf fields that are absent raise a field-unavailable error;
+check them with `.hasField("field")` before reading them. `foreach` evaluates
+its body for each input value and returns a new list of those results.
+
+`node` contains one active concrete payload. For function declarations, including
+C++ methods, constructors, destructors, conversions and deduction guides, its
+concrete and inherited declaration fields are also available directly. Tab after
+`$m[0].f.value.node.` offers fields such as `name`, `qualified_name`, `return_type`,
+the active payload, and the `hasField(` method. Child fields such as `parameters`
+and `body` are intentionally unrequested in match results.
+Exact schema paths remain available. For example:
+
+```text
+$m[0].f.value.node.cxx_method_decl.method.function.declarator.value.named.qualified_name
+$m[0].f.value.node.qualified_name
+$m[0].f.value.node.return_type.description.spelling
+```
+
+The first two paths read the same qualified name. The third reads the return
+type's spelling. `name` is a typed `DeclarationName`: an ordinary function
+has `name.identifier`; operators, constructors and other special names retain
+their own typed variants. `return_type` is a `QualType`; use
+`return_type.description.spelling` for its type text and `return_type.qualifiers`
+for qualifiers. Its recursive `type` field is unrequested.
+`spelling` belongs to type information and is not a universal
+field of `node`. Direct fields come only from the matched declaration and its
+explicit base metadata chain, never its parameters or parent record.
+
+Each binding contains only its matched node's immediate fields. Function bodies,
+parameter declarations, initializers and expression operands require a follow-up
+match rather than serialized subtree expansion. Omitted children are marked
+`UNREQUESTED`; `is_complete` describes the immediate projection. For example:
+
+```text
+let parameters = match parmVarDecl().bind("p") in $functions.f
+let returns = match returnStmt().bind("r") in $functions[0].f
+$functions[0].f.value.node.return_type.description.spelling
+```
+
+`hasField("field")` checks whether a field supporting protobuf presence is
+present; it does not retrieve the value. Tab after `.hasField(` or an unfinished
+quoted argument suggests valid field names with quotes. An empty argument reports
+the missing field name and its position. Repeated fields use `.length` or
+`.isEmpty` rather than `hasField`.
+
 Enter a scoped expression as one console input, using multiline entry when
 available:
 
@@ -105,6 +161,20 @@ defines the common schema.
 `parse`, `match(query, file=...)`, `match_in`, and binding-selection `match`
 return retained values. A binding selection carries its owner's identity and revision.
 Rows expose typed semantic protobuf values with copy-on-read bindings.
+
+Retained matching uses `StreamMatch`: rows arrive during matching and collectors
+spool large results to temporary storage. The result becomes reusable only after
+successful stream completion. Normal iteration and indexing read rows on demand;
+the `.rows` property deliberately creates a complete snapshot. Use `on_row` on
+Python `match_in` to process each provisional protobuf row as it arrives; async
+callbacks are awaited. Callback failure cancels collection and publishes no value.
+
+```python
+with Client() as client:
+    with client.match_in('functionDecl().bind("f")', "example.cc",
+                         on_row=lambda row: print(row.bindings["f"])) as functions:
+        print(len(functions))
+```
 
 ```python
 from clang_toolkit import Client

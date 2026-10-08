@@ -267,6 +267,66 @@ bool select(const clang::DynTypedNode &node,
   static const Serializer serializer;
   return serializer.serialize(node, binding, context);
 }
+bool is_child_value(const google::protobuf::Descriptor *descriptor) {
+  const auto &name = descriptor->name();
+  return name == "DeclarationValue" || name == "ExpressionValue" ||
+         name == "StatementValue" || name == "TypeValue" ||
+         name == "NestedNameSpecifier";
+}
+void add_unrequested(SerializationContext &context, const std::string &path) {
+  for (const auto &entry : context.availability)
+    if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
+        entry.field_path() == path)
+      return;
+  auto &entry = context.availability.emplace_back();
+  entry.set_field_path(path);
+  entry.set_state(ctk::ast::v1::FIELD_STATE_UNREQUESTED);
+  entry.set_reason("owned child expansion is not part of the shallow projection");
+}
+void remove_empty_child_values(google::protobuf::Message &message,
+                               SerializationContext &context) {
+  const auto *descriptor = message.GetDescriptor();
+  const auto *reflection = message.GetReflection();
+  for (int i = 0; i < descriptor->field_count(); ++i) {
+    const auto *field = descriptor->field(i);
+    if (field->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE)
+      continue;
+    if (field->is_repeated()) {
+      if (is_child_value(field->message_type())) {
+        add_unrequested(context,
+                        std::string(descriptor->name()) + "." +
+                            std::string(field->name()));
+        reflection->ClearField(&message, field);
+        continue;
+      }
+      for (int index = reflection->FieldSize(message, field) - 1; index >= 0;
+           --index) {
+        auto *child = reflection->MutableRepeatedMessage(&message, field, index);
+        remove_empty_child_values(*child, context);
+        if (is_child_value(field->message_type()) && child->ByteSizeLong() == 0) {
+          add_unrequested(context,
+                          std::string(descriptor->name()) + "." +
+                              std::string(field->name()));
+          const int last = reflection->FieldSize(message, field) - 1;
+          if (index != last)
+            reflection->SwapElements(&message, field, index, last);
+          reflection->RemoveLast(&message, field);
+        }
+      }
+      continue;
+    }
+    if (!reflection->HasField(message, field))
+      continue;
+    auto *child = reflection->MutableMessage(&message, field);
+    remove_empty_child_values(*child, context);
+    if (is_child_value(field->message_type()) && child->ByteSizeLong() == 0) {
+      add_unrequested(context,
+                      std::string(descriptor->name()) + "." +
+                          std::string(field->name()));
+      reflection->ClearField(&message, field);
+    }
+  }
+}
 bool dispatch(const clang::DynTypedNode &node,
               ctk::match::v1::MatchBinding &binding,
               SerializationContext &context) {
@@ -342,6 +402,13 @@ bool NodeSerializerDispatcher::serialize(const clang::DynTypedNode &node,
     context.availability_starts.pop_back();
     context.complete = false;
     throw;
+  }
+  if (result && context.projection == ProjectionPolicy::Shallow) {
+    const int copied_availability = binding.availability_size();
+    remove_empty_child_values(binding, context);
+    for (std::size_t index = static_cast<std::size_t>(copied_availability);
+         index < context.availability.size(); ++index)
+      *binding.add_availability() = context.availability[index];
   }
   if (result) {
     binding.add_supported_scopes(ctk::match::v1::BINDING_MATCH_SCOPE_ROOT_ONLY);

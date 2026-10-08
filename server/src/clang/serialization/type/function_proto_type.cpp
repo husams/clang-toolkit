@@ -11,7 +11,7 @@ bool FunctionProtoTypeSerializer::serialize(const clang::DynTypedNode &node, ctk
   helpers::write_common(*native, *payload, context);
   helpers::write_type(native->getReturnType(), *payload->mutable_return_type(), context);
   for (auto parameter : native->param_types()) {
-    if (!helpers::can_expand("parameter_types", context)) break;
+    if (!helpers::can_expand(*payload, "parameter_types", context)) break;
     helpers::write_type(parameter, *payload->add_parameter_types(), context);
   }
   payload->set_is_variadic(native->isVariadic());

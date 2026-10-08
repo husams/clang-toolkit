@@ -54,7 +54,7 @@ _WORD_TYPES = {
     "REPLACE",
     "JOIN_WITH",
 }
-_SAFE_SUFFIX = frozenset(" \t\r\n()[]{},.")
+_SAFE_SUFFIX = frozenset(" \t\r\n()[]{},.\"'")
 
 
 @dataclass(frozen=True)

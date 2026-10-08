@@ -16,13 +16,13 @@ bool UnresolvedLookupExprSerializer::serialize(
   helpers::write_nested_name(native->getQualifier(),
                              *payload->mutable_qualifier(), context);
   for (const auto &argument : native->template_arguments()) {
-    if (!helpers::can_expand("template_arguments", context))
+    if (!helpers::can_expand(*payload, "template_arguments", context))
       break;
     helpers::write_template_argument(
         argument.getArgument(), *payload->add_template_arguments(), context);
   }
   for (const auto *declaration : native->decls()) {
-    if (!helpers::can_expand("candidate_declarations", context))
+    if (!helpers::can_expand(*payload, "candidate_declarations", context))
       break;
     helpers::write_symbol(*declaration, *payload->add_candidate_declarations(),
                           context);

@@ -66,5 +66,5 @@ printf '  cursor open "%s" integerLiteral().bind("n")\n' "$source_path"
 printf '  quit\n\nBoth requests should return 7. Exiting stops the private server.\n\n'
 
 cd "$repo_root"
-XDG_STATE_HOME="$scratch/state" "$python_binary" -m clang_toolkit.cli.app \
+"$python_binary" -m clang_toolkit.cli.app \
   --server "$endpoint" -c "$config"

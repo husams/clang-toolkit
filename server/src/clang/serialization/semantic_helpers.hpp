@@ -12,6 +12,9 @@ void write_common(const clang::Stmt &, google::protobuf::Message &,
 void write_common(const clang::Type &, google::protobuf::Message &,
                   SerializationContext &);
 bool can_expand(const std::string &field_path, SerializationContext &);
+bool can_expand(const google::protobuf::Message &owner,
+                const std::string &field,
+                SerializationContext &);
 class ExpansionFrame {
 public:
   SerializationContext &context;

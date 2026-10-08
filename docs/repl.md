@@ -16,6 +16,24 @@ console even when values are redirected to a file. The complete
 [command reference](console-command-reference.md) includes declarative
 `parse`/`match`/`let`/`in`/`yield` and the supported legacy controls.
 
+Syntax errors for every command explain what input is expected and mark the
+failure with a source line and caret. Missing closing quotes and delimiters
+identify the required character; unknown commands suggest `help` and nearby
+command names when available. For example:
+
+```text
+ctk> parse
+syntax error at line 1, column 6: unexpected end of input. Expected a quoted path, a variable reference such as `$name`, a name, or a number.
+parse
+     ^
+```
+
+The prompt's validation line names invalid characters, mismatched closers and
+missing quotes, delimiters or `done`, while its cursor marks the editable
+location. Invalid `${...}` references show expected syntax and a caret within
+the interpolation; missing `}` and invalid string escapes also name the
+required correction and location.
+
 ```text
 ctk> match functionDecl(
 ...>     hasName("Service::run")
@@ -35,8 +53,22 @@ Tab completion follows the Lark parser's expected token roles at the cursor:
   `hasType` and `pointerType`, alongside the new value forms.
 - Inside a matcher argument list, it offers nested matcher expressions,
   including narrowing and traversal matchers.
-- After `$`, it uses supplied reference names; after a reference's dot, supplied
-  fields. It does not invent names or scalar values.
+- After `$`, it uses supplied reference names; after a reference's dot, it asks
+  the live runtime for fields on the complete reference prefix. This supports
+  nested properties and indexed rows such as `$functions[0].f.value.node.`.
+  Completion descriptions distinguish fields from methods and label the active
+  node payload, such as `cxx_method_decl`, with a hint to continue using `.`.
+  Function nodes also offer concrete and inherited declaration fields directly,
+  including `name`, `qualified_name` and `return_type`.
+  `name` is typed: use `name.identifier` for ordinary names or `qualified_name`
+  for the native qualified string. Exact schema paths remain available.
+  Match values contain immediate node fields; child bodies and parameters are
+  unrequested. Use a follow-up match to retrieve child nodes, and
+  `return_type.description.spelling` to read a return type's text.
+  `.joinWith(...)` joins list values; `.hasField(...)` checks field presence.
+  These are methods. Completion does not invent names or scalar values.
+  Inside `.hasField(`, Tab inserts quoted names of fields supporting presence,
+  including inactive oneof branches. An empty argument explains the missing name.
 - Ordinary command targets, assignment names, strings, and `.bind` string
   arguments do not receive unrelated matcher suggestions.
 - In filesystem argument positions, Tab offers existing files and navigation
@@ -70,6 +102,9 @@ all three delimiter pairs. Lists are executable values; braces delimit scoped
 parsed-tree blocks with a terminal `yield`. See
 [parse/match expressions](parse-match-expressions.md) for executable examples.
 A multiline `foreach ... do` continues until `done`.
+Retained match expressions collect rows through `StreamMatch` and spool large
+collections to temporary storage. `let` publishes its reusable value only after
+successful completion; failed or cancelled streams preserve earlier assignments.
 Command dispatch now evaluates through modular `cli.runtime` modules. A session
 keeps typed `let` bindings, composes matcher trees without textual substitution,
 and expands references before calling the existing client API. Direct literal
@@ -137,6 +172,14 @@ or records. Relative paths use the session's working directory; format is
 detected from the extension (or a unique matching extension if omitted).
 History is saved automatically to `$XDG_STATE_HOME/clang_tools/history.jsonl`
 (or `~/.local/state/clang_tools/history.jsonl`) with a session UUID.
+Up and Down recall earlier and later commands, including commands from previous
+console runs. Ctrl+R searches backward through command history. Press Enter to
+accept a search result, then Enter again to submit it. Multiline commands are
+retained as one entry. Submitted syntax errors are also saved; cancelled edits
+are not. `history clear` clears both saved history and interactive recall;
+`history save PATH` exports the timestamped records.
+The manual-console launcher uses the same persistent state location, rather
+than storing history alongside its temporary server files.
 
 Matching executes through the native server over Unix or TCP. Retained matching
 uses the formal `cursor open`, `cursor continue`, `cursor restart` and

@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import {
   type CallOptions,
+  type ClientReadableStream,
   type ClientUnaryCall,
   credentials,
   loadPackageDefinition,
@@ -11,7 +12,9 @@ import { loadSync } from "@grpc/proto-loader";
 import { ClangToolkitError } from "./clang-toolkit-error.js";
 import type { ProtoGrpcType as AnalysisPackage } from "./generated/analysis_service.js";
 import type { AnalysisServiceClient } from "./generated/ctk/analysis/v1/AnalysisService.js";
+import type { MatchRequest } from "./generated/ctk/match/v1/MatchRequest.js";
 import type { MatchServiceClient } from "./generated/ctk/match/v1/MatchService.js";
+import type { MatchStreamEvent__Output } from "./generated/ctk/match/v1/MatchStreamEvent.js";
 import type { ProtoGrpcType as MatchPackage } from "./generated/match_service.js";
 import type { ClientOptions } from "./options.js";
 
@@ -79,6 +82,18 @@ export class GrpcTransport {
           else resolve(value);
         },
       );
+    });
+  }
+
+  streamMatch(
+    request: MatchRequest,
+    options?: CallOptions,
+  ): ClientReadableStream<MatchStreamEvent__Output> {
+    return this.matches.StreamMatch(request, this.metadata.clone(), {
+      ...(this.timeoutMs === null
+        ? {}
+        : { deadline: Date.now() + this.timeoutMs }),
+      ...options,
     });
   }
 

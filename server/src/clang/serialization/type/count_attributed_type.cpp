@@ -18,8 +18,11 @@ bool CountAttributedTypeSerializer::serialize(const clang::DynTypedNode &node, c
   case clang::CountAttributedType::CountedByOrNull: payload->set_count_kind(ctk::ast::v1::DYNAMIC_COUNT_KIND_COUNTED_BY_OR_NULL); break;
   case clang::CountAttributedType::SizedByOrNull: payload->set_count_kind(ctk::ast::v1::DYNAMIC_COUNT_KIND_SIZED_BY_OR_NULL); break;
   }
-  for (const auto &coupled : native->getCoupledDecls())
-    if (coupled.getDecl()) helpers::write_symbol(*coupled.getDecl(), *payload->add_coupled_declarations(), context);
+  if (helpers::can_expand(*payload, "coupled_declarations", context))
+    for (const auto &coupled : native->getCoupledDecls())
+      if (coupled.getDecl())
+        helpers::write_symbol(*coupled.getDecl(),
+                              *payload->add_coupled_declarations(), context);
   helpers::finish_binding(binding, context);
   return true;
 #else

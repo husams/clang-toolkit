@@ -11,7 +11,7 @@ bool CXXConstructorDeclSerializer::serialize(
   auto *payload = binding.mutable_node()->mutable_cxx_constructor_decl();
   helpers::write_common(*native, *payload, context);
   for (const auto *initializer : native->inits()) {
-    if (!helpers::can_expand("cxx_constructor_decl.initializers", context))
+    if (!helpers::can_expand(*payload, "initializers", context))
       break;
 
     auto *value = payload->add_initializers();

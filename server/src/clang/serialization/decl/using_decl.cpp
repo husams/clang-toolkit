@@ -14,7 +14,7 @@ bool UsingDeclSerializer::serialize(const clang::DynTypedNode &node,
                              *payload->mutable_qualifier(), context);
   helpers::write_name(native->getDeclName(), *payload->mutable_name(), context);
   for (const auto *shadow : native->shadows()) {
-    if (!helpers::can_expand("using_decl.shadows", context))
+    if (!helpers::can_expand(*payload, "shadows", context))
       break;
     helpers::write_symbol(*shadow, *payload->add_shadows(), context);
   }

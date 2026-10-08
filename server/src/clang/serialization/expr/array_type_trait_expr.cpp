@@ -18,7 +18,8 @@ bool ArrayTypeTraitExprSerializer::serialize(
   if (auto *dimension = native->getDimensionExpression();
       dimension && !dimension->isValueDependent()) {
     clang::Expr::EvalResult evaluated;
-    if (dimension->EvaluateAsInt(evaluated, context.ast_context))
+    if (helpers::can_expand(*payload, "dimension_value", context) &&
+        dimension->EvaluateAsInt(evaluated, context.ast_context))
       payload->set_dimension(evaluated.Val.getInt().getLimitedValue());
     else
       helpers::unavailable(

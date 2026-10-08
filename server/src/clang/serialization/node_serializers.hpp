@@ -20,11 +20,14 @@
 
 namespace ctk::clang_layer::serialization {
 
+enum class ProjectionPolicy { Shallow, Recursive };
+
 // The caller pins the AST and holds its execution lane throughout
 // serialization. Output owns its data. Limits bound recursive owned children,
 // never symbols.
 struct SerializationContext {
   clang::ASTContext &ast_context;
+  ProjectionPolicy projection = ProjectionPolicy::Recursive;
   bool complete = true;
   std::size_t depth = 0;
   std::size_t nodes = 0;

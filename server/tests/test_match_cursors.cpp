@@ -72,7 +72,173 @@ protected:
   MatchReply run(const MatchRequest &request, std::string owner = "owner") {
     return controller->match(owner, request, [] { return true; });
   }
+  MatchReply stream(const MatchRequest &request,
+                    const MatchController::StreamSink &sink,
+                    std::string owner = "owner") {
+    return controller->stream_match(owner, request, [] { return true; }, sink);
+  }
 };
+
+TEST_F(MatchCursors, StreamEmitsFullRowsThenCommitsThinContinuationState) {
+  std::vector<MatchStreamEvent> events;
+  std::promise<void> first_row;
+  std::promise<void> release_sink;
+  auto release = release_sink.get_future();
+  bool blocked_first_row = false;
+  auto pending = std::async(std::launch::async, [this, &events, &first_row,
+                                                 &release, &blocked_first_row] {
+    return stream(file("functionDecl().bind(\"f\")"),
+                  [&events, &first_row, &release, &blocked_first_row](
+                      const MatchStreamEvent &event, std::string &) {
+                    events.push_back(event);
+                    if (event.has_row() && !blocked_first_row) {
+                      blocked_first_row = true;
+                      first_row.set_value();
+                      release.wait();
+                    }
+                    return MatchCode::Ok;
+                  });
+  });
+  const auto arrived = first_row.get_future().wait_for(std::chrono::seconds(5));
+  EXPECT_EQ(arrived, std::future_status::ready);
+  EXPECT_EQ(pending.wait_for(std::chrono::seconds(0)),
+            std::future_status::timeout);
+  release_sink.set_value();
+  const auto result = pending.get();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  ASSERT_EQ(events.size(), 4U);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_TRUE(events[i].has_row());
+    const auto &binding = events[i].row().bindings().at("f");
+    EXPECT_TRUE(binding.has_node());
+    EXPECT_NE(binding.supported_scopes_size(), 0);
+  }
+  ASSERT_TRUE(events.back().has_completed());
+  const auto &completion = events.back().completed();
+  EXPECT_EQ(completion.session_id(), result.response.session_id());
+  EXPECT_EQ(completion.result_revision(), 1U);
+  EXPECT_EQ(completion.row_count(), 3U);
+
+  // The retained revision carries only selector metadata, while native
+  // bindings remain available for later continuation.
+  for (const auto &row : result.response.results()) {
+    ASSERT_TRUE(row.bindings().contains("f"));
+    EXPECT_FALSE(row.bindings().at("f").has_node() ||
+                 row.bindings().at("f").has_qualified_type() ||
+                 row.bindings().at("f").has_unsupported());
+    EXPECT_NE(row.bindings().at("f").supported_scopes_size(), 0);
+  }
+  auto next = binding(result.response, "f", "callExpr().bind(\"call\")");
+  const auto continued = run(next);
+  ASSERT_EQ(continued.code, MatchCode::Ok) << continued.message;
+  ASSERT_EQ(continued.response.results_size(), 3);
+  EXPECT_EQ(continued.response.results(0).source_match_index(), 1U);
+  EXPECT_EQ(continued.response.results(2).source_match_index(), 2U);
+}
+
+TEST_F(MatchCursors, StreamZeroRowsCompletesAndCancellationDoesNotCommit) {
+  std::vector<MatchStreamEvent> empty_events;
+  auto empty =
+      stream(file("functionDecl(hasName(\"missing\"))"),
+             [&empty_events](const MatchStreamEvent &event, std::string &) {
+               empty_events.push_back(event);
+               return MatchCode::Ok;
+             });
+  ASSERT_EQ(empty.code, MatchCode::Ok) << empty.message;
+  ASSERT_EQ(empty_events.size(), 1U);
+  ASSERT_TRUE(empty_events.front().has_completed());
+  EXPECT_EQ(empty_events.front().completed().row_count(), 0U);
+
+  const auto source = run(file("functionDecl().bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto continuation = binding(source.response, "f", "callExpr()");
+  int rows_seen = 0;
+  const auto cancelled =
+      stream(continuation,
+             [&rows_seen](const MatchStreamEvent &event, std::string &message) {
+               if (event.has_row()) {
+                 ++rows_seen;
+                 message = "test stream stopped";
+                 return MatchCode::Cancelled;
+               }
+               return MatchCode::Ok;
+             });
+  EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
+  EXPECT_EQ(rows_seen, 1);
+  continuation = binding(source.response, "f", "callExpr()");
+  const auto retry = run(continuation);
+  ASSERT_EQ(retry.code, MatchCode::Ok) << retry.message;
+  EXPECT_EQ(retry.response.result_revision(), 2U);
+}
+
+TEST_F(MatchCursors,
+       FollowupNativeMatcherFindsChildAndReturnsItsShallowProjection) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "int parent() { return 4 + 1; }\n";
+  const auto parent = run(file("functionDecl(hasName(\"parent\")).bind(\"f\")"));
+  ASSERT_EQ(parent.code, MatchCode::Ok) << parent.message;
+  ASSERT_EQ(parent.response.results_size(), 1);
+  const auto &function = parent.response.results(0).bindings().at("f");
+  ASSERT_TRUE(function.has_node());
+  EXPECT_FALSE(function.node().function_decl().function().has_body());
+  EXPECT_TRUE(function.is_complete());
+
+  const auto child_request =
+      binding(parent.response, "f", "binaryOperator().bind(\"child\")");
+  const auto child_result = run(child_request);
+  ASSERT_EQ(child_result.code, MatchCode::Ok) << child_result.message;
+  ASSERT_EQ(child_result.response.results_size(), 1);
+  const auto &child = child_result.response.results(0).bindings().at("child");
+  ASSERT_TRUE(child.has_node());
+  const auto &binary = child.node().binary_operator();
+  EXPECT_EQ(binary.opcode(), ctk::ast::v1::BINARY_OPCODE_ADD);
+  EXPECT_FALSE(binary.has_left());
+  EXPECT_FALSE(binary.has_right());
+  EXPECT_TRUE(child.is_complete());
+  bool left_unrequested = false;
+  bool right_unrequested = false;
+  for (const auto &entry : child.availability()) {
+    if (entry.state() != ctk::ast::v1::FIELD_STATE_UNREQUESTED)
+      continue;
+    left_unrequested |= entry.field_path().ends_with("left");
+    right_unrequested |= entry.field_path().ends_with("right");
+  }
+  EXPECT_TRUE(left_unrequested);
+  EXPECT_TRUE(right_unrequested);
+}
+
+TEST_F(MatchCursors, StreamUsesPerEventBudgetWhileUnaryKeepsAggregateLimit) {
+  CursorSettings settings;
+  settings.results.max_bytes = 4096;
+  reset(settings);
+  std::ofstream source(directory.path() / "fixture.cc");
+  for (int i = 0; i < 24; ++i)
+    source << "struct StreamRecord" << i << " { int member" << i << "; };\n";
+  source.close();
+  const auto request = file("recordDecl().bind(\"record\")");
+  EXPECT_EQ(run(request).code, MatchCode::ResourceExhausted);
+  std::size_t transmitted = 0;
+  const auto streamed = stream(
+      request, [&transmitted](const MatchStreamEvent &event, std::string &) {
+        transmitted += event.ByteSizeLong();
+        EXPECT_LE(event.ByteSizeLong(), 4096U);
+        return MatchCode::Ok;
+      });
+  ASSERT_EQ(streamed.code, MatchCode::Ok) << streamed.message;
+  EXPECT_GT(transmitted, 4096U);
+  EXPECT_EQ(streamed.response.results_size(), 48);
+}
+
+TEST_F(MatchCursors, LegacyUnaryKeepsFullRowsAndContinuesFromThinRetention) {
+  const auto first = run(file("functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(first.code, MatchCode::Ok) << first.message;
+  ASSERT_EQ(first.response.results_size(), 1);
+  EXPECT_TRUE(first.response.results(0).bindings().at("f").has_node());
+
+  const auto next = run(binding(first.response, "f", "callExpr().bind(\"c\")"));
+  ASSERT_EQ(next.code, MatchCode::Ok) << next.message;
+  EXPECT_EQ(next.response.results_size(), 2);
+}
 
 TEST_F(MatchCursors, ParsePinsTreeWithoutRowsAndAllowsIndependentReuse) {
   const auto parsed =
@@ -774,8 +940,11 @@ TEST(CursorPublication, ForkMemoryAccountingChargesSharedSnapshotOnce) {
   auto backend = std::make_shared<PublicationBackend>();
   ctk::cache::LoadedSnapshot loaded;
   loaded.owner = std::make_shared<ctk::cache::NativeSnapshotOwner>();
-  loaded.inputs.push_back({"/ctk-test-shared.cc", ctk::cache::InputKind::File,
-                           "fixture-digest", {}, {}});
+  loaded.inputs.push_back({"/ctk-test-shared.cc",
+                           ctk::cache::InputKind::File,
+                           "fixture-digest",
+                           {},
+                           {}});
   loaded.estimated_bytes = 4096;
   backend->snapshot = std::make_shared<ctk::cache::SnapshotEntry>(
       1, "same-native-generation", std::move(loaded));

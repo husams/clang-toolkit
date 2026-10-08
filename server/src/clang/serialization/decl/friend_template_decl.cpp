@@ -12,8 +12,7 @@ bool FriendTemplateDeclSerializer::serialize(
   helpers::write_common(*native, *payload, context);
   for (unsigned index = 0; index < native->getNumTemplateParameters();
        ++index) {
-    if (!helpers::can_expand("friend_template_decl.template_parameters",
-                             context))
+    if (!helpers::can_expand(*payload, "template_parameters", context))
       break;
     helpers::write_template_parameters(*native->getTemplateParameterList(index),
                                        *payload->add_template_parameters(),

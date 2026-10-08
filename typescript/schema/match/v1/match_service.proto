@@ -4,6 +4,7 @@ package ctk.match.v1;
 
 import "google/protobuf/timestamp.proto";
 import "match/v1/match_result.proto";
+import "match/v1/match_stream.proto";
 import "match/v1/parse_request.proto";
 import "match/v1/parse_response.proto";
 
@@ -25,6 +26,15 @@ service MatchService {
   // RESOURCE_EXHAUSTED is all-or-error. CANCELLED and DEADLINE_EXCEEDED do not
   // commit when observed before commit.
   rpc Match(MatchRequest) returns (MatchResponse);
+
+  // Stream each callback row as soon as it is serialized. Rows are provisional
+  // until exactly one completed event and terminal OK. Only successful native
+  // execution commits the cursor; failures/cancellation before commit preserve
+  // previous state. Completion has cursor metadata and a count, never all rows.
+  // Per-message wire limits apply to individual events, not their combined
+  // bytes. Native/snapshot/metadata retention and row-count limits still apply.
+  // Match remains available for legacy unary consumers.
+  rpc StreamMatch(MatchRequest) returns (stream MatchStreamEvent);
 
   // Close uses the same caller ownership as Match and is serialized with it.
   // It affects only a session belonging to that caller. A malformed session ID

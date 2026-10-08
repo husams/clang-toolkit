@@ -5,7 +5,6 @@ import { BindingSelection } from "./binding-selection.js";
 import {
   fileOptionsSchema,
   matchOptionsSchema,
-  matchResponseSchema,
   parseResponseSchema,
   scriptResponseSchema,
 } from "./boundary.js";
@@ -17,10 +16,14 @@ import { CursorOwner } from "./cursor-owner.js";
 import type { ScriptResponse__Output } from "./generated/ctk/analysis/v1/ScriptResponse.js";
 import type { FileMatchTarget } from "./generated/ctk/match/v1/FileMatchTarget.js";
 import type { MatchRequest } from "./generated/ctk/match/v1/MatchRequest.js";
-import type { MatchResponse__Output } from "./generated/ctk/match/v1/MatchResponse.js";
 import type { ParseResponse__Output } from "./generated/ctk/match/v1/ParseResponse.js";
 import { GrpcTransport } from "./grpc-transport.js";
 import { snapshot } from "./immutable.js";
+import { DiskMatchRowStore } from "./match-row-store.js";
+import {
+  consumeMatchStream,
+  type MatchStreamCompletion,
+} from "./match-stream.js";
 import { MatchValue } from "./match-value.js";
 import type {
   ClientOptions,
@@ -291,21 +294,57 @@ export class Client implements AsyncDisposable {
       );
     return this.track(
       (async () => {
-        const response = await this.transport.invoke<MatchResponse__Output>(
-          (metadata, callOptions, callback) =>
-            this.transport.matches.Match(
-              request,
-              metadata,
-              callOptions,
-              callback,
-            ),
-          options.callOptions,
-        );
-        matchResponseSchema.parse(response);
-        return new MatchValue(
-          this.own(response.sessionId, response.resultRevision),
-          response.results,
-        );
+        const rows = DiskMatchRowStore.create();
+        let completion: MatchStreamCompletion | undefined;
+        try {
+          const stream = this.transport.streamMatch(
+            request,
+            options.callOptions,
+          );
+          await consumeMatchStream(
+            stream,
+            rows,
+            (value) => {
+              completion = value;
+            },
+            options.onRow,
+          );
+          if (completion === undefined)
+            throw new Error("match stream completed without cursor metadata");
+          return new MatchValue(
+            this.own(completion.sessionId, completion.resultRevision),
+            rows,
+          );
+        } catch (error) {
+          let rowCleanupError: unknown;
+          try {
+            rows.discard();
+          } catch (cleanupError) {
+            rowCleanupError = cleanupError;
+          }
+          if (
+            completion !== undefined &&
+            !this.owners.has(completion.sessionId)
+          ) {
+            const sessionId = completion.sessionId;
+            await this.transport
+              .invoke((metadata, callOptions, callback) =>
+                this.transport.matches.CloseSession(
+                  { sessionId },
+                  metadata,
+                  callOptions,
+                  callback,
+                ),
+              )
+              .catch(() => undefined);
+          }
+          if (rowCleanupError !== undefined)
+            throw new AggregateError(
+              [error, rowCleanupError],
+              "match stream and row spool cleanup failed",
+            );
+          throw error;
+        }
       })(),
     );
   }

@@ -15,7 +15,7 @@ bool TypeTraitExprSerializer::serialize(const clang::DynTypedNode &node,
   payload->set_trait(ctk::ast::v1::TYPE_TRAIT_OTHER);
   payload->set_trait_name(clang::getTraitName(native->getTrait()));
   for (unsigned i = 0; i < native->getNumArgs(); ++i) {
-    if (!helpers::can_expand("queried_types", context))
+    if (!helpers::can_expand(*payload, "queried_types", context))
       break;
     helpers::write_type(native->getArg(i)->getType(),
                         *payload->add_queried_types(), context);

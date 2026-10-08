@@ -807,12 +807,14 @@ class CleanupValue(_message.Message):
     def __init__(self, block: _Optional[_Union[DeclarationSymbol, _Mapping]] = ..., compound_literal: _Optional[_Union[ExpressionValue, _Mapping]] = ...) -> None: ...
 
 class QualType(_message.Message):
-    __slots__ = ("type", "qualifiers")
+    __slots__ = ("type", "qualifiers", "description")
     TYPE_FIELD_NUMBER: _ClassVar[int]
     QUALIFIERS_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     type: TypeValue
     qualifiers: _common_pb2.Qualifiers
-    def __init__(self, type: _Optional[_Union[TypeValue, _Mapping]] = ..., qualifiers: _Optional[_Union[_common_pb2.Qualifiers, _Mapping]] = ...) -> None: ...
+    description: TypeDescription
+    def __init__(self, type: _Optional[_Union[TypeValue, _Mapping]] = ..., qualifiers: _Optional[_Union[_common_pb2.Qualifiers, _Mapping]] = ..., description: _Optional[_Union[TypeDescription, _Mapping]] = ...) -> None: ...
 
 class APIntBits(_message.Message):
     __slots__ = ("bit_width", "little_endian_bits", "unsigned_decimal")

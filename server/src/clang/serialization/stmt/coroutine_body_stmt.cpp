@@ -23,7 +23,7 @@ bool CoroutineBodyStmtSerializer::serialize(
     helpers::write_stmt(child, *payload->mutable_fallthrough_handler(),
                         context);
   for (const auto *stmt : native->getParamMoves()) {
-    if (!helpers::can_expand("CoroutineBodyStmt.parameter_moves", context))
+    if (!helpers::can_expand(*payload, "parameter_moves", context))
       break;
     if (stmt)
       helpers::write_stmt(stmt, *payload->add_parameter_moves(), context);

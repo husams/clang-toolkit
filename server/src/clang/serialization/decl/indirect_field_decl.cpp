@@ -11,7 +11,7 @@ bool IndirectFieldDeclSerializer::serialize(
   auto *payload = binding.mutable_node()->mutable_indirect_field_decl();
   helpers::write_common(*native, *payload, context);
   for (const auto *declaration : native->chain()) {
-    if (!helpers::can_expand("indirect_field_decl.chain", context))
+    if (!helpers::can_expand(*payload, "chain", context))
       break;
     helpers::write_symbol(*declaration, *payload->add_chain(), context);
   }

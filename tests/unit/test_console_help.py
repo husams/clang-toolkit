@@ -47,7 +47,10 @@ def test_help_does_not_initialize_settings_or_output(monkeypatch):
     assert "help <command>" in dispatch(client, "help")
     assert dispatch(client, "") == dispatch(client, "help")
     assert "parse PATH" in dispatch(client, "parse?")
-    assert dispatch(client, "unknown") == "unknown command: unknown"
+    unknown = dispatch(client, "unknown")
+    assert unknown.startswith("unknown command: unknown at line 1, column 1.")
+    assert "Use `help`" in unknown
+    assert unknown.endswith("unknown\n^")
     assert client.mock_calls == []
 
 
@@ -80,7 +83,10 @@ def test_semicolons_whitespace_and_unknown_commands():
     client = Mock(spec=Client)
     assert dispatch(client, "cursor\t open ?;") == dispatch(client, "help cursor open;")
     assert dispatch(client, "help\nparse") == dispatch(client, "parse?")
-    assert dispatch(client, "bogus args") == "unknown command: bogus"
+    unknown = dispatch(client, "bogus args")
+    assert unknown.startswith("unknown command: bogus at line 1, column 1.")
+    assert "Use `help`" in unknown
+    assert unknown.endswith("bogus args\n^")
     assert dispatch(client, "match bogus?").startswith("unknown help topic:")
     assert client.mock_calls == []
 

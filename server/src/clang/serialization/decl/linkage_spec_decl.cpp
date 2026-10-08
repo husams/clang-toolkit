@@ -14,7 +14,7 @@ bool LinkageSpecDeclSerializer::serialize(const clang::DynTypedNode &node,
                             ? ctk::ast::v1::DECL_LINKAGE_LANGUAGE_C
                             : ctk::ast::v1::DECL_LINKAGE_LANGUAGE_CXX);
   for (const auto *declaration : native->decls()) {
-    if (!helpers::can_expand("linkage_spec_decl.declarations", context))
+    if (!helpers::can_expand(*payload, "declarations", context))
       break;
     helpers::write_decl(declaration, *payload->add_declarations(), context);
   }

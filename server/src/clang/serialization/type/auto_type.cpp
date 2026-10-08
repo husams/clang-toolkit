@@ -20,7 +20,7 @@ bool AutoTypeSerializer::serialize(const clang::DynTypedNode &node, ctk::match::
   if (native->getTypeConstraintConcept())
     helpers::write_symbol(*native->getTypeConstraintConcept(), *payload->mutable_type_constraint_concept(), context);
   for (const auto &argument : native->getTypeConstraintArguments()) {
-    if (!helpers::can_expand("type_constraint_arguments", context)) break;
+    if (!helpers::can_expand(*payload, "type_constraint_arguments", context)) break;
     helpers::write_template_argument(argument, *payload->add_type_constraint_arguments(), context);
   }
   helpers::finish_binding(binding, context);

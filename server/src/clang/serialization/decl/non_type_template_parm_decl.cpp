@@ -24,7 +24,7 @@ bool NonTypeTemplateParmDeclSerializer::serialize(
   if (native->isExpandedParameterPack())
     for (unsigned index = 0; index < native->getNumExpansionTypes(); ++index) {
       if (!helpers::can_expand(
-              "non_type_template_parm_decl.expanded_parameter_types", context))
+              *payload, "expanded_parameter_types", context))
         break;
       helpers::write_type(native->getExpansionType(index),
                           *payload->add_expanded_parameter_types(), context);
@@ -84,8 +84,7 @@ bool NonTypeTemplateParmDeclSerializer::serialize(
           "this declaration has no stored concept qualifier reference",
           context);
       for (const auto &argument : automatic->getTypeConstraintArguments()) {
-        if (!helpers::can_expand("non_type_template_parm_decl.arguments",
-                                 context))
+        if (!helpers::can_expand(*reference, "arguments", context))
           break;
         helpers::write_template_argument(argument, *reference->add_arguments(),
                                          context);

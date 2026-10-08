@@ -15,7 +15,7 @@ bool ExprWithCleanupsSerializer::serialize(
   if (auto *value = native->getSubExpr())
     helpers::write_expr(value, *payload->mutable_subexpression(), context);
   for (const auto &object : native->getObjects()) {
-    if (!helpers::can_expand("cleanups", context))
+    if (!helpers::can_expand(*payload, "cleanups", context))
       break;
 
     auto *cleanup = payload->add_cleanups();

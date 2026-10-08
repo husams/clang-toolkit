@@ -1,0 +1,5 @@
+// Bind every user-written function defined in the main file (no implicit or lambda members).
+let fns = match functionDecl(isExpansionInMainFile(), isDefinition(), unless(isImplicit()),
+                             unless(cxxMethodDecl(ofClass(cxxRecordDecl(isLambda()))))).bind("fn");
+emit count(fns);
+emit fns;

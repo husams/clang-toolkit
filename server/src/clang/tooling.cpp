@@ -163,7 +163,8 @@ SemanticBinding serialize(const clang::DynTypedNode &node,
   } else if (const auto *type = node.get<clang::Type>()) {
     binding.type = clang::QualType(type, 0).getAsString(policy);
   }
-  serialization::SerializationContext context{ast_context};
+  serialization::SerializationContext context{
+      ast_context, serialization::ProjectionPolicy::Shallow};
   serialization::NodeSerializerDispatcher::serialize(node, binding.value,
                                                        context);
   return binding;

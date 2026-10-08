@@ -41,7 +41,7 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
       if (auto *v = type->getAs<clang::VectorType>())
         element = v->getElementType();
     for (unsigned i = 0; i < native.getVectorLength(); ++i) {
-      if (!can_expand("APValueSequence.elements", context))
+      if (!can_expand(*p, "elements", context))
         break;
       write_apvalue(native.getVectorElt(i), *p->add_elements(), element,
                     context);
@@ -51,12 +51,17 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
   case clang::APValue::Array: {
     auto *p = value.mutable_array();
     p->set_size(native.getArraySize());
+    if (context.projection == ProjectionPolicy::Shallow) {
+      (void)can_expand(*p, "initialized_elements", context);
+      (void)can_expand(*p, "filler", context);
+      break;
+    }
     clang::QualType element;
     if (!type.isNull())
       if (auto *a = context.ast_context.getAsArrayType(type))
         element = a->getElementType();
     for (unsigned i = 0; i < native.getArrayInitializedElts(); ++i) {
-      if (!can_expand("APArrayValue.initialized_elements", context))
+      if (!can_expand(*p, "initialized_elements", context))
         break;
       write_apvalue(native.getArrayInitializedElt(i),
                     *p->add_initialized_elements(), element, context);
@@ -68,6 +73,11 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
   }
   case clang::APValue::Struct: {
     auto *p = value.mutable_structure();
+    if (context.projection == ProjectionPolicy::Shallow) {
+      (void)can_expand(*p, "base_values", context);
+      (void)can_expand(*p, "field_values", context);
+      break;
+    }
     const clang::RecordDecl *record =
         type.isNull() ? nullptr : type->getAsRecordDecl();
     const auto *cxx = llvm::dyn_cast_or_null<clang::CXXRecordDecl>(record);
@@ -76,7 +86,7 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
       for (const auto &base : cxx->bases()) {
         if (i >= native.getStructNumBases())
           break;
-        if (!can_expand("APStructValue.base_values", context))
+        if (!can_expand(*p, "base_values", context))
           break;
         auto *b = p->add_base_values();
         write_type_description(base.getType(), *b->mutable_type(), context);
@@ -84,7 +94,7 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
                       base.getType(), context);
       }
     for (; i < native.getStructNumBases(); ++i) {
-      if (!can_expand("APStructValue.base_values", context))
+      if (!can_expand(*p, "base_values", context))
         break;
       auto *b = p->add_base_values();
       unavailable(*b, "type", "constant record type was not supplied", context);
@@ -98,7 +108,7 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
         const unsigned index = field->getFieldIndex();
         if (index >= native.getStructNumFields())
           break;
-        if (!can_expand("APStructValue.field_values", context))
+        if (!can_expand(*p, "field_values", context))
           break;
         auto *f = p->add_field_values();
         write_symbol(*field, *f->mutable_field(), context);
@@ -107,7 +117,7 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
         i = index + 1;
       }
     for (; !record && i < native.getStructNumFields(); ++i) {
-      if (!can_expand("APStructValue.field_values", context))
+      if (!can_expand(*p, "field_values", context))
         break;
       auto *f = p->add_field_values();
       unavailable(*f, "field", "constant record type was not supplied",
@@ -118,6 +128,11 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
   }
   case clang::APValue::Union: {
     auto *p = value.mutable_union_value();
+    if (context.projection == ProjectionPolicy::Shallow) {
+      (void)can_expand(*p, "active_field", context);
+      (void)can_expand(*p, "value", context);
+      break;
+    }
     if (const auto *field = native.getUnionField()) {
       write_symbol(*field, *p->mutable_active_field(), context);
       write_apvalue(native.getUnionValue(), *p->mutable_value(),
@@ -127,6 +142,14 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
   }
   case clang::APValue::LValue: {
     auto *p = value.mutable_lvalue();
+    if (context.projection == ProjectionPolicy::Shallow) {
+      p->set_offset_bytes(native.getLValueOffset().getQuantity());
+      p->set_is_one_past_end(native.isLValueOnePastTheEnd());
+      p->set_is_null_pointer(native.isNullPointer());
+      (void)can_expand(*p, "base", context);
+      (void)can_expand(*p, "path", context);
+      break;
+    }
     auto base = native.getLValueBase();
     auto *b = p->mutable_base();
     if (base.isNull())
@@ -188,10 +211,16 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
   }
   case clang::APValue::MemberPointer: {
     auto *p = value.mutable_member_pointer();
+    if (context.projection == ProjectionPolicy::Shallow) {
+      (void)can_expand(*p, "declaration", context);
+      (void)can_expand(*p, "path", context);
+      p->set_is_derived_member(native.isMemberPointerToDerivedMember());
+      break;
+    }
     if (auto *decl = native.getMemberPointerDecl())
       write_symbol(*decl, *p->mutable_declaration(), context);
     for (auto *record : native.getMemberPointerPath()) {
-      if (!can_expand("APMemberPointer.path", context))
+      if (!can_expand(*p, "path", context))
         break;
       write_symbol(*record, *p->add_path(), context);
     }
@@ -199,14 +228,18 @@ void write_apvalue(const clang::APValue &native, ctk::ast::v1::APValue &value,
     break;
   }
   case clang::APValue::AddrLabelDiff:
+    auto *p = value.mutable_address_label_difference();
+    if (context.projection == ProjectionPolicy::Shallow) {
+      (void)can_expand(*p, "left_expression", context);
+      (void)can_expand(*p, "right_expression", context);
+      break;
+    }
     write_expr(
         native.getAddrLabelDiffLHS(),
-        *value.mutable_address_label_difference()->mutable_left_expression(),
-        context);
+        *p->mutable_left_expression(), context);
     write_expr(
         native.getAddrLabelDiffRHS(),
-        *value.mutable_address_label_difference()->mutable_right_expression(),
-        context);
+        *p->mutable_right_expression(), context);
     break;
   }
 }

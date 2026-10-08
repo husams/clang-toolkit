@@ -51,6 +51,18 @@ const direct = await client.match('integerLiteral().bind("n")', "example.cc");
 console.log(calls.length, first.rows, direct.rows);
 ```
 
+`match()` consumes the server's row stream by default. Its optional `onRow`
+callback receives each immutable semantic row and its zero-based result index
+as it arrives; asynchronous callbacks are awaited with stream backpressure:
+
+```ts
+const calls = await client.match('callExpr().bind("call")', tree, {
+  onRow: async (row, index) => {
+    await saveMatch(index, row);
+  },
+});
+```
+
 `await Client.connect()` discovers the shared YAML configuration and waits for the connection. `await Client.connect({ configPath: "/path/settings.yaml" })` adds an explicit final layer. `new Client()` and `new Client({ configPath })` also load configuration and connect lazily. Existing `new Client(endpoint, options)` calls keep their explicit endpoint override.
 
 Configuration merges defaults, `/etc/clang-toolkit/clang-toolkit.yaml`, home `clang-toolkit.yaml` then `.clang-toolkit.yaml`, current-directory normal then hidden files, and the optional explicit file. Each discovered file is validated before merging, so later settings cannot hide an invalid earlier file. Missing discovered files are skipped; a missing or unreadable explicit file fails with `ConfigurationError`, including its source and key. Mappings merge recursively; omitted values inherit, `{}` inherits, and permitted `null` values clear socket paths, timeouts, or gRPC limits. Relative sockets resolve beside the file that supplied them. The default socket is the platform temporary directory's `ctk.sock`.
@@ -73,7 +85,7 @@ client:
 
 `parse()` acquires a native tree without running a matcher. Paths are server-side paths, relative to the explicit `workingDirectory` or the Node process's current directory. Compilation flags are ordered and remain attached to a retained tree. Every retained-target match creates an independent result cursor with a revision guard; previous trees and rows stay selectable, and closing the source does not close its forks.
 
-`MatchValue.rows` provides detached, typed semantic row snapshots. Objects and arrays are frozen; binary buffers are copied on access. `binding(name)` selects every source row containing that binding. `row(0).binding(name)` selects one row, including index zero. Empty unindexed collections continue to empty collections; missing bindings on nonempty collections and out-of-range rows fail explicitly. Matcher type checking and execution remain in Clang.
+`MatchValue` spools streamed rows to disk with a disk-backed offset index, so retained results do not accumulate in RAM. `iterateRows()` and synchronous iteration read rows lazily; `rows` explicitly materializes a detached eager snapshot. Objects and arrays are frozen, and binary values are copied on access. `binding(name)` selects every source row containing that binding. `row(0).binding(name)` selects one row, including index zero. Empty unindexed collections continue to empty collections; missing bindings on nonempty collections and out-of-range rows fail explicitly. The reusable cursor is published only after completion metadata and terminal gRPC `OK` agree with the received row count.
 
 Use `close()` or `await using` for a tree, result, binding selection, or the client. Aliases of one result share their owner, so closing an indexed row or selection closes that result. `Client.close()` waits for pending calls and releases all remaining sessions; failures are reported. Server expiry also bounds abandoned sessions. There is no reliance on JavaScript garbage collection for deterministic cleanup.
 

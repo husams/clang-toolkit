@@ -137,6 +137,8 @@ message CleanupValue {
 message QualType {
   TypeValue type = 1;
   Qualifiers qualifiers = 2;
+  // Immediate type facts for shallow match results; no child TypeValue expansion.
+  TypeDescription description = 3;
 }
 
 enum FloatingSemantics {

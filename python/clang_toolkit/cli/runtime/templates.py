@@ -11,6 +11,7 @@ from lark import Tree
 from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.language import reference_parser
+from clang_toolkit.cli.syntax_diagnostics import syntax_diagnostic
 
 from .values import render
 
@@ -61,7 +62,12 @@ def _closing_brace(value: str, start: int) -> int:
         elif char == "}":
             return index
         index += 1
-    raise TemplateError("unclosed interpolation placeholder")
+    line = value.count("\n") + 1
+    column = len(value.rsplit("\n", 1)[-1]) + 1
+    raise TemplateError(
+        "unclosed interpolation placeholder: expected `}` "
+        f"at line {line}, column {column} (end of string)"
+    )
 
 
 def evaluate_string(raw: str, resolve: Callable[[Tree], Any]) -> str:
@@ -71,7 +77,14 @@ def evaluate_string(raw: str, resolve: Callable[[Tree], Any]) -> str:
     source = _mask_escaped_dollars(raw) if raw[0] == '"' else raw
     try:
         value = ast.literal_eval(source)
-    except (SyntaxError, ValueError) as exc:
+    except SyntaxError as exc:
+        line = exc.lineno or 1
+        column = exc.offset or 1
+        detail = (exc.msg or "invalid syntax").replace("\n", " ")[:120]
+        raise TemplateError(
+            f"invalid string literal: {detail} at line {line}, column {column}"
+        ) from exc
+    except ValueError as exc:
         raise TemplateError("invalid string literal") from exc
     if not isinstance(value, str):
         raise TemplateError("expected string literal")
@@ -82,7 +95,10 @@ def evaluate_string(raw: str, resolve: Callable[[Tree], Any]) -> str:
         try:
             tree = reference_parser().parse("$" + expression).children[0]
         except UnexpectedInput as exc:
-            raise TemplateError(f"invalid interpolation: {expression}") from exc
+            detail = syntax_diagnostic("$" + expression, exc).replace(
+                "syntax error at", "interpolation syntax error at", 1
+            )
+            raise TemplateError(f"invalid interpolation: {detail}") from exc
         return render(resolve(tree))
 
     result: list[str] = []

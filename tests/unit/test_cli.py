@@ -12,7 +12,10 @@ def test_quit_returns_none():
 
 
 def test_unknown_command():
-    assert dispatch(Client(), "bogus") == "unknown command: bogus"
+    result = dispatch(Client(), "bogus")
+    assert result.startswith("unknown command: bogus at line 1, column 1.")
+    assert "Use `help`" in result
+    assert result.endswith("bogus\n^")
 
 
 def test_multiline_matcher_reaches_client_unchanged():

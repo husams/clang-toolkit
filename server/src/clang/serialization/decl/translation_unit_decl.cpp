@@ -11,7 +11,7 @@ bool TranslationUnitDeclSerializer::serialize(
   auto *payload = binding.mutable_node()->mutable_translation_unit_decl();
   helpers::write_common(*native, *payload, context);
   for (const auto *declaration : native->decls()) {
-    if (!helpers::can_expand("translation_unit_decl.declarations", context))
+    if (!helpers::can_expand(*payload, "declarations", context))
       break;
     helpers::write_decl(declaration, *payload->add_declarations(), context);
   }

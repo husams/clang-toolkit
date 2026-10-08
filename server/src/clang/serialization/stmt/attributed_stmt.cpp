@@ -12,7 +12,7 @@ bool AttributedStmtSerializer::serialize(const clang::DynTypedNode &node,
     return false;
   auto *payload = binding.mutable_node()->mutable_attributed_stmt();
   for (const auto *attr : native->getAttrs()) {
-    if (!helpers::can_expand("AttributedStmt.attributes", context))
+    if (!helpers::can_expand(*payload, "attributes", context))
       break;
     type_helpers::write_attribute(*attr, *payload->add_attributes(), context);
   }

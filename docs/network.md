@@ -53,9 +53,12 @@ default to `-1` (no configured wire cap). Other gRPC fields use the library
 defaults unless configured;
 null clears an inherited setting, including these response defaults.
 
-Complete cursor results remain bounded by `session.max_memory_bytes`, including
-the retained snapshot and binding state. A positive server send limit adds a
-response byte cap for parse/match cursors and native analysis operations.
+Retained cursor state remains bounded by `session.max_memory_bytes`, including
+the snapshot, native bindings and row selection metadata. Retained matches stream
+one semantic row per event and do not retain the full semantic output in server
+memory. A positive server send limit caps each stream event; total transferred
+bytes may exceed that limit. Parse, legacy unary match and native analysis
+operations still apply a cap to their complete response.
 For example, the following settings impose an explicit 128 MiB wire limit:
 
 ```yaml
@@ -71,6 +74,13 @@ A server send value of `null` or `-1` leaves the application memory budget in
 effect. Explicit byte-cap failures report their limit and preserve existing
 cursor revisions. Header declarations are included by default; no source-file
 exclusion is needed to retrieve a large result.
+
+Python `match_in`, TypeScript `match`, and console retained match expressions
+consume `MatchService.StreamMatch`. Its final completion carries cursor metadata
+and a row count; both completion and terminal OK are required for publication.
+SDK row callbacks observe provisional rows before completion, and collected rows
+spill to temporary storage. See [retained results](result-cursors.md) for ownership,
+cancellation and per-message limits.
 
 ## Python API
 

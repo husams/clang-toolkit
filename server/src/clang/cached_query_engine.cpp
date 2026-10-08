@@ -654,7 +654,8 @@ class NativeQueryEngine final : public IQueryEngine {
         return;
       Bindings bindings;
       clang::PrintingPolicy policy(result.Context->getLangOpts());
-      serialization::SerializationContext context{*result.Context};
+      serialization::SerializationContext context{
+          *result.Context, serialization::ProjectionPolicy::Shallow};
       for (const auto &[id, node] : result.Nodes.getMap()) {
         SemanticBinding binding;
         binding.kind = node.getNodeKind().asStringRef().str();

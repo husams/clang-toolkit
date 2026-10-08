@@ -4,6 +4,7 @@
 #include "query_executor.hpp"
 #include <algorithm>
 #include <future>
+#include <limits>
 
 namespace ctk::application {
 using ctk::clang_layer::MatchCode;
@@ -82,9 +83,9 @@ struct MatchController::Impl {
       return failure(MatchCode::Internal, "parse returned match rows");
     return registry.commit(cursor, std::move(result), checkpoint, true);
   }
-  MatchReply
-  run(const std::string &owner, const MatchRequest &request,
-      const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+  MatchReply run(const std::string &owner, const MatchRequest &request,
+                 const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+                 const StreamSink *stream_sink = nullptr) {
     if (!backend)
       return failure(MatchCode::FailedPrecondition,
                      "Clang analysis is disabled");
@@ -140,18 +141,63 @@ struct MatchController::Impl {
           return failure(MatchCode::NotFound, "binding or row unavailable");
       }
     }
-    auto result =
-        backend->execute(request, cursor->state, checkpoint, settings.results);
+    ctk::clang_layer::MatchExecution result;
+    if (stream_sink) {
+      const ctk::clang_layer::IMatchBackend::RowSink row_sink =
+          [this, stream_sink](const MatchResult &row, std::string &message) {
+            MatchStreamEvent event;
+            *event.mutable_row() = row;
+            if (event.ByteSizeLong() > settings.results.max_bytes) {
+              message = "match stream event exceeds byte limit (limit " +
+                        std::to_string(settings.results.max_bytes) +
+                        " bytes); no cursor state committed";
+              return MatchCode::ResourceExhausted;
+            }
+            return (*stream_sink)(event, message);
+          };
+      result = backend->execute_stream(request, cursor->state, checkpoint,
+                                       settings.results, row_sink);
+    } else {
+      result = backend->execute(request, cursor->state, checkpoint,
+                                settings.results);
+    }
     if (result.code != MatchCode::Ok)
       return failure(result.code, result.message);
     if (!request.has_file() && request.preserve_source()) {
       auto fork = std::make_shared<detail::ResultCursor>();
       fork->owner = owner;
       std::lock_guard fork_operation(fork->operation);
-      return registry.commit(fork, std::move(result), checkpoint, true);
+      auto reply = registry.commit(fork, std::move(result), checkpoint, true,
+                                   stream_sink != nullptr);
+      if (reply.code == MatchCode::Ok && stream_sink) {
+        MatchStreamEvent event;
+        auto *completed = event.mutable_completed();
+        completed->set_session_id(reply.response.session_id());
+        completed->set_result_revision(reply.response.result_revision());
+        completed->mutable_expires_at()->CopyFrom(reply.response.expires_at());
+        completed->set_row_count(reply.response.results_size());
+        std::string message;
+        const auto code = (*stream_sink)(event, message);
+        if (code != MatchCode::Ok)
+          return failure(code, std::move(message));
+      }
+      return reply;
     }
-    return registry.commit(cursor, std::move(result), checkpoint,
-                           request.has_file());
+    auto reply = registry.commit(cursor, std::move(result), checkpoint,
+                                 request.has_file(), stream_sink != nullptr);
+    if (reply.code == MatchCode::Ok && stream_sink) {
+      MatchStreamEvent event;
+      auto *completed = event.mutable_completed();
+      completed->set_session_id(reply.response.session_id());
+      completed->set_result_revision(reply.response.result_revision());
+      completed->mutable_expires_at()->CopyFrom(reply.response.expires_at());
+      completed->set_row_count(reply.response.results_size());
+      std::string message;
+      const auto code = (*stream_sink)(event, message);
+      if (code != MatchCode::Ok)
+        return failure(code, std::move(message));
+    }
+    return reply;
   }
 };
 
@@ -223,6 +269,44 @@ MatchReply MatchController::match(
               failure(MatchCode::Internal, "native matching failed"));
         }
       }))
+    return failure(MatchCode::ResourceExhausted,
+                   "match executor queue is full or stopped");
+  return future.get();
+}
+MatchReply MatchController::stream_match(
+    const std::string &owner, const MatchRequest &request,
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+    const StreamSink &sink) {
+  const auto invalid = invalid_request(request);
+  if (owner.empty() || !invalid.empty())
+    return failure(MatchCode::InvalidArgument,
+                   owner.empty() ? "caller owner is required" : invalid);
+  // Reject an event cap too small for any valid completion before work can
+  // commit. Maximal field widths make this a conservative wire-size bound.
+  MatchStreamEvent maximum_completion;
+  auto *completed = maximum_completion.mutable_completed();
+  completed->set_session_id("00000000-0000-4000-8000-000000000000");
+  completed->set_result_revision(std::numeric_limits<std::uint64_t>::max());
+  completed->mutable_expires_at()->set_seconds(253402300799LL);
+  completed->mutable_expires_at()->set_nanos(999999999);
+  completed->set_row_count(std::numeric_limits<std::uint64_t>::max());
+  if (maximum_completion.ByteSizeLong() > impl_->settings.results.max_bytes)
+    return failure(MatchCode::ResourceExhausted,
+                   "match completion event exceeds byte limit; no cursor "
+                   "state committed");
+  auto promise = std::make_shared<std::promise<MatchReply>>();
+  auto future = promise->get_future();
+  if (!impl_->executor->enqueue(
+          [this, promise, owner, request, checkpoint, sink] {
+            try {
+              promise->set_value(impl_->run(owner, request, checkpoint, &sink));
+            } catch (const std::exception &error) {
+              promise->set_value(failure(MatchCode::Internal, error.what()));
+            } catch (...) {
+              promise->set_value(
+                  failure(MatchCode::Internal, "native matching failed"));
+            }
+          }))
     return failure(MatchCode::ResourceExhausted,
                    "match executor queue is full or stopped");
   return future.get();

@@ -11,8 +11,7 @@ bool RequiresExprBodyDeclSerializer::serialize(
   auto *payload = binding.mutable_node()->mutable_requires_expr_body_decl();
   helpers::write_common(*native, *payload, context);
   for (const auto *declaration : native->decls()) {
-    if (!helpers::can_expand("requires_expr_body_decl.local_parameters",
-                             context))
+    if (!helpers::can_expand(*payload, "local_parameters", context))
       break;
     if (llvm::isa<clang::ParmVarDecl>(declaration))
       helpers::write_decl(declaration, *payload->add_local_parameters(),

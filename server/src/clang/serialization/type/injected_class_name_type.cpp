@@ -19,7 +19,7 @@ bool InjectedClassNameTypeSerializer::serialize(const clang::DynTypedNode &node,
     helpers::write_symbol(*templ, *payload->mutable_template_declaration(), context);
     helpers::write_template_name(clang::TemplateName(templ), *payload->mutable_template_name(), context);
     for (const auto &argument : templ->getInjectedTemplateArgs(context.ast_context)) {
-      if (!helpers::can_expand("specialization_arguments", context)) break;
+      if (!helpers::can_expand(*payload, "specialization_arguments", context)) break;
       helpers::write_template_argument(argument, *payload->add_specialization_arguments(), context);
     }
   }
@@ -28,7 +28,7 @@ bool InjectedClassNameTypeSerializer::serialize(const clang::DynTypedNode &node,
     helpers::write_symbol(*templ, *payload->mutable_template_declaration(), context);
     helpers::write_template_name(clang::TemplateName(templ), *payload->mutable_template_name(), context);
     for (const auto &argument : specialization->getTemplateArgs().asArray()) {
-      if (!helpers::can_expand("specialization_arguments", context)) break;
+      if (!helpers::can_expand(*payload, "specialization_arguments", context)) break;
       helpers::write_template_argument(argument, *payload->add_specialization_arguments(), context);
     }
   }

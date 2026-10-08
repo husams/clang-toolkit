@@ -16,7 +16,7 @@ public:
   commit(std::shared_ptr<ResultCursor> cursor,
          ctk::clang_layer::MatchExecution execution,
          const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
-         bool create);
+         bool create, bool streaming = false);
   MatchReply close(const std::string &owner, const std::string &id);
 
 private:

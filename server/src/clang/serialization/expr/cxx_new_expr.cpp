@@ -31,7 +31,7 @@ bool CXXNewExprSerializer::serialize(const clang::DynTypedNode &node,
       payload->set_is_nothrow(type->isNothrow());
   }
   for (unsigned i = 0; i < native->getNumPlacementArgs(); ++i) {
-    if (!helpers::can_expand("placement_arguments", context))
+    if (!helpers::can_expand(*payload, "placement_arguments", context))
       break;
     helpers::write_expr(native->getPlacementArg(i),
                         *payload->add_placement_arguments(), context);

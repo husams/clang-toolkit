@@ -13,7 +13,7 @@ bool RecoveryExprSerializer::serialize(const clang::DynTypedNode &node,
   auto *payload = binding.mutable_node()->mutable_recovery_expr();
   helpers::write_common(*native, *payload, context);
   for (const auto *value : native->subExpressions()) {
-    if (!helpers::can_expand("subexpressions", context))
+    if (!helpers::can_expand(*payload, "subexpressions", context))
       break;
     helpers::write_expr(value, *payload->add_subexpressions(), context);
   }

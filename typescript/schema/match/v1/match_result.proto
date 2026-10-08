@@ -21,6 +21,9 @@ enum BindingMatchScope {
 // supported_scopes describes continuation capabilities for this value:
 // Decl/Stmt support ROOT_ONLY and SUBTREE; Type/QualType support ROOT_ONLY;
 // unsupported values support no scope. No native pointer or node ID is sent.
+// Match values contain immediate facts about each bound node. Child AST values
+// are omitted with UNREQUESTED availability; query the retained binding to
+// retrieve further nodes. QualType.description supplies immediate type facts.
 message MatchBinding {
   // Exactly one value is set by the server, including for unsupported kinds.
   oneof value {
@@ -29,14 +32,15 @@ message MatchBinding {
     ctk.ast.v1.UnsupportedValue unsupported = 3;
   }
   repeated ctk.ast.v1.FieldAvailability availability = 4;
-  // Always set by the server; false means the semantic payload is incomplete.
+  // Always set by the server; true means the shallow projection is complete.
+  // Intentionally unrequested child fields do not make the projection incomplete.
   // An unsupported value always has is_complete = false.
   optional bool is_complete = 5;
   repeated BindingMatchScope supported_scopes = 6;
 }
 
 // A successful matcher callback tuple. An empty bindings map is a valid
-// unbound tuple; the service never inserts an implicit root binding.
+// unbound tuple; supported outer matchers also receive an implicit root binding.
 message MatchResult {
   map<string, MatchBinding> bindings = 1;
   // Present only for binding-target queries; identifies the source row in the

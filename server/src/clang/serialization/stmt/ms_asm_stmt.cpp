@@ -16,7 +16,7 @@ bool MSAsmStmtSerializer::serialize(const clang::DynTypedNode &node,
   payload->set_is_goto(false);
   payload->set_dialect("ms");
   for (unsigned i = 0; i < native->getNumOutputs(); ++i) {
-    if (!helpers::can_expand("ms_asm_stmt.outputs", context))
+    if (!helpers::can_expand(*payload, "outputs", context))
       break;
     auto *operand = payload->add_outputs();
     operand->set_constraint(native->getOutputConstraint(i).str());
@@ -25,7 +25,7 @@ bool MSAsmStmtSerializer::serialize(const clang::DynTypedNode &node,
       helpers::write_expr(expr, *operand->mutable_expression(), context);
   }
   for (unsigned i = 0; i < native->getNumInputs(); ++i) {
-    if (!helpers::can_expand("ms_asm_stmt.inputs", context))
+    if (!helpers::can_expand(*payload, "inputs", context))
       break;
     auto *operand = payload->add_inputs();
     operand->set_constraint(native->getInputConstraint(i).str());

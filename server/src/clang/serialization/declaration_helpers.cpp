@@ -202,7 +202,8 @@ void constraint_description(const clang::Expr &native,
 
   payload.set_semantic_expression(expression_spelling(native, context));
   payload.set_is_dependent(native.isValueDependent());
-  if (!native.isValueDependent()) {
+  if (!native.isValueDependent() &&
+      can_expand(payload, "is_satisfied", context)) {
     clang::Expr::EvalResult evaluation;
     if (native.EvaluateAsInt(evaluation, context.ast_context))
       payload.set_is_satisfied(evaluation.Val.getInt().getBoolValue());
@@ -229,7 +230,7 @@ void parameter_description(const clang::NamedDecl &native,
     payload.set_kind(pb::TEMPLATE_PARAMETER_DESCRIPTION_KIND_TEMPLATE);
     payload.set_is_parameter_pack(templ->isParameterPack());
     for (const auto *parameter : *templ->getTemplateParameters()) {
-      if (!can_expand("declaration_helpers.template_parameters", context))
+      if (!can_expand(payload, "template_parameters", context))
         break;
       parameter_description(*parameter, *payload.add_template_parameters(),
                             context);
@@ -281,7 +282,7 @@ void argument_description(const clang::TemplateArgument &native,
     break;
   case clang::TemplateArgument::Pack:
     for (const auto &element : native.pack_elements()) {
-      if (!can_expand("declaration_helpers.pack_elements", context))
+      if (!can_expand(payload, "pack_elements", context))
         break;
       argument_description(element, *payload.add_pack_elements(), context);
     }
@@ -352,16 +353,20 @@ void write_decl_info(const clang::Decl &native, pb::DeclInfo &payload,
   payload.set_is_invalid(native.isInvalidDecl());
   // Walk outward to a named scope. Anonymous block/requires contexts have no
   // symbol themselves; their enclosing declaration is the containing scope.
-  for (auto *scope = native.getDeclContext(); scope;
-       scope = scope->getParent()) {
-    if (const auto *named = llvm::dyn_cast<clang::NamedDecl>(
-            clang::Decl::castFromDeclContext(scope))) {
-      write_symbol(*named, *payload.mutable_containing_scope(), context);
-      break;
+  if (context.projection == ProjectionPolicy::Shallow) {
+    (void)can_expand(payload, "containing_scope", context);
+  } else {
+    for (auto *scope = native.getDeclContext(); scope;
+         scope = scope->getParent()) {
+      if (const auto *named = llvm::dyn_cast<clang::NamedDecl>(
+              clang::Decl::castFromDeclContext(scope))) {
+        write_symbol(*named, *payload.mutable_containing_scope(), context);
+        break;
+      }
     }
   }
   for (const auto *attribute : native.attrs()) {
-    if (!can_expand("declaration_helpers.attributes", context))
+    if (!can_expand(payload, "attributes", context))
       break;
 
     ExpansionFrame attribute_frame("DeclInfo.attributes", context);
@@ -404,7 +409,7 @@ void write_function_info(const clang::FunctionDecl &native,
   write_declarator_info(native, *payload.mutable_declarator(), context);
   write_type(native.getReturnType(), *payload.mutable_return_type(), context);
   for (const auto *parameter : native.parameters()) {
-    if (!can_expand("declaration_helpers.parameters", context))
+    if (!can_expand(payload, "parameters", context))
       break;
     write_decl(parameter, *payload.add_parameters(), context);
   }
@@ -425,14 +430,17 @@ void write_method_info(const clang::CXXMethodDecl &native,
                        pb::CXXMethodDeclInfo &payload,
                        SerializationContext &context) {
   write_function_info(native, *payload.mutable_function(), context);
-  write_symbol(*native.getParent(), *payload.mutable_parent_record(), context);
+  if (context.projection == ProjectionPolicy::Shallow)
+    (void)can_expand(payload, "parent_record", context);
+  else
+    write_symbol(*native.getParent(), *payload.mutable_parent_record(), context);
   payload.set_is_static(native.isStatic());
   payload.set_is_virtual(native.isVirtual());
   payload.set_is_const(native.isConst());
   payload.set_is_volatile(native.isVolatile());
   payload.set_ref_qualifier(ref_qualifier(native.getRefQualifier()));
   for (const auto *method : native.overridden_methods()) {
-    if (!can_expand("declaration_helpers.overridden_methods", context))
+    if (!can_expand(payload, "overridden_methods", context))
       break;
     write_symbol(*method, *payload.add_overridden_methods(), context);
   }
@@ -472,7 +480,7 @@ void write_record_info(const clang::RecordDecl &native,
                        SerializationContext &context) {
   write_tag_info(native, *payload.mutable_tag(), context);
   for (const auto *member : native.decls()) {
-    if (!can_expand("declaration_helpers.members", context))
+    if (!can_expand(payload, "members", context))
       break;
     write_decl(member, *payload.add_members(), context);
   }
@@ -539,13 +547,16 @@ void write_symbol(const clang::NamedDecl &native,
                            *payload.mutable_type(), context);
   }
   if (const auto *function = llvm::dyn_cast<clang::FunctionDecl>(&native)) {
-    write_signature(*function, *payload.mutable_function(), context);
+    if (context.projection == ProjectionPolicy::Shallow)
+      (void)can_expand(payload, "function", context);
+    else
+      write_signature(*function, *payload.mutable_function(), context);
     if (function->isOverloadedOperator())
       payload.set_overloaded_operator(
           operator_kind(function->getOverloadedOperator()));
     if (const auto *arguments = function->getTemplateSpecializationArgs())
       for (const auto &argument : arguments->asArray()) {
-        if (!can_expand("declaration_helpers.template_arguments", context))
+        if (!can_expand(payload, "template_arguments", context))
           break;
         argument_description(argument, *payload.add_template_arguments(),
                              context);
@@ -554,7 +565,7 @@ void write_symbol(const clang::NamedDecl &native,
                  llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(
                      &native)) {
     for (const auto &argument : record->getTemplateArgs().asArray()) {
-      if (!can_expand("declaration_helpers.template_arguments", context))
+      if (!can_expand(payload, "template_arguments", context))
         break;
       argument_description(argument, *payload.add_template_arguments(),
                            context);
@@ -563,7 +574,7 @@ void write_symbol(const clang::NamedDecl &native,
                  llvm::dyn_cast<clang::VarTemplateSpecializationDecl>(
                      &native)) {
     for (const auto &argument : variable->getTemplateArgs().asArray()) {
-      if (!can_expand("declaration_helpers.template_arguments", context))
+      if (!can_expand(payload, "template_arguments", context))
         break;
       argument_description(argument, *payload.add_template_arguments(),
                            context);
@@ -613,7 +624,7 @@ void write_concept_reference(const clang::ConceptReference &native,
                          *payload.mutable_name(), context);
   if (const auto *arguments = native.getTemplateArgsAsWritten())
     for (const auto &argument : arguments->arguments()) {
-      if (!can_expand("declaration_helpers.arguments", context))
+      if (!can_expand(payload, "arguments", context))
         break;
       write_template_argument(argument.getArgument(), *payload.add_arguments(),
                               context);
@@ -645,7 +656,7 @@ void write_type_constraint(const clang::TypeConstraint &native,
                          *reference->mutable_name(), context);
   if (const auto *arguments = native.getTemplateArgsAsWritten())
     for (const auto &argument : arguments->arguments()) {
-      if (!can_expand("declaration_helpers.arguments", context))
+      if (!can_expand(*reference, "arguments", context))
         break;
       write_template_argument(argument.getArgument(),
                               *reference->add_arguments(), context);
@@ -663,7 +674,7 @@ void write_template_parameters(const clang::TemplateParameterList &native,
     return;
 
   for (const auto *parameter : native) {
-    if (!can_expand("declaration_helpers.parameters", context))
+    if (!can_expand(payload, "parameters", context))
       break;
     write_decl(parameter, *payload.add_parameters(), context);
   }
@@ -727,7 +738,7 @@ void write_template_argument(const clang::TemplateArgument &native,
     break;
   case clang::TemplateArgument::Pack:
     for (const auto &element : native.pack_elements()) {
-      if (!can_expand("declaration_helpers.elements", context))
+      if (!can_expand(*payload.mutable_pack(), "elements", context))
         break;
       write_template_argument(element, *payload.mutable_pack()->add_elements(),
                               context);
@@ -752,7 +763,7 @@ void write_template_name(clang::TemplateName native, pb::TemplateName &payload,
     break;
   case clang::TemplateName::OverloadedTemplate:
     for (const auto *declaration : native.getAsOverloadedTemplate()->decls()) {
-      if (!can_expand("declaration_helpers.declarations", context))
+      if (!can_expand(*payload.mutable_overload(), "declarations", context))
         break;
       write_symbol(*declaration,
                    *payload.mutable_overload()->add_declarations(), context);
@@ -813,7 +824,7 @@ void write_template_name(clang::TemplateName native, pb::TemplateName &payload,
                  context);
     for (const auto &argument :
          substitution->getArgumentPack().pack_elements()) {
-      if (!can_expand("declaration_helpers.arguments", context))
+      if (!can_expand(*value, "arguments", context))
         break;
       write_template_argument(argument, *value->add_arguments(), context);
     }
@@ -833,7 +844,7 @@ void write_template_name(clang::TemplateName native, pb::TemplateName &payload,
     auto defaults = deduced->getDefaultArguments();
     value->set_default_argument_start(defaults.StartPos);
     for (const auto &argument : defaults.Args) {
-      if (!can_expand("declaration_helpers.default_arguments", context))
+      if (!can_expand(*value, "default_arguments", context))
         break;
       write_template_argument(argument, *value->add_default_arguments(),
                               context);
@@ -854,7 +865,7 @@ void write_signature(const clang::FunctionDecl &native,
                          context);
   payload.set_is_variadic(native.isVariadic());
   for (const auto *parameter : native.parameters()) {
-    if (!can_expand("declaration_helpers.parameters", context))
+    if (!can_expand(payload, "parameters", context))
       break;
 
     auto *value = payload.add_parameters();
@@ -876,7 +887,7 @@ void write_signature(const clang::FunctionDecl &native,
   }
   if (const auto *template_decl = native.getDescribedFunctionTemplate())
     for (const auto *parameter : *template_decl->getTemplateParameters()) {
-      if (!can_expand("declaration_helpers.template_parameters", context))
+      if (!can_expand(payload, "template_parameters", context))
         break;
       parameter_description(*parameter, *payload.add_template_parameters(),
                             context);
@@ -888,7 +899,7 @@ void write_signature(const clang::FunctionDecl &native,
   else
     native.getAssociatedConstraints(constraints);
   for (const auto &constraint : constraints) {
-    if (!can_expand("declaration_helpers.associated_constraints", context))
+    if (!can_expand(payload, "associated_constraints", context))
       break;
     constraint_description(*constraint.ConstraintExpr,
                            *payload.add_associated_constraints(), context);
@@ -900,7 +911,7 @@ void write_signature(const clang::FunctionDecl &native,
   else
     native.getAssociatedConstraints(constraints);
   for (const auto *constraint : constraints) {
-    if (!can_expand("declaration_helpers.associated_constraints", context))
+    if (!can_expand(payload, "associated_constraints", context))
       break;
     constraint_description(*constraint, *payload.add_associated_constraints(),
                            context);
@@ -918,7 +929,7 @@ void write_signature(const clang::FunctionDecl &native,
         prototype->getExceptionSpecType()));
     if (prototype->getExceptionSpecType() == clang::EST_Dynamic)
       for (auto type : prototype->exceptions()) {
-        if (!can_expand("declaration_helpers.exception_types", context))
+        if (!can_expand(*exception, "exception_types", context))
           break;
         write_type_description(type, *exception->add_exception_types(),
                                context);

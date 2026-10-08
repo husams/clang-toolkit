@@ -13,20 +13,20 @@ bool InitListExprSerializer::serialize(const clang::DynTypedNode &node,
   auto *payload = binding.mutable_node()->mutable_init_list_expr();
   helpers::write_common(*native, *payload, context);
   for (const auto *value : native->inits()) {
-    if (!helpers::can_expand("initializers", context))
+    if (!helpers::can_expand(*payload, "initializers", context))
       break;
     helpers::write_expr(value, *payload->add_initializers(), context);
   }
   if (auto *syntax = native->getSyntacticForm()) {
     for (const auto *value : syntax->inits()) {
-      if (!helpers::can_expand("syntactic_initializers", context))
+      if (!helpers::can_expand(*payload, "syntactic_initializers", context))
         break;
       helpers::write_expr(value, *payload->add_syntactic_initializers(),
                           context);
     }
   } else if (!native->isSemanticForm()) {
     for (const auto *value : native->inits()) {
-      if (!helpers::can_expand("syntactic_initializers", context))
+      if (!helpers::can_expand(*payload, "syntactic_initializers", context))
         break;
       helpers::write_expr(value, *payload->add_syntactic_initializers(),
                           context);

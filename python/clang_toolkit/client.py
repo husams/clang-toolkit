@@ -14,7 +14,7 @@ import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast, overload
+from typing import Any, Protocol, cast, overload
 
 import grpc
 from google.protobuf.message import DecodeError
@@ -25,6 +25,7 @@ from clang_toolkit.version import VersionInfo
 from clang_toolkit.cursors import CursorError, file_request, retained_request
 from clang_toolkit._generated.match.v1 import match_service_pb2, match_service_pb2_grpc
 from clang_toolkit._generated.match.v1 import match_result_pb2
+from clang_toolkit._generated.match.v1 import match_stream_pb2
 from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2
 from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.traversal import traversal_request
@@ -34,10 +35,29 @@ from clang_toolkit.match_values import (
     BindingSelection, MatchTarget, MatchValue, MatchValueError, ParsedTree,
 )
 from clang_toolkit._value_lifecycle import CursorOwner, OperationLease
+from clang_toolkit._row_store import RowStore
 from clang_toolkit._generated.match.v1 import parse_request_pb2, parse_response_pb2
 
 QueryEvent = query_pb2.QueryEvent
 EventCallback = Callable[[QueryEvent], Any | Awaitable[Any]]
+AsyncMatchRowCallback = Callable[[match_result_pb2.MatchResult], Any | Awaitable[Any]]
+MatchRowCallback = Callable[[match_result_pb2.MatchResult], None]
+
+
+class _MatchStreamCall(Protocol):
+    def __aiter__(self) -> AsyncIterator[match_stream_pb2.MatchStreamEvent]: ...
+
+    def code(self) -> grpc.StatusCode | Awaitable[grpc.StatusCode]: ...
+
+    def details(self) -> str | Awaitable[str]: ...
+
+    def cancel(self) -> bool: ...
+
+
+class _MatchStreamStub(Protocol):
+    def StreamMatch(
+        self, request: match_service_pb2.MatchRequest, *, timeout: float | None = None,
+    ) -> _MatchStreamCall: ...
 
 
 class QueryError(RuntimeError):
@@ -299,6 +319,102 @@ class AsyncClient:
         except grpc.aio.AioRpcError as error:
             raise CursorError(error.code(), error.details()) from error
 
+    async def _stream_cursor_match(
+        self,
+        request: match_service_pb2.MatchRequest,
+        *,
+        on_row: AsyncMatchRowCallback | None = None,
+        source_session_id: str | None = None,
+    ) -> tuple[match_stream_pb2.MatchStreamCompleted, RowStore]:
+        """Consume provisional rows and return them only after a valid terminal OK."""
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        stub = cast(
+            _MatchStreamStub,
+            match_service_pb2_grpc.MatchServiceStub(self._channel),
+        )
+        store = RowStore()
+        call: _MatchStreamCall | None = None
+        completed: match_stream_pb2.MatchStreamCompleted | None = None
+        row_count = 0
+        succeeded = False
+        try:
+            call = stub.StreamMatch(
+                self._compilation_request(request), timeout=self.config.rpc_timeout
+            )
+            async for event in call:
+                kind = event.WhichOneof("event")
+                if kind == "row":
+                    if completed is not None:
+                        raise CursorError(grpc.StatusCode.DATA_LOSS,
+                                          "match stream delivered a row after completion")
+                    row_bytes = event.row.SerializeToString()
+                    store.append(row_bytes, binding_names=event.row.bindings)
+                    row_count += 1
+                    if on_row is not None:
+                        detached = match_result_pb2.MatchResult()
+                        detached.ParseFromString(row_bytes)
+                        outcome = on_row(detached)
+                        if inspect.isawaitable(outcome):
+                            await outcome
+                elif kind == "completed":
+                    if completed is not None:
+                        raise CursorError(grpc.StatusCode.DATA_LOSS,
+                                          "match stream delivered duplicate completion")
+                    completed = match_stream_pb2.MatchStreamCompleted()
+                    completed.CopyFrom(event.completed)
+                    if (not completed.session_id or completed.result_revision <= 0
+                            or completed.row_count < 0 or not completed.HasField("expires_at")):
+                        raise CursorError(grpc.StatusCode.DATA_LOSS,
+                                          "match stream completion metadata is invalid")
+                    if completed.row_count != row_count:
+                        raise CursorError(
+                            grpc.StatusCode.DATA_LOSS,
+                            f"match stream row count mismatch: expected {completed.row_count}, received {row_count}",
+                        )
+                else:
+                    raise CursorError(grpc.StatusCode.DATA_LOSS,
+                                      "match stream delivered an unknown event")
+
+            if completed is None:
+                raise CursorError(grpc.StatusCode.DATA_LOSS,
+                                  "match stream ended without completion")
+            assert call is not None
+            status_result = call.code()
+            status = await status_result if inspect.isawaitable(status_result) else status_result
+            if status != grpc.StatusCode.OK:
+                details_result = call.details()
+                details = (await details_result if inspect.isawaitable(details_result)
+                           else details_result)
+                raise CursorError(status, details or "match stream did not finish with OK")
+            store.flush()
+            succeeded = True
+            return completed, store
+        except grpc.aio.AioRpcError as error:
+            raise CursorError(error.code(), error.details() or "match stream RPC failed") from error
+        finally:
+            if not succeeded:
+                if call is not None:
+                    try:
+                        call.cancel()
+                    except BaseException:
+                        pass
+                try:
+                    store.close()
+                except BaseException:
+                    pass
+                if (completed is not None and completed.session_id
+                        and completed.session_id != source_session_id):
+                    try:
+                        cleanup = asyncio.create_task(self.close_match(completed.session_id))
+                        cleanup.add_done_callback(
+                            lambda task: task.exception() if not task.cancelled() else None
+                        )
+                        await asyncio.shield(cleanup)
+                    except BaseException:
+                        # Cleanup is best effort; preserve the original stream failure.
+                        pass
+
     async def _parse_response(
         self, path: str | Path, *, working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None,
@@ -426,17 +542,19 @@ class AsyncClient:
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
         traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+        on_row: AsyncMatchRowCallback | None = None,
     ) -> MatchValue[AsyncClient]:
         """Match a path, pinned tree or binding selection without changing it."""
         return await self._match_in_with_lease(query, target,
             working_directory=working_directory, compile_arguments=compile_arguments,
-            traversal_mode=traversal_mode, lease=None)
+            traversal_mode=traversal_mode, on_row=on_row, lease=None)
 
     async def _match_in_with_lease(
         self, query: str, target: MatchTarget, *,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
         traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+        on_row: AsyncMatchRowCallback | None = None,
         lease: OperationLease | None,
     ) -> MatchValue[AsyncClient]:
         self._begin_value_operation(lease)
@@ -444,8 +562,13 @@ class AsyncClient:
             request = _value_request(self, query, target,
                 working_directory=working_directory, compile_arguments=compile_arguments,
                 traversal_mode=traversal_mode)
-            response = await self._cursor_match(request)
-            return MatchValue._from_response(response, self._own_value(response))
+            source_id = target._owner.session_id if isinstance(
+                target, (ParsedTree, MatchValue, BindingSelection)
+            ) else None
+            completion, store = await self._stream_cursor_match(
+                request, on_row=on_row, source_session_id=source_id
+            )
+            return MatchValue[AsyncClient]._from_store(store, self._own_value(completion))
         finally:
             self._end_value_operation()
 
@@ -913,12 +1036,30 @@ class Client:
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
         traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+        on_row: MatchRowCallback | None = None,
     ) -> MatchValue[Client]:
+        callback: AsyncMatchRowCallback | None = None
+        if on_row is not None:
+            def checked_callback(row: match_result_pb2.MatchResult) -> None:
+                outcome = on_row(row)
+                if inspect.isawaitable(outcome):
+                    if inspect.iscoroutine(outcome):
+                        outcome.close()
+                    raise TypeError("synchronous on_row callbacks must not return awaitables")
+
+            callback = checked_callback
+
         request = _value_request(self, query, target,
             working_directory=working_directory, compile_arguments=compile_arguments,
             traversal_mode=traversal_mode)
-        response = self._cursor_call("_cursor_match", request)
-        return MatchValue._from_response(response, self._own_value(response))
+        source_id = target._owner.session_id if isinstance(
+            target, (ParsedTree, MatchValue, BindingSelection)
+        ) else None
+        completion, store = self._cursor_call(
+            "_stream_cursor_match", request, on_row=callback,
+            source_session_id=source_id,
+        )
+        return MatchValue[Client]._from_store(store, self._own_value(completion))
 
     def close(self) -> None:
         """Release every high-level retained value owned by this client."""

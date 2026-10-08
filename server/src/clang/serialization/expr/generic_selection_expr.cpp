@@ -30,7 +30,7 @@ bool GenericSelectionExprSerializer::serialize(
     payload->set_selected_index(native->getResultIndex());
   }
   for (unsigned i = 0; i < native->getNumAssocs(); ++i) {
-    if (!helpers::can_expand("associations", context))
+    if (!helpers::can_expand(*payload, "associations", context))
       break;
 
     const auto association = native->getAssociation(i);

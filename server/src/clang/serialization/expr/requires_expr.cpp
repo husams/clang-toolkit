@@ -34,7 +34,7 @@ void write_satisfaction(const clang::ASTConstraintSatisfaction &native,
       std::pair<clang::SourceLocation, llvm::StringRef> *;
 #endif
   for (const auto &record : native) {
-    if (!helpers::can_expand("details", context))
+    if (!helpers::can_expand(payload, "details", context))
       break;
 
     auto *detail = payload.add_details();
@@ -173,7 +173,7 @@ bool RequiresExprSerializer::serialize(const clang::DynTypedNode &node,
   if (!native->isValueDependent())
     payload->set_is_satisfied(native->isSatisfied());
   for (const auto *requirement : native->getRequirements()) {
-    if (!helpers::can_expand("requirements", context))
+    if (!helpers::can_expand(*payload, "requirements", context))
       break;
     write_requirement(*requirement, *payload->add_requirements(), context);
   }

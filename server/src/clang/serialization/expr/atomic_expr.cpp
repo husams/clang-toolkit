@@ -19,7 +19,7 @@ bool AtomicExprSerializer::serialize(const clang::DynTypedNode &node,
     helpers::unavailable("opcode_name", "Unrecognized native atomic builtin",
                          context);
   for (unsigned i = 0; i < native->getNumSubExprs(); ++i) {
-    if (!helpers::can_expand("arguments", context))
+    if (!helpers::can_expand(*payload, "arguments", context))
       break;
     helpers::write_expr(native->getSubExprs()[i], *payload->add_arguments(),
                         context);

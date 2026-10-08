@@ -15,7 +15,7 @@ bool PseudoObjectExprSerializer::serialize(
   if (auto *value = native->getSyntacticForm())
     helpers::write_expr(value, *payload->mutable_syntax_expression(), context);
   for (const auto *value : native->semantics()) {
-    if (!helpers::can_expand("semantic_expressions", context))
+    if (!helpers::can_expand(*payload, "semantic_expressions", context))
       break;
     helpers::write_expr(value, *payload->add_semantic_expressions(), context);
   }

@@ -15,7 +15,7 @@ bool DesignatedInitExprSerializer::serialize(
   if (auto *value = native->getInit())
     helpers::write_expr(value, *payload->mutable_initializer(), context);
   for (const auto &designator : native->designators()) {
-    if (!helpers::can_expand("designators", context))
+    if (!helpers::can_expand(*payload, "designators", context))
       break;
 
     auto *target = payload->add_designators();

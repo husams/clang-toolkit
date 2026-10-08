@@ -16,7 +16,7 @@ bool CXXUnresolvedConstructExprSerializer::serialize(
   helpers::write_type(native->getTypeAsWritten(),
                       *payload->mutable_constructed_type(), context);
   for (unsigned i = 0; i < native->getNumArgs(); ++i) {
-    if (!helpers::can_expand("arguments", context))
+    if (!helpers::can_expand(*payload, "arguments", context))
       break;
     helpers::write_expr(native->getArg(i), *payload->add_arguments(), context);
   }
