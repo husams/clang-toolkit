@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import math
 from collections.abc import Mapping
 from itertools import islice
 from typing import Any
 
 from .filesystem import FileSystemEntry
-from .values import render
+from .values import MatchSet, render
 from .semantic import (
     BindingMapView,
     SemanticError,
@@ -19,7 +21,10 @@ from .semantic import (
     is_semantic_view,
     view as semantic_view,
 )
-from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, MatchValueError, ParsedTree
+from clang_toolkit.match_values import (
+    BindingSelection, MatchRow, MatchValue, MatchValueError, NativeBindingCollection,
+    NativeMatchCollection, ParsedTree,
+)
 
 
 class ReferenceError(ValueError):
@@ -30,7 +35,40 @@ _FILE_PROPERTIES = frozenset({"size", "modified", "basename", "dirname", "absolu
 
 
 def property_value(value: Any, name: str) -> Any:
+    if isinstance(value, MatchSet):
+        if name == "length":
+            return len(value.rows)
+        if name == "isEmpty":
+            return not value.rows
+        if name == "rows":
+            return value.rows
+        raise ReferenceError(f"unknown field: {name}")
+    if isinstance(value, NativeMatchCollection):
+        if name == "rows":
+            return value
+        if name == "length":
+            return len(value)
+        if name == "isEmpty":
+            return not len(value)
+        if name in value.binding_names():
+            try:
+                return value.binding(name)
+            except MatchValueError as error:
+                raise ReferenceError(str(error)) from error
+        raise ReferenceError("select a row before accessing a binding on a multi-file result")
+    if isinstance(value, NativeBindingCollection):
+        if name == "rows":
+            return value
+        if name == "length":
+            return len(value)
+        if name == "isEmpty":
+            return not len(value)
+        raise ReferenceError("select a binding selection before accessing its value")
     if isinstance(value, MatchValue):
+        if name == "rows":
+            return value.rows
+        if name == "source_file":
+            return value.source_file
         if name == "length":
             return len(value)
         if name == "isEmpty":
@@ -39,16 +77,31 @@ def property_value(value: Any, name: str) -> Any:
     if isinstance(value, MatchRow):
         if name == "bindings":
             return BindingMapView(value)
+        if name == "source_match_index":
+            return value.source_match_index
+        if name == "source_file":
+            return value.source_file
         return value.binding(name)
     if isinstance(value, BindingSelection):
         if name == "name":
             return value.name
+        if name == "source_file":
+            return value.source_file
+        if name in {
+            "decl_name", "parameter_name", "record_name", "decl_type", "type_name"
+        }:
+            return getattr(value, name)
         if name == "scope":
             return value.scope
         if name == "value":
             try:
                 return semantic_view(value.value)
             except MatchValueError as error:
+                raise ReferenceError(str(error)) from error
+        if name in {"location", "range", "symbol_identity", "documentation", "call_site"}:
+            try:
+                return semantic_property_value(semantic_view(value.value), name)
+            except (SemanticError, MatchValueError) as error:
                 raise ReferenceError(str(error)) from error
         raise ReferenceError(f"unknown field: {name}")
     try:
@@ -75,17 +128,110 @@ def call_method(value: Any, name: str, arguments: list[Any]) -> Any:
     try:
         return semantic_call_method(value, name, arguments)
     except SemanticError as error:
-        if name == "hasField":
+        if name in {"hasField", "fieldState", "fieldOr"}:
             raise ReferenceError(str(error)) from error
     if name == "joinWith" and isinstance(value, list):
         if len(arguments) != 1 or not isinstance(arguments[0], str):
             raise ReferenceError("joinWith requires one string separator")
         return arguments[0].join(render(item) for item in value)
+    if name in {"unique", "sort", "filter"} and isinstance(
+        value, (MatchValue, NativeMatchCollection, MatchSet, list)
+    ):
+        if name == "filter":
+            if len(arguments) != 2 or not isinstance(arguments[0], str):
+                raise ReferenceError("filter requires a field selector and expected value")
+            selector, expected = arguments
+        else:
+            if len(arguments) != 1 or not isinstance(arguments[0], str):
+                raise ReferenceError(f"{name} requires one string field selector")
+            selector, expected = arguments[0], None
+        if isinstance(value, MatchValue):
+            rows = list(value.iter_rows())
+        elif isinstance(value, NativeMatchCollection):
+            rows = list(value)
+        elif isinstance(value, MatchSet):
+            rows = list(value.rows)
+        else:
+            rows = list(value)
+        selected = [(row, _selector_value(row, selector)) for row in rows]
+        if name == "filter":
+            return [row for row, item in selected if _matches(item, expected)]
+        if name == "unique":
+            seen: set[Any] = set()
+            result = []
+            for row, item in selected:
+                key = _freeze(item)
+                if key not in seen:
+                    seen.add(key)
+                    result.append(row)
+            return result
+        try:
+            return [row for row, _ in sorted(
+                selected, key=lambda pair: _sort_key(pair[1])
+            )]
+        except (TypeError, ValueError) as error:
+            raise ReferenceError(f"sort selector is not orderable: {error}") from error
     raise ReferenceError(f"unknown method: {name}")
 
 
+def _selector_value(value: Any, selector: str) -> Any:
+    current = value
+    for component in selector.split("."):
+        if not component:
+            raise ReferenceError("field selector cannot contain an empty component")
+        if isinstance(current, Mapping) and component in current:
+            current = current[component]
+        else:
+            current = property_value(current, component)
+    return current
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return tuple(sorted((str(key), _freeze(item)) for key, item in value.items()))
+    if isinstance(value, list | tuple):
+        return tuple(_freeze(item) for item in value)
+    if hasattr(value, "_data") and isinstance(value._data, bytes):
+        return (type(value).__name__, value._data)
+    try:
+        hash(value)
+    except TypeError:
+        return json.dumps(value, sort_keys=True, default=str)
+    return value
+
+
+def _matches(value: Any, expected: Any) -> bool:
+    if hasattr(value, "name") and type(getattr(value, "name")) is str:
+        value = value.name
+    return value == expected or str(value) == str(expected)
+
+
+def _sort_key(value: Any) -> tuple[Any, ...]:
+    if hasattr(value, "name") and type(getattr(value, "name")) is str:
+        value = value.name
+    if value is None:
+        return (0,)
+    if type(value) is bool:
+        return (1, int(value))
+    if type(value) in {int, float}:
+        if type(value) is float and math.isnan(value):
+            return (2, 1, repr(value))
+        return (2, 0, value)
+    if isinstance(value, str):
+        return (3, value)
+    return (4, type(value).__module__, type(value).__qualname__, str(value))
+
+
 def index_value(value: Any, key: Any) -> Any:
-    if isinstance(value, MatchValue):
+    if type(key) is int and key < 0:
+        raise ReferenceError("index must be a nonnegative zero-based integer or string key")
+    if type(key) is not int and not isinstance(key, str):
+        raise ReferenceError("index must be a nonnegative zero-based integer or string key")
+    if isinstance(value, MatchSet):
+        if type(key) is not int or key < 0 or key >= len(value.rows):
+            raise ReferenceError("match row index must be a valid zero-based integer")
+        return value.rows[key]
+    if isinstance(value, MatchValue | NativeMatchCollection | NativeBindingCollection):
         try:
             return value[key]
         except (IndexError, ValueError, TypeError) as error:
@@ -97,14 +243,26 @@ def index_value(value: Any, key: Any) -> Any:
 
 
 def field_names(value: Any) -> tuple[str, ...]:
+    if isinstance(value, MatchSet):
+        return ("length", "isEmpty", "unique", "sort", "filter")
     if isinstance(value, MatchValue):
-        return ("length", "isEmpty", *tuple(sorted(value.binding_names())))
+        return ("length", "isEmpty", "unique", "sort", "filter",
+                *tuple(sorted(value.binding_names())))
+    if isinstance(value, NativeMatchCollection):
+        return ("length", "isEmpty", "rows", "unique", "sort", "filter",
+                *tuple(sorted(value.binding_names())))
+    if isinstance(value, NativeBindingCollection):
+        return ("length", "isEmpty", "rows")
     if isinstance(value, MatchRow):
-        return tuple(sorted(value.bindings)) + ("bindings",)
+        return tuple(sorted(value.bindings)) + ("bindings", "source_match_index", "source_file")
     if isinstance(value, BindingSelection):
-        return ("name", "value", "scope")
+        return (
+            "name", "value", "scope", "source_file", "decl_name", "decl_type",
+            "parameter_name", "record_name", "type_name", "location", "range",
+            "symbol_identity", "documentation", "call_site",
+        )
     if isinstance(value, list):
-        return ("length", "isEmpty", "joinWith")
+        return ("length", "isEmpty", "joinWith", "unique", "sort", "filter")
     if isinstance(value, FileSystemEntry):
         return tuple(sorted(_FILE_PROPERTIES | {"path"}))
     if isinstance(value, Mapping):
@@ -147,11 +305,15 @@ def inspect_value(value: Any) -> Any:
         if len(bindings) > len(limited):
             result["truncated_bindings"] = len(bindings) - len(limited)
         return result
-    if isinstance(value, MatchValue):
+    if isinstance(value, MatchValue | NativeMatchCollection | NativeBindingCollection):
         names = sorted(value.binding_names())
         try:
-            rows = [inspect_value(row) for row in islice(value.iter_rows(), 20)]
-            result = {"type": "MatchValue", "length": len(value), "binding_names": names[:100], "rows": rows}
+            rows = [inspect_value(row) for row in islice(iter(value), 20)]
+            result = {
+                "type": "NativeBindingCollection" if isinstance(value, NativeBindingCollection)
+                else "MatchValue",
+                "length": len(value), "binding_names": names[:100], "rows": rows,
+            }
             if len(value) > len(rows):
                 result["truncated_rows"] = len(value) - len(rows)
             if len(names) > 100:
@@ -159,6 +321,9 @@ def inspect_value(value: Any) -> Any:
             return result
         except (ValueError, RuntimeError) as error:
             return {"type": "MatchValue", "unavailable": str(error)}
+    if isinstance(value, MatchSet):
+        return {"type": "MatchSet", "length": len(value.rows),
+                "rows": [_bounded_inspection(row) for row in value.rows[:20]]}
     if isinstance(value, ParsedTree):
         return {"type": "ParsedTree", "path": value.path[:1024]}
     if isinstance(value, Mapping):

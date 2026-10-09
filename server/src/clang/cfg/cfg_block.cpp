@@ -15,7 +15,7 @@ void write_block(const clang::CFGBlock &native,
     if (++budget.elements > budget.limits.max_elements)
       throw BuildFailure(MatchCode::ResourceExhausted,
                          "CFG element limit exceeded");
-    Context child{context.ast_context};
+    auto child = fresh_context(context);
     auto *value = output.add_elements();
     CfgElementDispatcher::serialize(element, *value, child);
     context.complete &= child.complete;

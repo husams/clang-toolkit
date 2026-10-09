@@ -3,6 +3,7 @@
 #include "cfg_function_collector.hpp"
 #include "cfg_graph.hpp"
 #include "cfg_options.hpp"
+#include "../serialization/analysis_projection.hpp"
 #include <algorithm>
 namespace ctk::clang_layer {
 namespace {
@@ -41,7 +42,10 @@ public:
       if (!owner || !owner->unit)
         return {MatchCode::Internal, "invalid native snapshot owner", {}};
       auto &ast = owner->unit->getASTContext();
-      cf::CfgFunctionCollector collector(request.function(), budget);
+      cf::Context projection_context{ast};
+      serialization::apply_projection(request.projection(), projection_context);
+      cf::CfgFunctionCollector collector(request.function(), budget,
+                                        request.main_file_only());
       collector.TraverseAST(ast);
       if (collector.definitions.empty())
         return {collector.dependent ? MatchCode::FailedPrecondition
@@ -60,6 +64,7 @@ public:
           throw cf::BuildFailure(MatchCode::FailedPrecondition,
                                  "Clang could not build the function CFG");
         cf::Context context{ast};
+        serialization::apply_projection(request.projection(), context);
         cf::write_graph(*function, *graph, *result.response.add_graphs(),
                         context, budget);
       }

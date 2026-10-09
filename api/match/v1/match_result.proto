@@ -37,6 +37,54 @@ message MatchBinding {
   // An unsupported value always has is_complete = false.
   optional bool is_complete = 5;
   repeated BindingMatchScope supported_scopes = 6;
+  // Copied source and declaration facts. These stay outside AstNode so the
+  // semantic AST schema remains independent of source-manager coordinates.
+  MatchSourcePoint location = 7;
+  MatchSourceRange range = 8;
+  // Clang USR for a bound NamedDecl; empty when the binding is not a named
+  // declaration or Clang cannot form a USR for it.
+  string symbol_identity = 9;
+  // Raw source documentation attached to a bound declaration, when present.
+  string documentation = 10;
+  // Present only when this binding is a CallExpr.
+  CallSiteFacts call_site = 11;
+}
+
+// A source coordinate is valid only when `valid` is true. Coordinates use
+// Clang's one-based line and column values; file is the resolved source path.
+message MatchSourcePoint {
+  string file = 1;
+  uint32 line = 2;
+  uint32 column = 3;
+  bool valid = 4;
+  bool is_macro = 5;
+}
+
+// Both macro spelling and expansion coordinates are retained where available.
+message MatchSourceRange {
+  MatchSourcePoint expansion_begin = 1;
+  MatchSourcePoint expansion_end = 2;
+  MatchSourcePoint spelling_begin = 3;
+  MatchSourcePoint spelling_end = 4;
+}
+
+enum CallDispatch {
+  CALL_DISPATCH_UNSPECIFIED = 0;
+  // The call has a statically selected non-virtual declaration.
+  CALL_DISPATCH_DIRECT = 1;
+  // No statically selected declaration is available at the call expression.
+  CALL_DISPATCH_INDIRECT = 2;
+  // A virtual declaration is statically selected; runtime target is unknown.
+  CALL_DISPATCH_VIRTUAL = 3;
+}
+
+// Static call-site facts only; virtual entries never claim a dynamic target.
+message CallSiteFacts {
+  string caller_symbol_identity = 1;
+  string caller_name = 2;
+  CallDispatch dispatch = 3;
+  string static_callee_symbol_identity = 4;
+  string static_callee_name = 5;
 }
 
 // A successful matcher callback tuple. An empty bindings map is a valid

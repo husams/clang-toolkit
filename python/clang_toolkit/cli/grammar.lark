@@ -1,4 +1,6 @@
-start: statement SEMICOLON?
+start: statement SEMICOLON? BATCH_SEPARATOR?
+batch_start: batch_separator* statement (batch_separator+ statement)* batch_separator*
+batch_separator: BATCH_SEPARATOR+ | SEMICOLON BATCH_SEPARATOR*
 reference_start: reference
 
 ?statement: assignment
@@ -40,14 +42,14 @@ assignment: LET NAME EQUAL value_expression
         | BINDING DROP reference         -> binding_drop
         | BINDING RENAME reference TO reference -> binding_rename
         | CFG cfg_expression            -> cfg
-        | CFG cfg_expression IN path_target_expression cfg_option* -> cfg_file
+        | CFG cfg_expression IN path_target_expression cfg_option* graph_option* -> cfg_file
         | CALLGRAPH -> callgraph
-        | CALLGRAPH path_target_expression call_graph_option* -> callgraph_file
+        | CALLGRAPH path_target_expression call_graph_option* graph_option* -> callgraph_file
         | HELP help_topic?               -> help
         | HELP_SHORT_TOPIC QUESTION      -> help_shortcut
         | QUIT                           -> quit
         | EXIT                           -> exit
-        | TRAVERSE path_target_expression traverse_option* -> traverse
+        | TRAVERSE path_target_expression traverse_option* graph_option* -> traverse
         | SCRIPT target_expression (IN path_target_expression)? -> script
         | CURSOR OPEN FILE_STRING root_expression cursor_option* -> cursor_open
         | CURSOR CONTINUE STRING STRING root_expression cursor_option* -> cursor_continue
@@ -90,11 +92,15 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                  | TRUE                    -> true
                  | FALSE                   -> false
                  | list_value
+                 | grouped_expression
                  | glob_call
                  | match_expression
                  | foreach_expression
                  | parse_expression
                  | analysis_block
+                 | traverse_expression
+                 | call_graph_expression
+                 | cfg_file_expression
 
 // Distinct string roles tell the editor which arguments accept filesystem paths.
 // They share the same quoting syntax and evaluate to ordinary string values.
@@ -104,11 +110,15 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                       | TRUE -> true
                       | FALSE -> false
                       | path_list_value
+                      | grouped_expression
                       | glob_call
                       | match_expression
                       | foreach_expression
                       | parse_expression
                       | analysis_block
+                      | traverse_expression
+                      | call_graph_expression
+                      | cfg_file_expression
 path_list_value: LSQB [path_value_expression (COMMA path_value_expression)*] RSQB -> list_value
 ?path_target_expression: target_matcher
                        | reference
@@ -119,11 +129,27 @@ path_list_value: LSQB [path_value_expression (COMMA path_value_expression)*] RSQ
 
 match_expression: MATCH root_expression [IN path_value_expression]
 parse_expression: PARSE path_target_expression
-analysis_block: IN (parse_expression | reference) LBRACE (assignment SEMICOLON)* YIELD yield_expression SEMICOLON? RBRACE
+analysis_block: IN BATCH_SEPARATOR* (parse_expression | reference) BATCH_SEPARATOR* LBRACE BATCH_SEPARATOR* (assignment (SEMICOLON | BATCH_SEPARATOR)+)* YIELD yield_expression SEMICOLON? BATCH_SEPARATOR* RBRACE
 ?yield_expression: value_expression
                  | NAME -> named_value
-foreach_expression: FOREACH reference IN value_expression DO value_expression DONE?
+foreach_expression: FOREACH reference BATCH_SEPARATOR* IN BATCH_SEPARATOR* value_expression BATCH_SEPARATOR* DO BATCH_SEPARATOR* value_expression BATCH_SEPARATOR* DONE?
+traverse_expression: TRAVERSE path_target_expression traverse_option* graph_option* -> traverse_expression
+call_graph_expression: CALLGRAPH path_target_expression call_graph_option* graph_option* -> call_graph_expression
+cfg_file_expression: CFG target_expression IN path_target_expression cfg_option* graph_option* -> cfg_file_expression
+graph_option: PROJECTION NAME -> graph_projection
+            | MAIN_FILE (TRUE | FALSE) -> graph_main_file
+            | PAYLOAD_DEPTH NUMBER -> graph_payload_depth
+            | PAYLOAD_NODES NUMBER -> graph_payload_nodes
 list_value: LSQB [value_expression (COMMA value_expression)*] RSQB
+grouped_expression: LPAR value_expression RPAR grouped_suffix* -> grouped_expression
+grouped_suffix: DOT NAME -> grouped_property
+              | DOT method_call -> grouped_method
+              | LSQB index_expression RSQB -> grouped_index
+?index_expression: NEGATIVE_NUMBER
+                 | NUMBER
+                 | STRING
+                 | reference
+                 | grouped_expression
 glob_call: GLOB LPAR PATH_STRING RPAR
 
 ?root_expression: root_matcher
@@ -160,7 +186,13 @@ target_matcher: NAME LPAR [target_arguments] RPAR bind? -> matcher
 
 target_arguments: target_expression (COMMA target_expression)*
 
-reference: DOLLAR NAME (DOT NAME | DOT JOIN_WITH LPAR value_expression RPAR | DOT HAS_FIELD LPAR value_expression RPAR | LSQB (NUMBER | STRING) RSQB)*
+reference: DOLLAR NAME (DOT NAME | DOT method_call | LSQB index_expression RSQB)*
+?method_call: HAS_FIELD LPAR STRING RPAR -> has_field_call
+            | FIELD_STATE LPAR STRING RPAR -> field_state_call
+            | FIELD_OR LPAR STRING COMMA value_expression RPAR -> field_or_call
+            | method_name LPAR method_arguments RPAR -> generic_method_call
+method_name: NAME | JOIN_WITH | UNIQUE | SORT | FILTER
+method_arguments: value_expression (COMMA value_expression)*
 qualified_name: NAME (SCOPE NAME)+
 
 // Keep the editor lexer lossless, including strings open at end of input.
@@ -219,12 +251,21 @@ editor_start: editor_token*
              | APPEND
              | JOIN_WITH
              | HAS_FIELD
+             | FIELD_STATE
+             | FIELD_OR
+             | UNIQUE
+             | SORT
+             | FILTER
              | CFG
              | CALLGRAPH
              | HELP
              | QUIT
              | EXIT
              | TRAVERSE
+             | PROJECTION
+             | MAIN_FILE
+             | PAYLOAD_DEPTH
+             | PAYLOAD_NODES
              | DEPTH
              | NODES
              | IMPLICIT
@@ -261,6 +302,7 @@ editor_start: editor_token*
              | RBRACE
              | COMMA
              | SEMICOLON
+             | BATCH_SEPARATOR
              | WS
              | ERROR
 
@@ -316,12 +358,21 @@ REPLACE.3: /replace(?![a-zA-Z0-9_])/
 APPEND.3: /append(?![a-zA-Z0-9_])/
 JOIN_WITH.3: /joinWith(?![a-zA-Z0-9_])/
 HAS_FIELD.3: /hasField(?![a-zA-Z0-9_])/
+FIELD_STATE.3: /fieldState(?![a-zA-Z0-9_])/
+FIELD_OR.3: /fieldOr(?![a-zA-Z0-9_])/
+UNIQUE.3: /unique(?![a-zA-Z0-9_])/
+SORT.3: /sort(?![a-zA-Z0-9_])/
+FILTER.3: /filter(?![a-zA-Z0-9_])/
 CFG.2: /cfg(?![a-zA-Z0-9_])/
 CALLGRAPH.2: /callgraph(?![a-zA-Z0-9_])/
 HELP.2: /help(?![a-zA-Z0-9_])/
 QUIT.2: /quit(?![a-zA-Z0-9_])/
 EXIT.2: /exit(?![a-zA-Z0-9_])/
 TRAVERSE.2: /traverse(?![a-zA-Z0-9_])/
+PROJECTION.2: /projection(?![a-zA-Z0-9_])/
+MAIN_FILE.2: /main-file(?![a-zA-Z0-9_])/
+PAYLOAD_DEPTH.2: /payload-depth(?![a-zA-Z0-9_])/
+PAYLOAD_NODES.2: /payload-nodes(?![a-zA-Z0-9_])/
 DEPTH.2: /depth(?![a-zA-Z0-9_])/
 NODES.2: /nodes(?![a-zA-Z0-9_])/
 IMPLICIT.2: /implicit(?![a-zA-Z0-9_])/
@@ -360,12 +411,14 @@ LBRACE: "{"
 RBRACE: "}"
 COMMA: ","
 SEMICOLON: ";"
-WS: /\s+/
+BATCH_SEPARATOR.1: /\r?\n+/
+WS: /[ \t\r]+/
 ERROR: /[\s\S]/
 
 %ignore WS
 
 %import common.NUMBER
+NEGATIVE_NUMBER.2: /-[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?/
 
 OPTION.2: /option(?![a-zA-Z0-9_])/
 FUNCTIONS.2: /functions(?![a-zA-Z0-9_])/

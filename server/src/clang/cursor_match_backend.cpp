@@ -57,12 +57,14 @@ public:
   using VisitorBase = clang::RecursiveASTVisitor<SubtreeCandidateVisitor>;
 
   SubtreeCandidateVisitor(MatchFinder &finder, clang::ASTContext &context,
+                          bool visit_lambda_body,
                           const std::function<bool()> &should_continue)
-      : finder_(finder), context_(context), should_continue_(should_continue) {}
+      : finder_(finder), context_(context),
+        visit_lambda_body_(visit_lambda_body), should_continue_(should_continue) {}
 
   bool shouldVisitTemplateInstantiations() const { return true; }
   bool shouldVisitImplicitCode() const { return true; }
-  bool shouldVisitLambdaBody() const { return false; }
+  bool shouldVisitLambdaBody() const { return visit_lambda_body_; }
 
   bool TraverseDecl(clang::Decl *node) {
     if (!node)
@@ -125,21 +127,28 @@ public:
     if (!TraverseDecl(node->getLambdaClass()))
       return false;
 
-    // The separate written-signature replay is NotAsIs. The lambda class
-    // above carries declarations; the explicit body is the semantic branch.
-    return TraverseStmt(node->getBody());
+    // The separate written-signature replay is NotAsIs. With a selected
+    // lambda call-operator root, traversing the lambda class also visits its
+    // call-operator body; do not replay that same body here.
+    return visit_lambda_body_ || TraverseStmt(node->getBody());
   }
 
 private:
   MatchFinder &finder_;
   clang::ASTContext &context_;
+  bool visit_lambda_body_;
   const std::function<bool()> &should_continue_;
 };
 
 void match_subtree(const clang::DynTypedNode &root, MatchFinder &finder,
                    clang::ASTContext &context,
                    const std::function<bool()> &should_continue) {
-  SubtreeCandidateVisitor visitor(finder, context, should_continue);
+  const auto *method = root.get<clang::CXXMethodDecl>();
+  const bool lambda_call_operator_root =
+      method && method->getParent()->isLambda() &&
+      method->getParent()->getLambdaCallOperator() == method;
+  SubtreeCandidateVisitor visitor(finder, context,
+                                  lambda_call_operator_root, should_continue);
   // Candidate callbacks come only from this rooted native walk. Some AST
   // expressions (such as an in-class initializer) are shared with field or
   // sibling-constructor occurrences elsewhere in the translation unit; those

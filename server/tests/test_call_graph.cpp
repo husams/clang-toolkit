@@ -99,6 +99,45 @@ TEST_F(CallGraph, NativeStaticDispatchAndIndirectCallLimitsAreHonest) {
   EXPECT_TRUE(static_callee);
   EXPECT_FALSE(invented_indirect);
 }
+TEST_F(CallGraph, ProjectionAndMainFileScopeAreExplicitAndComplete) {
+  std::ofstream(directory.path() / "external.hpp")
+      << "inline int header_only(int value) { return value + 1; }\n";
+  std::ofstream(directory.path() / "main_scope.cc")
+      << "#include \"external.hpp\"\n"
+         "int main_only(int value) { return header_only(value); }\n";
+  request.mutable_file()->set_file_path("main_scope.cc");
+  request.mutable_file()->add_compile_arguments(
+      "-I" + directory.path().string());
+
+  auto shallow_request = request;
+  shallow_request.mutable_projection()->set_mode(
+      ctk::analysis::v1::ValueProjection::SHALLOW);
+  auto shallow = controller.build(shallow_request, [] { return true; });
+  ASSERT_EQ(shallow.code, MatchCode::Ok) << shallow.message;
+  auto recursive_request = request;
+  recursive_request.mutable_projection()->set_mode(
+      ctk::analysis::v1::ValueProjection::RECURSIVE);
+  auto recursive = controller.build(recursive_request, [] { return true; });
+  ASSERT_EQ(recursive.code, MatchCode::Ok) << recursive.message;
+  EXPECT_EQ(shallow.response.nodes_size(), recursive.response.nodes_size());
+  EXPECT_EQ(shallow.response.edges_size(), recursive.response.edges_size());
+  EXPECT_GT(recursive.response.ByteSizeLong(), shallow.response.ByteSizeLong());
+
+  auto invalid = request;
+  invalid.mutable_projection()->set_max_depth(0);
+  EXPECT_EQ(controller.build(invalid, [] { return true; }).code,
+            MatchCode::InvalidArgument);
+
+  request.set_main_file_only(true);
+  auto main_only = controller.build(request, [] { return true; });
+  ASSERT_EQ(main_only.code, MatchCode::Ok) << main_only.message;
+  EXPECT_TRUE(main_only.response.is_complete());
+  EXPECT_TRUE(main_only.response.main_file_only());
+  EXPECT_GT(main_only.response.external_edges_omitted(), 0U);
+  for (const auto &node : main_only.response.nodes())
+    if (node.has_function())
+      EXPECT_NE(node.function().qualified_name(), "header_only");
+}
 TEST_F(CallGraph, VisitorFlagsKeepCalleeDoorInstantiationsAndStableIndices) {
   auto baseline = controller.build(request, [] { return true; });
   ASSERT_EQ(baseline.code, MatchCode::Ok) << baseline.message;

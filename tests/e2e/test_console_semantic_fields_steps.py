@@ -24,14 +24,17 @@ def field_console(tmp_path, request):
     return server, source, tmp_path
 
 
-def run_console(field_console, commands):
+def run_console(field_console, commands, *, continue_on_error=False, expected_returncode=0):
     server, source, tmp_path = field_console
     prefix = [
         f'let tree = parse "{source}"',
         'let functions = match functionDecl(isDefinition()).bind("f") in $tree',
     ]
     result = subprocess.run(
-        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+        [
+            sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint,
+            *( ["--continue-on-error"] if continue_on_error else [] ),
+        ],
         input="\n".join([*prefix, *commands, "quit", ""]),
         text=True,
         stdout=subprocess.PIPE,
@@ -40,7 +43,7 @@ def run_console(field_console, commands):
         timeout=45,
         check=False,
     )
-    assert result.returncode == 0, result.stdout
+    assert result.returncode == expected_returncode, result.stdout
     assert server.process.poll() is None
     return result.stdout
 
@@ -52,6 +55,7 @@ def extract_fields(field_console):
         'print $first.function.declarator.value.named.qualified_name',
         'print $first.hasField("is_deleted")',
         'print $first.is_deleted',
+        'print $first.fieldState("parameters")',
         'print $first.hasField("parameters")',
         'print $first.return_type.description.spelling',
         'print $first.parameters.length',
@@ -69,13 +73,14 @@ def extract_fields(field_console):
         'inspect $functions',
         'inspect $tree',
         'print "FIELDS_OK"',
-    ])
+    ], continue_on_error=True, expected_returncode=1)
 
 
 @then("the console prints function names and both continued literal values")
 def verify_fields(field_output):
     assert "syntax error" not in field_output, field_output
     assert "error: field was not requested" in field_output
+    assert "UNREQUESTED" in field_output
     assert "alpha|beta" in field_output
     assert "7|9" in field_output
     assert "false" in field_output
@@ -98,12 +103,12 @@ def read_absent_field(field_console):
         'let retained = $functions[0].f.value.node.integer_literal',
         'print $retained',
         'print $functions[0].f.value.node.function_decl.function.declarator.value.named.qualified_name',
-    ])
+    ], continue_on_error=True, expected_returncode=1)
 
 
 @then("the console explains the unavailable field and preserves the previous value")
 def verify_failed_fields(field_failure_output):
     assert "integer_literal" in field_failure_output
     assert "error: inactive oneof field" in field_failure_output
-    assert "ctk> PREVIOUS_VALUE" in field_failure_output
+    assert "PREVIOUS_VALUE" in field_failure_output
     assert "alpha" in field_failure_output

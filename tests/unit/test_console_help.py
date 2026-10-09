@@ -54,6 +54,32 @@ def test_help_does_not_initialize_settings_or_output(monkeypatch):
     assert client.mock_calls == []
 
 
+def test_inspect_is_listed_and_documents_bounded_value_discovery():
+    client = Mock(spec=Client)
+
+    assert "inspect" in dispatch(client, "help")
+    details = dispatch(client, "inspect?")
+    assert "bounded shape" in details
+    assert "fieldState" in details
+    assert client.mock_calls == []
+
+
+def test_match_and_graph_help_document_typed_provenance_and_projection():
+    client = Mock(spec=Client)
+    match_help = dispatch(client, "match?")
+    assert "source_match_index" in match_help
+    assert "fieldState" in match_help
+    assert "fieldOr" in match_help
+    assert "symbol_identity" in match_help
+    assert "call_site" in match_help
+
+    graph_help = dispatch(client, "callgraph?")
+    assert "projection shallow|recursive" in graph_help
+    assert "main-file BOOL" in graph_help
+    assert "payload-depth" in graph_help
+    assert "ProtoJSON" in graph_help
+
+
 def test_runtime_help_stays_visible_when_values_are_redirected(tmp_path):
     runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
     destination = tmp_path / "results.txt"

@@ -7,7 +7,9 @@ from datetime import datetime
 
 from .filesystem import FileSystemEntry
 from typing import Any
-from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, ParsedTree
+from clang_toolkit.match_values import (
+    BindingSelection, MatchRow, MatchValue, NativeMatchCollection, ParsedTree,
+)
 
 _MAX_RENDER_CHARS = 20_000
 _PREVIEW_ITEMS = 20
@@ -261,6 +263,8 @@ def render(value: Any) -> str:
         return _render_sequence(value.rows)
     if isinstance(value, MatchValue):
         return _render_sequence(value.iter_rows())
+    if isinstance(value, NativeMatchCollection):
+        return _render_sequence(value)
     if isinstance(value, MatchRow):
         import json
         rendered = json.dumps(_bounded_row_dict(value), sort_keys=True, ensure_ascii=False)

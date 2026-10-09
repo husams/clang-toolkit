@@ -204,33 +204,31 @@ def explore_native_completion(function_completion_context):
             raw_return_type = runtime.evaluate(
                 f"{node_reference}.{function_path}.return_type"
             )
-            direct_parameters_present = runtime.evaluate(
-                f'{node_reference}.hasField("parameters")'
+            direct_parameters_state = runtime.evaluate(
+                f'{node_reference}.fieldState("parameters")'
             )
-            raw_parameters_present = runtime.evaluate(
-                f'{node_reference}.{function_path}.hasField("parameters")'
+            raw_parameters_state = runtime.evaluate(
+                f'{node_reference}.{function_path}.fieldState("parameters")'
             )
-            direct_body_present = runtime.evaluate(
-                f'{node_reference}.hasField("body")'
+            direct_body_state = runtime.evaluate(
+                f'{node_reference}.fieldState("body")'
             )
-            raw_body_present = runtime.evaluate(
-                f'{node_reference}.{function_path}.hasField("body")'
+            raw_body_state = runtime.evaluate(
+                f'{node_reference}.{function_path}.fieldState("body")'
             )
             assert direct_name._data == raw_name._data
             assert direct_qualified_name == raw_qualified_name
             assert direct_return_type._data == raw_return_type._data
-            assert direct_parameters_present is raw_parameters_present is False
-            assert direct_body_present is raw_body_present
+            assert direct_parameters_state == raw_parameters_state == "UNREQUESTED"
+            assert direct_body_state == raw_body_state
             path_equalities[index] = {
                 "qualified_name": direct_qualified_name,
                 "return_type": direct_return_type.descriptor.full_name,
                 "return_type_spelling": runtime.evaluate(
                     f"{node_reference}.return_type.description.spelling"
                 ),
-                "parameters_present": direct_parameters_present,
-                "function_body_present": runtime.evaluate(
-                    f'{node_reference}.hasField("body")'
-                ),
+                "parameters_state": direct_parameters_state,
+                "function_body_state": direct_body_state,
                 "typed_name_fields": tuple(
                     candidate
                     for candidate in (
@@ -366,10 +364,10 @@ def verify_native_completion(function_completion_result):
 
     names = {values["qualified_name"]: values for values in path_equalities.values()}
     assert names["ordinary"]["return_type"].endswith("QualType")
-    assert names["ordinary"]["parameters_present"] is False
-    assert names["ordinary"]["function_body_present"] is False
+    assert names["ordinary"]["parameters_state"] == "UNREQUESTED"
+    assert names["ordinary"]["function_body_state"] == "UNREQUESTED"
     assert names["ordinary"]["return_type_spelling"] == "int"
-    assert names["forward"]["function_body_present"] is False
+    assert names["forward"]["function_body_state"] == "ABSENT"
     assert names["Widget::Widget"]["typed_name_fields"] == ("constructor_type",)
     assert names["Widget::~Widget"]["typed_name_fields"] == ("destructor_type",)
     assert names["Widget::operator int"]["typed_name_fields"] == ("conversion_type",)

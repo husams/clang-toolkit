@@ -136,7 +136,7 @@ def parse_invalid_source(server: RunningServer, invalid_source: Path):
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
         check=False,
     )
-    assert console.returncode == 0, console.stdout
+    assert console.returncode == 1, console.stdout
     return str(failure.value), console.stdout
 
 
@@ -551,9 +551,10 @@ def start_cursor_byte_limited_server(tmp_path: Path, request) -> RunningServer:
     return _launch_server("unix", tmp_path, request, max_send_bytes=128)
 
 
-@given("a cursor server with a 16-MiB response limit", target_fixture="server")
+@given("a cursor server with a 32-MiB response limit", target_fixture="server")
 def start_large_cursor_server(tmp_path: Path, request) -> RunningServer:
-    return _launch_server("unix", tmp_path, request, max_send_bytes=16 * 1024 * 1024)
+    # Source ranges and USRs add copied facts to these deliberately long names.
+    return _launch_server("unix", tmp_path, request, max_send_bytes=32 * 1024 * 1024)
 
 
 @given(parsers.parse("a streaming cursor server using {transport} with an 8192-byte message limit"),
@@ -928,7 +929,7 @@ def has_shallow_semantic_declaration(events) -> None:
 def cfg_native_file(server: RunningServer, cursor_source: Path):
     async def run():
         async with AsyncClient(server.endpoint) as client:
-            result = await client.cfg(cursor_source, "f")
+            result = await client.cfg(cursor_source, "f", projection="recursive")
             with pytest.raises(AnalysisError) as limited:
                 await client.cfg(cursor_source, "f", max_blocks=1)
             assert limited.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
@@ -958,7 +959,7 @@ def cfg_typed_blocks(cfg_result):
 def native_call_graph(server: RunningServer, cursor_source: Path):
     async def run():
         async with AsyncClient(server.endpoint) as client:
-            result = await client.callgraph(cursor_source)
+            result = await client.callgraph(cursor_source, projection="recursive")
             with pytest.raises(AnalysisError) as limited:
                 await client.callgraph(cursor_source, max_nodes=1)
             assert limited.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED

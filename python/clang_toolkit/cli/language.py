@@ -15,9 +15,20 @@ GRAMMAR = Path(__file__).with_name("grammar.lark")
 def parser() -> Lark:
     """Build the cached command parser with source positions enabled."""
     return Lark(
-        GRAMMAR.read_text(),
+        GRAMMAR.read_text() + "\n%ignore BATCH_SEPARATOR\n",
         parser="lalr",
         start="start",
+        propagate_positions=True,
+    )
+
+
+@cache
+def batch_parser() -> Lark:
+    """Build the formal multi-command parser used by noninteractive runs."""
+    return Lark(
+        GRAMMAR.read_text(),
+        parser="lalr",
+        start="batch_start",
         propagate_positions=True,
     )
 
@@ -53,12 +64,15 @@ def lex(text: str) -> list[Token]:
     keeps identifiers such as ``match`` usable where the grammar expects a
     name, and distinguishes ``.bind`` from ``.`` followed by ``bind``.
     """
-    editor_tokens = [
-        Token.new_borrow_pos("NAME", str(token), token)
-        if token.type == "EDITOR_NAME"
-        else token
-        for token in _editor_parser().lex(text, dont_ignore=True)
-    ]
+    editor_tokens = []
+    for token in _editor_parser().lex(text, dont_ignore=True):
+        if token.type == "EDITOR_NAME":
+            token = Token.new_borrow_pos("NAME", str(token), token)
+        elif token.type == "BATCH_SEPARATOR":
+            # Newlines delimit batch statements, but remain ordinary
+            # whitespace for editor context, highlighting and completeness.
+            token = Token.new_borrow_pos("WS", str(token), token)
+        editor_tokens.append(token)
     contextual_tokens: list[Token] = []
     interactive = parser().parse_interactive(text)
     try:

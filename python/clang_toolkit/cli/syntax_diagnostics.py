@@ -356,6 +356,40 @@ def syntax_diagnostic(source: str, error: UnexpectedInput) -> str:
             'hasField requires a field name: `hasField("field_name")`.\n'
             + _source_caret(source, position)
         )
+    if (
+        len(before_failure) >= 3
+        and before_failure[-3].type == "DOT"
+        and before_failure[-2].type == "FIELD_STATE"
+        and before_failure[-1].type == "LPAR"
+    ):
+        return (
+            f"syntax error at line {line}, column {column}: "
+            'fieldState requires a field name: `fieldState("field_name")`.\n'
+            + _source_caret(source, position)
+        )
+    if (
+        len(before_failure) >= 3
+        and before_failure[-3].type == "DOT"
+        and before_failure[-2].type == "FIELD_OR"
+        and before_failure[-1].type == "LPAR"
+    ):
+        return (
+            f"syntax error at line {line}, column {column}: "
+            'fieldOr requires a field name and default: `fieldOr("field_name", default)`.\n'
+            + _source_caret(source, position)
+        )
+    if (
+        len(before_failure) >= 4
+        and before_failure[-4].type == "DOT"
+        and before_failure[-3].type == "FIELD_OR"
+        and before_failure[-2].type == "LPAR"
+        and before_failure[-1].type == "STRING"
+    ):
+        return (
+            f"syntax error at line {line}, column {column}: "
+            'fieldOr requires a default after the field name: `fieldOr("field_name", default)`.\n'
+            + _source_caret(source, position)
+        )
     if at_end:
         previous = tokens[-1] if tokens else None
     else:

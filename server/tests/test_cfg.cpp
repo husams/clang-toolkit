@@ -141,6 +141,41 @@ TEST_F(ControlFlow, MissingDependentAndNoReturnFunctionsHaveDistinctBehavior) {
     no_return |= block.has_no_return_element();
   EXPECT_TRUE(no_return);
 }
+TEST_F(ControlFlow, ProjectionAndMainFileScopeHandleHeaderFunctions) {
+  std::ofstream(directory.path() / "header_cfg.hpp")
+      << "inline int header_cfg(int value) { return value + 4; }\n";
+  std::ofstream(directory.path() / "main_cfg.cc")
+      << "#include \"header_cfg.hpp\"\n"
+         "int local_cfg(int value) { return header_cfg(value); }\n";
+  request.mutable_file()->set_file_path("main_cfg.cc");
+  request.mutable_file()->add_compile_arguments(
+      "-I" + directory.path().string());
+  request.set_function("header_cfg");
+
+  auto shallow_request = request;
+  shallow_request.mutable_projection()->set_mode(
+      ctk::analysis::v1::ValueProjection::SHALLOW);
+  auto shallow = controller.build(shallow_request, [] { return true; });
+  ASSERT_EQ(shallow.code, MatchCode::Ok) << shallow.message;
+  ASSERT_EQ(shallow.response.graphs_size(), 1);
+  auto recursive_request = request;
+  recursive_request.mutable_projection()->set_mode(
+      ctk::analysis::v1::ValueProjection::RECURSIVE);
+  auto recursive = controller.build(recursive_request, [] { return true; });
+  ASSERT_EQ(recursive.code, MatchCode::Ok) << recursive.message;
+  ASSERT_EQ(shallow.response.graphs(0).blocks_size(),
+            recursive.response.graphs(0).blocks_size());
+  EXPECT_GT(recursive.response.ByteSizeLong(), shallow.response.ByteSizeLong());
+
+  auto invalid = request;
+  invalid.mutable_projection()->set_max_nodes(0);
+  EXPECT_EQ(controller.build(invalid, [] { return true; }).code,
+            MatchCode::InvalidArgument);
+
+  request.set_main_file_only(true);
+  auto scoped = controller.build(request, [] { return true; });
+  EXPECT_EQ(scoped.code, MatchCode::NotFound);
+}
 TEST_F(ControlFlow, LimitsCancellationAndStopNeverPublishPartialGraphs) {
   request.set_max_functions(1);
   auto functions = controller.build(request, [] { return true; });
@@ -237,5 +272,21 @@ TEST_F(ControlFlow, VersionSpecificBuildOptionIsExplicitlySupportedOrRejected) {
   EXPECT_EQ(result.code, MatchCode::FailedPrecondition);
   EXPECT_TRUE(result.response.graphs().empty());
 #endif
+}
+TEST_F(ControlFlow, InvalidProjectionPrecedesFunctionLookup) {
+  for (const auto *function : {"ns::f", "missing"}) {
+    request.set_function(function);
+    request.mutable_projection()->Clear();
+    request.mutable_projection()->set_max_depth(0);
+    auto result = controller.build(request, [] { return true; });
+    EXPECT_EQ(result.code, MatchCode::InvalidArgument) << result.message;
+    EXPECT_TRUE(result.response.graphs().empty());
+    request.mutable_projection()->Clear();
+    request.mutable_projection()->set_mode(
+        static_cast<ctk::analysis::v1::ValueProjection::Mode>(99));
+    result = controller.build(request, [] { return true; });
+    EXPECT_EQ(result.code, MatchCode::InvalidArgument) << result.message;
+    EXPECT_TRUE(result.response.graphs().empty());
+  }
 }
 } // namespace ctk::application

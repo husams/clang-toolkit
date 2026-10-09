@@ -268,7 +268,7 @@ def test_runtime_metadata_guides_active_node_and_nested_schema_fields(tmp_path):
             "$m[0].f.value.node.cxx_method_decl.method.function."
             "declarator.value.named.name."
         )
-        assert set(name_fields) == {"identifier", "hasField("}
+        assert set(name_fields) == {"identifier", "hasField(", "fieldState(", "fieldOr("}
         identifier_meta = to_plain_text(name_fields["identifier"].display_meta)
         assert identifier_meta == "active field"
         assert "continue with ." not in identifier_meta

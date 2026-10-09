@@ -16,7 +16,10 @@ from clang_toolkit.cli.language import parser
 from clang_toolkit.cli.help import HAS_NATIVE_ANALYSIS_GRAMMAR, render_help
 from clang_toolkit.cli.matcher_catalog import NESTED_MATCHERS, ROOT_MATCHERS
 from clang_toolkit.client import Client
-from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, MatchValueError, ParsedTree
+from clang_toolkit.match_values import (
+    BindingSelection, MatchRow, MatchValue, MatchValueError, NativeBindingCollection,
+    NativeMatchCollection, ParsedTree,
+)
 
 from .config import ConfigError, ConfigStore
 from .filesystem import Directory, File, FileSystemEntry, from_path
@@ -109,6 +112,15 @@ class Runtime:
             return self._resolve_name(str(statement.children[1]))
         if kind == "match":
             return self._execute_match(statement, source=source)
+        if kind in {"traverse", "traverse_expression"}:
+            from .traversal import execute_traversal
+            return execute_traversal(self, statement)
+        if kind in {"callgraph_file", "call_graph_expression"}:
+            from .call_graph import execute_call_graph
+            return execute_call_graph(self, statement)
+        if kind in {"cfg_file", "cfg_file_expression"}:
+            from .control_flow import execute_cfg
+            return execute_cfg(self, statement, source or "")
         if kind == "display":
             return self._evaluate(statement.children[0])
         raise EvaluationError("SDK execution requires an expression or assignment")
@@ -134,7 +146,8 @@ class Runtime:
         if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
             return self.output.emit(execute_cursor(self, statement))
         if kind == "traverse":
-            return self.output.emit(execute_traversal(self, statement))
+            from .graph_options import render_graph
+            return self.output.emit(render_graph(execute_traversal(self, statement)))
         if kind == "session_label":
             self.label = self._string(str(statement.children[2]))
             return ""
@@ -248,7 +261,8 @@ class Runtime:
             return self.output.emit(render(self._evaluate(statement.children[0])))
         if kind == "cfg_file":
             from .control_flow import execute_cfg
-            return self.output.emit(execute_cfg(self, statement, source))
+            from .graph_options import render_graph
+            return self.output.emit(render_graph(execute_cfg(self, statement, source)))
         if kind == "cfg":
             message = ('cfg requires a file: cfg FUNCTION in "file.cc"; see help cfg'
                 if HAS_NATIVE_ANALYSIS_GRAMMAR else 'cfg native execution is not implemented in this build; see help cfg')
@@ -258,7 +272,8 @@ class Runtime:
             return self.output.emit(execute_script(self, statement))
         if kind == "callgraph_file":
             from .call_graph import execute_call_graph
-            return self.output.emit(execute_call_graph(self, statement))
+            from .graph_options import render_graph
+            return self.output.emit(render_graph(execute_call_graph(self, statement)))
         if kind == "callgraph":
             message = ('callgraph requires a file: callgraph "file.cc"; see help callgraph'
                 if HAS_NATIVE_ANALYSIS_GRAMMAR else 'callgraph native execution is not implemented in this build; see help callgraph')
@@ -348,12 +363,12 @@ class Runtime:
                             if value_type is not None
                             else "field"
                         )
-                elif name == "hasField" and is_semantic_view(value):
+                elif name in {"hasField", "fieldState", "fieldOr"} and is_semantic_view(value):
                     kind = "method"
-                    meta = "method · checks field presence"
-                elif name == "joinWith" and isinstance(value, list):
+                    meta = "method · checks field presence or reports availability"
+                elif name in {"joinWith", "unique", "sort", "filter"} and isinstance(value, (list, MatchValue, NativeMatchCollection, MatchSet)):
                     kind = "method"
-                    meta = "method · joins list values"
+                    meta = f"method · {name} values by a field selector"
                 else:
                     kind = "property"
                     meta = "property"
@@ -483,7 +498,7 @@ class Runtime:
         if isinstance(node, Token):
             if node.type in {"STRING", "FILE_STRING", "DIRECTORY_STRING", "PATH_STRING"}:
                 return self._string(str(node))
-            if node.type == "NUMBER":
+            if node.type in {"NUMBER", "NEGATIVE_NUMBER"}:
                 raw = str(node)
                 return float(raw) if any(char in raw for char in ".eE") else int(raw)
             raise EvaluationError(f"unexpected {node.type} token")
@@ -522,6 +537,8 @@ class Runtime:
                 for item in node.children
                 if not self._punctuation(item) and item is not None
             ]
+        if kind == "grouped_expression":
+            return self._grouped_expression(node)
         if kind == "glob_call":
             pattern = self._string(str(node.children[2]))
             if Path(pattern).is_absolute():
@@ -548,9 +565,53 @@ class Runtime:
                 compile_arguments=self.config_store.effective["extra_args"]))
         if kind == "analysis_block":
             return self._analysis_block(node)
+        if kind == "traverse_expression":
+            from .traversal import execute_traversal
+            return execute_traversal(self, node)
+        if kind == "call_graph_expression":
+            from .call_graph import execute_call_graph
+            return execute_call_graph(self, node)
+        if kind == "cfg_file_expression":
+            from .control_flow import execute_cfg
+            return execute_cfg(self, node, "")
         if kind == "foreach_expression":
             return self._foreach(node)
         raise EvaluationError(f"unsupported expression: {kind}")
+
+    def _grouped_expression(self, node: Tree) -> Any:
+        value = self._evaluate(node.children[1])
+        for suffix in node.children[3:]:
+            if not isinstance(suffix, Tree):
+                continue
+            try:
+                if suffix.data == "grouped_property":
+                    value = property_value(value, str(suffix.children[1]))
+                elif suffix.data == "grouped_index":
+                    key = self._evaluate(suffix.children[1])
+                    value = index_value(value, key)
+                elif suffix.data == "grouped_method":
+                    call = suffix.children[1]
+                    name, arguments = self._method_call_parts(call)
+                    value = call_method(value, name, [self._evaluate(arg) for arg in arguments])
+            except (ReferenceError, MatchValueError, IndexError, KeyError) as error:
+                raise EvaluationError(f"{error} in grouped expression") from error
+        return value
+
+    def _method_call_parts(self, call: Tree) -> tuple[str, list[Any]]:
+        if call.data == "generic_method_call":
+            method_token = call.children[0].children[0]
+            arguments_node = call.children[2]
+            arguments = [
+                item for item in arguments_node.children
+                if not self._punctuation(item)
+            ]
+        else:
+            method_token = call.children[0]
+            if call.data == "field_or_call":
+                arguments = [call.children[2], call.children[4]]
+            else:
+                arguments = [call.children[2]]
+        return str(method_token), arguments
 
     def _analysis_block(self, node: Tree) -> Any:
         target = self._evaluate(node.children[1])
@@ -583,7 +644,20 @@ class Runtime:
                 owner.close()
 
     def _track_native_value(self, value: Any) -> Any:
-        if isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
+        if isinstance(value, NativeMatchCollection):
+            for match in value.matches:
+                for owners in self._block_owners:
+                    owners.add(match._owner)
+        elif isinstance(value, NativeBindingCollection):
+            for selection in value.selections:
+                if selection is None:
+                    continue
+                for owners in self._block_owners:
+                    owners.add(selection._owner)
+            for match in value.matches:
+                for owners in self._block_owners:
+                    owners.add(match._owner)
+        elif isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
             for owners in self._block_owners:
                 owners.add(value._owner)
         return value
@@ -592,6 +666,13 @@ class Runtime:
     def _native_owners(value: Any) -> set[Any]:
         if isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
             return {value._owner}
+        if isinstance(value, NativeMatchCollection):
+            return set().union(*(Runtime._native_owners(item) for item in value.matches))
+        if isinstance(value, NativeBindingCollection):
+            return set().union(
+                *(Runtime._native_owners(item) for item in value.selections if item is not None),
+                *(Runtime._native_owners(item) for item in value.matches),
+            )
         if isinstance(value, list | tuple):
             return set().union(*(Runtime._native_owners(item) for item in value))
         if isinstance(value, Mapping):
@@ -638,23 +719,37 @@ class Runtime:
         index = 2
         while index < len(children):
             if isinstance(children[index], Token) and children[index].type == "LSQB":
-                raw = str(children[index + 1])
-                token = children[index + 1]
-                if isinstance(token, Token) and token.type == "STRING":
-                    key: Any = self._string(raw)
-                    segment = f"[{raw}]"
-                else:
-                    if not raw.isdigit():
-                        raise EvaluationError("index must be a zero-based integer or string key")
-                    key = int(raw)
-                    segment = f"[{raw}]"
-                steps.append(("index", key, None, segment, token.line, token.column))
+                expression = children[index + 1]
+                key = self._evaluate(expression)
+                line = expression.meta.line if isinstance(expression, Tree) else expression.line
+                column = expression.meta.column if isinstance(expression, Tree) else expression.column
+                segment = f"[{expression}]" if isinstance(expression, Token) else "[index]"
+                steps.append(("index", key, None, segment, line, column))
                 index += 3
                 continue
             token = children[index + 1]
-            if isinstance(token, Token) and token.type in {"JOIN_WITH", "HAS_FIELD"}:
-                steps.append(("method", str(token), children[index + 3], f".{token}(...)", token.line, token.column))
-                index += 5
+            method_call = token if isinstance(token, Tree) else None
+            if method_call is not None and method_call.data in {
+                "has_field_call", "field_state_call", "field_or_call",
+                "generic_method_call",
+            }:
+                if method_call.data == "generic_method_call":
+                    method_token = method_call.children[0].children[0]
+                    arguments_node = method_call.children[2]
+                    arguments = [
+                        item for item in arguments_node.children
+                        if not self._punctuation(item)
+                    ]
+                else:
+                    method_token = method_call.children[0]
+                    if method_call.data == "field_or_call":
+                        arguments = [method_call.children[2], method_call.children[4]]
+                    else:
+                        arguments = [method_call.children[2]]
+                method = str(method_token)
+                steps.append(("method", method, arguments,
+                              f".{method}(...)", method_token.line, method_token.column))
+                index += 2
             else:
                 steps.append(("property", str(token), None, f".{token}", token.line, token.column))
                 index += 2
@@ -672,7 +767,7 @@ class Runtime:
             previous = value
             try:
                 if operation == "method":
-                    value = call_method(value, field, [self._evaluate(argument)])
+                    value = call_method(value, field, [self._evaluate(argument) for argument in argument])
                 elif operation == "index":
                     value = index_value(value, field)
                 else:
@@ -717,7 +812,9 @@ class Runtime:
         except TemplateError as exc:
             raise EvaluationError(str(exc)) from exc
 
-    def _execute_match(self, node: Tree, *, source: str | None = None) -> MatchSet | MatchValue:
+    def _execute_match(
+        self, node: Tree, *, source: str | None = None
+        ) -> MatchSet | MatchValue | NativeMatchCollection:
         matcher_node = node.children[1]
         matcher = self._evaluate(matcher_node)
         if not isinstance(matcher, MatcherExpr):
@@ -730,7 +827,8 @@ class Runtime:
         target: Any = self._default_targets[-1] if self._default_targets else None
         if len(node.children) > 3 and node.children[3] is not None:
             selected = self._evaluate(node.children[3])
-            if isinstance(selected, str | File | ParsedTree | MatchValue | BindingSelection):
+            if isinstance(selected, str | File | ParsedTree | MatchValue | BindingSelection
+                           | NativeMatchCollection | NativeBindingCollection):
                 target = selected.absolute if isinstance(selected, File) else selected
             elif isinstance(selected, list):
                 target = None
@@ -757,21 +855,96 @@ class Runtime:
         if target is not None:
             traversal = self.config_store.effective["traversal"]
             from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
-            return self._track_native_value(self.client.match_in(text, target, working_directory=self.cwd,
-                compile_arguments=self.config_store.effective["extra_args"],
-                traversal_mode=(pb.MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE
-                    if traversal in {"ignore_unless_spelled_in_source", "IgnoreUnlessSpelledInSource"}
-                    else pb.MATCH_TRAVERSAL_MODE_AS_IS)))
+            traversal_mode = (
+                pb.MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE
+                if traversal in {"ignore_unless_spelled_in_source", "IgnoreUnlessSpelledInSource"}
+                else pb.MATCH_TRAVERSAL_MODE_AS_IS
+            )
+            options = {
+                "working_directory": self.cwd,
+                "compile_arguments": self.config_store.effective["extra_args"],
+                "traversal_mode": traversal_mode,
+            }
+            if isinstance(target, NativeMatchCollection | NativeBindingCollection):
+                if isinstance(target, NativeMatchCollection):
+                    sources = target.matches
+                    files_for_sources = target.files
+                else:
+                    source_pairs = [
+                        (selection, path)
+                        for selection, path in zip(target.selections, target.files, strict=True)
+                        if selection is not None
+                    ]
+                    sources = tuple(selection for selection, _ in source_pairs)
+                    files_for_sources = tuple(path for _, path in source_pairs)
+                config_owner = getattr(self.client, "client", self.client)
+                configuration = getattr(config_owner, "_configuration", None)
+                max_files = getattr(configuration(), "max_files", 100) if configuration else 100
+                if type(max_files) is not int or max_files < 0:
+                    max_files = 100
+                if len(sources) > max_files:
+                    raise EvaluationError(
+                        f"match aggregate exceeds configured file limit of {max_files}"
+                    )
+                matches: list[MatchValue] = []
+                try:
+                    for source_value in sources:
+                        matches.append(self.client.match_in(text, source_value, **options))
+                except BaseException:
+                    for match in matches:
+                        try:
+                            match.close()
+                        except BaseException:
+                            pass
+                    raise
+                return self._track_native_value(
+                    NativeMatchCollection(tuple(matches), tuple(files_for_sources))
+                )
+            return self._track_native_value(
+                self.client.match_in(text, target, **options)
+            )
         if files is None and self.config_store.effective["files"]:
             files = [
                 str((self.cwd / path).resolve())
                 for path in self.config_store.effective["files"]
             ]
-        rows = self.client.match(
-            text, files=files, working_directory=self.cwd,
-            compile_arguments=self.config_store.effective["extra_args"],
+        if files is None:
+            rows = self.client.match(
+                text, files=None, working_directory=self.cwd,
+                compile_arguments=self.config_store.effective["extra_args"],
+            )
+            return MatchSet(tuple(rows))
+        config_owner = getattr(self.client, "client", self.client)
+        configuration = getattr(config_owner, "_configuration", None)
+        max_files = getattr(configuration(), "max_files", 100) if configuration else 100
+        if type(max_files) is not int or max_files < 0:
+            max_files = 100
+        if len(files) > max_files:
+            raise EvaluationError(f"match file list exceeds configured limit of {max_files}")
+        from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
+        traversal_mode = (
+            pb.MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE
+            if self.config_store.effective["traversal"] in {
+                "ignore_unless_spelled_in_source", "IgnoreUnlessSpelledInSource"
+            }
+            else pb.MATCH_TRAVERSAL_MODE_AS_IS
         )
-        return MatchSet(tuple(rows))
+        matches: list[MatchValue] = []
+        try:
+            for path in files:
+                matches.append(self.client.match_in(
+                    text, path, working_directory=self.cwd,
+                    compile_arguments=self.config_store.effective["extra_args"],
+                    traversal_mode=traversal_mode,
+                ))
+        except BaseException:
+            for match in matches:
+                try:
+                    match.close()
+                except BaseException:
+                    pass
+            raise
+        return self._track_native_value(NativeMatchCollection(tuple(matches), tuple(files)))
 
     @staticmethod
     def _has_dynamic_part(node: Tree) -> bool:
@@ -808,6 +981,15 @@ class Runtime:
         if isinstance(items, MatchValue):
             iterable = items.iter_rows()
             known_length = len(items)
+        elif isinstance(items, NativeMatchCollection):
+            iterable = iter(items)
+            known_length = len(items)
+        elif isinstance(items, NativeBindingCollection):
+            iterable = iter(items)
+            known_length = len(items)
+        elif isinstance(items, MatchSet):
+            iterable = iter(items.rows)
+            known_length = len(items.rows)
         elif isinstance(items, RepeatedView | list):
             iterable = iter(items)
             known_length = len(items)

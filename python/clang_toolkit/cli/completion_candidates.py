@@ -79,7 +79,7 @@ _REGEX_LITERALS = {
 }
 _NO_VALUE_TERMINALS = {"STRING", "OPEN_STRING", "NUMBER", "DOLLAR", "SEMICOLON"}
 _PUNCTUATION = {"(", ")", "]", "}", ",", "."}
-_METHOD_NAMES = {"hasField", "joinWith"}
+_METHOD_NAMES = {"hasField", "fieldState", "fieldOr", "joinWith", "unique", "sort", "filter"}
 
 
 @dataclass(frozen=True)

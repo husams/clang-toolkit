@@ -2,6 +2,7 @@ syntax = "proto3";
 package ctk.analysis.v1;
 
 import "match/v1/match_service.proto";
+import "analysis/v1/value_projection.proto";
 
 message TraverseRequest {
   ctk.match.v1.FileMatchTarget file = 1;
@@ -12,4 +13,7 @@ message TraverseRequest {
   optional uint32 max_depth = 4;
   // Default is 10,000; hard server maximum is 100,000.
   optional uint64 max_nodes = 5;
+  ValueProjection projection = 6;
+  // Restrict declaration/statement candidates by expansion in the main file.
+  bool main_file_only = 7;
 }

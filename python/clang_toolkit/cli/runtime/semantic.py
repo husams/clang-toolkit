@@ -151,8 +151,10 @@ def _availability_error(view_value: MessageView, field_name: str) -> str | None:
                 return f"field was not requested: {path}{detail}"
             if state == 4:
                 return f"field is inapplicable: {path}{detail}"
-            if state in (5, 6):
+            if state == 5:
                 return f"field is unavailable: {path}{detail}"
+            if state == 6:
+                return f"field was truncated: {path}{detail}"
             if state == 0:
                 return f"field state is unspecified: {path}{detail}"
     return None
@@ -296,7 +298,7 @@ def field_names(value: Any) -> tuple[str, ...]:
             unavailable = _availability_error(owner, descriptor.name)
             if unavailable is None or not unavailable.startswith("field was not requested:"):
                 names.append(name)
-        return tuple(names) + ("hasField",)
+        return tuple(names) + ("fieldOr", "fieldState", "hasField")
     if isinstance(value, EnumValue):
         return ("name", "number")
     if isinstance(value, (RepeatedView, MapView, BindingMapView)):
@@ -346,6 +348,18 @@ def index_value(value: Any, key: Any) -> Any:
 
 def property_value(value: Any, name: str) -> Any:
     if isinstance(value, MessageView):
+        if value.descriptor.full_name == "ctk.ast.v1.AstNode" and name in {
+            "name", "qualified_name", "declared_type"
+        }:
+            payload = value._message().WhichOneof("payload")
+            if payload is None:
+                raise SemanticError(f"AST node has no active payload for {name}")
+            descriptor = value.descriptor.fields_by_name[payload]
+            root = _read_direct_field(value, descriptor)
+            found = _find_node_alias(root, name)
+            if found is None:
+                raise SemanticError(f"AST node has no available {name} convenience field")
+            return found
         return _field_value(value, name)
     if isinstance(value, EnumValue) and name in ("name", "number"):
         return getattr(value, name)
@@ -356,16 +370,52 @@ def property_value(value: Any, name: str) -> Any:
 
 
 def call_method(value: Any, name: str, arguments: list[Any]) -> Any:
-    if isinstance(value, MessageView) and name == "hasField":
-        if len(arguments) != 1 or not isinstance(arguments[0], str):
-            raise SemanticError("hasField requires one string field name")
-        source = field_sources(value, include_inactive=True).get(arguments[0])
+    if isinstance(value, MessageView) and name in {"hasField", "fieldState", "fieldOr"}:
+        expected = 2 if name == "fieldOr" else 1
+        if len(arguments) != expected or not isinstance(arguments[0], str):
+            if name == "hasField":
+                raise SemanticError("hasField requires one string field name")
+            requirement = "a field name and default" if name == "fieldOr" else "one string field name"
+            raise SemanticError(f"{name} requires {requirement}")
+        field_name = arguments[0]
+        source = field_sources(value, include_inactive=True).get(field_name)
         if source is None:
-            raise SemanticError(f"unknown semantic field: {arguments[0]}")
+            raise SemanticError(f"unknown semantic field: {field_name}")
         owner, descriptor = source
         availability_error = _availability_error(owner, descriptor.name)
+        if name == "fieldState":
+            if availability_error is not None:
+                if availability_error.startswith("field is semantically absent:"):
+                    return "SEMANTICALLY_ABSENT"
+                if availability_error.startswith("field was not requested:"):
+                    return "UNREQUESTED"
+                if availability_error.startswith("field is inapplicable:"):
+                    return "INAPPLICABLE"
+                if availability_error.startswith("field is unavailable:"):
+                    return "UNAVAILABLE"
+                if availability_error.startswith("field was truncated:"):
+                    return "TRUNCATED"
+                if availability_error.startswith("field state is unspecified:"):
+                    return "UNSPECIFIED"
+            message = owner._message()
+            if descriptor.containing_oneof is not None and not _is_synthetic_oneof(descriptor):
+                return "PRESENT" if message.WhichOneof(descriptor.containing_oneof.name) == descriptor.name else "ABSENT"
+            if descriptor.has_presence:
+                return "PRESENT" if message.HasField(descriptor.name) else "ABSENT"
+            return "PRESENT"
+        if name == "fieldOr":
+            if availability_error is not None:
+                if availability_error.startswith(("field is semantically absent:", "field is inapplicable:")):
+                    return arguments[1]
+                raise SemanticError(availability_error)
+            try:
+                return _read_direct_field(owner, descriptor)
+            except SemanticError as error:
+                if str(error).startswith(("field is absent:", "inactive oneof field:")):
+                    return arguments[1]
+                raise
         if availability_error is not None and availability_error.startswith("field was not requested:"):
-            return False
+            raise SemanticError(f"field was not requested: {field_name}; use fieldState to inspect availability")
         if not descriptor.has_presence:
             raise SemanticError(f"field has no presence: {arguments[0]}")
         message = owner._message()
@@ -373,6 +423,43 @@ def call_method(value: Any, name: str, arguments: list[Any]) -> Any:
             return message.WhichOneof(descriptor.containing_oneof.name) == descriptor.name
         return message.HasField(descriptor.name)
     raise SemanticError(f"unknown method: {name}")
+
+
+def _find_node_alias(value: Any, alias: str, depth: int = 0) -> Any | None:
+    """Resolve the common declaration conveniences within a selected node payload."""
+    if depth > 12 or not isinstance(value, MessageView):
+        return None
+    fields = field_sources(value, include_inactive=False)
+    if alias == "qualified_name":
+        descriptor = fields.get("qualified_name")
+        if descriptor is not None:
+            try:
+                return _read_direct_field(*descriptor)
+            except SemanticError:
+                pass
+    if alias in {"name", "declared_type"}:
+        target = "name" if alias == "name" else "declared_type"
+        if target in fields:
+            try:
+                return _read_direct_field(*fields[target])
+            except SemanticError:
+                pass
+    message = value._message()
+    for descriptor in value.descriptor.fields:
+        if descriptor.is_repeated or descriptor.message_type is None:
+            continue
+        if descriptor.containing_oneof is not None and message.WhichOneof(
+            descriptor.containing_oneof.name
+        ) != descriptor.name:
+            continue
+        try:
+            child = _read_direct_field(value, descriptor)
+        except SemanticError:
+            continue
+        found = _find_node_alias(child, alias, depth + 1)
+        if found is not None:
+            return found
+    return None
 
 
 def inspect_value(value: Any, *, max_depth: int = 3, max_items: int = 20) -> Any:
@@ -404,7 +491,7 @@ def inspect_value(value: Any, *, max_depth: int = 3, max_items: int = 20) -> Any
                 fields["…"] = "fields truncated"
             active = {oneof.name: item._message().WhichOneof(oneof.name) for oneof in item.descriptor.oneofs}
             return {"type": item.descriptor.full_name, "fields": fields, "active_oneof": active,
-                    "methods": ["hasField"]}
+                    "methods": ["fieldOr", "fieldState", "hasField"]}
         if isinstance(item, BindingMapView):
             count = len(item)
             names = list(islice(iter(item), max_items))
