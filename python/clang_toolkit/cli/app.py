@@ -385,6 +385,7 @@ async def _run() -> int:
             references=runtime.completion_references,
             field_resolver=runtime.completion_suggestions,
             presence_resolver=runtime.completion_presence_fields,
+            matcher_functions=runtime.matcher_function_names,
             history=prompt_history,
             cwd=runtime.cwd,
         )

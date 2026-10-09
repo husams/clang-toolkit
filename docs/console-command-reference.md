@@ -113,16 +113,21 @@ Bind a typed expression without printing it.
 
 ```text
 let NAME = VALUE
+let NAME(PARAM, ...) = MATCHER
 ```
 
 - NAME: identifier without $. References use $name, fields and zero-based [index].
 - VALUE: matcher, literal, list, reference, glob, parse, match, foreach or scoped block. match do is a statement loop and does not produce an assignable collection.
 - Matcher construction is local; parse/match require a server. Failed evaluation preserves the prior binding.
+- Parameterized matchers use let named(name) = functionDecl(hasName($name)). Parameters are declared without $ and referenced with $ inside the routine. Calls use named("value") and may be nested or followed by .bind("label").
+- A routine body must return a matcher. Arguments may be strings, numbers, booleans, matcher values or references. Parameters are local to each call; other references and routines use their current values at call time. Argument counts must match, parameter names must be unique, built-in matcher names are reserved, and call depth is limited to 64.
 - let silently retains typed query and graph results. Read counts with .length, rows with [index], and select bind label f across rows with $rows.f.
 - Use unique(field), sort(field) and filter(field, expected) on supported collections; field selectors may be dotted paths.
 
 ```text
 let predicate = hasName("main")
+let named(name) = functionDecl(hasName($name))
+let rows = match named("main").bind("f") in "examples/parse_match.cc"
 let matcher = functionDecl($predicate)
 let files = glob("examples/*.cc")
 let rows = match $matcher in $files

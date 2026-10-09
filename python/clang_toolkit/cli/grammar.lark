@@ -4,6 +4,7 @@ batch_separator: BATCH_SEPARATOR+ | SEMICOLON BATCH_SEPARATOR*
 reference_start: reference
 
 ?statement: assignment
+          | matcher_definition
           | command
           | reference                    -> display
           | STRING                       -> display
@@ -13,6 +14,8 @@ reference_start: reference
           | analysis_block               -> display
 
 assignment: LET NAME EQUAL value_expression
+matcher_definition: LET NAME LPAR [parameters] RPAR EQUAL root_expression
+parameters: NAME (COMMA NAME)*
 
 ?command: MATCH root_expression [IN path_value_expression] [DO statement_block] -> match
         | BACKGROUND root_expression [IN path_value_expression] -> background

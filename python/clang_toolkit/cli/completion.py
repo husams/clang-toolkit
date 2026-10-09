@@ -30,6 +30,7 @@ class ReplCompleter(Completer):
         field_resolver: Callable[[str], Iterable[object]] | None = None,
         presence_resolver: Callable[[str], Iterable[str]] | None = None,
         root_matchers: Iterable[str] | None = None,
+        matcher_functions: Iterable[str] | Callable[[], Iterable[str]] | None = None,
         cwd: Path | None = None,
     ) -> None:
         custom = tuple(dict.fromkeys(matchers)) if matchers is not None else None
@@ -39,6 +40,7 @@ class ReplCompleter(Completer):
             roots = ROOT_MATCHERS
         self._nested_matchers = tuple(dict.fromkeys(nested))
         self._root_matchers = tuple(dict.fromkeys(roots))
+        self._matcher_functions = matcher_functions
         self._references = references
         self._field_resolver = field_resolver
         self._presence_resolver = presence_resolver
@@ -113,11 +115,13 @@ class ReplCompleter(Completer):
             name: tuple(dict.fromkeys(fields))
             for name, fields in (current_references or {}).items()
         }
+        functions = tuple(self._matcher_functions() if callable(self._matcher_functions)
+                          else self._matcher_functions or ())
         for item in candidates_for(
             context,
             accepted,
-            self._root_matchers,
-            self._nested_matchers,
+            (*self._root_matchers, *functions),
+            (*self._nested_matchers, *functions),
             references,
             source[:cursor],
             self._field_resolver,

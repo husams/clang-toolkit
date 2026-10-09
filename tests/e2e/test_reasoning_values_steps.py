@@ -30,6 +30,66 @@ def values_fixture(tmp_path: Path, request):
     return server, tmp_path
 
 
+@when("I define and call parameterized matchers through the console and SDKs", target_fixture="routine_run")
+def query_matcher_routines(values_fixture):
+    from clang_toolkit import Client, AsyncClient
+
+    server, root = values_fixture
+    declarations = [
+        'let matcher(name) = functionDecl(hasName($name))',
+        'let named(name) = hasName($name)',
+        'let definitions() = isDefinition()',
+        'let selected(name, predicate) = functionDecl(named($name), $predicate)',
+    ]
+    script = '\n'.join([
+        'let name = "outside"', *declarations,
+        'let m = match matcher("alpha").bind("fn") in "alpha.cc"',
+        'print "ROUTINE_NAME=${m[0].fn.decl_name}"',
+        'let nested = match selected("beta", definitions()).bind("fn") in "*.cc"',
+        'print "NESTED_NAME=${nested[0].fn.decl_name}"',
+        'match matcher("alpha").bind("func") in "alpha.cc" do {',
+        '  let params(name) = parmVarDecl(hasName($name))',
+        '  let rows = match params("value").bind("p") in $func.source_file',
+        '  print "PARAMETER_NAME=${rows[0].p.decl_name}"',
+        '}',
+        'print "OUTER_NAME=${name}"',
+    ])
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint, "-e", script],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=root,
+        env=dict(os.environ, XDG_STATE_HOME=str(root / "routine-state")),
+        timeout=30, check=False,
+    )
+    with Client(server.endpoint) as client:
+        for statement in declarations:
+            client.execute(statement, working_directory=root)
+        rows = client.execute('match matcher("alpha").bind("fn") in "alpha.cc"')
+        synchronous = rows[0].bindings["fn"].node.function_decl.function.declarator.value.named.qualified_name
+        assert not client._expression_runtime._scopes
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            for statement in declarations:
+                await client.execute(statement, working_directory=root)
+            rows = await client.execute('match selected("beta", definitions()).bind("fn") in "*.cc"')
+            assert not client._expression_runtime._scopes
+            return rows[0].bindings["fn"].node.function_decl.function.declarator.value.named.qualified_name
+
+    return console, synchronous, asyncio.run(run())
+
+
+@then("arguments, binding labels and local routine scopes retain typed matches")
+def verify_matcher_routines(routine_run):
+    console, synchronous, asynchronous = routine_run
+    assert console.returncode == 0, console.stdout
+    for text in ("ROUTINE_NAME=alpha", "NESTED_NAME=beta",
+                 "PARAMETER_NAME=value", "OUTER_NAME=outside"):
+        assert text in console.stdout
+    assert "error:" not in console.stdout.lower()
+    assert synchronous == "alpha"
+    assert asynchronous == "beta"
+
+
 @when("I read JSON and YAML documents through the console and SDKs", target_fixture="document_run")
 def read_documents(values_fixture):
     from clang_toolkit import Client, AsyncClient

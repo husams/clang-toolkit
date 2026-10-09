@@ -1,5 +1,10 @@
 Feature: Multi-file match values retain typed rows and safe semantic access
 
+  Scenario: Parameterized matchers expand through the console and Python SDKs
+    Given a private server and two source files for reasoning values
+    When I define and call parameterized matchers through the console and SDKs
+    Then arguments, binding labels and local routine scopes retain typed matches
+
   Scenario: Ordinary JSON and YAML files expose nested data through the console and SDKs
     Given a private server and two source files for reasoning values
     When I read JSON and YAML documents through the console and SDKs

@@ -139,6 +139,7 @@ def create_session(
     | None = None,
     field_resolver: Callable[[str], Iterable[object]] | None = None,
     presence_resolver: Callable[[str], Iterable[str]] | None = None,
+    matcher_functions: Iterable[str] | Callable[[], Iterable[str]] | None = None,
     history: History | None = None,
     cwd: Path | None = None,
 ) -> PromptSession[str]:
@@ -166,6 +167,7 @@ def create_session(
             references=references,
             field_resolver=field_resolver,
             presence_resolver=presence_resolver,
+            matcher_functions=matcher_functions,
             cwd=cwd,
         ),
         lexer=ReplLexer(),

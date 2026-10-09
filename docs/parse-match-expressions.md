@@ -1,5 +1,32 @@
 # Parse and match expressions
 
+## Parameterized matchers
+
+```text
+let matcher(name) = functionDecl(hasName($name))
+let m = match matcher("xxx").bind("func") in "example.cpp"
+let named(name) = hasName($name)
+let definitions(name, predicate) = functionDecl(named($name), $predicate)
+let selected = definitions("xxx", isDefinition())
+let m = match $selected in "example.cpp"
+```
+
+Parameters are declared without `$` and referenced with `$` inside the routine.
+The body produces a typed matcher locally; invoking `match` sends its expanded
+expression to the server. Calls may be nested, receive matcher arguments, and add
+binding labels. Zero-argument routines use `let definitions() = functionDecl()`.
+Parameter references support normal field access and string interpolation.
+Each call restores outer variables on success or failure; other variables and
+routine names resolve to their current values when called. Definitions inside a
+match statement block remain local to that block's row.
+
+Calls require the declared number of arguments. Duplicate parameters and names
+reserved for built-in matchers are rejected. Bodies must return a matcher, and
+expansion stops at 64 nested calls. Calling a predicate as the root of `match`
+retains the existing top-level matcher restriction. Console and Python
+`Client.execute`/`AsyncClient.execute` support this syntax; native server scripts
+retain their separate language.
+
 Run a local server and interactive console with `scripts/manual_console.sh`.
 From the repository directory, these commands use the supplied two-function
 fixture (each command is one console input):

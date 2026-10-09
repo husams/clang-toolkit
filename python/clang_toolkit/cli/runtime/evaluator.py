@@ -6,7 +6,7 @@ import os
 from glob import has_magic, iglob
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -41,6 +41,7 @@ from .persistence import load, read_document, save
 from .values import MatchSet, MatcherExpr, QualifiedName, matcher_text, render, render_inspection
 from .cursors import execute_cursor
 from .traversal import execute_traversal
+from .matcher_functions import MatcherFunction
 
 
 class EvaluationError(ValueError):
@@ -93,6 +94,7 @@ class Runtime:
         self.history = history
         self.bindings: dict[str, Any] = {}
         self._scopes: list[dict[str, Any]] = []
+        self._matcher_call_depth = 0
         self._default_targets: list[ParsedTree] = []
         self._block_owners: list[set[Any]] = []
 
@@ -112,6 +114,9 @@ class Runtime:
         self._apply_compilation_settings()
         if kind == "assignment":
             self._assignment(statement)
+            return self._resolve_name(str(statement.children[1]))
+        if kind == "matcher_definition":
+            self._define_matcher(statement)
             return self._resolve_name(str(statement.children[1]))
         if kind == "match":
             if self._match_block(statement) is not None:
@@ -219,6 +224,9 @@ class Runtime:
             return ""
         if kind == "assignment":
             self._assignment(statement)
+            return ""
+        if kind == "matcher_definition":
+            self._define_matcher(statement)
             return ""
         if kind == "match":
             if self._match_block(statement) is not None:
@@ -435,6 +443,34 @@ class Runtime:
         scope = self._scopes[-1] if self._scopes else self.bindings
         scope[name] = value
 
+    def _define_matcher(self, statement: Tree) -> None:
+        name = str(statement.children[1])
+        if name in set(ROOT_MATCHERS) | set(NESTED_MATCHERS):
+            raise EvaluationError(f"{name} is a built-in matcher name")
+        parameter_node = next((child for child in statement.children
+            if isinstance(child, Tree) and child.data == "parameters"), None)
+        parameters = tuple(str(child) for child in parameter_node.children
+            if isinstance(child, Token) and child.type == "NAME") if parameter_node else ()
+        if len(set(parameters)) != len(parameters):
+            raise EvaluationError(f"{name} has duplicate parameter names")
+        scope = self._scopes[-1] if self._scopes else self.bindings
+        scope[name] = MatcherFunction(name, parameters, statement.children[-1])
+
+    def _matcher_function(self, name: str) -> MatcherFunction | None:
+        for scope in reversed(self._scopes):
+            if name in scope:
+                value = scope[name]
+                return value if isinstance(value, MatcherFunction) else None
+        value = self.bindings.get(name)
+        return value if isinstance(value, MatcherFunction) else None
+
+    def matcher_function_names(self) -> tuple[str, ...]:
+        values = dict(self.bindings)
+        for scope in self._scopes:
+            values.update(scope)
+        return tuple(name for name, value in values.items()
+                     if isinstance(value, MatcherFunction))
+
     def _set(self, statement: Tree) -> None:
         scope = (
             "user"
@@ -542,6 +578,10 @@ class Runtime:
                     )
                 elif not self._punctuation(child) and child is not None:
                     args.append(self._evaluate(child))
+            function = self._matcher_function(name)
+            if function is not None:
+                value = function.call(self, args)
+                return replace(value, binding=binding) if binding is not None else value
             return MatcherExpr(name, tuple(args), binding)
         if kind == "nested_qualified_name":
             return QualifiedName("".join(map(str, node.children)))
@@ -1012,14 +1052,15 @@ class Runtime:
         value = getattr(config, name, default)
         return value if type(value) is int and value >= 0 else default
 
-    @staticmethod
-    def _has_dynamic_part(node: Tree) -> bool:
+    def _has_dynamic_part(self, node: Tree) -> bool:
         if node.data == "reference":
+            return True
+        if node.data == "matcher" and self._matcher_function(str(node.children[0])) is not None:
             return True
         return any(
             (
                 isinstance(child, Tree)
-                and (child.data == "reference" or Runtime._has_dynamic_part(child))
+                and (child.data == "reference" or self._has_dynamic_part(child))
             )
             or (
                 isinstance(child, Token)
