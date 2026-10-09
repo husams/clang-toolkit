@@ -300,7 +300,7 @@ _ENTRIES = (
     ),
     CommandHelp(
         "session",
-        "List, attach or close retained native sessions, label history or control a legacy query.",
+        "List, attach or close retained native sessions, label history or control a query.",
         (
             "session label STRING",
             "session start QUERY_STRING",
@@ -314,8 +314,8 @@ _ENTRIES = (
             "session close ID_OR_VALUE",
         ),
         (
-            "list/attach/close ID operate native retained cursors without --session; label is local.",
-            "start/add/match/pause/resume and bare close require launching ctk --session.",
+            "list/attach/close ID operate native retained cursors; label is local.",
+            "The console opens a query session automatically; start defines its matcher and add supplies files.",
             "See help session <subcommand>. Use parse/match/in/yield for declarative analysis.",
         ),
         ('session label "study functions"',),
@@ -323,7 +323,7 @@ _ENTRIES = (
     CommandHelp(
         "session list", "List retained native sessions owned by this caller.",
         ("session list",),
-        ("Shows IDs, files, revisions, row counts, native binding names and idle expiry.",),
+        ("Shows labeled IDs, files, revisions, row counts, native binding names and idle expiry.",),
         ("session list",),
     ),
     CommandHelp(
@@ -342,6 +342,7 @@ _ENTRIES = (
     CommandHelp(
         "server status", "Show live server memory and retained resource usage.", ("server status",),
         ("Reports uptime, current process RSS when available, session count and configured limits.",
+         "Sizes use KiB below 1 MiB, MiB below 1 GiB, and GiB otherwise.",
          "Retained/native memory counters are estimates; cache and cursor bytes can overlap.",
          "Unavailable disk or memory cache accounting is explicitly flagged."), ("server status",),
     ),
@@ -351,7 +352,8 @@ _ENTRIES = (
     ),
     CommandHelp(
         "cache status", "Show reusable memory snapshots and persistent native artifacts.", ("cache status",),
-        ("Disk bytes count native artifacts, excluding SQLite metadata and directory overhead.",), ("cache status",),
+        ("Sizes use KiB below 1 MiB, MiB below 1 GiB, and GiB otherwise.",
+         "Disk bytes count native artifacts, excluding SQLite metadata and directory overhead."), ("cache status",),
     ),
     CommandHelp(
         "cache prune", "Release reusable memory entries and retire unused disk snapshots.",
@@ -389,25 +391,25 @@ _ENTRIES = (
         "session label",
         "Set the local history label without changing its UUID.",
         ("session label STRING",),
-        ("STRING: quoted label; default is no label. Does not require --session.",),
+        ("STRING: quoted label; default is no label.",),
         ('session label "study functions"',),
     ),
     CommandHelp(
         "session start",
-        "Define the legacy bidirectional session query.",
+        "Define the query for the console's session.",
         ("session start QUERY_STRING",),
         (
-            "Requires ctk --session. QUERY_STRING is a quoted matcher expression, not a path.",
+            "QUERY_STRING is a quoted matcher expression, not a path. The session opens automatically.",
             "Uses configured extra_args and the session working directory.",
         ),
         ('session start "functionDecl()"',),
     ),
     CommandHelp(
         "session add",
-        "Add a source file to a legacy bidirectional session.",
+        "Add a source file to the console's query session.",
         ("session add PATH",),
         (
-            "Requires ctk --session. PATH: quoted file path; uses configured extra_args and the session directory.",
+            "Define a query with session start first. PATH: quoted file path; uses configured extra_args and the session directory.",
         ),
         (
             'session start "functionDecl()"',
@@ -419,7 +421,8 @@ _ENTRIES = (
         "session match",
         "Run the query over files added to a bidirectional session.",
         ("session match",),
-        ("Requires ctk --session and a started query; no arguments or options.",),
+        ("Requires session start and files supplied with session add; no arguments or options.",
+         "An ordinary match expression executes immediately and does not define this session's query."),
         (
             'session start "functionDecl()"',
             'session add "examples/parse_match.cc"',
@@ -428,25 +431,25 @@ _ENTRIES = (
     ),
     CommandHelp(
         "session pause",
-        "Pause legacy bidirectional query feedback.",
+        "Pause the session's query feedback.",
         ("session pause",),
-        ("Requires ctk --session; no arguments or options.",),
+        ("Requires a started query; no arguments or options.",),
         ("session pause",),
     ),
     CommandHelp(
         "session resume",
-        "Resume legacy bidirectional query feedback.",
+        "Resume the session's query feedback.",
         ("session resume",),
-        ("Requires ctk --session; no arguments or options.",),
+        ("Requires a started query; no arguments or options.",),
         ("session resume",),
     ),
     CommandHelp(
         "session close",
-        "Close a retained native cursor or the legacy bidirectional query session.",
+        "Close a retained native cursor or the console's query session.",
         ("session close ID_OR_VALUE", "session close"),
         ("With a quoted UUID, UUID variable, tree, match value or binding: release that retained cursor.",
          "A valid unavailable UUID is an idempotent close; derived independent cursors survive.",
-         "Without an argument: requires ctk --session. The console remains open."),
+         "Without an argument: close the query session's input. The console remains open."),
         ("session close $tree", "session close"),
     ),
     CommandHelp(
@@ -748,7 +751,7 @@ def reference_markdown() -> str:
         "Uppercase words are placeholders; brackets denote optional syntax. Examples",
         "use the checked-in `examples/parse_match.cc` fixture. Run them from the repository",
         "root with a native server for analysis operations. Use returned cursor IDs in",
-        "place of `CURSOR_ID`; session controls require `ctk --session`.",
+        "place of `CURSOR_ID`; the console opens its query session automatically.",
         "",
     ]
     for entry in COMMAND_HELP.values():

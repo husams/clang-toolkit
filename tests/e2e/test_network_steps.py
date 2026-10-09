@@ -460,11 +460,19 @@ def manage_native_resources(server: RunningServer, source: Path, tmp_path: Path)
         runtime = Runtime(client, cwd=tmp_path)
         try:
             runtime.bindings["tree"] = tree
-            runtime.execute("server status")
-            runtime.execute("cache status")
-            runtime.execute("session list")
+            status_text = runtime.execute("server status")
+            assert status_text.startswith("Server status\n")
+            assert "Resident memory" in status_text and "Retained memory" in status_text
+            assert any(unit in status_text for unit in ("KiB", "MiB", "GiB"))
+            cache_text = runtime.execute("cache status")
+            assert cache_text.startswith("Cache status\n") and "Storage root" in cache_text
+            session_text = runtime.execute("session list")
+            assert identity in session_text and str(source) in session_text
+            assert "Bindings" in session_text and "Expires" in session_text
             runtime.execute("session attach $tree into $attached")
-            runtime.execute("cache prune all")
+            prune_text = runtime.execute("cache prune all")
+            assert prune_text.startswith("Cache prune results\n")
+            assert "Before" in prune_text and "After" in prune_text
             assert client.server_status().cache.reusable_snapshots == 0
             child = client.match_in('varDecl().bind("child")', tree)
             assert len(child) == 1
@@ -759,6 +767,31 @@ def has_match_and_completion(events) -> None:
             if event.WhichOneof("event") == "completed"
         )
         assert completed.match_count >= 1
+
+
+@when("I run session commands in the console without a session option",
+      target_fixture="automatic_session_console")
+def run_automatic_console_session(server: RunningServer, source: Path, tmp_path: Path):
+    import sys
+    return subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+        input='session start "varDecl()"\n'
+              f'session add "{source}"\n'
+              'session match\nsession close\nquit\n',
+        env=dict(os.environ, XDG_STATE_HOME=str(tmp_path / "console-state")),
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        timeout=30, check=False,
+    )
+
+
+@then("the console streams a match and completion without session errors")
+def automatic_console_session_completes(automatic_session_console):
+    console = automatic_session_console
+    assert console.returncode == 0, console.stdout
+    assert "network_client_marker" in console.stdout
+    assert "completed: 1 matches" in console.stdout
+    assert "error:" not in console.stdout.lower()
+    assert "Task exception was never retrieved" not in console.stdout
 
 
 @when("I run the query through a bidirectional session", target_fixture="session_events")

@@ -140,10 +140,10 @@ class Runtime:
             return ""
         if kind in {"session_start", "session_add", "session_match", "session_pause", "session_resume", "session_close"}:
             if getattr(self.client, "_query_session", None) is None:
-                raise EvaluationError("enable --session before using bidi session commands")
+                raise EvaluationError("interactive query session is unavailable; restart the console")
             send = getattr(self.client, "send_session_command", None)
             if send is None:
-                raise EvaluationError("bidirectional query session is not enabled")
+                raise EvaluationError("interactive query session commands are unavailable")
             value = self._string(str(statement.children[2])) if len(statement.children) > 2 else None
             return send(
                 kind.removeprefix("session_"), value, working_directory=self.cwd,

@@ -47,6 +47,10 @@ concrete and inherited declaration fields are also available directly. Tab after
 `$m[0].f.value.node.` offers fields such as `name`, `qualified_name`, `return_type`,
 the active payload, and the `hasField(` method. Child fields such as `parameters`
 and `body` are intentionally unrequested in match results.
+Ordinary JSON display contains AST field values without protobuf package names,
+oneof inspection tables or method lists. For example, qualifiers display as
+`{"is_const": true}` rather than a `ctk.ast.v1.Qualifiers` wrapper. The explicit
+`inspect` command retains schema names, presence and method metadata.
 Exact schema paths remain available. For example:
 
 ```text
@@ -104,7 +108,14 @@ types, unknown variables, invalid matchers and out-of-range rows fail without
 assigning the block result. The console keeps any earlier assignment intact.
 
 Continuation visits each selected row independently, inclusively matching the
-root and its descendants. Overlapping roots or duplicate input rows can produce
+root and its descendants. With the default `AS_IS` traversal, ordinary subtree
+queries walk candidates directly under the selected root rather than scanning
+the whole translation unit and filtering by ancestry. Shared default initializer
+expressions are evaluated only for occurrences in that rooted walk, so field or
+sibling-constructor occurrences outside it do not add results. Source-spelled
+traversal and the `isDerivedFrom`, `isDirectlyDerivedFrom` and
+`isSameOrDerivedFrom` matcher families retain Clang's whole-tree matcher path to
+preserve its contextual traversal and alias metadata. Overlapping roots or duplicate input rows can produce
 the same native match more than once; results retain that multiplicity. A
 continuation's `source_match_index` identifies the immediate input row.
 Relationship predicates can inspect the whole AST, even while candidate roots

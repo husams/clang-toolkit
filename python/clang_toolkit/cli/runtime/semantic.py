@@ -432,3 +432,77 @@ def inspect_value(value: Any, *, max_depth: int = 3, max_items: int = 20) -> Any
         return item
 
     return walk(value, 0)
+
+
+def display_value(value: Any, *, max_depth: int = 16, max_items: int = 20) -> Any:
+    """Return ordinary AST fields without protobuf inspection metadata."""
+    def walk(item: Any, depth: int) -> Any:
+        if isinstance(item, EnumValue):
+            return item.name
+        if isinstance(item, MessageView):
+            if depth >= max_depth:
+                return {"…": "depth truncated"}
+            message = item._message()
+            fields: dict[str, Any] = {}
+            for descriptor, raw_value in message.ListFields():
+                name = descriptor.name
+                # Availability describes serializer/schema state, rather than
+                # a field of the AST itself; inspect retains that detail.
+                if name == "availability":
+                    continue
+                if _availability_error(item, name) is not None:
+                    continue
+                if len(fields) >= max_items:
+                    fields["…"] = "fields truncated"
+                    break
+                path = f"{item._path}.{name}" if item._path else name
+                if descriptor.is_repeated:
+                    if descriptor.message_type is not None and descriptor.message_type.GetOptions().map_entry:
+                        value_descriptor = descriptor.message_type.fields_by_name["value"]
+                        selected = list(islice(raw_value.items(), max_items))
+                        mapped = {
+                            str(key): walk(_convert(raw, value_descriptor, item._availability,
+                                                    f"{path}.{key}"), depth + 1)
+                            for key, raw in selected
+                        }
+                        if len(raw_value) > len(selected):
+                            mapped["…"] = f"{len(raw_value) - len(selected)} entries truncated"
+                        fields[name] = mapped
+                    else:
+                        selected = list(islice(raw_value, max_items))
+                        values = [walk(_convert(raw, descriptor, item._availability,
+                                                f"{path}[{index}]"), depth + 1)
+                                  for index, raw in enumerate(selected)]
+                        if len(raw_value) > len(selected):
+                            values.append({"…": f"{len(raw_value) - len(selected)} items truncated"})
+                        fields[name] = values
+                else:
+                    fields[name] = walk(_convert(raw_value, descriptor, item._availability, path), depth + 1)
+            return fields
+        if isinstance(item, RepeatedView):
+            count = len(item)
+            result = [walk(child, depth + 1) for child in islice(iter(item), max_items)]
+            if count > len(result):
+                result.append({"…": f"{count - len(result)} items truncated"})
+            return result
+        if isinstance(item, MapView):
+            parent = _parse(item._data, item._message_type)
+            values = getattr(parent, item._field_name)
+            keys = list(islice(iter(values), max_items))
+            result = {str(key): walk(index_value(item, key), depth + 1) for key in keys}
+            if len(values) > len(keys):
+                result["…"] = f"{len(values) - len(keys)} entries truncated"
+            return result
+        if isinstance(item, BindingMapView):
+            keys = list(islice(iter(item), max_items))
+            result = {key: walk(index_value(item, key), depth + 1) for key in keys}
+            if len(item) > len(keys):
+                result["…"] = f"{len(item) - len(keys)} entries truncated"
+            return result
+        if isinstance(item, bytes):
+            return item[:128].hex() + ("… <truncated>" if len(item) > 128 else "")
+        if isinstance(item, str) and len(item) > 2_048:
+            return item[:2_048] + "… <truncated>"
+        return item
+
+    return walk(value, 0)

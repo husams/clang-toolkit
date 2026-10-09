@@ -126,12 +126,16 @@ session resume
 session close
 ```
 
-Start the CLI with `--session` to enable bidirectional commands. A fixed-file query
-can also start with `--query ... --file ... --background`, leaving the prompt active.
+The interactive CLI opens a bidirectional query session automatically. Define its
+matcher with `session start`, add source files with `session add`, then run
+`session match`. A fixed-file query can also start with
+`--query ... --file ... --background`, leaving the prompt active.
 Closing input means no further commands; accepted work and outgoing writes still
 finish before the call completes. Only explicit Pause changes production pacing.
 Resume a paused session before closing input, or cancel the call with `aclose()`.
 Server shutdown closes input and resumes paused work to drain accepted requests.
+Exiting the console waits up to five seconds for its query session to finish,
+then cancels remaining session work.
 
 ## Resource and delivery policy
 

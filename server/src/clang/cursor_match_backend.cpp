@@ -7,6 +7,8 @@
 #include <clang/ASTMatchers/ASTMatchers.h>
 #include <clang/ASTMatchers/Dynamic/Diagnostics.h>
 #include <clang/ASTMatchers/Dynamic/Parser.h>
+#include <clang/AST/RecursiveASTVisitor.h>
+#include <functional>
 #include <mutex>
 
 namespace ctk::clang_layer {
@@ -14,9 +16,8 @@ namespace {
 using namespace clang::ast_matchers;
 using namespace ctk::match::v1;
 
-// Native matchAST supplies the authoritative traversal. Restrict candidate
-// roots by native ancestry; relationship predicates still see the full AST.
-// A separate traversal per selected row preserves overlap and empty callbacks.
+// Preserve Clang's full MatchFinder traversal for source-spelled queries,
+// whose candidate eligibility depends on contextual traversal state.
 internal::DynTypedMatcher
 scoped_matcher(const clang::DynTypedNode &root,
                const internal::DynTypedMatcher &query) {
@@ -35,6 +36,119 @@ scoped_matcher(const clang::DynTypedNode &root,
   return stmt(allOf(
       query.convertTo<clang::Stmt>(),
       anyOf(equalsNode(selected), hasAncestor(stmt(equalsNode(selected))))));
+}
+
+bool requires_translation_unit_match_metadata(llvm::StringRef query) {
+  // MatchASTVisitor gathers typedef aliases and Objective-C compatible aliases
+  // before evaluating these inheritance matchers. Per-node MatchFinder::match
+  // does not build that translation-unit cache.
+  return query.contains("isDerivedFrom") ||
+         query.contains("isDirectlyDerivedFrom") ||
+         query.contains("isSameOrDerivedFrom");
+}
+
+// MatchFinder::matchAST walks the whole translation unit. For a selected
+// AS_IS subtree, mirror its RecursiveASTVisitor candidate walk from just that
+// root and ask MatchFinder to evaluate each Decl/Stmt. Each exact-node match
+// still has the full ASTContext available for relationship predicates.
+class SubtreeCandidateVisitor final
+    : public clang::RecursiveASTVisitor<SubtreeCandidateVisitor> {
+public:
+  using VisitorBase = clang::RecursiveASTVisitor<SubtreeCandidateVisitor>;
+
+  SubtreeCandidateVisitor(MatchFinder &finder, clang::ASTContext &context,
+                          const std::function<bool()> &should_continue)
+      : finder_(finder), context_(context), should_continue_(should_continue) {}
+
+  bool shouldVisitTemplateInstantiations() const { return true; }
+  bool shouldVisitImplicitCode() const { return true; }
+  bool shouldVisitLambdaBody() const { return false; }
+
+  bool TraverseDecl(clang::Decl *node) {
+    if (!node)
+      return true;
+    if (!should_continue_())
+      return false;
+    finder_.match(clang::DynTypedNode::create(*node), context_);
+    if (!should_continue_())
+      return false;
+    return VisitorBase::TraverseDecl(node);
+  }
+
+  bool TraverseStmt(clang::Stmt *node,
+                    DataRecursionQueue *queue = nullptr) {
+    if (!node)
+      return true;
+    if (!should_continue_())
+      return false;
+    finder_.match(clang::DynTypedNode::create(*node), context_);
+    if (!should_continue_())
+      return false;
+    return VisitorBase::TraverseStmt(node, queue);
+  }
+
+  bool TraverseCXXForRangeStmt(clang::CXXForRangeStmt *node,
+                               DataRecursionQueue * = nullptr) {
+    if (!node)
+      return true;
+    // MatchASTVisitor's init/loop-variable/range-init replay is marked
+    // NotAsIs and does not emit candidates in the AS_IS traversal mode.
+    for (clang::Stmt *child : node->children()) {
+      if (child != node->getBody() && !TraverseStmt(child))
+        return false;
+    }
+    return TraverseStmt(node->getBody());
+  }
+
+  bool TraverseCXXRewrittenBinaryOperator(
+      clang::CXXRewrittenBinaryOperator *node,
+      DataRecursionQueue * = nullptr) {
+    if (!node)
+      return true;
+    // The separate decomposed LHS/RHS replay is NotAsIs; only walk the
+    // rewritten operator's native children in this traversal mode.
+    for (clang::Stmt *child : node->children())
+      if (!TraverseStmt(child))
+        return false;
+    return true;
+  }
+
+  bool TraverseLambdaExpr(clang::LambdaExpr *node) {
+    if (!node)
+      return true;
+    for (unsigned index = 0; index < node->capture_size(); ++index) {
+      const clang::LambdaCapture *capture = node->capture_begin() + index;
+      if (!TraverseLambdaCapture(node, capture,
+                                 node->capture_init_begin()[index]))
+        return false;
+    }
+    if (!TraverseDecl(node->getLambdaClass()))
+      return false;
+
+    // The separate written-signature replay is NotAsIs. The lambda class
+    // above carries declarations; the explicit body is the semantic branch.
+    return TraverseStmt(node->getBody());
+  }
+
+private:
+  MatchFinder &finder_;
+  clang::ASTContext &context_;
+  const std::function<bool()> &should_continue_;
+};
+
+void match_subtree(const clang::DynTypedNode &root, MatchFinder &finder,
+                   clang::ASTContext &context,
+                   const std::function<bool()> &should_continue) {
+  SubtreeCandidateVisitor visitor(finder, context, should_continue);
+  // Candidate callbacks come only from this rooted native walk. Some AST
+  // expressions (such as an in-class initializer) are shared with field or
+  // sibling-constructor occurrences elsewhere in the translation unit; those
+  // outside-root occurrences are deliberately not imported here. The original
+  // ASTContext remains available to each match for relationship predicates.
+  if (const auto *decl = root.get<clang::Decl>())
+    visitor.TraverseDecl(const_cast<clang::Decl *>(decl));
+  else if (const auto *stmt = root.get<clang::Stmt>())
+    visitor.TraverseStmt(const_cast<clang::Stmt *>(stmt));
 }
 
 class CursorMatchBackend final : public IMatchBackend {
@@ -166,11 +280,18 @@ private:
                            "subtree requires Decl/Stmt root and matcher");
           callback.source_row = index;
           if (subtree) {
-            MatchFinder descendants;
-            auto wrapped =
-                scoped_matcher(root, query).withTraversalKind(traversal);
-            descendants.addDynamicMatcher(wrapped, &callback);
-            descendants.matchAST(context);
+            if (traversal == clang::TK_AsIs &&
+                !requires_translation_unit_match_metadata(request.query())) {
+              match_subtree(root, finder, context, [&] {
+                return checkpoint() && result.code == MatchCode::Ok;
+              });
+            } else {
+              MatchFinder descendants;
+              auto wrapped =
+                  scoped_matcher(root, query).withTraversalKind(traversal);
+              descendants.addDynamicMatcher(wrapped, &callback);
+              descendants.matchAST(context);
+            }
           } else {
             finder.match(root, context);
           }

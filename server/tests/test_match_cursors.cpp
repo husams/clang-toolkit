@@ -785,31 +785,172 @@ TEST_F(MatchCursors, NativeSubtreeTraversalMatchesWholeTreePolicy) {
   std::ofstream(directory.path() / "fixture.cc")
       << "template<class T> T id(T x) { return x; }\n"
          "struct N { int x; bool operator==(const N&) const = default; };\n"
-         "bool f(N a,N b) { auto l=[](int x){return x+1;}; return a!=b && "
+         "bool f(N a,N b) { int values[] = {3,4}; int total=0; "
+         "for (int value : values) total += value; "
+         "auto l=[](int x){return x+1;}; return a!=b && "
          "id(l(2)); }";
   for (const auto mode :
        {MATCH_TRAVERSAL_MODE_AS_IS,
         MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE}) {
-    auto root = file("translationUnitDecl().bind(\"root\")");
-    auto first = run(root);
+    const auto compare_scopes = [&](const std::string &query,
+                                    const std::string &bind) {
+      auto first = run(file("translationUnitDecl().bind(\"root\")"));
+      ASSERT_EQ(first.code, MatchCode::Ok) << first.message;
+      auto whole = session(first.response, query);
+      whole.set_traversal_mode(mode);
+      auto second = run(file("translationUnitDecl().bind(\"root\")"));
+      ASSERT_EQ(second.code, MatchCode::Ok) << second.message;
+      auto subtree = binding(second.response, "root", query);
+      subtree.set_traversal_mode(mode);
+      auto all = run(whole);
+      auto within = run(subtree);
+      ASSERT_EQ(all.code, MatchCode::Ok) << all.message;
+      ASSERT_EQ(within.code, MatchCode::Ok) << within.message;
+      ASSERT_EQ(all.response.results_size(), within.response.results_size());
+      for (int index = 0; index < all.response.results_size(); ++index)
+        EXPECT_EQ(all.response.results(index)
+                      .bindings()
+                      .at(bind)
+                      .SerializeAsString(),
+                  within.response.results(index)
+                      .bindings()
+                      .at(bind)
+                      .SerializeAsString());
+    };
+    compare_scopes("expr().bind(\"e\")", "e");
+    compare_scopes("stmt().bind(\"s\")", "s");
+    compare_scopes("decl().bind(\"d\")", "d");
+  }
+}
+
+TEST_F(MatchCursors, SelectedDeclAndStmtRootsStayInsideTheirSubtrees) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "template<class T> T id(T x) { return x; }\n"
+         "int chosen() { auto l=[](int x){return id(x+1);}; return l(2); }\n"
+         "int unrelated() { return id(999); }\n";
+
+  for (const auto mode :
+       {MATCH_TRAVERSAL_MODE_AS_IS,
+        MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE}) {
+    auto first = run(file("functionDecl(hasName(\"chosen\")).bind(\"f\")"));
     ASSERT_EQ(first.code, MatchCode::Ok) << first.message;
-    auto whole = session(first.response, "expr().bind(\"e\")");
-    whole.set_traversal_mode(mode);
-    // Another independent cursor retains the same generation and root.
-    auto second = run(root);
-    auto subtree = binding(second.response, "root", "expr().bind(\"e\")");
-    subtree.set_traversal_mode(mode);
-    auto all = run(whole);
-    auto within = run(subtree);
-    ASSERT_EQ(all.code, MatchCode::Ok) << all.message;
+    auto selected = binding(
+        first.response, "f",
+        "callExpr(hasAncestor(functionDecl(hasName(\"chosen\")))).bind(\"c\")");
+    selected.set_traversal_mode(mode);
+    auto calls = run(selected);
+    ASSERT_EQ(calls.code, MatchCode::Ok) << calls.message;
+    ASSERT_EQ(calls.response.results_size(), 2);
+    int plain_calls = 0;
+    int operator_calls = 0;
+    for (const auto &row : calls.response.results()) {
+      EXPECT_EQ(row.source_match_index(), 0U);
+      const auto &node = row.bindings().at("c").node();
+      plain_calls += node.has_call_expr();
+      operator_calls += node.has_cxx_operator_call_expr();
+    }
+    EXPECT_EQ(plain_calls, 1);
+    EXPECT_EQ(operator_calls, 1);
+
+    auto operator_source =
+        run(file("functionDecl(hasName(\"chosen\")).bind(\"f\")"));
+    ASSERT_EQ(operator_source.code, MatchCode::Ok) << operator_source.message;
+    auto operator_query = binding(operator_source.response, "f",
+                                  "cxxOperatorCallExpr().bind(\"call\")");
+    operator_query.set_traversal_mode(mode);
+    auto operator_result = run(operator_query);
+    ASSERT_EQ(operator_result.code, MatchCode::Ok) << operator_result.message;
+    ASSERT_EQ(operator_result.response.results_size(), 1);
+    EXPECT_TRUE(operator_result.response.results(0)
+                    .bindings()
+                    .at("call")
+                    .node()
+                    .has_cxx_operator_call_expr());
+
+    auto statement_source =
+        run(file("functionDecl(hasName(\"chosen\")).bind(\"f\")"));
+    ASSERT_EQ(statement_source.code, MatchCode::Ok) << statement_source.message;
+    auto statement =
+        binding(statement_source.response, "f",
+                "binaryOperator(hasOperatorName(\"+\")).bind(\"sum\")");
+    statement.set_traversal_mode(mode);
+    auto sums = run(statement);
+    ASSERT_EQ(sums.code, MatchCode::Ok) << sums.message;
+    ASSERT_EQ(sums.response.results_size(), 1);
+    auto literals = binding(sums.response, "sum", "integerLiteral().bind(\"n\")");
+    literals.set_traversal_mode(mode);
+    auto within_statement = run(literals);
+    ASSERT_EQ(within_statement.code, MatchCode::Ok) << within_statement.message;
+    ASSERT_EQ(within_statement.response.results_size(), 1);
+    EXPECT_EQ(within_statement.response.results(0).source_match_index(), 0U);
+    EXPECT_EQ(within_statement.response.results(0)
+                  .bindings()
+                  .at("n")
+                  .node()
+                  .integer_literal()
+                  .value()
+                  .unsigned_decimal(),
+              "1");
+  }
+}
+
+TEST_F(MatchCursors, TypedefAwareInheritanceMatcherKeepsWholeTreeAliases) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "struct Base {};\n"
+         "using Alias = Base;\n"
+         "struct Derived : Alias {};\n";
+  auto whole =
+      run(file("cxxRecordDecl(isDerivedFrom(\"Alias\")).bind(\"d\")"));
+  ASSERT_EQ(whole.code, MatchCode::Ok) << whole.message;
+  ASSERT_EQ(whole.response.results_size(), 1);
+
+  auto selected =
+      run(file("cxxRecordDecl(hasName(\"Derived\")).bind(\"root\")"));
+  ASSERT_EQ(selected.code, MatchCode::Ok) << selected.message;
+  auto continuation =
+      binding(selected.response, "root",
+              "cxxRecordDecl(isDerivedFrom(\"Alias\")).bind(\"d\")");
+  auto within = run(continuation);
+  ASSERT_EQ(within.code, MatchCode::Ok) << within.message;
+  ASSERT_EQ(within.response.results_size(), 1);
+  EXPECT_EQ(within.response.results(0).bindings().at("d").SerializeAsString(),
+            whole.response.results(0).bindings().at("d").SerializeAsString());
+}
+
+TEST_F(MatchCursors, ConstructorSubtreeVisitsOnlyItsDefaultInitializerNodes) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "struct Defaults { int zero = 0; int one = 1; "
+         "Defaults(); explicit Defaults(int); };\n"
+         "Defaults::Defaults() {}\n"
+         "Defaults::Defaults(int) {}\n";
+
+  // The initializer expression nodes are shared by the field and both
+  // constructor occurrences. A selected constructor walk visits only its own
+  // two CXXDefaultInitExpr subtrees, once each, in field order.
+  for (const auto *query : {
+           "cxxConstructorDecl(hasName(\"Defaults\"), isDefinition(), "
+           "unless(isImplicit()), parameterCountIs(0)).bind(\"ctor\")",
+           "cxxConstructorDecl(hasName(\"Defaults\"), isDefinition(), "
+           "unless(isImplicit()), parameterCountIs(1)).bind(\"ctor\")"}) {
+    auto selected = run(file(query));
+    ASSERT_EQ(selected.code, MatchCode::Ok) << selected.message;
+    ASSERT_EQ(selected.response.results_size(), 1);
+    auto within = run(binding(selected.response, "ctor",
+                              "integerLiteral().bind(\"n\")"));
     ASSERT_EQ(within.code, MatchCode::Ok) << within.message;
-    EXPECT_EQ(all.response.results_size(), within.response.results_size());
-    for (int i = 0; i < std::min(all.response.results_size(),
-                                 within.response.results_size());
-         ++i)
-      EXPECT_EQ(
-          all.response.results(i).bindings().at("e").SerializeAsString(),
-          within.response.results(i).bindings().at("e").SerializeAsString());
+    ASSERT_EQ(within.response.results_size(), 2);
+    EXPECT_EQ(within.response.results(0).bindings().at("n")
+                  .node()
+                  .integer_literal()
+                  .value()
+                  .unsigned_decimal(),
+              "0");
+    EXPECT_EQ(within.response.results(1).bindings().at("n")
+                  .node()
+                  .integer_literal()
+                  .value()
+                  .unsigned_decimal(),
+              "1");
   }
 }
 

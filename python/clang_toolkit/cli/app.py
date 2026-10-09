@@ -27,6 +27,8 @@ from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.configuration import ConfigurationError, load_network_config
 from clang_toolkit.version import client_version
 
+_SESSION_CLOSE_TIMEOUT = 5.0
+
 
 def dispatch(client: Client, line: str, runtime: Runtime | None = None) -> str | None:
     """Validate one sentence and evaluate it in the active REPL runtime."""
@@ -90,7 +92,7 @@ async def _run() -> int:
     parser.add_argument("--query", help="run one query expression")
     parser.add_argument("--file", action="append", default=[], help="query input file (repeatable)")
     parser.add_argument("--background", action="store_true", help="run --query while the prompt remains active")
-    parser.add_argument("--session", action="store_true", help="enable bidirectional session REPL commands")
+    parser.add_argument("--session", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     try:
@@ -149,63 +151,78 @@ async def _run() -> int:
     try:
         async with AsyncClient(args.server, args.config_path, network_config, **compilation_options) as async_client:
             client.bind_async_client(async_client)
-            if args.session:
+            try:
+                if args.query and not args.background:
+                    try:
+                        await async_client.query(
+                            args.query, args.file, on_event=lambda event: print(_format_event(event))
+                        )
+                    except QueryError as exc:
+                        print(f"error: {exc}")
+                        return 1
+                    return 0
                 query_session = await async_client.query_session()
                 client.bind_query_session(query_session)
+
                 async def print_session_events():
                     try:
                         async for event in query_session.events():
                             print(_format_event(event))
                     except QueryError as exc:
-                        print(f"error: {exc}")
+                        if not query_session.closing:
+                            print(f"error: {exc}")
+                    except Exception as exc:
+                        if not query_session.closing:
+                            print(f"error: {exc}")
+
                 session_reader = asyncio.create_task(print_session_events())
-            if args.query and not args.background:
-                try:
-                    await async_client.query(
-                        args.query, args.file, on_event=lambda event: print(_format_event(event))
+                if args.query:
+                    async_client.start_background_query(
+                        args.query, args.file, on_event=lambda event: print(_format_event(event)),
+                        on_error=lambda error: print(f"error: {error}"),
                     )
-                except QueryError as exc:
-                    print(f"error: {exc}")
-                    return 1
-                return 0
-            if args.query:
-                async_client.start_background_query(
-                    args.query, args.file, on_event=lambda event: print(_format_event(event)),
-                    on_error=lambda error: print(f"error: {error}"),
-                )
-                print("background query started; enter REPL commands while it runs")
-            while True:
-                try:
-                    line = await _prompt(session, "ctk> ")
-                except EOFError:
-                    break
-                except KeyboardInterrupt:
-                    continue
-                try:
-                    out = await asyncio.to_thread(dispatch, client, line, runtime)
-                except (NotImplementedError, CursorError, AnalysisError) as exc:
-                    out = f"error: {exc}"
-                except (QueryError, ConfigurationError) as exc:
-                    out = f"error: {exc}"
-                if out is None:
-                    break
-                if out:
-                    print(out)
-            try:
-                await async_client.wait_background()
-            except QueryError:
-                exit_code = 1
-            if query_session is not None:
-                await query_session.aclose()
-                if session_reader is not None:
+                    print("background query started; enter REPL commands while it runs")
+                while True:
                     try:
-                        await asyncio.wait_for(session_reader, timeout=5)
+                        line = await _prompt(session, "ctk> ")
+                    except EOFError:
+                        break
+                    except KeyboardInterrupt:
+                        continue
+                    try:
+                        out = await asyncio.to_thread(dispatch, client, line, runtime)
+                    except (NotImplementedError, CursorError, AnalysisError) as exc:
+                        out = f"error: {exc}"
+                    except (QueryError, ConfigurationError) as exc:
+                        out = f"error: {exc}"
+                    if out is None:
+                        break
+                    if out:
+                        print(out)
+                try:
+                    await async_client.wait_background()
+                except QueryError:
+                    exit_code = 1
+            finally:
+                if query_session is not None:
+                    cancel_stream = False
+                    try:
+                        async with asyncio.timeout(_SESSION_CLOSE_TIMEOUT):
+                            await query_session.aclose()
+                            if session_reader is not None:
+                                await session_reader
                     except TimeoutError:
-                        await query_session.cancel()
-                        session_reader.cancel()
+                        cancel_stream = True
                     except QueryError as exc:
                         print(f"error: {exc}")
                         exit_code = 1
+                    finally:
+                        if cancel_stream or (session_reader is not None and not session_reader.done()):
+                            await query_session.cancel()
+                        if session_reader is not None and not session_reader.done():
+                            session_reader.cancel()
+                        if session_reader is not None:
+                            await asyncio.gather(session_reader, return_exceptions=True)
     finally:
         await asyncio.to_thread(runtime.close)
         await asyncio.to_thread(client.close)
