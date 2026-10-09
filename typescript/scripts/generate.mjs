@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +14,15 @@ execFileSync(
   [join(root, "api", "assemble_ast.py"), `--output=${schema}`],
   { stdio: "inherit" },
 );
+
+function trimGeneratedWhitespace(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) trimGeneratedWhitespace(path);
+    else if (entry.name.endsWith(".ts"))
+      writeFileSync(path, readFileSync(path, "utf8").replace(/[ \t]+$/gm, ""));
+  }
+}
 execFileSync(
   join(sdk, "node_modules", ".bin", "proto-loader-gen-types"),
   [
@@ -31,3 +40,4 @@ execFileSync(
   ],
   { stdio: "inherit" },
 );
+trimGeneratedWhitespace(generated);
