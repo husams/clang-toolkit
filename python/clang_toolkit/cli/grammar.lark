@@ -9,6 +9,7 @@ reference_start: reference
           | STRING                       -> display
           | foreach_expression           -> display
           | parse_expression             -> display
+          | read_expression              -> display
           | analysis_block               -> display
 
 assignment: LET NAME EQUAL value_expression
@@ -97,6 +98,7 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                  | match_expression
                  | foreach_expression
                  | parse_expression
+                 | read_expression
                  | analysis_block
                  | traverse_expression
                  | call_graph_expression
@@ -129,6 +131,7 @@ path_list_value: LSQB [path_value_expression (COMMA path_value_expression)*] RSQ
 
 match_expression: MATCH root_expression [IN path_value_expression]
 parse_expression: PARSE path_target_expression
+read_expression: READ output_path
 analysis_block: IN BATCH_SEPARATOR* (parse_expression | reference) BATCH_SEPARATOR* LBRACE BATCH_SEPARATOR* (assignment (SEMICOLON | BATCH_SEPARATOR)+)* YIELD yield_expression SEMICOLON? BATCH_SEPARATOR* RBRACE
 statement_block: LBRACE BATCH_SEPARATOR* (statement (SEMICOLON | BATCH_SEPARATOR)+)* statement? RBRACE
 ?yield_expression: value_expression
@@ -200,6 +203,7 @@ qualified_name: NAME (SCOPE NAME)+
 editor_start: editor_token*
 
 ?editor_token: LET
+             | READ
              | PARSE
              | YIELD
              | MATCH
@@ -333,6 +337,7 @@ OUTPUT.2: /output(?![a-zA-Z0-9_])/
 STDOUT.2: /stdout(?![a-zA-Z0-9_])/
 SAVE.2: /save(?![a-zA-Z0-9_])/
 LOAD.2: /load(?![a-zA-Z0-9_])/
+READ.2: /read(?![a-zA-Z0-9_])/
 TO.2: /to(?![a-zA-Z0-9_])/
 AS.2: /as(?![a-zA-Z0-9_])/
 INTO.2: /into(?![a-zA-Z0-9_])/

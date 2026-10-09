@@ -30,6 +30,27 @@ Undefined variables and non-string destinations fail before file creation.
 Relative paths use the console working directory. Loading a missing, malformed
 or unsupported snapshot preserves the destination binding.
 
+## Read JSON and YAML documents
+
+```text
+let data = read "config.json"
+let settings = read "config.yaml"
+print $data.project.name
+print $settings.sources[0]
+let sources = foreach $source in $settings.sources do $source done
+let filename = "$HOME/config.yml"
+let settings = read $filename
+```
+
+`read` accepts ordinary `.json`, `.yaml` and `.yml` files on the client computer.
+Objects become records with dot access and string-key indexing, lists support
+indexing and `foreach`, and scalar/null roots are preserved. Empty YAML returns
+null. YAML uses safe loading and rejects recursive aliases. Paths accept literals,
+string variables, File values and double-quoted interpolation; relative paths use
+the console working directory and `~/` expands through HOME. Failed reads preserve
+the existing assignment value. `read` preserves document keys as written; `load`
+restores the typed snapshots created by `save`.
+
 ## Print text to a file
 
 ```text
