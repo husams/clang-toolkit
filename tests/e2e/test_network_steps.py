@@ -20,9 +20,127 @@ from clang_toolkit.client import AsyncClient, QueryError
 from clang_toolkit._generated.ast.v1 import common_pb2
 from clang_toolkit.cursors import CursorError
 from clang_toolkit.analysis_error import AnalysisError
+from clang_toolkit import (
+    Matcher, callExpr, cxxBoolLiteral, equals, floatLiteral,
+    functionDecl, hasName, integerLiteral,
+)
 
 pytestmark = pytest.mark.e2e
 scenarios("network.feature")
+
+
+@given("a C++ file with a function containing two calls", target_fixture="typed_match_source")
+def typed_match_source(tmp_path: Path) -> Path:
+    source = tmp_path / "typed_match.cc"
+    source.write_text(
+        "void leaf();\nvoid outer() { leaf(); leaf(); }\nvoid café() {}\n"
+        "int integer_value() { return 42; }\n"
+        "double float_value() { return 3.25; }\n"
+        "bool bool_value() { return true; }\n",
+        encoding="utf-8",
+    )
+    return source
+
+
+@when("I compare typed and string matcher expressions through the async SDK",
+      target_fixture="typed_match_results")
+def compare_typed_and_string_matchers(server: RunningServer, typed_match_source: Path):
+    from clang_toolkit import Client
+
+    root_typed = functionDecl(hasName("outer")).bind("f")
+    root_string = 'functionDecl(hasName("outer")).bind("f")'
+    calls_typed = callExpr().bind("call")
+    calls_string = 'callExpr().bind("call")'
+    unicode_typed = functionDecl(hasName("café"))
+    unicode_string = 'functionDecl(hasName("café"))'
+    escaped_name = 'missing "quoted" \\ path\nnext'
+    escaped_typed = functionDecl(hasName(escaped_name))
+    escaped_binding = 'label "quoted" \\ path\nnext'
+    escaped_binding_typed = functionDecl(hasName("café")).bind(escaped_binding)
+    integer_typed = integerLiteral(equals(42))
+    float_typed = floatLiteral(equals(3.25))
+    bool_typed = cxxBoolLiteral(equals(True))
+    assert isinstance(root_typed, Matcher)
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            typed = await client.match_file(typed_match_source, root_typed)
+            string = await client.match_file(typed_match_source, root_string)
+            typed_calls = await client.continue_match(typed.session_id, "f", calls_typed)
+            string_calls = await client.continue_match(string.session_id, "f", calls_string)
+            unicode_rows = await client.match_file(typed_match_source, unicode_typed)
+            unicode_string_rows = await client.match_file(typed_match_source, unicode_string)
+            escaped_rows = await client.match_file(typed_match_source, escaped_typed)
+            labeled_rows = await client.match_file(typed_match_source, escaped_binding_typed)
+            async with await client.parse(typed_match_source) as tree:
+                async with await tree.match(root_typed) as tree_rows:
+                    async with await tree_rows[0].binding("f").match(calls_typed) as selected_calls:
+                        high_level_counts = (len(tree_rows), len(selected_calls))
+                async with await client.match_in(integer_typed, tree) as integers:
+                    integer_count = len(integers)
+                async with await client.match_in(float_typed, tree) as floats:
+                    float_count = len(floats)
+                async with await client.match_in(bool_typed, tree) as booleans:
+                    bool_count = len(booleans)
+            try:
+                return (len(typed.results), len(string.results),
+                        len(typed_calls.results), len(string_calls.results),
+                        len(unicode_rows.results), len(unicode_string_rows.results),
+                        len(escaped_rows.results),
+                        escaped_binding in labeled_rows.results[0].bindings,
+                        sorted(labeled_rows.results[0].bindings), high_level_counts,
+                        integer_count, float_count, bool_count)
+            finally:
+                await client.close_match(typed.session_id)
+                await client.close_match(string.session_id)
+                await client.close_match(unicode_rows.session_id)
+                await client.close_match(unicode_string_rows.session_id)
+                await client.close_match(escaped_rows.session_id)
+                await client.close_match(labeled_rows.session_id)
+
+    async_counts = asyncio.run(run())
+    with Client(server.endpoint) as client:
+        typed = client.match_file(typed_match_source, root_typed)
+        string = client.match_file(typed_match_source, root_string)
+        typed_calls = client.continue_match(typed.session_id, "f", calls_typed)
+        string_calls = client.continue_match(string.session_id, "f", calls_string)
+        unicode_rows = client.match_file(typed_match_source, unicode_typed)
+        unicode_string_rows = client.match_file(typed_match_source, unicode_string)
+        escaped_rows = client.match_file(typed_match_source, escaped_typed)
+        labeled_rows = client.match_file(typed_match_source, escaped_binding_typed)
+        with client.parse(typed_match_source) as tree:
+            with tree.match(root_typed) as tree_rows:
+                with tree_rows[0].binding("f").match(calls_typed) as selected_calls:
+                    high_level_counts = (len(tree_rows), len(selected_calls))
+            with client.match_in(integer_typed, tree) as integers:
+                integer_count = len(integers)
+            with client.match_in(float_typed, tree) as floats:
+                float_count = len(floats)
+            with client.match_in(bool_typed, tree) as booleans:
+                bool_count = len(booleans)
+        sync_counts = (len(typed.results), len(string.results),
+                       len(typed_calls.results), len(string_calls.results),
+                       len(unicode_rows.results), len(unicode_string_rows.results),
+                       len(escaped_rows.results),
+                       escaped_binding in labeled_rows.results[0].bindings,
+                       sorted(labeled_rows.results[0].bindings), high_level_counts,
+                       integer_count, float_count, bool_count)
+        client.close_match(typed.session_id)
+        client.close_match(string.session_id)
+        client.close_match(unicode_rows.session_id)
+        client.close_match(unicode_string_rows.session_id)
+        client.close_match(escaped_rows.session_id)
+        client.close_match(labeled_rows.session_id)
+    return async_counts, sync_counts
+
+
+@then("both matcher forms return equal results through retained continuation")
+def verify_typed_and_string_matchers(typed_match_results) -> None:
+    expected = (
+        1, 1, 2, 2, 1, 1, 0, True,
+        ['label "quoted" \\ path\nnext', "root"], (1, 2), 1, 1, 1,
+    )
+    assert typed_match_results == (expected, expected)
 
 
 @when("I request versions through the CLI and SDK", target_fixture="reported_versions")
