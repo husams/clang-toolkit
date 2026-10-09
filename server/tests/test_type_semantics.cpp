@@ -18,6 +18,26 @@ bool has_unrequested(const ctk::match::v1::MatchBinding &binding,
   return false;
 }
 
+void expect_record_qualifier_availability(
+    const ctk::match::v1::MatchBinding &binding) {
+#if CTK_TEST_CLANG_VERSION_MAJOR >= 22
+  EXPECT_TRUE(binding.is_complete());
+  EXPECT_TRUE(has_unrequested(binding, "RecordType.qualifier"));
+#else
+  // Older Clang versions cannot expose this field, even with recursive projection.
+  EXPECT_FALSE(binding.is_complete());
+  bool found = false;
+  for (const auto &entry : binding.availability()) {
+    if (!entry.field_path().ends_with("RecordType.qualifier"))
+      continue;
+    found = true;
+    EXPECT_EQ(entry.state(), ctk::ast::v1::FIELD_STATE_UNAVAILABLE);
+    EXPECT_FALSE(entry.reason().empty());
+  }
+  EXPECT_TRUE(found);
+#endif
+}
+
 std::vector<ctk::match::v1::MatchBinding>
 query_types(const std::string &source, const std::string &matcher,
             std::vector<std::string> arguments = {"-std=c++20"}) {
@@ -92,13 +112,7 @@ TEST(TypeSemantics, RecordQualifierAvailabilityMatchesNativeVersion) {
     const auto &record = binding.node().record_type();
     EXPECT_EQ(record.declaration().name(), "Host");
     EXPECT_FALSE(record.has_qualifier());
-    EXPECT_TRUE(binding.is_complete());
-    bool qualifier_unrequested = false;
-    for (const auto &entry : binding.availability())
-      qualifier_unrequested |=
-          entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
-          entry.field_path().ends_with("qualifier");
-    EXPECT_TRUE(qualifier_unrequested);
+    expect_record_qualifier_availability(binding);
   }
 }
 
@@ -193,7 +207,7 @@ TEST(TypeSemantics, TemplateArgumentsPreserveTypesAndIntegralSignedness) {
     EXPECT_EQ(type.template_name().declaration().name(), "Box");
     EXPECT_EQ(type.specialization_arguments_size(), 0);
     EXPECT_TRUE(has_unrequested(value, "specialization_arguments"));
-    EXPECT_TRUE(value.is_complete());
+    expect_record_qualifier_availability(value);
   }
   EXPECT_TRUE(found);
 }

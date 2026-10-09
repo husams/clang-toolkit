@@ -9,6 +9,36 @@ import subprocess
 import pytest
 
 
+def test_e2e_uses_compiler_from_selected_build_directory(tmp_path: Path) -> None:
+    script = (Path(__file__).resolve().parents[2] / "scripts/build-rhel9.sh").read_text()
+    phase = script.split('if [[ "${SKIP_TESTS:-0}" != 1 ]]; then\n', 1)[1]
+    phase = phase.split('\nfi\nif [[ "${PACKAGE:-0}"', 1)[0]
+    build_dir = tmp_path / "custom build"
+    native_tests = build_dir / "server/tests/ctk_tests"
+    native_tests.parent.mkdir(parents=True)
+    native_tests.write_text("#!/bin/sh\nexit 0\n")
+    native_tests.chmod(0o755)
+    compiler = "/opt/custom toolchain/bin/clang++"
+    (build_dir / "ctk-clang-tool-path.txt").write_text(compiler + "\n")
+    log = tmp_path / "test-environment.log"
+    result = subprocess.run(["bash", "-c", """
+set -euo pipefail
+build_dir="$BUILD_PATH"
+repo_root="$PROJECT_PATH"
+server_binary="$build_dir/server/ctk-server"
+uv() { printf '%s|%s\n' "$CTK_SERVER" "$CTK_TEST_CLANG" >> "$COMMAND_LOG"; }
+""" + phase], env=os.environ | {
+        "BUILD_PATH": str(build_dir), "PROJECT_PATH": str(tmp_path),
+        "COMMAND_LOG": str(log), "CTK_SERVER": "stale-server",
+        "CTK_TEST_CLANG": "stale-compiler",
+    }, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert log.read_text().splitlines() == [
+        "stale-server|stale-compiler",
+        f"{build_dir}/server/ctk-server|{compiler}",
+    ]
+
+
 @pytest.mark.parametrize(
     ("distribution", "repositories", "has_subscription_manager", "expected"),
     [

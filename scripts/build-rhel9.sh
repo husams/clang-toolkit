@@ -113,7 +113,8 @@ if [[ "${SKIP_TESTS:-0}" != 1 ]]; then
   # One process avoids repeated LLVM startup and shared cache-root contention.
   "$build_dir/server/tests/ctk_tests"
   uv run --project "$repo_root" python -m pytest "$repo_root/tests/unit"
-  CTK_SERVER="$server_binary" uv run --project "$repo_root" python -m pytest \
+  CTK_TEST_CLANG="$(cat "$build_dir/ctk-clang-tool-path.txt")" \
+    CTK_SERVER="$server_binary" uv run --project "$repo_root" python -m pytest \
     "$repo_root/tests/e2e" -m e2e
 fi
 if [[ "${PACKAGE:-0}" == 1 || "${INSTALL:-0}" == 1 ]]; then
