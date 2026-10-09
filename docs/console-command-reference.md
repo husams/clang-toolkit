@@ -55,17 +55,21 @@ Match native nodes and optionally retain the resulting rows.
 ```text
 match MATCHER [in TARGET]
 let rows = match MATCHER [in TARGET]
+match MATCHER in TARGET do { STATEMENT; ... }
 ```
 
 - Use `match` after `=` to assign query results; a bare matcher assignment constructs a matcher and accepts no `in` target.
 - MATCHER: root matcher call or $matcher; .bind("name") names a selected node.
-- TARGET: quoted file path, File, file list, parsed tree, match value or binding selection.
+- TARGET: quoted file path, directory or glob; File, Directory, file list, parsed tree, match value or binding selection.
+- Directories recurse over C/C++/Objective-C source files; globs support absolute paths and **. Expansion uses the client's filesystem. Empty selections return an empty collection.
 - Target variables must already exist; bind labels name bindings in the new results.
+- With do { ... }, run ordinary statements as each streamed row arrives. Every bind label becomes a local variable: .bind("func") exposes $func.value.node. Newlines or semicolons separate statements; # starts a comment.
+- Each row gets a fresh local scope; outer variables are restored afterwards. Streamed bindings provide copied semantic fields; native continuation requires a completed retained result. Row work is serialized across concurrent file streams; row order follows arrival order. Limits: 10000 rows and 1000000 bytes of collected output.
 - A missing `match` in this assignment form shows its insertion point and a corrected command.
 - Without in: use the enclosing block tree, otherwise configured files (default []).
 - Rows use zero-based indices: $rows[0].f; $rows.f selects bind label f across rows.
 - Collections expose length, isEmpty, rows, zero-based indexing, and unique(field), sort(field), filter(field, expected). Selectors accept dotted paths; unique preserves the first row and sort orders numbers numerically, strings lexically, and other values deterministically by type and text.
-- A file-list query returns one typed collection with per-row source_file provenance. Continue from one binding with match ... in $rows[0].f, or from every row with match ... in $rows.f.
+- A directory, glob or file-list query returns one typed collection with per-row source_file provenance. Files run in parallel up to pool.size, retaining input order. Continue from one binding with match ... in $rows[0].f, or from every row with match ... in $rows.f.
 - Continuation rows expose source_match_index (the zero-based parent row) and source_file, so multi-file and parent-row provenance remain inspectable.
 - Semantic fields continue from the bound node, for example $rows[0].f.value.node.
 - Declaration conveniences include node.name (typed DeclarationName), node.qualified_name (string), node.declared_type, and binding shortcuts such as decl_name, parameter_name, record_name, type_name and decl_type.
@@ -112,7 +116,7 @@ let NAME = VALUE
 ```
 
 - NAME: identifier without $. References use $name, fields and zero-based [index].
-- VALUE: matcher, literal, list, reference, glob, parse, match, foreach or scoped block.
+- VALUE: matcher, literal, list, reference, glob, parse, match, foreach or scoped block. match do is a statement loop and does not produce an assignable collection.
 - Matcher construction is local; parse/match require a server. Failed evaluation preserves the prior binding.
 - let silently retains typed query and graph results. Read counts with .length, rows with [index], and select bind label f across rows with $rows.f.
 - Use unique(field), sort(field) and filter(field, expected) on supported collections; field selectors may be dotted paths.
@@ -228,7 +232,7 @@ let files = glob(QUOTED_PATTERN)
 
 - Patterns are relative to the session directory; ** recurses. Absolute patterns are rejected.
 - No matches returns []; maximum 10000 entries. File/Directory metadata is a snapshot.
-- Properties: size, modified, basename, dirname, absolute, parts. Match rejects directories.
+- Properties: size, modified, basename, dirname, absolute, parts. Match accepts directory targets; file lists must contain only files.
 
 ```text
 let files = glob("examples/*.cc")

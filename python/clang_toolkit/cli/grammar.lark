@@ -13,7 +13,7 @@ reference_start: reference
 
 assignment: LET NAME EQUAL value_expression
 
-?command: MATCH root_expression [IN path_value_expression] -> match
+?command: MATCH root_expression [IN path_value_expression] [DO statement_block] -> match
         | BACKGROUND root_expression [IN path_value_expression] -> background
         | PRINT value_expression [TO output_path [MODE (REPLACE | APPEND)]] -> print
         | INSPECT reference              -> inspect
@@ -130,6 +130,7 @@ path_list_value: LSQB [path_value_expression (COMMA path_value_expression)*] RSQ
 match_expression: MATCH root_expression [IN path_value_expression]
 parse_expression: PARSE path_target_expression
 analysis_block: IN BATCH_SEPARATOR* (parse_expression | reference) BATCH_SEPARATOR* LBRACE BATCH_SEPARATOR* (assignment (SEMICOLON | BATCH_SEPARATOR)+)* YIELD yield_expression SEMICOLON? BATCH_SEPARATOR* RBRACE
+statement_block: LBRACE BATCH_SEPARATOR* (statement (SEMICOLON | BATCH_SEPARATOR)+)* statement? RBRACE
 ?yield_expression: value_expression
                  | NAME -> named_value
 foreach_expression: FOREACH reference BATCH_SEPARATOR* IN BATCH_SEPARATOR* value_expression BATCH_SEPARATOR* DO BATCH_SEPARATOR* value_expression BATCH_SEPARATOR* DONE?
@@ -412,10 +413,12 @@ RBRACE: "}"
 COMMA: ","
 SEMICOLON: ";"
 BATCH_SEPARATOR.1: /\r?\n+/
+COMMENT: /#[^\r\n]*/
 WS: /[ \t\r]+/
 ERROR: /[\s\S]/
 
 %ignore WS
+%ignore COMMENT
 
 %import common.NUMBER
 NEGATIVE_NUMBER.2: /-[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?/

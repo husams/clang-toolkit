@@ -137,6 +137,87 @@ A new file parse/match validates dependencies and acquires the current generatio
 Query failures and limits preserve prior variables and publish no partial value.
 A lost network response can leave an unobserved cursor, which expires normally.
 
+## Directory and glob targets
+
+The console language also accepts directory paths and glob patterns directly:
+
+```text
+let x = match functionDecl(isDefinition()).bind("f") in '/some-directory'
+let y = match functionDecl(isDefinition()).bind("f") in "/some-directory/*.cpp"
+let z = match functionDecl(isDefinition()).bind("f") in '/my/path/file.cpp'
+let files = glob("src/*.cpp")
+let q = match functionDecl(isDefinition()).bind("f") in $files[0]
+```
+
+Directories recursively select source files with suffixes `.c`, `.cc`, `.cpp`,
+`.cxx`, `.c++`, `.C`, `.m`, or `.mm`; headers and other files are excluded.
+Globs select regular files using `*`, `?`, and character classes; `**` recurses.
+Both relative and absolute targets work. Relative paths use the session directory.
+Expansion runs on the client's filesystem, so these targets require a shared
+filesystem with the server. Existing literal file paths still resolve on the server.
+The standalone `glob()` helper retains its existing relative-pattern contract.
+
+Directory/glob results use the same retained collection as explicit file lists:
+`.length` counts all match rows, `[index]` selects a row, `foreach` visits rows,
+and `$x.f` permits continued matching across files. Rows retain `source_file`;
+each file has its own independent match value internally. Expanded paths are
+sorted and deduplicated after resolving symlinks. An empty directory or unmatched
+glob returns an empty collection. A literal file path or `File` reference keeps
+its existing single-file result type, even when its name contains glob characters.
+
+Multi-file matches and collection continuations run concurrently, bounded by the
+configured `pool.size`. Result ordering follows input file order regardless of
+completion order. The configured file limit is checked before any match request;
+failure closes all newly created results and preserves earlier assignments.
+These targets also work through Python `Client.execute` and `AsyncClient.execute`;
+the separate native `run_script`/`runScript` language retains its existing targets.
+
+## Streamed match statement blocks
+
+Use `do { ... }` to run ordinary console statements for each arriving match row:
+
+```text
+match functionDecl(isDefinition()).bind("func") in $file do {
+    # Bind labels become local variables for this row.
+    let name = $func.value.node.qualified_name
+    let return_type = $func.value.node.return_type.description.spelling
+    print "${name}: ${return_type}"
+}
+```
+
+Use the exact label from `.bind(...)`: `.bind("func")` supplies `$func`,
+and an unbound query supplies the usual implicit `$root`. All bindings in the
+row are available simultaneously. Field access has the existing shallow semantic
+contract, including presence checks and explicit `UNREQUESTED` child fields.
+Each row gets a fresh local scope. Bind labels may shadow outer variables;
+locals and newly acquired native values are released at the end of the body.
+Outer variables remain unchanged. Newlines or semicolons separate statements;
+`#` comments work outside quoted strings. Nested statement blocks work too.
+
+This is a statement loop, not a collection expression. It works with files,
+directories, globs, and retained tree/binding targets. It executes the body
+before stream completion. Streamed bind variables carry copied semantic values;
+they cannot be native continuation targets before the cursor is published.
+Use a completed retained match for continuation, or run another query against
+a file/tree inside the body. For example:
+
+```text
+match functionDecl(isDefinition()).bind("func") in "src/*.cpp" do {
+    let parameters = match parmVarDecl().bind("p") in $func.source_file
+    print "${func.value.node.qualified_name}: ${parameters.length} file parameters"
+}
+```
+
+Files still stream concurrently. Bodies run one at a time to keep local variables
+and settings coherent; their order follows row arrival. Collected stdout is
+returned after successful completion, while explicit file writes and settings
+changes happen during the body and are not rolled back on a later stream failure.
+A body error stops the stream and reports its row and statement location; cleanup
+also runs on cancellation. Bounds match `foreach`: 10,000 rows and 1,000,000 bytes
+of collected output. No result cursor remains after a successful statement loop.
+Python `Client.execute` and `AsyncClient.execute` return the collected text.
+Native `run_script`/`runScript` retain their separate language contract.
+
 The existing `match`, `query`, `cursor open/continue/restart/close`, traversal,
 CFG and call-graph commands remain available. Cursor commands retain their
 explicit mutable latest-result behavior. The expression API requests an

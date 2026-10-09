@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from glob import has_magic, iglob
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,6 +58,7 @@ class CompletionField:
 
 _KNOWN_NON_ROOT = frozenset(NESTED_MATCHERS) - frozenset(ROOT_MATCHERS)
 _PUNCTUATION = {"LPAR", "RPAR", "LSQB", "RSQB", "COMMA", "DOT", "SCOPE"}
+_SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".c++", ".C", ".m", ".mm"}
 
 
 class Runtime:
@@ -111,6 +114,9 @@ class Runtime:
             self._assignment(statement)
             return self._resolve_name(str(statement.children[1]))
         if kind == "match":
+            if self._match_block(statement) is not None:
+                from .match_block import execute_match_block
+                return execute_match_block(self, statement, source)
             return self._execute_match(statement, source=source)
         if kind in {"traverse", "traverse_expression"}:
             from .traversal import execute_traversal
@@ -132,6 +138,10 @@ class Runtime:
         statement = parser().parse(source).children[0]
         if not isinstance(statement, Tree):
             raise EvaluationError("expected a statement")
+        return self._execute_statement(statement, source)
+
+    def _execute_statement(self, statement: Tree, source: str) -> str | None:
+        """Dispatch a validated statement, including statements within a block."""
         kind = str(statement.data)
         self._apply_compilation_settings()
         if kind in {"quit", "exit"}:
@@ -204,12 +214,16 @@ class Runtime:
             if len(names) != 1 or len(target.children) != 2:
                 raise EvaluationError("load target must be a simple variable")
             value = load(path)
-            self.bindings[names[0]] = value
+            scope = self._scopes[-1] if self._scopes else self.bindings
+            scope[names[0]] = value
             return ""
         if kind == "assignment":
             self._assignment(statement)
             return ""
         if kind == "match":
+            if self._match_block(statement) is not None:
+                from .match_block import execute_match_block
+                return execute_match_block(self, statement, source)
             return self.output.emit(
                 render(self._execute_match(statement, source=source))
             )
@@ -754,7 +768,8 @@ class Runtime:
                 steps.append(("property", str(token), None, f".{token}", token.line, token.column))
                 index += 2
 
-        if name in {"env", "config"} and steps and steps[0][0] == "property":
+        local_name = any(name in scope for scope in self._scopes)
+        if name in {"env", "config"} and not local_name and steps and steps[0][0] == "property":
             key = steps.pop(0)[1]
             source = self.environment if name == "env" else self.config_vars
             if key not in source:
@@ -813,7 +828,8 @@ class Runtime:
             raise EvaluationError(str(exc)) from exc
 
     def _execute_match(
-        self, node: Tree, *, source: str | None = None
+        self, node: Tree, *, source: str | None = None,
+        on_row: Callable[[Any, Any], None] | None = None,
         ) -> MatchSet | MatchValue | NativeMatchCollection:
         matcher_node = node.children[1]
         matcher = self._evaluate(matcher_node)
@@ -827,7 +843,11 @@ class Runtime:
         target: Any = self._default_targets[-1] if self._default_targets else None
         if len(node.children) > 3 and node.children[3] is not None:
             selected = self._evaluate(node.children[3])
-            if isinstance(selected, str | File | ParsedTree | MatchValue | BindingSelection
+            if isinstance(selected, str | Directory):
+                path = selected.absolute if isinstance(selected, Directory) else selected
+                files = self._match_paths(path)
+                target = None if files is not None else path
+            elif isinstance(selected, File | ParsedTree | MatchValue | BindingSelection
                            | NativeMatchCollection | NativeBindingCollection):
                 target = selected.absolute if isinstance(selected, File) else selected
             elif isinstance(selected, list):
@@ -843,7 +863,7 @@ class Runtime:
                             "match files cannot include directories or other values"
                         )
             else:
-                raise EvaluationError("match target must be a file list, path, tree or binding selection")
+                raise EvaluationError("match target must be a file list, path, directory, glob, tree or binding selection")
         try:
             text = matcher_text(matcher)
         except TypeError as exc:
@@ -877,31 +897,17 @@ class Runtime:
                     ]
                     sources = tuple(selection for selection, _ in source_pairs)
                     files_for_sources = tuple(path for _, path in source_pairs)
-                config_owner = getattr(self.client, "client", self.client)
-                configuration = getattr(config_owner, "_configuration", None)
-                max_files = getattr(configuration(), "max_files", 100) if configuration else 100
-                if type(max_files) is not int or max_files < 0:
-                    max_files = 100
+                max_files = self._match_setting("max_files", 100)
                 if len(sources) > max_files:
                     raise EvaluationError(
                         f"match aggregate exceeds configured file limit of {max_files}"
                     )
-                matches: list[MatchValue] = []
-                try:
-                    for source_value in sources:
-                        matches.append(self.client.match_in(text, source_value, **options))
-                except BaseException:
-                    for match in matches:
-                        try:
-                            match.close()
-                        except BaseException:
-                            pass
-                    raise
+                matches = self._match_files(text, sources, on_row=on_row, **options)
                 return self._track_native_value(
                     NativeMatchCollection(tuple(matches), tuple(files_for_sources))
                 )
             return self._track_native_value(
-                self.client.match_in(text, target, **options)
+                self._match_target(text, target, options, on_row)
             )
         if files is None and self.config_store.effective["files"]:
             files = [
@@ -909,16 +915,14 @@ class Runtime:
                 for path in self.config_store.effective["files"]
             ]
         if files is None:
+            if on_row is not None:
+                raise EvaluationError("match do requires a target, configured files, or an enclosing parsed tree")
             rows = self.client.match(
                 text, files=None, working_directory=self.cwd,
                 compile_arguments=self.config_store.effective["extra_args"],
             )
             return MatchSet(tuple(rows))
-        config_owner = getattr(self.client, "client", self.client)
-        configuration = getattr(config_owner, "_configuration", None)
-        max_files = getattr(configuration(), "max_files", 100) if configuration else 100
-        if type(max_files) is not int or max_files < 0:
-            max_files = 100
+        max_files = self._match_setting("max_files", 100)
         if len(files) > max_files:
             raise EvaluationError(f"match file list exceeds configured limit of {max_files}")
         from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
@@ -929,22 +933,82 @@ class Runtime:
             }
             else pb.MATCH_TRAVERSAL_MODE_AS_IS
         )
-        matches: list[MatchValue] = []
-        try:
-            for path in files:
-                matches.append(self.client.match_in(
-                    text, path, working_directory=self.cwd,
-                    compile_arguments=self.config_store.effective["extra_args"],
-                    traversal_mode=traversal_mode,
-                ))
-        except BaseException:
-            for match in matches:
-                try:
-                    match.close()
-                except BaseException:
-                    pass
-            raise
+        matches = self._match_files(
+            text, files, on_row=on_row, working_directory=self.cwd,
+            compile_arguments=self.config_store.effective["extra_args"],
+            traversal_mode=traversal_mode,
+        )
         return self._track_native_value(NativeMatchCollection(tuple(matches), tuple(files)))
+
+    def _match_files(self, text: str, targets: list[Any] | tuple[Any, ...],
+                     on_row: Callable[[Any, Any], None] | None = None,
+                     **options: Any) -> list[MatchValue]:
+        if len(targets) < 2:
+            return [self._match_target(text, target, options, on_row) for target in targets]
+        workers = self._match_setting("pool_size", 4) or 4
+        futures = []
+        try:
+            with ThreadPoolExecutor(max_workers=min(workers, len(targets))) as pool:
+                try:
+                    for target in targets:
+                        futures.append(pool.submit(self._match_target, text, target, options, on_row))
+                    return [future.result() for future in futures]
+                except BaseException:
+                    for future in futures:
+                        future.cancel()
+                    raise
+        except BaseException:
+            # The pool has joined: also release successful results completed
+            # after an earlier file failed, without publishing a partial value.
+            for future in futures:
+                if not future.cancelled():
+                    try:
+                        future.result()._owner.close()
+                    except BaseException:
+                        pass
+            raise
+
+    def _match_target(self, text: str, target: Any, options: dict[str, Any],
+                      on_row: Callable[[Any, Any], None] | None) -> MatchValue:
+        if on_row is None:
+            return self.client.match_in(text, target, **options)
+        return self.client.match_in(text, target, **options,
+                                    on_row=lambda row: on_row(row, target))
+
+    @staticmethod
+    def _match_block(node: Tree) -> Tree | None:
+        return next((child for child in node.children
+                     if isinstance(child, Tree) and child.data == "statement_block"), None)
+
+    def _match_paths(self, target: str) -> list[str] | None:
+        """Expand local directories/globs; leave literal file paths unchanged."""
+        path = self.cwd / target
+        if path.is_file():
+            return None
+        if path.is_dir():
+            candidates = (
+                item for item in path.rglob("*")
+                if item.suffix in _SOURCE_SUFFIXES
+            )
+        elif has_magic(target):
+            candidates = (Path(item) for item in iglob(str(path), recursive=True))
+        else:
+            return None
+        max_files = self._match_setting("max_files", 100)
+        files: set[str] = set()
+        for item in candidates:
+            if item.is_file():
+                files.add(str(item.resolve()))
+                if len(files) > max_files:
+                    raise EvaluationError(f"match file list exceeds configured limit of {max_files}")
+        return sorted(files)
+
+    def _match_setting(self, name: str, default: int) -> int:
+        owner = getattr(self.client, "client", self.client)
+        configure = getattr(owner, "_configuration", None)
+        config = configure() if configure else getattr(owner, "config", None)
+        value = getattr(config, name, default)
+        return value if type(value) is int and value >= 0 else default
 
     @staticmethod
     def _has_dynamic_part(node: Tree) -> bool:

@@ -100,7 +100,7 @@ def test_glob_is_sorted_and_match_receives_absolute_files(tmp_path):
     owner = CursorOwner(client, "empty", 1, lambda _: None)
     client.match_in.return_value = MatchValue._from_store(store, owner)
     assert dispatch(client, "match varDecl() in $files", session) == ""
-    assert [call.args[1] for call in client.match_in.call_args_list] == [
+    assert sorted(call.args[1] for call in client.match_in.call_args_list) == [
         str((tmp_path / "a.cpp").resolve()), str((tmp_path / "b.cpp").resolve())
     ]
     assert all(

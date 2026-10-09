@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
@@ -126,3 +127,129 @@ def verify_native_values(values_run, values_fixture):
     assert "error:" not in output.lower(), output
     server, _ = values_fixture
     assert server.process.poll() is None
+
+
+@when("I match directory and glob inputs through the console and async SDK", target_fixture="path_values_run")
+def query_path_values(values_fixture):
+    from clang_toolkit import AsyncClient, Client
+
+    server, root = values_fixture
+    nested = root / "nested"
+    nested.mkdir()
+    (nested / "gamma.cpp").write_text("int gamma() { return 3; }\n", encoding="utf-8")
+    (root / "ignored.h").write_text("#error Headers are not directory targets\n", encoding="utf-8")
+    script = "\n".join([
+        f"let directory = match functionDecl(isDefinition()).bind('f') in '{root}'",
+        f'let pattern = match functionDecl(isDefinition()).bind("f") in "{root}/*.cc"',
+        'let recursive = match functionDecl(isDefinition()).bind("f") in "**/*.cpp"',
+        'let file = match functionDecl(isDefinition()).bind("f") in "alpha.cc"',
+        'let files = glob("alpha.cc")',
+        'let reference = match functionDecl(isDefinition()).bind("f") in $files[0]',
+        'let continued = match parmVarDecl().bind("p") in $pattern.f',
+        'let empty = match functionDecl() in "missing/*.cpp"',
+        'print "DIRECTORY_COUNT=${directory.length}"',
+        'print "GLOB_COUNT=${pattern.length}"',
+        'print "RECURSIVE_COUNT=${recursive.length}"',
+        'print "FILE_COUNT=${file.length}"',
+        'print "REFERENCE_COUNT=${reference.length}"',
+        'print "CONTINUATION_COUNT=${continued.length}"',
+        'print "EMPTY_COUNT=${empty.length}"',
+        'print "FIRST_NAME=${pattern[0].f.decl_name}"',
+        'print "SECOND_NAME=${pattern[1].f.decl_name}"',
+        'print $recursive[0].source_file',
+    ])
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint, "-e", script],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=root,
+        env=dict(os.environ, XDG_STATE_HOME=str(root / "path-values-state")),
+        timeout=60, check=False,
+    )
+
+    async def run_sdk():
+        async with AsyncClient(server.endpoint) as client:
+            rows = await client.execute(
+                'let rows = match functionDecl(isDefinition()).bind("f") in "*.cc"',
+                working_directory=root,
+            )
+            continued = await client.execute('match parmVarDecl().bind("p") in $rows.f')
+            return len(rows), len(continued), [row.source_file for row in rows]
+
+    with Client(server.endpoint) as client:
+        sync_rows = client.execute(
+            'let rows = match functionDecl(isDefinition()).bind("f") in "*.cc"',
+            working_directory=root,
+        )
+        sync_continued = client.execute('match parmVarDecl().bind("p") in $rows.f')
+        sync_counts = len(sync_rows), len(sync_continued)
+    return console, asyncio.run(run_sdk()), sync_counts
+
+
+@then("directory and glob results preserve single-file behavior and continuation")
+def verify_path_values(path_values_run, values_fixture):
+    console, sdk, sync_counts = path_values_run
+    assert console.returncode == 0, console.stdout
+    for expected in (
+        "DIRECTORY_COUNT=3", "GLOB_COUNT=2", "RECURSIVE_COUNT=1",
+        "FILE_COUNT=1", "REFERENCE_COUNT=1", "CONTINUATION_COUNT=2",
+        "EMPTY_COUNT=0", "FIRST_NAME=alpha", "SECOND_NAME=beta",
+    ):
+        assert expected in console.stdout
+    root = values_fixture[1]
+    assert str(root / "nested" / "gamma.cpp") in console.stdout
+    assert sdk == (2, 2, [str(root / "alpha.cc"), str(root / "beta.cc")])
+    assert sync_counts == (2, 2)
+
+
+@when("I run streamed match blocks through the console and SDKs", target_fixture="block_values_run")
+def query_match_blocks(values_fixture):
+    from clang_toolkit import AsyncClient, Client
+
+    server, root = values_fixture
+    block = '''match functionDecl(isDefinition()).bind("func") in "*.cc" do {
+        # Every label is a local variable for the current streamed row.
+        let name = $func.value.node.qualified_name
+        let parameters = match parmVarDecl().bind("p") in $func.source_file
+        print "BLOCK_NAME=${name};PARAMETERS=${parameters.length}"
+        print $name to "streamed-names.txt" mode append
+        match parmVarDecl().bind("param") in $func.source_file do {
+            print "PARAMETER_NAME=${param.value.node.name.identifier}"
+        }
+    }'''
+    script = '\n'.join([
+        'let func = "outside"', block,
+        'print "OUTER=${func}"',
+        'match functionDecl(isDefinition()) in "alpha.cc" do { print "ROOT=${root.value.node.qualified_name}"; }',
+    ])
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint, "-e", script],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=root,
+        env=dict(os.environ, XDG_STATE_HOME=str(root / "block-values-state")),
+        timeout=60, check=False,
+    )
+    with Client(server.endpoint) as client:
+        synchronous = client.execute(block, working_directory=root)
+        assert not client._expression_runtime._scopes
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            output = await client.execute(block, working_directory=root)
+            assert not client._expression_runtime._scopes
+            assert not client._values
+            return output
+
+    return console, synchronous, asyncio.run(run())
+
+
+@then("binding fields and nested statements work without leaking row locals")
+def verify_match_blocks(block_values_run, values_fixture):
+    console, synchronous, asynchronous = block_values_run
+    assert console.returncode == 0, console.stdout
+    for output in (console.stdout, synchronous, asynchronous):
+        assert "BLOCK_NAME=alpha;PARAMETERS=1" in output
+        assert "BLOCK_NAME=beta;PARAMETERS=1" in output
+        assert output.count("PARAMETER_NAME=value") == 2
+        assert "error:" not in output.lower(), output
+    assert "OUTER=outside" in console.stdout
+    assert "ROOT=alpha" in console.stdout
+    lines = (values_fixture[1] / "streamed-names.txt").read_text().splitlines()
+    assert sorted(lines) == ["alpha"] * 3 + ["beta"] * 3
