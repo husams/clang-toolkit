@@ -898,6 +898,12 @@ class QuerySession:
         self._reading = False
         self._input_closed = False
         self._matching_started = False
+        self._closing = False
+
+    @property
+    def closing(self) -> bool:
+        """Whether the client is intentionally shutting down this stream."""
+        return self._closing
 
     @classmethod
     async def open(cls, client: AsyncClient) -> "QuerySession":
@@ -915,7 +921,9 @@ class QuerySession:
 
     def _send(self, command_name: str, value: Any = None) -> str:
         if self._input_closed:
-            raise RuntimeError("query session input is already closed")
+            raise RuntimeError("query session is closed")
+        if self._call is None or self._call.done():
+            raise RuntimeError("query session stream has ended")
         command = query_pb2.QueryCommand(request_id=uuid.uuid4().hex)
         if value is None:
             getattr(command, command_name).SetInParent()
@@ -980,12 +988,14 @@ class QuerySession:
             self._commands.put_nowait(None)
 
     async def cancel(self) -> None:
+        self._closing = True
         self._call.cancel()
         if not self._input_closed:
             self._input_closed = True
             self._commands.put_nowait(None)
 
     async def aclose(self) -> None:
+        self._closing = True
         if self._call is not None and not self._call.done():
             if not self._matching_started:
                 await self.cancel()
@@ -1219,27 +1229,44 @@ class Client:
         compile_arguments: Sequence[str] = (),
     ) -> str:
         if self._query_session is None or self._async_loop is None:
-            raise RuntimeError("bidirectional session requires --session")
+            raise QueryError("interactive query session is unavailable; restart the console")
+        if self._query_session._input_closed:
+            raise QueryError("interactive query session is closed")
 
-        async def send() -> None:
+        async def send() -> Any:
             self._query_session.client.compilation_database = self.compilation_database
             if command == "start":
-                await self._query_session.start_query(value or "")
+                return await self._query_session.start_query(value or "")
             elif command == "add":
-                await self._query_session.add_files(
+                return await self._query_session.add_files(
                     [value or ""], working_directory=working_directory,
                     compile_arguments=compile_arguments,
                 )
             elif command == "match":
-                await self._query_session.match()
+                return await self._query_session.match()
             elif command == "pause":
-                await self._query_session.pause()
+                return await self._query_session.pause()
             elif command == "resume":
-                await self._query_session.resume()
+                return await self._query_session.resume()
             elif command == "close":
-                await self._query_session.half_close()
+                return await self._query_session.half_close()
+            raise QueryError(f"unsupported interactive query session command: {command}")
 
-        self._async_loop.call_soon_threadsafe(asyncio.create_task, send())
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is self._async_loop:
+            raise QueryError("interactive query session command cannot run on its event loop")
+        if self._async_loop.is_closed() or not self._async_loop.is_running():
+            raise QueryError("interactive query session is unavailable because its event loop has stopped")
+        try:
+            future = asyncio.run_coroutine_threadsafe(send(), self._async_loop)
+            future.result()
+        except QueryError:
+            raise
+        except Exception as exc:
+            raise QueryError(f"interactive query session {command} failed: {exc}") from exc
         return f"session {command} command sent"
 
     def start_background_query(

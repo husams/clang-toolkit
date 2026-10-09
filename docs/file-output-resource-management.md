@@ -71,6 +71,10 @@ cache prune disk
 cache prune all
 ```
 
+Resource commands display labeled text and tables in the console. Byte sizes use
+KiB below 1 MiB, MiB below 1 GiB, and GiB otherwise, with two decimal places.
+Session IDs and local binding names remain visible for reuse in commands.
+
 `server status` reports uptime, current process RSS when available, active native
 cursor count, estimated retained memory and configured cursor limits. Cache
 accounting includes reusable snapshots, estimated reusable native memory, pending
@@ -96,9 +100,10 @@ variable controls; native matcher binding names are listed by `session list`.
 
 `session close ID_OR_VALUE` releases one cursor and invalidates its local aliases;
 independent derived cursors remain usable. Closing a valid unavailable UUID is
-idempotent. The existing bare `session close` still closes the opted-in legacy
-bidirectional query (`ctk --session`). Its stream lifecycle remains separate from
-native cursor listing and attachment.
+idempotent. The console opens its query session automatically; bare `session close`
+closes that query's input. Define its matcher with `session start`, add files with
+`session add`, then execute `session match`. Ordinary parse/match expressions run
+immediately and create retained cursors independently of this query stream.
 
 Memory pruning (the default) drops reuse entries, retaining active cursor pins.
 Disk pruning retires unused snapshots while preserving leased artifact closures.

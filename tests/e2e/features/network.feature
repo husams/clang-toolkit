@@ -222,6 +222,12 @@ Feature: gRPC network client
       | unix      |
       | tcp       |
 
+  Scenario: Console query session starts automatically
+    Given a query server using unix
+    And a C++ file containing a declaration
+    When I run session commands in the console without a session option
+    Then the console streams a match and completion without session errors
+
   Scenario: Bidirectional query session half-closes after matching
     Given a query server using unix
     And a C++ file containing a declaration

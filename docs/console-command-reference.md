@@ -7,7 +7,7 @@ visible when command output is redirected. Bare `help` lists all forms.
 Uppercase words are placeholders; brackets denote optional syntax. Examples
 use the checked-in `examples/parse_match.cc` fixture. Run them from the repository
 root with a native server for analysis operations. Use returned cursor IDs in
-place of `CURSOR_ID`; session controls require `ctk --session`.
+place of `CURSOR_ID`; the console opens its query session automatically.
 
 ## help
 
@@ -360,7 +360,7 @@ history clear
 
 ## session
 
-List, attach or close retained native sessions, label history or control a legacy query.
+List, attach or close retained native sessions, label history or control a query.
 
 ```text
 session label STRING
@@ -375,8 +375,8 @@ session attach ID into $tree
 session close ID_OR_VALUE
 ```
 
-- list/attach/close ID operate native retained cursors without --session; label is local.
-- start/add/match/pause/resume and bare close require launching ctk --session.
+- list/attach/close ID operate native retained cursors; label is local.
+- The console opens a query session automatically; start defines its matcher and add supplies files.
 - See help session <subcommand>. Use parse/match/in/yield for declarative analysis.
 
 ```text
@@ -391,7 +391,7 @@ List retained native sessions owned by this caller.
 session list
 ```
 
-- Shows IDs, files, revisions, row counts, native binding names and idle expiry.
+- Shows labeled IDs, files, revisions, row counts, native binding names and idle expiry.
 
 ```text
 session list
@@ -437,6 +437,7 @@ server status
 ```
 
 - Reports uptime, current process RSS when available, session count and configured limits.
+- Sizes use KiB below 1 MiB, MiB below 1 GiB, and GiB otherwise.
 - Retained/native memory counters are estimates; cache and cursor bytes can overlap.
 - Unavailable disk or memory cache accounting is explicitly flagged.
 
@@ -468,6 +469,7 @@ Show reusable memory snapshots and persistent native artifacts.
 cache status
 ```
 
+- Sizes use KiB below 1 MiB, MiB below 1 GiB, and GiB otherwise.
 - Disk bytes count native artifacts, excluding SQLite metadata and directory overhead.
 
 ```text
@@ -561,7 +563,7 @@ Set the local history label without changing its UUID.
 session label STRING
 ```
 
-- STRING: quoted label; default is no label. Does not require --session.
+- STRING: quoted label; default is no label.
 
 ```text
 session label "study functions"
@@ -569,13 +571,13 @@ session label "study functions"
 
 ## session start
 
-Define the legacy bidirectional session query.
+Define the query for the console's session.
 
 ```text
 session start QUERY_STRING
 ```
 
-- Requires ctk --session. QUERY_STRING is a quoted matcher expression, not a path.
+- QUERY_STRING is a quoted matcher expression, not a path. The session opens automatically.
 - Uses configured extra_args and the session working directory.
 
 ```text
@@ -584,13 +586,13 @@ session start "functionDecl()"
 
 ## session add
 
-Add a source file to a legacy bidirectional session.
+Add a source file to the console's query session.
 
 ```text
 session add PATH
 ```
 
-- Requires ctk --session. PATH: quoted file path; uses configured extra_args and the session directory.
+- Define a query with session start first. PATH: quoted file path; uses configured extra_args and the session directory.
 
 ```text
 session start "functionDecl()"
@@ -606,7 +608,8 @@ Run the query over files added to a bidirectional session.
 session match
 ```
 
-- Requires ctk --session and a started query; no arguments or options.
+- Requires session start and files supplied with session add; no arguments or options.
+- An ordinary match expression executes immediately and does not define this session's query.
 
 ```text
 session start "functionDecl()"
@@ -616,13 +619,13 @@ session match
 
 ## session pause
 
-Pause legacy bidirectional query feedback.
+Pause the session's query feedback.
 
 ```text
 session pause
 ```
 
-- Requires ctk --session; no arguments or options.
+- Requires a started query; no arguments or options.
 
 ```text
 session pause
@@ -630,13 +633,13 @@ session pause
 
 ## session resume
 
-Resume legacy bidirectional query feedback.
+Resume the session's query feedback.
 
 ```text
 session resume
 ```
 
-- Requires ctk --session; no arguments or options.
+- Requires a started query; no arguments or options.
 
 ```text
 session resume
@@ -644,7 +647,7 @@ session resume
 
 ## session close
 
-Close a retained native cursor or the legacy bidirectional query session.
+Close a retained native cursor or the console's query session.
 
 ```text
 session close ID_OR_VALUE
@@ -653,7 +656,7 @@ session close
 
 - With a quoted UUID, UUID variable, tree, match value or binding: release that retained cursor.
 - A valid unavailable UUID is an idempotent close; derived independent cursors survive.
-- Without an argument: requires ctk --session. The console remains open.
+- Without an argument: close the query session's input. The console remains open.
 
 ```text
 session close $tree

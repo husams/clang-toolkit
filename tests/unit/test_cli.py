@@ -122,7 +122,7 @@ def test_background_command_uses_lark_matcher_and_selected_files():
     )
 
 
-def test_bidi_commands_require_and_forward_to_opted_in_session():
+def test_bidi_commands_forward_to_active_session():
     from unittest.mock import Mock
     from clang_toolkit.cli.runtime import Runtime
 
@@ -153,15 +153,15 @@ def test_background_stream_is_consumed_while_prompt_accepts_next_command(monkeyp
     import asyncio
     from clang_toolkit.cli import app
 
-    consumed = None
+    background_consumed = None
 
     class BackgroundClient:
         def __init__(self, *_args):
-            pass
+            self.query_session_instance = None
 
         async def __aenter__(self):
-            nonlocal consumed
-            consumed = asyncio.Event()
+            nonlocal background_consumed
+            background_consumed = asyncio.Event()
             return self
 
         async def __aexit__(self, *_args):
@@ -170,15 +170,37 @@ def test_background_stream_is_consumed_while_prompt_accepts_next_command(monkeyp
         def start_background_query(self, *_args, **_kwargs):
             async def consume():
                 await asyncio.sleep(0)
-                consumed.set()
+                background_consumed.set()
             return asyncio.create_task(consume())
 
         async def wait_background(self):
             await asyncio.sleep(0)
 
+        async def query_session(self):
+            self.query_session_instance = SessionStream()
+            return self.query_session_instance
+
+    class SessionStream:
+        def __init__(self):
+            self.closing = False
+            self.closed = asyncio.Event()
+
+        async def events(self):
+            await self.closed.wait()
+            raise app.QueryError("query session cancelled: CANCELLED")
+            yield None
+
+        async def aclose(self):
+            self.closing = True
+            self.closed.set()
+
+        async def cancel(self):
+            self.closing = True
+            self.closed.set()
+
     class Prompt:
         async def prompt_async(self, _message):
-            await consumed.wait()
+            await background_consumed.wait()
             return "quit"
 
     monkeypatch.setattr(app, "AsyncClient", BackgroundClient)
@@ -186,3 +208,212 @@ def test_background_stream_is_consumed_while_prompt_accepts_next_command(monkeyp
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     monkeypatch.setattr("sys.argv", ["ctk", "--query", "varDecl()", "--background"])
     app.main()
+
+
+def test_interactive_console_starts_session_by_default_and_keeps_legacy_flag(monkeypatch, tmp_path, capsys):
+    import asyncio
+    from clang_toolkit.cli import app
+
+    class QuerySession:
+        def __init__(self):
+            self.closing = False
+            self.started_reading = asyncio.Event()
+            self.closed = asyncio.Event()
+
+        async def events(self):
+            self.started_reading.set()
+            await self.closed.wait()
+            raise app.QueryError("query session cancelled: CANCELLED")
+            yield None
+
+        async def aclose(self):
+            self.closing = True
+            self.closed.set()
+
+        async def cancel(self):
+            self.closing = True
+            self.closed.set()
+
+    class FakeAsyncClient:
+        instances = []
+
+        def __init__(self, *_args, **_kwargs):
+            self.session = QuerySession()
+            self.session_opens = 0
+            self.__class__.instances.append(self)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def query_session(self):
+            self.session_opens += 1
+            return self.session
+
+        async def wait_background(self):
+            return None
+
+    class Prompt:
+        async def prompt_async(self, _message):
+            await FakeAsyncClient.instances[-1].session.started_reading.wait()
+            return "quit"
+
+    def run_console(arguments):
+        FakeAsyncClient.instances.clear()
+        monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
+        monkeypatch.setattr(app, "create_session", lambda **_kwargs: Prompt())
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["ctk", *arguments])
+        app.main()
+        fake = FakeAsyncClient.instances[-1]
+        assert fake.session_opens == 1
+        assert fake.session.closing
+        assert "error:" not in capsys.readouterr().out
+
+    run_console([])
+    run_console(["--session"])
+
+
+def test_foreground_query_does_not_open_interactive_session(monkeypatch, tmp_path):
+    from clang_toolkit.cli import app
+
+    class FakeAsyncClient:
+        session_opens = 0
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def query(self, *_args, **_kwargs):
+            return None
+
+        async def query_session(self):
+            self.session_opens += 1
+            raise AssertionError("one-shot query opened an interactive session")
+
+    monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["ctk", "--query", "varDecl()"])
+    app.main()
+    assert FakeAsyncClient.session_opens == 0
+
+
+def test_paused_session_shutdown_cancels_after_bounded_drain(monkeypatch, tmp_path):
+    import asyncio
+    from clang_toolkit.cli import app
+
+    class QuerySession:
+        def __init__(self, finish_reader):
+            self.closing = False
+            self.finish_reader = finish_reader
+            self.reading = asyncio.Event()
+            self.cancelled = asyncio.Event()
+            self.reader_done = asyncio.Event()
+
+        async def events(self):
+            self.reading.set()
+            try:
+                if self.finish_reader:
+                    return
+                await self.cancelled.wait()
+                raise app.QueryError("query session cancelled: CANCELLED")
+                yield None
+            finally:
+                self.reader_done.set()
+
+        async def aclose(self):
+            self.closing = True
+            await self.reading.wait()
+            await asyncio.Event().wait()
+
+        async def cancel(self):
+            self.closing = True
+            self.cancelled.set()
+
+    class FakeAsyncClient:
+        instance = None
+        finish_reader = False
+
+        def __init__(self, *_args, **_kwargs):
+            self.session = QuerySession(self.finish_reader)
+            self.__class__.instance = self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def query_session(self):
+            return self.session
+
+        async def wait_background(self):
+            return None
+
+    class Prompt:
+        async def prompt_async(self, _message):
+            await FakeAsyncClient.instance.session.reading.wait()
+            return "quit"
+
+    monkeypatch.setattr(app, "_SESSION_CLOSE_TIMEOUT", 0.01)
+    monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(app, "create_session", lambda **_kwargs: Prompt())
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["ctk"])
+    for finish_reader in (False, True):
+        FakeAsyncClient.finish_reader = finish_reader
+        app.main()
+        assert FakeAsyncClient.instance.session.cancelled.is_set()
+        assert FakeAsyncClient.instance.session.reader_done.is_set()
+
+
+def test_session_command_reports_closed_stream_failure():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    import pytest
+    from clang_toolkit.client import Client, QueryError
+
+    async def exercise():
+        session = SimpleNamespace(
+            client=SimpleNamespace(compilation_database=None),
+            _input_closed=False,
+            start_query=AsyncMock(side_effect=RuntimeError("query session input is already closed")),
+        )
+        async_client = SimpleNamespace(config=SimpleNamespace())
+        client = Client()
+        client.bind_async_client(async_client)
+        client.bind_query_session(session)
+        with pytest.raises(QueryError, match="query session input is already closed"):
+            await asyncio.to_thread(client.send_session_command, "start", "varDecl()")
+        session._input_closed = True
+        with pytest.raises(QueryError, match="interactive query session is closed"):
+            await asyncio.to_thread(client.send_session_command, "start", "varDecl()")
+
+    asyncio.run(exercise())
+
+
+def test_session_command_reports_ended_stream_failure():
+    import asyncio
+    from types import SimpleNamespace
+    import pytest
+    from clang_toolkit.client import Client, QueryError, QuerySession
+
+    async def exercise():
+        async_client = SimpleNamespace(config=SimpleNamespace(), compilation_database=None)
+        session = QuerySession(async_client)
+        session._call = SimpleNamespace(done=lambda: True)
+        client = Client()
+        client.bind_async_client(async_client)
+        client.bind_query_session(session)
+        with pytest.raises(QueryError, match="query session stream has ended"):
+            await asyncio.to_thread(client.send_session_command, "start", "varDecl()")
+
+    asyncio.run(exercise())
