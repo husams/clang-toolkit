@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import cache
+from collections.abc import Iterator
 from pathlib import Path
 
 from lark import Lark, Token
@@ -11,14 +12,38 @@ from lark.exceptions import UnexpectedInput
 GRAMMAR = Path(__file__).with_name("grammar.lark")
 
 
+class _StatementWhitespace:
+    """Keep statement boundaries and ignore newlines within expressions."""
+
+    always_accept = ("BATCH_SEPARATOR",)
+
+    def __init__(self, *, batch: bool = False) -> None:
+        self.batch = batch
+
+    def process(self, tokens: Iterator[Token]) -> Iterator[Token]:
+        delimiters: list[str] = []
+        for token in tokens:
+            if token.type in {"LBRACE", "LPAR", "LSQB"}:
+                delimiters.append(token.type)
+            elif token.type in {"RBRACE", "RPAR", "RSQB"} and delimiters:
+                delimiters.pop()
+            if token.type == "BATCH_SEPARATOR" and (
+                (not delimiters and not self.batch)
+                or (delimiters and delimiters[-1] != "LBRACE")
+            ):
+                continue
+            yield token
+
+
 @cache
 def parser() -> Lark:
     """Build the cached command parser with source positions enabled."""
     return Lark(
-        GRAMMAR.read_text() + "\n%ignore BATCH_SEPARATOR\n",
+        GRAMMAR.read_text(),
         parser="lalr",
         start="start",
         propagate_positions=True,
+        postlex=_StatementWhitespace(),
     )
 
 
@@ -30,6 +55,7 @@ def batch_parser() -> Lark:
         parser="lalr",
         start="batch_start",
         propagate_positions=True,
+        postlex=_StatementWhitespace(batch=True),
     )
 
 

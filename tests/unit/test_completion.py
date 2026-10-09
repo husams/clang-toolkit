@@ -87,11 +87,11 @@ def test_references_are_injected_and_fields_follow_dot():
 
 
 def test_bind_completion_and_strings_do_not_invent_values():
-    assert complete("match callExpr()") == [".bind", "in"]
+    assert complete("match callExpr()") == [".bind", "do", "in"]
     assert complete("match callExpr().") == [".bind"]
     assert complete("match callExpr().bi") == [".bind"]
     assert complete("match callExpr().bind(") == []
-    assert complete('match callExpr().bind("capture")') == ["in"]
+    assert complete('match callExpr().bind("capture")') == ["do", "in"]
     assert (
         complete('match hasName("function")', cursor=len('match hasName("func')) == []
     )

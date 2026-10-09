@@ -54,7 +54,7 @@ def test_file_list_uses_native_matches_with_traversal_and_source_rows(tmp_path):
     runtime.config_store.effective["traversal"] = "IgnoreUnlessSpelledInSource"
     first = _match_value(binding_names=("f", "source_match_index"), source_indices=(None, 11))
     second = _match_value(source_indices=(None,))
-    client.match_in.side_effect = [first, second]
+    client.match_in.side_effect = lambda query, path, **options: first if path.endswith("a.cpp") else second
 
     result = runtime.evaluate('let rows = match functionDecl().bind("f") in ["a.cpp", "b.cpp"]')
 
@@ -78,7 +78,12 @@ def test_file_list_uses_native_matches_with_traversal_and_source_rows(tmp_path):
 def test_file_list_failure_closes_prior_native_results_and_limit_is_enforced(tmp_path):
     client, runtime = _runtime(tmp_path)
     first = _match_value()
-    client.match_in.side_effect = [first, RuntimeError("second file failed")]
+    def matching(query, path, **options):
+        if path.endswith("a.cpp"):
+            return first
+        raise RuntimeError("second file failed")
+
+    client.match_in.side_effect = matching
     with pytest.raises(RuntimeError, match="second file failed"):
         runtime.evaluate('match functionDecl() in ["a.cpp", "b.cpp"]')
     assert first._owner.closed

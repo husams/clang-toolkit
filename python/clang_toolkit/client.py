@@ -11,6 +11,7 @@ import inspect
 import json
 import uuid
 import weakref
+from threading import Lock
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +43,24 @@ QueryEvent = query_pb2.QueryEvent
 EventCallback = Callable[[QueryEvent], Any | Awaitable[Any]]
 AsyncMatchRowCallback = Callable[[match_result_pb2.MatchResult], Any | Awaitable[Any]]
 MatchRowCallback = Callable[[match_result_pb2.MatchResult], None]
+
+
+async def _invoke_sync_callback(callback: MatchRowCallback,
+                                row: match_result_pb2.MatchResult) -> None:
+    """Run blocking row work outside the RPC loop and join it on cancellation."""
+    def invoke() -> None:
+        outcome = callback(row)
+        if inspect.isawaitable(outcome):
+            if inspect.iscoroutine(outcome):
+                outcome.close()
+            raise TypeError("synchronous on_row callbacks must not return awaitables")
+
+    worker = asyncio.create_task(asyncio.to_thread(invoke))
+    try:
+        await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        await asyncio.gather(worker, return_exceptions=True)
+        raise
 
 
 class _MatchStreamCall(Protocol):
@@ -607,6 +626,7 @@ class AsyncClient:
                 except asyncio.CancelledError:
                     adapter.cancel()
                     await asyncio.gather(worker, return_exceptions=True)
+                    await adapter.wait_callbacks()
                     raise
         finally:
             lease.close()
@@ -1128,12 +1148,8 @@ class Client:
     ) -> MatchValue[Client]:
         callback: AsyncMatchRowCallback | None = None
         if on_row is not None:
-            def checked_callback(row: match_result_pb2.MatchResult) -> None:
-                outcome = on_row(row)
-                if inspect.isawaitable(outcome):
-                    if inspect.iscoroutine(outcome):
-                        outcome.close()
-                    raise TypeError("synchronous on_row callbacks must not return awaitables")
+            async def checked_callback(row: match_result_pb2.MatchResult) -> None:
+                await _invoke_sync_callback(on_row, row)
 
             callback = checked_callback
 
@@ -1422,25 +1438,34 @@ class _AsyncExpressionAdapter:
         self.client = client
         self.lease = lease
         self._cancelled = False
-        self._future: concurrent.futures.Future[Any] | None = None
+        self._futures: set[concurrent.futures.Future[Any]] = set()
+        self._future_lock = Lock()
+        self._row_callbacks: set[asyncio.Task[Any]] = set()
 
     def cancel(self) -> None:
-        self._cancelled = True
-        if self._future is not None:
-            self._future.cancel()
+        with self._future_lock:
+            self._cancelled = True
+            futures = tuple(self._futures)
+        for future in futures:
+            future.cancel()
+
+    async def wait_callbacks(self) -> None:
+        """Join cancelled row callbacks before releasing runtime scopes."""
+        if self._row_callbacks:
+            await asyncio.gather(*tuple(self._row_callbacks), return_exceptions=True)
 
     def _call(self, method: str, *args: Any, **kwargs: Any) -> Any:
-        if self._cancelled:
-            raise asyncio.CancelledError
-        future = asyncio.run_coroutine_threadsafe(
-            getattr(self.client, method)(*args, **kwargs), self.client._loop)
-        self._future = future
-        if self._cancelled:
-            future.cancel()
+        with self._future_lock:
+            if self._cancelled:
+                raise asyncio.CancelledError
+            future = asyncio.run_coroutine_threadsafe(
+                getattr(self.client, method)(*args, **kwargs), self.client._loop)
+            self._futures.add(future)
         try:
             return future.result()
         finally:
-            self._future = None
+            with self._future_lock:
+                self._futures.discard(future)
 
     @property
     def compilation_database(self) -> str | Path | None:
@@ -1459,11 +1484,23 @@ class _AsyncExpressionAdapter:
     def match_in(self, query: str, target: MatchTarget, *,
                  working_directory: str | Path | None = None,
                  compile_arguments: Sequence[str] = (),
-                 traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS
+                 traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+                 on_row: MatchRowCallback | None = None,
                  ) -> MatchValue[AsyncClient]:
+        async def callback(row: match_result_pb2.MatchResult) -> None:
+            assert on_row is not None
+            task = asyncio.current_task()
+            assert task is not None
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_row, row)
+            finally:
+                self._row_callbacks.discard(task)
+
         return self._call("_match_in_with_lease", query, target,
             working_directory=working_directory, compile_arguments=compile_arguments,
-            traversal_mode=traversal_mode, lease=self.lease)
+            traversal_mode=traversal_mode, on_row=callback if on_row is not None else None,
+            lease=self.lease)
 
     def match(self, query: str, *, files: Sequence[str] | None = None,
               **kwargs: Any) -> list[Any]:

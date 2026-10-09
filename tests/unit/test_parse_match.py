@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import inspect
 from threading import Thread
 from dataclasses import FrozenInstanceError
 
@@ -84,7 +85,9 @@ def owned_client(monkeypatch):
                 store.append(encoded)
                 if callback is not None:
                     detached = results.MatchResult.FromString(encoded)
-                    callback(detached)
+                    outcome = callback(detached)
+                    if inspect.isawaitable(outcome):
+                        asyncio.run(outcome)
             completion = match_stream_pb2.MatchStreamCompleted(
                 session_id=identifier, result_revision=1, row_count=len(result.results)
             )
