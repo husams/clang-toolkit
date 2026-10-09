@@ -110,8 +110,13 @@ fi
 printf 'SQLite is statically linked: %s\n' "$server_binary"
 
 if [[ "${SKIP_TESTS:-0}" != 1 ]]; then
-  # One process avoids repeated LLVM startup and shared cache-root contention.
-  "$build_dir/server/tests/ctk_tests"
+  # Isolate native persistence tests from running servers and other test runs.
+  (
+    native_test_storage="$(mktemp -d "${TMPDIR:-/tmp}/ctk-native-tests.XXXXXX")"
+    trap 'rm -rf -- "$native_test_storage"' EXIT
+    export CTK_STORAGE_ROOT="$native_test_storage"
+    "$build_dir/server/tests/ctk_tests"
+  )
   uv run --project "$repo_root" python -m pytest "$repo_root/tests/unit"
   CTK_TEST_CLANG="$(cat "$build_dir/ctk-clang-tool-path.txt")" \
     CTK_SERVER="$server_binary" uv run --project "$repo_root" python -m pytest \

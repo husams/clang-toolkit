@@ -9,6 +9,54 @@ import subprocess
 import pytest
 
 
+@pytest.mark.parametrize("native_status", [0, 7])
+def test_native_tests_isolate_and_clean_storage_root(tmp_path: Path, native_status: int) -> None:
+    script = (Path(__file__).resolve().parents[2] / "scripts/build-rhel9.sh").read_text()
+    phase = script.split('if [[ "${SKIP_TESTS:-0}" != 1 ]]; then\n', 1)[1]
+    phase = phase.split('\nfi\nif [[ "${PACKAGE:-0}"', 1)[0]
+    build_dir = tmp_path / "custom build"
+    native_tests = build_dir / "server/tests/ctk_tests"
+    native_tests.parent.mkdir(parents=True)
+    native_tests.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+[[ -d "$CTK_STORAGE_ROOT" ]]
+printf '%s\n' "$CTK_STORAGE_ROOT" > "$NATIVE_LOG"
+touch "$CTK_STORAGE_ROOT/native-artifact"
+exit "$NATIVE_STATUS"
+''')
+    native_tests.chmod(0o755)
+    (build_dir / "ctk-clang-tool-path.txt").write_text("/usr/bin/clang++\n")
+    live_root = tmp_path / "live-storage"
+    live_root.mkdir()
+    marker = live_root / "server-artifact"
+    marker.write_text("retained")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    native_log, client_log = tmp_path / "native.log", tmp_path / "client.log"
+    result = subprocess.run(["bash", "-c", '''
+set -euo pipefail
+build_dir="$BUILD_PATH"
+repo_root="$PROJECT_PATH"
+server_binary="$build_dir/server/ctk-server"
+uv() { printf '%s\n' "$CTK_STORAGE_ROOT" >> "$CLIENT_LOG"; }
+''' + phase], env=os.environ | {
+        "BUILD_PATH": str(build_dir), "PROJECT_PATH": str(tmp_path),
+        "CTK_STORAGE_ROOT": str(live_root), "TMPDIR": str(scratch),
+        "NATIVE_STATUS": str(native_status), "NATIVE_LOG": str(native_log),
+        "CLIENT_LOG": str(client_log),
+    }, capture_output=True, text=True, check=False)
+    assert result.returncode == native_status, result.stderr
+    test_root = Path(native_log.read_text().strip())
+    assert test_root.parent == scratch
+    assert test_root != live_root and not test_root.exists()
+    assert marker.read_text() == "retained"
+    assert list(scratch.iterdir()) == []
+    if native_status == 0:
+        assert client_log.read_text().splitlines() == [str(live_root)] * 2
+    else:
+        assert not client_log.exists()
+
+
 def test_e2e_uses_compiler_from_selected_build_directory(tmp_path: Path) -> None:
     script = (Path(__file__).resolve().parents[2] / "scripts/build-rhel9.sh").read_text()
     phase = script.split('if [[ "${SKIP_TESTS:-0}" != 1 ]]; then\n', 1)[1]
