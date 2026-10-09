@@ -16,6 +16,7 @@ from clang_toolkit._generated.match.v1 import match_result_pb2 as results
 from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
 from clang_toolkit._value_lifecycle import CursorOwner, MatchValueError
 from clang_toolkit._row_store import RowStore
+from clang_toolkit.matchers import MatcherInput
 
 if TYPE_CHECKING:
     from clang_toolkit.client import AsyncClient, Client
@@ -36,18 +37,18 @@ class ParsedTree(Generic[ClientT]):
         _close_value_sync(self._owner)
 
     @overload
-    def match(self: ParsedTree[Client], query: str, *,
+    def match(self: ParsedTree[Client], query: MatcherInput, *,
               working_directory: str | Path | None = None,
               compile_arguments: Sequence[str] = (),
               traversal_mode: pb.MatchTraversalMode = pb.MATCH_TRAVERSAL_MODE_AS_IS) -> MatchValue[Client]: ...
 
     @overload
-    def match(self: ParsedTree[AsyncClient], query: str, *,
+    def match(self: ParsedTree[AsyncClient], query: MatcherInput, *,
               working_directory: str | Path | None = None,
               compile_arguments: Sequence[str] = (),
               traversal_mode: pb.MatchTraversalMode = pb.MATCH_TRAVERSAL_MODE_AS_IS) -> Awaitable[MatchValue[AsyncClient]]: ...
 
-    def match(self, query: str, *, working_directory: str | Path | None = None,
+    def match(self, query: MatcherInput, *, working_directory: str | Path | None = None,
               compile_arguments: Sequence[str] = (),
               traversal_mode: pb.MatchTraversalMode = pb.MATCH_TRAVERSAL_MODE_AS_IS
               ) -> MatchValue[Any] | Awaitable[MatchValue[Any]]:
@@ -117,18 +118,18 @@ class BindingSelection(Generic[ClientT]):
         return self.decl_type
 
     @overload
-    def match(self: BindingSelection[Client], query: str, *,
+    def match(self: BindingSelection[Client], query: MatcherInput, *,
               working_directory: str | Path | None = None,
               compile_arguments: Sequence[str] = (),
               traversal_mode: pb.MatchTraversalMode = pb.MATCH_TRAVERSAL_MODE_AS_IS) -> MatchValue[Client]: ...
 
     @overload
-    def match(self: BindingSelection[AsyncClient], query: str, *,
+    def match(self: BindingSelection[AsyncClient], query: MatcherInput, *,
               working_directory: str | Path | None = None,
               compile_arguments: Sequence[str] = (),
               traversal_mode: pb.MatchTraversalMode = pb.MATCH_TRAVERSAL_MODE_AS_IS) -> Awaitable[MatchValue[AsyncClient]]: ...
 
-    def match(self, query: str, *, working_directory: str | Path | None = None,
+    def match(self, query: MatcherInput, *, working_directory: str | Path | None = None,
               compile_arguments: Sequence[str] = (),
               traversal_mode: pb.MatchTraversalMode = pb.MATCH_TRAVERSAL_MODE_AS_IS
               ) -> MatchValue[Any] | Awaitable[MatchValue[Any]]:

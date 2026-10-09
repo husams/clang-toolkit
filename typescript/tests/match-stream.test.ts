@@ -1,11 +1,14 @@
 import { EventEmitter } from "node:events";
+import { fileURLToPath } from "node:url";
 import {
   type ClientReadableStream,
   Metadata,
   type StatusObject,
   status,
 } from "@grpc/grpc-js";
+import { loadSync } from "@grpc/proto-loader";
 import { describe, expect, it } from "vitest";
+import { matchStreamEventSchema } from "../src/boundary.js";
 import type { MatchStreamEvent__Output } from "../src/generated/ctk/match/v1/MatchStreamEvent.js";
 import {
   DiskMatchRowStore,
@@ -94,6 +97,119 @@ function store(): DiskMatchRowStore {
 }
 
 describe("retained Match streaming", () => {
+  it("decodes and retains base specifiers with copied binding metadata", async () => {
+    const schemaDirectory = fileURLToPath(
+      new URL("../schema/", import.meta.url),
+    );
+    const definitions = loadSync(
+      [`${schemaDirectory}match/v1/match_stream.proto`],
+      {
+        includeDirs: [schemaDirectory],
+        longs: String,
+        enums: String,
+        defaults: true,
+        oneofs: true,
+      },
+    );
+    const eventDefinition = definitions["ctk.match.v1.MatchStreamEvent"];
+    if (
+      eventDefinition === undefined ||
+      !("format" in eventDefinition) ||
+      eventDefinition.format !== "Protocol Buffer 3 DescriptorProto"
+    )
+      throw new Error("MatchStreamEvent descriptor is missing");
+
+    const input = {
+      event: "row",
+      row: {
+        bindings: {
+          base: {
+            baseSpecifier: {
+              type: {},
+              access: "ACCESS_SPECIFIER_PUBLIC",
+              isVirtual: true,
+              isPackExpansion: false,
+            },
+            availability: [],
+            supportedScopes: [],
+            isComplete: true,
+            location: {
+              file: "/tmp/example.cc",
+              line: 4,
+              column: 7,
+              valid: true,
+              isMacro: false,
+            },
+            range: {
+              expansionBegin: {
+                file: "/tmp/example.cc",
+                line: 4,
+                column: 7,
+                valid: true,
+                isMacro: false,
+              },
+              expansionEnd: {
+                file: "/tmp/example.cc",
+                line: 4,
+                column: 18,
+                valid: true,
+                isMacro: false,
+              },
+            },
+            symbolIdentity: "c:@S@Derived",
+            documentation: "Copied declaration documentation",
+            callSite: null,
+          },
+        },
+      },
+    };
+    const encoded = eventDefinition.serialize(input);
+    const decoded = eventDefinition.deserialize(
+      encoded,
+    ) as MatchStreamEvent__Output;
+    const parsed = matchStreamEventSchema.parse(decoded);
+    const parsedBinding = parsed.row?.bindings.base;
+    expect(parsedBinding?.value).toBe("baseSpecifier");
+    expect(parsedBinding).toMatchObject({
+      baseSpecifier: {
+        access: "ACCESS_SPECIFIER_PUBLIC",
+        isVirtual: true,
+        isPackExpansion: false,
+      },
+      availability: [],
+      supportedScopes: [],
+      location: { file: "/tmp/example.cc", line: 4, column: 7 },
+      range: {
+        expansionBegin: { line: 4, column: 7 },
+        expansionEnd: { line: 4, column: 18 },
+      },
+      symbolIdentity: "c:@S@Derived",
+      documentation: "Copied declaration documentation",
+      callSite: null,
+    });
+
+    const stream = new ReadableStub();
+    const rows = store();
+    const task = consumeMatchStream(
+      stream as unknown as ClientReadableStream<MatchStreamEvent__Output>,
+      rows,
+      () => {},
+    );
+    stream.send(decoded);
+    stream.send(completion);
+    stream.end();
+    stream.finish(ok);
+    await task;
+    expect(rows.get(0)?.bindings.base).toMatchObject({
+      baseSpecifier: { isVirtual: true },
+      location: { file: "/tmp/example.cc" },
+      symbolIdentity: "c:@S@Derived",
+      documentation: "Copied declaration documentation",
+      supportedScopes: [],
+    });
+    rows.discard();
+  });
+
   it("spools rows before awaiting progressive callbacks and verifies completion", async () => {
     const stream = new ReadableStub();
     const rows = store();

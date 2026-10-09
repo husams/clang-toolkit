@@ -136,11 +136,12 @@ selects an explicit file for the server or console. See
 
 ```python
 from clang_toolkit import Client
+from clang_toolkit.matchers import callExpr, functionDecl, isDefinition
 
 with Client() as client:
-    with client.match('functionDecl(isDefinition()).bind("f")',
+    with client.match(functionDecl(isDefinition()).bind("f"),
                       file="examples/parse_match.cc") as functions:
-        with functions.binding("f").match('callExpr().bind("call")') as calls:
+        with functions.binding("f").match(callExpr().bind("call")) as calls:
             for row in calls:
                 print(row.bindings["call"])
 ```
@@ -148,6 +149,19 @@ with Client() as client:
 Context managers release retained server values. `AsyncClient` provides the
 asynchronous API. See [parse and match expressions](docs/parse-match-expressions.md)
 and the runnable [Python example](examples/parse_match.py).
+
+Matcher objects are immutable; nested factories compose queries, and `.bind()`
+returns a bound copy. Use `Matcher("matcherName", ...)` for server matchers
+without a convenience factory, or `.to_query()` to inspect the generated text.
+Existing string queries remain supported. Clang matcher compatibility is
+validated by the server.
+
+See [console-to-SDK coverage](docs/python-sdk-console-coverage.md) for direct APIs
+and expression-only conveniences. The [C++ reasoning agent skill](skills/ctk-cpp-reasoning/SKILL.md)
+includes self-contained API and query recipes and uses its `scripts/python.sh`
+helper with the bundled SDK project by default. Set `CTK_SDK_PROJECT` to override
+that project with an installed uv environment; the skill does not inspect its path
+or configuration. Operators can prepare an installation with `scripts/setup.sh`.
 
 For Node.js 22 or later, see the [TypeScript SDK](typescript/README.md).
 

@@ -20,7 +20,7 @@ export interface AnalysisServiceClient extends grpc.Client {
   callGraph(argument: _ctk_analysis_v1_CallGraphRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_CallGraphResponse__Output>): grpc.ClientUnaryCall;
   callGraph(argument: _ctk_analysis_v1_CallGraphRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_CallGraphResponse__Output>): grpc.ClientUnaryCall;
   callGraph(argument: _ctk_analysis_v1_CallGraphRequest, callback: grpc.requestCallback<_ctk_analysis_v1_CallGraphResponse__Output>): grpc.ClientUnaryCall;
-  
+
   Cfg(argument: _ctk_analysis_v1_CfgRequest, metadata: grpc.Metadata, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_CfgResponse__Output>): grpc.ClientUnaryCall;
   Cfg(argument: _ctk_analysis_v1_CfgRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_CfgResponse__Output>): grpc.ClientUnaryCall;
   Cfg(argument: _ctk_analysis_v1_CfgRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_CfgResponse__Output>): grpc.ClientUnaryCall;
@@ -29,7 +29,7 @@ export interface AnalysisServiceClient extends grpc.Client {
   cfg(argument: _ctk_analysis_v1_CfgRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_CfgResponse__Output>): grpc.ClientUnaryCall;
   cfg(argument: _ctk_analysis_v1_CfgRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_CfgResponse__Output>): grpc.ClientUnaryCall;
   cfg(argument: _ctk_analysis_v1_CfgRequest, callback: grpc.requestCallback<_ctk_analysis_v1_CfgResponse__Output>): grpc.ClientUnaryCall;
-  
+
   RunScript(argument: _ctk_analysis_v1_ScriptRequest, metadata: grpc.Metadata, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_ScriptResponse__Output>): grpc.ClientUnaryCall;
   RunScript(argument: _ctk_analysis_v1_ScriptRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_ScriptResponse__Output>): grpc.ClientUnaryCall;
   RunScript(argument: _ctk_analysis_v1_ScriptRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_ScriptResponse__Output>): grpc.ClientUnaryCall;
@@ -38,7 +38,7 @@ export interface AnalysisServiceClient extends grpc.Client {
   runScript(argument: _ctk_analysis_v1_ScriptRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_ScriptResponse__Output>): grpc.ClientUnaryCall;
   runScript(argument: _ctk_analysis_v1_ScriptRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_ScriptResponse__Output>): grpc.ClientUnaryCall;
   runScript(argument: _ctk_analysis_v1_ScriptRequest, callback: grpc.requestCallback<_ctk_analysis_v1_ScriptResponse__Output>): grpc.ClientUnaryCall;
-  
+
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
@@ -47,18 +47,18 @@ export interface AnalysisServiceClient extends grpc.Client {
   traverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
   traverse(argument: _ctk_analysis_v1_TraverseRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
   traverse(argument: _ctk_analysis_v1_TraverseRequest, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
-  
+
 }
 
 export interface AnalysisServiceHandlers extends grpc.UntypedServiceImplementation {
   CallGraph: grpc.handleUnaryCall<_ctk_analysis_v1_CallGraphRequest__Output, _ctk_analysis_v1_CallGraphResponse>;
-  
+
   Cfg: grpc.handleUnaryCall<_ctk_analysis_v1_CfgRequest__Output, _ctk_analysis_v1_CfgResponse>;
-  
+
   RunScript: grpc.handleUnaryCall<_ctk_analysis_v1_ScriptRequest__Output, _ctk_analysis_v1_ScriptResponse>;
-  
+
   Traverse: grpc.handleUnaryCall<_ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseResponse>;
-  
+
 }
 
 export interface AnalysisServiceDefinition extends grpc.ServiceDefinition {

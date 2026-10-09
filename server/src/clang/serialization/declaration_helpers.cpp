@@ -415,13 +415,24 @@ void write_function_info(const clang::FunctionDecl &native,
   }
   // getBody() may find a different redeclaration's body. This field describes
   // the matched declaration and owns only that declaration's body.
-  if (native.doesThisDeclarationHaveABody())
+  if (native.doesThisDeclarationHaveABody()) {
     write_stmt(native.getBody(), *payload.mutable_body(), context);
+    // Presence describes the body's typed value; nested unavailable fields
+    // remain visible through the body completeness and availability records.
+    if (context.projection == ProjectionPolicy::Recursive &&
+        payload.body().payload_case() != pb::StatementValue::PAYLOAD_NOT_SET)
+      mark_availability(payload, "body", pb::FIELD_STATE_PRESENT, context);
+  } else if (!native.hasSkippedBody()) {
+    mark_availability(payload, "body", pb::FIELD_STATE_SEMANTICALLY_ABSENT,
+                      context);
+  }
   if (native.hasSkippedBody())
     unavailable(payload, "body", "Clang skipped this definition's body",
                 context);
   payload.set_is_this_declaration_a_definition(
       native.isThisDeclarationADefinition());
+  mark_availability(payload, "is_this_declaration_a_definition",
+                    pb::FIELD_STATE_PRESENT, context);
   payload.set_is_variadic(native.isVariadic());
   payload.set_is_constexpr(native.isConstexpr());
   payload.set_storage_class(storage_class(native.getStorageClass()));
@@ -433,7 +444,8 @@ void write_method_info(const clang::CXXMethodDecl &native,
   if (context.projection == ProjectionPolicy::Shallow)
     (void)can_expand(payload, "parent_record", context);
   else
-    write_symbol(*native.getParent(), *payload.mutable_parent_record(), context);
+    write_symbol(*native.getParent(), *payload.mutable_parent_record(),
+                 context);
   payload.set_is_static(native.isStatic());
   payload.set_is_virtual(native.isVirtual());
   payload.set_is_const(native.isConst());

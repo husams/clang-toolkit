@@ -31,7 +31,7 @@ except AttributeError:
   ast_dot_v1_dot_semantic__pb2 = ast_dot_v1_dot_semantic__types__pb2.ast.v1.semantic_pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1bmatch/v1/match_result.proto\x12\x0c\x63tk.match.v1\x1a\x13\x61st/v1/common.proto\x1a\x11\x61st/v1/node.proto\x1a\x1b\x61st/v1/semantic_types.proto\"\xfc\x03\n\x0cMatchBinding\x12#\n\x04node\x18\x01 \x01(\x0b\x32\x13.ctk.ast.v1.AstNodeH\x00\x12.\n\x0equalified_type\x18\x02 \x01(\x0b\x32\x14.ctk.ast.v1.QualTypeH\x00\x12\x33\n\x0bunsupported\x18\x03 \x01(\x0b\x32\x1c.ctk.ast.v1.UnsupportedValueH\x00\x12\x33\n\x0c\x61vailability\x18\x04 \x03(\x0b\x32\x1d.ctk.ast.v1.FieldAvailability\x12\x18\n\x0bis_complete\x18\x05 \x01(\x08H\x01\x88\x01\x01\x12\x39\n\x10supported_scopes\x18\x06 \x03(\x0e\x32\x1f.ctk.match.v1.BindingMatchScope\x12\x30\n\x08location\x18\x07 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12-\n\x05range\x18\x08 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourceRange\x12\x17\n\x0fsymbol_identity\x18\t \x01(\t\x12\x15\n\rdocumentation\x18\n \x01(\t\x12.\n\tcall_site\x18\x0b \x01(\x0b\x32\x1b.ctk.match.v1.CallSiteFactsB\x07\n\x05valueB\x0e\n\x0c_is_complete\"_\n\x10MatchSourcePoint\x12\x0c\n\x04\x66ile\x18\x01 \x01(\t\x12\x0c\n\x04line\x18\x02 \x01(\r\x12\x0e\n\x06\x63olumn\x18\x03 \x01(\r\x12\r\n\x05valid\x18\x04 \x01(\x08\x12\x10\n\x08is_macro\x18\x05 \x01(\x08\"\xf0\x01\n\x10MatchSourceRange\x12\x37\n\x0f\x65xpansion_begin\x18\x01 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12\x35\n\rexpansion_end\x18\x02 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12\x36\n\x0espelling_begin\x18\x03 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12\x34\n\x0cspelling_end\x18\x04 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\"\xb5\x01\n\rCallSiteFacts\x12\x1e\n\x16\x63\x61ller_symbol_identity\x18\x01 \x01(\t\x12\x13\n\x0b\x63\x61ller_name\x18\x02 \x01(\t\x12,\n\x08\x64ispatch\x18\x03 \x01(\x0e\x32\x1a.ctk.match.v1.CallDispatch\x12%\n\x1dstatic_callee_symbol_identity\x18\x04 \x01(\t\x12\x1a\n\x12static_callee_name\x18\x05 \x01(\t\"\xcd\x01\n\x0bMatchResult\x12\x39\n\x08\x62indings\x18\x01 \x03(\x0b\x32\'.ctk.match.v1.MatchResult.BindingsEntry\x12\x1f\n\x12source_match_index\x18\x02 \x01(\x04H\x00\x88\x01\x01\x1aK\n\rBindingsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12)\n\x05value\x18\x02 \x01(\x0b\x32\x1a.ctk.match.v1.MatchBinding:\x02\x38\x01\x42\x15\n\x13_source_match_index*|\n\x11\x42indingMatchScope\x12#\n\x1f\x42INDING_MATCH_SCOPE_UNSPECIFIED\x10\x00\x12!\n\x1d\x42INDING_MATCH_SCOPE_ROOT_ONLY\x10\x01\x12\x1f\n\x1b\x42INDING_MATCH_SCOPE_SUBTREE\x10\x02*~\n\x0c\x43\x61llDispatch\x12\x1d\n\x19\x43\x41LL_DISPATCH_UNSPECIFIED\x10\x00\x12\x18\n\x14\x43\x41LL_DISPATCH_DIRECT\x10\x01\x12\x1a\n\x16\x43\x41LL_DISPATCH_INDIRECT\x10\x02\x12\x19\n\x15\x43\x41LL_DISPATCH_VIRTUAL\x10\x03\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1bmatch/v1/match_result.proto\x12\x0c\x63tk.match.v1\x1a\x13\x61st/v1/common.proto\x1a\x11\x61st/v1/node.proto\x1a\x1b\x61st/v1/semantic_types.proto\"\xb4\x04\n\x0cMatchBinding\x12#\n\x04node\x18\x01 \x01(\x0b\x32\x13.ctk.ast.v1.AstNodeH\x00\x12.\n\x0equalified_type\x18\x02 \x01(\x0b\x32\x14.ctk.ast.v1.QualTypeH\x00\x12\x33\n\x0bunsupported\x18\x03 \x01(\x0b\x32\x1c.ctk.ast.v1.UnsupportedValueH\x00\x12\x36\n\x0e\x62\x61se_specifier\x18\x0c \x01(\x0b\x32\x1c.ctk.ast.v1.CXXBaseSpecifierH\x00\x12\x33\n\x0c\x61vailability\x18\x04 \x03(\x0b\x32\x1d.ctk.ast.v1.FieldAvailability\x12\x18\n\x0bis_complete\x18\x05 \x01(\x08H\x01\x88\x01\x01\x12\x39\n\x10supported_scopes\x18\x06 \x03(\x0e\x32\x1f.ctk.match.v1.BindingMatchScope\x12\x30\n\x08location\x18\x07 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12-\n\x05range\x18\x08 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourceRange\x12\x17\n\x0fsymbol_identity\x18\t \x01(\t\x12\x15\n\rdocumentation\x18\n \x01(\t\x12.\n\tcall_site\x18\x0b \x01(\x0b\x32\x1b.ctk.match.v1.CallSiteFactsB\x07\n\x05valueB\x0e\n\x0c_is_complete\"_\n\x10MatchSourcePoint\x12\x0c\n\x04\x66ile\x18\x01 \x01(\t\x12\x0c\n\x04line\x18\x02 \x01(\r\x12\x0e\n\x06\x63olumn\x18\x03 \x01(\r\x12\r\n\x05valid\x18\x04 \x01(\x08\x12\x10\n\x08is_macro\x18\x05 \x01(\x08\"\xf0\x01\n\x10MatchSourceRange\x12\x37\n\x0f\x65xpansion_begin\x18\x01 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12\x35\n\rexpansion_end\x18\x02 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12\x36\n\x0espelling_begin\x18\x03 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12\x34\n\x0cspelling_end\x18\x04 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\"\xb5\x01\n\rCallSiteFacts\x12\x1e\n\x16\x63\x61ller_symbol_identity\x18\x01 \x01(\t\x12\x13\n\x0b\x63\x61ller_name\x18\x02 \x01(\t\x12,\n\x08\x64ispatch\x18\x03 \x01(\x0e\x32\x1a.ctk.match.v1.CallDispatch\x12%\n\x1dstatic_callee_symbol_identity\x18\x04 \x01(\t\x12\x1a\n\x12static_callee_name\x18\x05 \x01(\t\"\xcd\x01\n\x0bMatchResult\x12\x39\n\x08\x62indings\x18\x01 \x03(\x0b\x32\'.ctk.match.v1.MatchResult.BindingsEntry\x12\x1f\n\x12source_match_index\x18\x02 \x01(\x04H\x00\x88\x01\x01\x1aK\n\rBindingsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12)\n\x05value\x18\x02 \x01(\x0b\x32\x1a.ctk.match.v1.MatchBinding:\x02\x38\x01\x42\x15\n\x13_source_match_index*|\n\x11\x42indingMatchScope\x12#\n\x1f\x42INDING_MATCH_SCOPE_UNSPECIFIED\x10\x00\x12!\n\x1d\x42INDING_MATCH_SCOPE_ROOT_ONLY\x10\x01\x12\x1f\n\x1b\x42INDING_MATCH_SCOPE_SUBTREE\x10\x02*~\n\x0c\x43\x61llDispatch\x12\x1d\n\x19\x43\x41LL_DISPATCH_UNSPECIFIED\x10\x00\x12\x18\n\x14\x43\x41LL_DISPATCH_DIRECT\x10\x01\x12\x1a\n\x16\x43\x41LL_DISPATCH_INDIRECT\x10\x02\x12\x19\n\x15\x43\x41LL_DISPATCH_VIRTUAL\x10\x03\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -40,20 +40,20 @@ if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_MATCHRESULT_BINDINGSENTRY']._loaded_options = None
   _globals['_MATCHRESULT_BINDINGSENTRY']._serialized_options = b'8\001'
-  _globals['_BINDINGMATCHSCOPE']._serialized_start=1357
-  _globals['_BINDINGMATCHSCOPE']._serialized_end=1481
-  _globals['_CALLDISPATCH']._serialized_start=1483
-  _globals['_CALLDISPATCH']._serialized_end=1609
+  _globals['_BINDINGMATCHSCOPE']._serialized_start=1413
+  _globals['_BINDINGMATCHSCOPE']._serialized_end=1537
+  _globals['_CALLDISPATCH']._serialized_start=1539
+  _globals['_CALLDISPATCH']._serialized_end=1665
   _globals['_MATCHBINDING']._serialized_start=115
-  _globals['_MATCHBINDING']._serialized_end=623
-  _globals['_MATCHSOURCEPOINT']._serialized_start=625
-  _globals['_MATCHSOURCEPOINT']._serialized_end=720
-  _globals['_MATCHSOURCERANGE']._serialized_start=723
-  _globals['_MATCHSOURCERANGE']._serialized_end=963
-  _globals['_CALLSITEFACTS']._serialized_start=966
-  _globals['_CALLSITEFACTS']._serialized_end=1147
-  _globals['_MATCHRESULT']._serialized_start=1150
-  _globals['_MATCHRESULT']._serialized_end=1355
-  _globals['_MATCHRESULT_BINDINGSENTRY']._serialized_start=1257
-  _globals['_MATCHRESULT_BINDINGSENTRY']._serialized_end=1332
+  _globals['_MATCHBINDING']._serialized_end=679
+  _globals['_MATCHSOURCEPOINT']._serialized_start=681
+  _globals['_MATCHSOURCEPOINT']._serialized_end=776
+  _globals['_MATCHSOURCERANGE']._serialized_start=779
+  _globals['_MATCHSOURCERANGE']._serialized_end=1019
+  _globals['_CALLSITEFACTS']._serialized_start=1022
+  _globals['_CALLSITEFACTS']._serialized_end=1203
+  _globals['_MATCHRESULT']._serialized_start=1206
+  _globals['_MATCHRESULT']._serialized_end=1411
+  _globals['_MATCHRESULT_BINDINGSENTRY']._serialized_start=1313
+  _globals['_MATCHRESULT_BINDINGSENTRY']._serialized_end=1388
 # @@protoc_insertion_point(module_scope)

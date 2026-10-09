@@ -1,4 +1,5 @@
 #include "node_serializers.hpp"
+#include "aux/cxx_base_specifier.hpp"
 #include "decl/access_spec_decl.hpp"
 #include "decl/binding_decl.hpp"
 #include "decl/block_decl.hpp"
@@ -330,6 +331,8 @@ void remove_empty_child_values(google::protobuf::Message &message,
 bool dispatch(const clang::DynTypedNode &node,
               ctk::match::v1::MatchBinding &binding,
               SerializationContext &context) {
+  if (node.get<clang::CXXBaseSpecifier>())
+    return select<CXXBaseSpecifierSerializer>(node, binding, context);
   if (const auto *qualified = node.get<clang::QualType>()) {
     helpers::write_type(*qualified, *binding.mutable_qualified_type(), context);
     helpers::finish_binding(binding, context);
@@ -410,7 +413,7 @@ bool NodeSerializerDispatcher::serialize(const clang::DynTypedNode &node,
          index < context.availability.size(); ++index)
       *binding.add_availability() = context.availability[index];
   }
-  if (result) {
+  if (result && !node.get<clang::CXXBaseSpecifier>()) {
     binding.add_supported_scopes(ctk::match::v1::BINDING_MATCH_SCOPE_ROOT_ONLY);
     if (node.get<clang::Decl>() || node.get<clang::Stmt>())
       binding.add_supported_scopes(ctk::match::v1::BINDING_MATCH_SCOPE_SUBTREE);

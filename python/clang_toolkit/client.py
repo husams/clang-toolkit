@@ -35,6 +35,7 @@ from clang_toolkit.call_graph import call_graph_request
 from clang_toolkit.match_values import (
     BindingSelection, MatchTarget, MatchValue, MatchValueError, ParsedTree,
 )
+from clang_toolkit.matchers import MatcherInput, matcher_query
 from clang_toolkit._value_lifecycle import CursorOwner, OperationLease
 from clang_toolkit._row_store import RowStore
 from clang_toolkit._generated.match.v1 import parse_request_pb2, parse_response_pb2
@@ -218,7 +219,7 @@ class AsyncClient:
 
     async def iter_events(
         self,
-        query: str,
+        query: MatcherInput,
         files: Sequence[str | Path] = (),
         *,
         working_directory: str | Path | None = None,
@@ -228,7 +229,7 @@ class AsyncClient:
         stub = self._ensure_stub()
         assert self.config is not None
         request = query_pb2.QueryRequest(
-            query=query,
+            query=matcher_query(query),
             files=_file_inputs(
                 files, working_directory=working_directory,
                 compile_arguments=compile_arguments,
@@ -272,7 +273,7 @@ class AsyncClient:
 
     async def query(
         self,
-        expression: str,
+        expression: MatcherInput,
         files: Sequence[str | Path] = (),
         *,
         working_directory: str | Path | None = None,
@@ -296,21 +297,21 @@ class AsyncClient:
 
     @overload
     async def match(
-        self, expression: str, files: Sequence[str | Path] = (), *,
+        self, expression: MatcherInput, files: Sequence[str | Path] = (), *,
         file: str | Path, working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
     ) -> MatchValue[AsyncClient]: ...
 
     @overload
     async def match(
-        self, expression: str, files: Sequence[str | Path] = (), *,
+        self, expression: MatcherInput, files: Sequence[str | Path] = (), *,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (), file: None = None,
     ) -> list[query_pb2.MatchEvent]: ...
 
     async def match(
         self,
-        expression: str,
+        expression: MatcherInput,
         files: Sequence[str | Path] = (),
         *,
         working_directory: str | Path | None = None,
@@ -568,7 +569,7 @@ class AsyncClient:
             self._end_value_operation()
 
     async def match_in(
-        self, query: str, target: MatchTarget | Path, *,
+        self, query: MatcherInput, target: MatchTarget | Path, *,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
         traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
@@ -580,7 +581,7 @@ class AsyncClient:
             traversal_mode=traversal_mode, on_row=on_row, lease=None)
 
     async def _match_in_with_lease(
-        self, query: str, target: MatchTarget, *,
+        self, query: MatcherInput, target: MatchTarget, *,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
         traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
@@ -708,7 +709,7 @@ class AsyncClient:
             raise AnalysisError(error.code(), error.details()) from error
 
     async def match_file(
-        self, path: str | Path, query: str, *,
+        self, path: str | Path, query: MatcherInput, *,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
         traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
@@ -720,7 +721,7 @@ class AsyncClient:
         ))
 
     async def continue_match(
-        self, session_id: str, bind: str, query: str, *,
+        self, session_id: str, bind: str, query: MatcherInput, *,
         match_index: int | None = None,
         scope: int = match_result_pb2.BINDING_MATCH_SCOPE_SUBTREE,
         expected_result_revision: int | None = None,
@@ -733,7 +734,7 @@ class AsyncClient:
         ))
 
     async def restart_match(
-        self, session_id: str, query: str, *, expected_result_revision: int | None = None,
+        self, session_id: str, query: MatcherInput, *, expected_result_revision: int | None = None,
         traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
     ) -> match_service_pb2.MatchResponse:
         """Run again from the cursor's pinned translation-unit root."""
@@ -796,7 +797,7 @@ class AsyncClient:
 
     def start_background_query(
         self,
-        expression: str,
+        expression: MatcherInput,
         files: Sequence[str | Path] = (),
         *,
         on_event: EventCallback | None = None,
@@ -971,8 +972,8 @@ class QuerySession:
         self._commands.put_nowait(command)
         return command.request_id
 
-    async def start_query(self, query: str) -> str:
-        return self._send("start_query", query_pb2.StartQuery(query=query))
+    async def start_query(self, query: MatcherInput) -> str:
+        return self._send("start_query", query_pb2.StartQuery(query=matcher_query(query)))
 
     async def add_files(
         self, files: Sequence[str | Path], *, working_directory: str | Path | None = None,
@@ -1140,7 +1141,7 @@ class Client:
         )
 
     def match_in(
-        self, query: str, target: MatchTarget, *,
+        self, query: MatcherInput, target: MatchTarget, *,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
         traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
@@ -1220,13 +1221,13 @@ class Client:
                 return await getattr(client, method)(*args, **kwargs)
         return asyncio.run(run())
 
-    def match_file(self, path: str | Path, query: str, **kwargs: Any) -> match_service_pb2.MatchResponse:
+    def match_file(self, path: str | Path, query: MatcherInput, **kwargs: Any) -> match_service_pb2.MatchResponse:
         return self._cursor_call("match_file", path, query, **kwargs)
 
-    def continue_match(self, session_id: str, bind: str, query: str, **kwargs: Any) -> match_service_pb2.MatchResponse:
+    def continue_match(self, session_id: str, bind: str, query: MatcherInput, **kwargs: Any) -> match_service_pb2.MatchResponse:
         return self._cursor_call("continue_match", session_id, bind, query, **kwargs)
 
-    def restart_match(self, session_id: str, query: str, **kwargs: Any) -> match_service_pb2.MatchResponse:
+    def restart_match(self, session_id: str, query: MatcherInput, **kwargs: Any) -> match_service_pb2.MatchResponse:
         return self._cursor_call("restart_match", session_id, query, **kwargs)
 
     def close_match(self, session_id: str) -> None:
@@ -1316,7 +1317,7 @@ class Client:
 
     def start_background_query(
         self,
-        expression: str,
+        expression: MatcherInput,
         files: Sequence[str | Path] = (),
         *,
         working_directory: str | Path | None = None,
@@ -1347,20 +1348,20 @@ class Client:
 
     @overload
     def match(
-        self, matcher: str, *, file: str | Path,
+        self, matcher: MatcherInput, *, file: str | Path,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
     ) -> MatchValue[Client]: ...
 
     @overload
     def match(
-        self, matcher: str, *, files: Sequence[str | Path] | None = None,
+        self, matcher: MatcherInput, *, files: Sequence[str | Path] | None = None,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (), file: None = None,
     ) -> list[str]: ...
 
     def match(
-        self, matcher: str, *, files: Sequence[str | Path] | None = None,
+        self, matcher: MatcherInput, *, files: Sequence[str | Path] | None = None,
         working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (),
         file: str | Path | None = None,
@@ -1481,7 +1482,7 @@ class _AsyncExpressionAdapter:
             working_directory=working_directory, compile_arguments=compile_arguments,
             lease=self.lease)
 
-    def match_in(self, query: str, target: MatchTarget, *,
+    def match_in(self, query: MatcherInput, target: MatchTarget, *,
                  working_directory: str | Path | None = None,
                  compile_arguments: Sequence[str] = (),
                  traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
@@ -1502,7 +1503,7 @@ class _AsyncExpressionAdapter:
             traversal_mode=traversal_mode, on_row=callback if on_row is not None else None,
             lease=self.lease)
 
-    def match(self, query: str, *, files: Sequence[str] | None = None,
+    def match(self, query: MatcherInput, *, files: Sequence[str] | None = None,
               **kwargs: Any) -> list[Any]:
         return self._call("match", query, files or (), **kwargs)
 
@@ -1523,7 +1524,7 @@ def _expression_runtime(owner: Client | AsyncClient, adapter: Any,
 
 
 def _value_request(
-    client: Client | AsyncClient, query: str, target: MatchTarget | Path, *,
+    client: Client | AsyncClient, query: MatcherInput, target: MatchTarget | Path, *,
     working_directory: str | Path | None = None,
     compile_arguments: Sequence[str] = (),
     traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,

@@ -2,6 +2,7 @@ syntax = "proto3";
 package ctk.analysis.v1;
 import "match/v1/match_service.proto";
 import "analysis/v1/cfg_options.proto";
+import "analysis/v1/value_projection.proto";
 
 message CfgRequest {
   ctk.match.v1.FileMatchTarget file = 1;
@@ -11,4 +12,6 @@ message CfgRequest {
   optional uint64 max_functions = 4; // Default 100; hard limit 1000.
   optional uint64 max_blocks = 5; // Across all graphs; default 10000, hard limit 100000.
   optional uint64 max_elements = 6; // Default 100000; hard limit 1000000.
+  ValueProjection projection = 7;
+  bool main_file_only = 8;
 }

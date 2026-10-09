@@ -9,6 +9,7 @@ import grpc
 
 from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
 from clang_toolkit._generated.match.v1 import match_result_pb2 as results
+from clang_toolkit.matchers import MatcherInput, matcher_query
 
 
 class CursorError(RuntimeError):
@@ -20,13 +21,13 @@ class CursorError(RuntimeError):
 
 
 def file_request(
-    path: str | Path, query: str, *, working_directory: str | Path | None = None,
+    path: str | Path, query: MatcherInput, *, working_directory: str | Path | None = None,
     compile_arguments: Sequence[str] = (),
     traversal_mode: int = pb.MATCH_TRAVERSAL_MODE_AS_IS,
 ) -> pb.MatchRequest:
     working = str(Path(working_directory or Path.cwd()).resolve())
     return pb.MatchRequest(
-        query=query, traversal_mode=traversal_mode,
+        query=matcher_query(query), traversal_mode=traversal_mode,
         file=pb.FileMatchTarget(
             file_path=str(path), working_directory=working,
             compile_arguments=compile_arguments,
@@ -35,13 +36,13 @@ def file_request(
 
 
 def retained_request(
-    session_id: str, query: str, *, bind: str | None = None,
+    session_id: str, query: MatcherInput, *, bind: str | None = None,
     match_index: int | None = None,
     scope: int = results.BINDING_MATCH_SCOPE_SUBTREE,
     expected_result_revision: int | None = None,
     traversal_mode: int = pb.MATCH_TRAVERSAL_MODE_AS_IS,
 ) -> pb.MatchRequest:
-    request = pb.MatchRequest(query=query, traversal_mode=traversal_mode)
+    request = pb.MatchRequest(query=matcher_query(query), traversal_mode=traversal_mode)
     if bind is None:
         if match_index is not None:
             raise ValueError("match_index requires a binding selector")

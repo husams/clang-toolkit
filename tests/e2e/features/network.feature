@@ -1,4 +1,10 @@
 Feature: gRPC network client
+  Scenario: Typed SDK matchers match string expressions and continue retained cursors
+    Given a query server using unix
+    And a C++ file with a function containing two calls
+    When I compare typed and string matcher expressions through the async SDK
+    Then both matcher forms return equal results through retained continuation
+
   Scenario Outline: Native session and resource commands preserve pinned trees
     Given an isolated resource server using <transport>
     And a C++ file containing a declaration

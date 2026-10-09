@@ -13,8 +13,7 @@ void write_common(const clang::Type &, google::protobuf::Message &,
                   SerializationContext &);
 bool can_expand(const std::string &field_path, SerializationContext &);
 bool can_expand(const google::protobuf::Message &owner,
-                const std::string &field,
-                SerializationContext &);
+                const std::string &field, SerializationContext &);
 class ExpansionFrame {
 public:
   SerializationContext &context;
@@ -29,6 +28,9 @@ void unavailable(const std::string &field, const std::string &reason,
                  SerializationContext &);
 void unavailable(google::protobuf::Message &, const std::string &field,
                  const std::string &reason, SerializationContext &);
+void mark_availability(const google::protobuf::Message &owner,
+                       const std::string &field, ctk::ast::v1::FieldState state,
+                       SerializationContext &);
 void write_decl(const clang::Decl *, ctk::ast::v1::DeclarationValue &,
                 SerializationContext &);
 void write_stmt(const clang::Stmt *, ctk::ast::v1::StatementValue &,

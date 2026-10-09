@@ -367,7 +367,7 @@ def verify_native_completion(function_completion_result):
     assert names["ordinary"]["parameters_state"] == "UNREQUESTED"
     assert names["ordinary"]["function_body_state"] == "UNREQUESTED"
     assert names["ordinary"]["return_type_spelling"] == "int"
-    assert names["forward"]["function_body_state"] == "ABSENT"
+    assert names["forward"]["function_body_state"] == "SEMANTICALLY_ABSENT"
     assert names["Widget::Widget"]["typed_name_fields"] == ("constructor_type",)
     assert names["Widget::~Widget"]["typed_name_fields"] == ("destructor_type",)
     assert names["Widget::operator int"]["typed_name_fields"] == ("conversion_type",)

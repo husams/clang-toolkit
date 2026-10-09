@@ -352,6 +352,7 @@ import type { WhileStmt as _ctk_ast_v1_WhileStmt, WhileStmt__Output as _ctk_ast_
 import type { AttachSessionRequest as _ctk_match_v1_AttachSessionRequest, AttachSessionRequest__Output as _ctk_match_v1_AttachSessionRequest__Output } from './ctk/match/v1/AttachSessionRequest.js';
 import type { BindingMatchTarget as _ctk_match_v1_BindingMatchTarget, BindingMatchTarget__Output as _ctk_match_v1_BindingMatchTarget__Output } from './ctk/match/v1/BindingMatchTarget.js';
 import type { CacheResources as _ctk_match_v1_CacheResources, CacheResources__Output as _ctk_match_v1_CacheResources__Output } from './ctk/match/v1/CacheResources.js';
+import type { CallSiteFacts as _ctk_match_v1_CallSiteFacts, CallSiteFacts__Output as _ctk_match_v1_CallSiteFacts__Output } from './ctk/match/v1/CallSiteFacts.js';
 import type { CloseSessionRequest as _ctk_match_v1_CloseSessionRequest, CloseSessionRequest__Output as _ctk_match_v1_CloseSessionRequest__Output } from './ctk/match/v1/CloseSessionRequest.js';
 import type { CloseSessionResponse as _ctk_match_v1_CloseSessionResponse, CloseSessionResponse__Output as _ctk_match_v1_CloseSessionResponse__Output } from './ctk/match/v1/CloseSessionResponse.js';
 import type { FileMatchTarget as _ctk_match_v1_FileMatchTarget, FileMatchTarget__Output as _ctk_match_v1_FileMatchTarget__Output } from './ctk/match/v1/FileMatchTarget.js';
@@ -362,6 +363,8 @@ import type { MatchRequest as _ctk_match_v1_MatchRequest, MatchRequest__Output a
 import type { MatchResponse as _ctk_match_v1_MatchResponse, MatchResponse__Output as _ctk_match_v1_MatchResponse__Output } from './ctk/match/v1/MatchResponse.js';
 import type { MatchResult as _ctk_match_v1_MatchResult, MatchResult__Output as _ctk_match_v1_MatchResult__Output } from './ctk/match/v1/MatchResult.js';
 import type { MatchServiceClient as _ctk_match_v1_MatchServiceClient, MatchServiceDefinition as _ctk_match_v1_MatchServiceDefinition } from './ctk/match/v1/MatchService.js';
+import type { MatchSourcePoint as _ctk_match_v1_MatchSourcePoint, MatchSourcePoint__Output as _ctk_match_v1_MatchSourcePoint__Output } from './ctk/match/v1/MatchSourcePoint.js';
+import type { MatchSourceRange as _ctk_match_v1_MatchSourceRange, MatchSourceRange__Output as _ctk_match_v1_MatchSourceRange__Output } from './ctk/match/v1/MatchSourceRange.js';
 import type { MatchStreamCompleted as _ctk_match_v1_MatchStreamCompleted, MatchStreamCompleted__Output as _ctk_match_v1_MatchStreamCompleted__Output } from './ctk/match/v1/MatchStreamCompleted.js';
 import type { MatchStreamEvent as _ctk_match_v1_MatchStreamEvent, MatchStreamEvent__Output as _ctk_match_v1_MatchStreamEvent__Output } from './ctk/match/v1/MatchStreamEvent.js';
 import type { ParseRequest as _ctk_match_v1_ParseRequest, ParseRequest__Output as _ctk_match_v1_ParseRequest__Output } from './ctk/match/v1/ParseRequest.js';
@@ -786,6 +789,8 @@ export interface ProtoGrpcType {
         BindingMatchScope: EnumTypeDefinition
         BindingMatchTarget: MessageTypeDefinition<_ctk_match_v1_BindingMatchTarget, _ctk_match_v1_BindingMatchTarget__Output>
         CacheResources: MessageTypeDefinition<_ctk_match_v1_CacheResources, _ctk_match_v1_CacheResources__Output>
+        CallDispatch: EnumTypeDefinition
+        CallSiteFacts: MessageTypeDefinition<_ctk_match_v1_CallSiteFacts, _ctk_match_v1_CallSiteFacts__Output>
         CloseSessionRequest: MessageTypeDefinition<_ctk_match_v1_CloseSessionRequest, _ctk_match_v1_CloseSessionRequest__Output>
         CloseSessionResponse: MessageTypeDefinition<_ctk_match_v1_CloseSessionResponse, _ctk_match_v1_CloseSessionResponse__Output>
         FileMatchTarget: MessageTypeDefinition<_ctk_match_v1_FileMatchTarget, _ctk_match_v1_FileMatchTarget__Output>
@@ -796,6 +801,8 @@ export interface ProtoGrpcType {
         MatchResponse: MessageTypeDefinition<_ctk_match_v1_MatchResponse, _ctk_match_v1_MatchResponse__Output>
         MatchResult: MessageTypeDefinition<_ctk_match_v1_MatchResult, _ctk_match_v1_MatchResult__Output>
         MatchService: SubtypeConstructor<typeof grpc.Client, _ctk_match_v1_MatchServiceClient> & { service: _ctk_match_v1_MatchServiceDefinition }
+        MatchSourcePoint: MessageTypeDefinition<_ctk_match_v1_MatchSourcePoint, _ctk_match_v1_MatchSourcePoint__Output>
+        MatchSourceRange: MessageTypeDefinition<_ctk_match_v1_MatchSourceRange, _ctk_match_v1_MatchSourceRange__Output>
         MatchStreamCompleted: MessageTypeDefinition<_ctk_match_v1_MatchStreamCompleted, _ctk_match_v1_MatchStreamCompleted__Output>
         MatchStreamEvent: MessageTypeDefinition<_ctk_match_v1_MatchStreamEvent, _ctk_match_v1_MatchStreamEvent__Output>
         MatchTraversalMode: EnumTypeDefinition
