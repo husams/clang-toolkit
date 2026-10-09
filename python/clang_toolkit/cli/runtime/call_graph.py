@@ -2,13 +2,14 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
-from google.protobuf.json_format import MessageToJson
+from .semantic import MessageView, view
+from .graph_options import graph_option
 from lark import Tree
 from .filesystem import File
 if TYPE_CHECKING:
     from .evaluator import Runtime
 
-def execute_call_graph(runtime: Runtime, statement: Tree) -> str:
+def execute_call_graph(runtime: Runtime, statement: Tree) -> MessageView:
     from .evaluator import EvaluationError
     selected = runtime._evaluate(statement.children[1])
     if isinstance(selected, File):
@@ -17,6 +18,8 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> str:
         raise EvaluationError("callgraph requires a file path")
     options: dict[str, int | bool] = {}
     for option in statement.children[2:]:
+        if graph_option(option, options):
+            continue
         key, maximum = {"call_graph_nodes": ("max_nodes", 100000),
                         "call_graph_edges": ("max_edges", 1000000),
                         "call_graph_implicit": ("visit_implicit_code", None),
@@ -32,4 +35,4 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> str:
             options[key] = int(text)
     response = runtime.client.callgraph(selected, working_directory=runtime.cwd,
         compile_arguments=runtime.config_store.effective["extra_args"], **options)
-    return MessageToJson(response, preserving_proto_field_name=True)
+    return view(response)

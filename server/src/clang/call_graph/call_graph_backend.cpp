@@ -4,6 +4,8 @@
 #include "call_graph_edge.hpp"
 #include "call_graph_node.hpp"
 #include "declaration_order.hpp"
+#include "../serialization/analysis_projection.hpp"
+#include <clang/Basic/SourceManager.h>
 #include <algorithm>
 #include <unordered_map>
 namespace ctk::clang_layer {
@@ -39,7 +41,7 @@ public:
       if (!owner || !owner->unit)
         return {MatchCode::Internal, "invalid native snapshot owner", {}};
       auto &ast = owner->unit->getASTContext();
-      calls::CallGraphBuilder graph(budget);
+      calls::CallGraphBuilder graph(budget, request.main_file_only());
       if (request.has_visit_implicit_code())
         graph.ShouldVisitImplicitCode = request.visit_implicit_code();
       if (request.has_visit_template_instantiations())
@@ -49,8 +51,15 @@ public:
       calls::DeclarationOrder order(budget);
       order.TraverseAST(ast);
       std::vector<const clang::CallGraphNode *> nodes{graph.getRoot()};
+      auto included = [&](const clang::CallGraphNode *node) {
+        if (!request.main_file_only() || !node->getDecl())
+          return true;
+        const auto &sources = ast.getSourceManager();
+        return sources.isWrittenInMainFile(
+            sources.getExpansionLoc(node->getDecl()->getLocation()));
+      };
       for (const auto &entry : graph)
-        if (entry.second.get() != graph.getRoot())
+        if (entry.second.get() != graph.getRoot() && included(entry.second.get()))
           nodes.push_back(entry.second.get());
       // Every callable declaration must be in the complete AST visitor order;
       // reject an unaccounted node instead of publishing address-dependent
@@ -66,10 +75,12 @@ public:
       });
       std::unordered_map<const clang::CallGraphNode *, std::size_t> indices;
       result.response.set_is_complete(true);
+      result.response.set_main_file_only(request.main_file_only());
       for (std::size_t index = 0; index < nodes.size(); ++index) {
         budget.check();
         indices.emplace(nodes[index], index);
         serialization::SerializationContext context{ast};
+        serialization::apply_projection(request.projection(), context);
         auto *value = result.response.add_nodes();
         value->set_node_index(index);
         calls::write_node(*nodes[index], *value, context);
@@ -82,6 +93,11 @@ public:
       for (std::size_t index = 0; index < nodes.size(); ++index)
         for (const auto &record : nodes[index]->callees()) {
           budget.check();
+          if (request.main_file_only() && !indices.contains(record.Callee)) {
+            result.response.set_external_edges_omitted(
+                result.response.external_edges_omitted() + 1);
+            continue;
+          }
           if (++budget.edges > budget.limits.max_edges)
             throw calls::CallGraphFailure(MatchCode::ResourceExhausted,
                                           "call graph edge limit exceeded");
@@ -89,6 +105,7 @@ public:
             throw calls::CallGraphFailure(
                 MatchCode::Internal, "call graph callee missing from graph");
           serialization::SerializationContext context{ast};
+          serialization::apply_projection(request.projection(), context);
           auto *value = result.response.add_edges();
           value->set_caller_node(index);
           value->set_callee_node(indices.at(record.Callee));

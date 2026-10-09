@@ -4,13 +4,16 @@ from collections.abc import Sequence
 from pathlib import Path
 from clang_toolkit._generated.analysis.v1 import cfg_request_pb2, cfg_options_pb2
 from clang_toolkit.cursors import file_request
+from clang_toolkit.analysis_projection import value_projection
 
 CfgOptions = cfg_options_pb2.CfgOptions
 
 def cfg_request(path: str | Path, function: str, *, working_directory: str | Path | None = None,
                 compile_arguments: Sequence[str] = (), options: CfgOptions | None = None,
                 max_functions: int | None = None, max_blocks: int | None = None,
-                max_elements: int | None = None) -> cfg_request_pb2.CfgRequest:
+                max_elements: int | None = None, projection: str = "shallow",
+                      main_file_only: bool = False, payload_depth: int = 24,
+                      payload_nodes: int = 10000) -> cfg_request_pb2.CfgRequest:
     if not function:
         raise ValueError("function name is required")
     request = cfg_request_pb2.CfgRequest(file=file_request(path, "unused",
@@ -25,4 +28,6 @@ def cfg_request(path: str | Path, function: str, *, working_directory: str | Pat
             if not 1 <= value <= maximum:
                 raise ValueError(f"{name} must be 1..{maximum}")
             setattr(request, name, value)
+    request.projection.CopyFrom(value_projection(projection, payload_depth=payload_depth, payload_nodes=payload_nodes))
+    request.main_file_only = main_file_only
     return request

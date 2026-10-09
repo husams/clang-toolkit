@@ -2,14 +2,15 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
-from google.protobuf.json_format import MessageToJson
+from .semantic import MessageView, view
+from .graph_options import graph_option
 from lark import Token, Tree
 from clang_toolkit.control_flow import CfgOptions
 from .filesystem import File
 if TYPE_CHECKING:
     from .evaluator import Runtime
 
-def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> str:
+def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> MessageView:
     from .evaluator import EvaluationError
     function_node = statement.children[1]
     if isinstance(function_node, Token) and function_node.type == "STRING":
@@ -17,7 +18,11 @@ def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> str:
     elif isinstance(function_node, Token) and function_node.type == "NAME":
         function = str(function_node)
     elif isinstance(function_node, Tree) and function_node.data == "qualified_name":
-        function = source[function_node.meta.start_pos:function_node.meta.end_pos]
+        function = "::".join(str(child) for child in function_node.children if str(child) != "::")
+    elif isinstance(function_node, Tree) and function_node.data == "reference":
+        function = runtime._evaluate(function_node)
+        if not isinstance(function, str):
+            raise EvaluationError("cfg function reference must be a string")
     else:
         raise EvaluationError("cfg requires an exact qualified function name")
     selected = runtime._evaluate(statement.children[3])
@@ -29,6 +34,8 @@ def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> str:
     limits: dict[str, int] = {}
     seen: set[str] = set()
     for option in statement.children[4:]:
+        if graph_option(option, limits):
+            continue
         if option.data == "cfg_build_option":
             name = str(option.children[1])
             if name not in options.DESCRIPTOR.fields_by_name:
@@ -48,4 +55,4 @@ def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> str:
             limits[name] = int(raw)
     response = runtime.client.cfg(function, path=selected, working_directory=runtime.cwd,
         compile_arguments=runtime.config_store.effective["extra_args"], options=options, **limits)
-    return MessageToJson(response, preserving_proto_field_name=True)
+    return view(response)

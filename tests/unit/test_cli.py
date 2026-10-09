@@ -7,6 +7,90 @@ def test_help_lists_commands():
     assert "match" in dispatch(Client(), "help")
 
 
+def test_dispatch_result_does_not_infer_failure_from_output_text():
+    from unittest.mock import Mock
+
+    from clang_toolkit.cli.app import dispatch_result
+
+    runtime = Mock()
+    runtime.history = None
+    runtime.execute.return_value = "error: this is a valid string value"
+
+    result = dispatch_result(Client(), '"error: this is a valid string value"', runtime)
+
+    assert result.output == "error: this is a valid string value"
+    assert result.success
+
+
+def test_dispatch_result_marks_evaluation_exceptions_as_failures():
+    from unittest.mock import Mock
+
+    from clang_toolkit.cli.app import dispatch_result
+    from clang_toolkit.cli.runtime import EvaluationError
+
+    runtime = Mock()
+    runtime.history = None
+    runtime.execute.side_effect = EvaluationError("unknown variable: missing")
+
+    result = dispatch_result(Client(), "server status", runtime)
+
+    assert result.output == "error: unknown variable: missing"
+    assert not result.success
+
+
+def test_interactive_command_failure_sets_nonzero_process_status(monkeypatch, tmp_path):
+    import asyncio
+    import sys
+    from unittest.mock import Mock
+
+    from clang_toolkit.cli import app
+
+    class QuerySession:
+        closing = False
+
+        async def events(self):
+            if False:
+                yield None
+
+        async def aclose(self):
+            self.closing = True
+
+        async def cancel(self):
+            self.closing = True
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def query_session(self):
+            return QuerySession()
+
+        async def wait_background(self):
+            return None
+
+    class Prompt:
+        def __init__(self):
+            self.commands = iter(["$missing", "quit"])
+
+        def prompt(self, _message):
+            return next(self.commands)
+
+    client = Mock()
+    monkeypatch.setattr(app, "Client", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(app, "create_session", lambda **_kwargs: Prompt())
+    monkeypatch.setattr(sys, "argv", ["ctk"])
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+
+    assert asyncio.run(app._run()) == 1
+
+
 def test_quit_returns_none():
     assert dispatch(Client(), "quit") is None
 

@@ -120,7 +120,7 @@ def test_exact_large_integer_enum_unknown_and_bounded_inspection() -> None:
     inspected = inspect_value(__import__("clang_toolkit.cli.runtime.semantic", fromlist=["view"]).view(long_value))
     assert len(inspected["fields"]["unsupported"]["fields"]["detail"]) <= 257
     assert "hasField" not in inspected["fields"]
-    assert inspected["methods"] == ["hasField"]
+    assert inspected["methods"] == ["fieldOr", "fieldState", "hasField"]
 
 
 def test_qual_type_shallow_description_is_directly_readable() -> None:
@@ -173,7 +173,9 @@ def test_unrequested_nested_fields_are_not_advertised_or_reported_as_present() -
     assert property_value(binding_view, "is_complete") is True
     assert "qualified_name" in field_names(node_view)
     assert "parameters" not in field_names(node_view)
-    assert call_method(node_view, "hasField", ["parameters"]) is False
+    assert call_method(node_view, "fieldState", ["parameters"]) == "UNREQUESTED"
+    with pytest.raises(ReferenceError, match="field was not requested.*fieldState"):
+        call_method(node_view, "hasField", ["parameters"])
     with pytest.raises(ReferenceError, match="field was not requested.*parameter match"):
         property_value(node_view, "parameters")
 

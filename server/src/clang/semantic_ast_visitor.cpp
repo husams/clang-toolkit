@@ -1,5 +1,7 @@
 #include "semantic_ast_visitor.hpp"
 #include "serialization/node_serializers.hpp"
+#include "serialization/analysis_projection.hpp"
+#include <clang/Basic/SourceManager.h>
 #include <algorithm>
 
 namespace ctk::clang_layer {
@@ -41,6 +43,7 @@ bool SemanticAstVisitor::enter(const clang::DynTypedNode &node) {
   if (!parents_.empty())
     record.set_parent_index(parents_.back());
   serialization::SerializationContext context{context_};
+  serialization::apply_projection(request_.projection(), context);
   if (!serialization::NodeSerializerDispatcher::serialize(
           node, *record.mutable_value(), context) &&
       !record.value().has_unsupported()) {
@@ -62,6 +65,13 @@ bool SemanticAstVisitor::enter(const clang::DynTypedNode &node) {
 bool SemanticAstVisitor::TraverseDecl(clang::Decl *declaration) {
   if (!declaration)
     return true;
+  const auto &sources = context_.getSourceManager();
+  if (request_.main_file_only() &&
+      !llvm::isa<clang::TranslationUnitDecl>(declaration) &&
+      declaration->getLocation().isValid() &&
+      !sources.isWrittenInMainFile(
+          sources.getExpansionLoc(declaration->getLocation())))
+    return true;
   // Native RAV still visits explicit constraints on implicit template
   // parameters.
   if (declaration->isImplicit() && !shouldVisitImplicitCode())
@@ -75,6 +85,11 @@ bool SemanticAstVisitor::TraverseDecl(clang::Decl *declaration) {
   return success;
 }
 bool SemanticAstVisitor::dataTraverseStmtPre(clang::Stmt *statement) {
+  const auto &sources = context_.getSourceManager();
+  if (request_.main_file_only() && statement->getBeginLoc().isValid() &&
+      !sources.isWrittenInMainFile(
+          sources.getExpansionLoc(statement->getBeginLoc())))
+    return false;
   return enter(clang::DynTypedNode::create(*statement));
 }
 bool SemanticAstVisitor::dataTraverseStmtPost(clang::Stmt *) {

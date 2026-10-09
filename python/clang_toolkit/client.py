@@ -541,7 +541,10 @@ class AsyncClient:
         try:
             response = await self._parse_response(path, working_directory=working_directory,
                 compile_arguments=compile_arguments, compilation_database=compilation_database)
-            return ParsedTree(str(path), self._own_value(response))
+            return ParsedTree(
+                str(path), self._own_value(response),
+                _absolute_source_file(path, working_directory),
+            )
         finally:
             self._end_value_operation()
 
@@ -576,7 +579,10 @@ class AsyncClient:
             completion, store = await self._stream_cursor_match(
                 request, on_row=on_row, source_session_id=source_id
             )
-            return MatchValue[AsyncClient]._from_store(store, self._own_value(completion))
+            return MatchValue[AsyncClient]._from_store(
+                store, self._own_value(completion),
+                source_file=_absolute_source_file(target, working_directory),
+            )
         finally:
             self._end_value_operation()
 
@@ -610,12 +616,15 @@ class AsyncClient:
         self, path: str | Path, *, working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (), visit_implicit_code: bool = False,
         visit_template_instantiations: bool = False, max_depth: int | None = None,
-        max_nodes: int | None = None,
+        max_nodes: int | None = None, projection: str = "shallow",
+        main_file_only: bool = False, payload_depth: int = 24,
+        payload_nodes: int = 10000,
     ) -> traverse_response_pb2.TraverseResponse:
         request = traversal_request(path, working_directory=working_directory,
             compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
             visit_template_instantiations=visit_template_instantiations, max_depth=max_depth,
-            max_nodes=max_nodes)
+            max_nodes=max_nodes, projection=projection, main_file_only=main_file_only,
+            payload_depth=payload_depth, payload_nodes=payload_nodes)
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
         try:
@@ -628,10 +637,14 @@ class AsyncClient:
                   working_directory: str | Path | None = None,
                   compile_arguments: Sequence[str] = (), options: CfgOptions | None = None,
                   max_functions: int | None = None, max_blocks: int | None = None,
-                  max_elements: int | None = None) -> cfg_response_pb2.CfgResponse:
+                  max_elements: int | None = None, projection: str = "shallow",
+                  main_file_only: bool = False, payload_depth: int = 24,
+                  payload_nodes: int = 10000) -> cfg_response_pb2.CfgResponse:
         request = cfg_request(path, function, working_directory=working_directory,
             compile_arguments=compile_arguments, options=options, max_functions=max_functions,
-            max_blocks=max_blocks, max_elements=max_elements)
+            max_blocks=max_blocks, max_elements=max_elements, projection=projection,
+            main_file_only=main_file_only, payload_depth=payload_depth,
+            payload_nodes=payload_nodes)
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
         try:
@@ -658,11 +671,14 @@ class AsyncClient:
                         working_directory: str | Path | None = None,
                         compile_arguments: Sequence[str] = (), visit_implicit_code: bool | None = None,
                         visit_template_instantiations: bool | None = None, max_nodes: int | None = None,
-                        max_edges: int | None = None) -> call_graph_response_pb2.CallGraphResponse:
+                        max_edges: int | None = None, projection: str = "shallow",
+                        main_file_only: bool = False, payload_depth: int = 24,
+                        payload_nodes: int = 10000) -> call_graph_response_pb2.CallGraphResponse:
         request = call_graph_request(path, working_directory=working_directory,
             compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
             visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
-            max_edges=max_edges)
+            max_edges=max_edges, projection=projection, main_file_only=main_file_only,
+            payload_depth=payload_depth, payload_nodes=payload_nodes)
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
         try:
@@ -746,7 +762,10 @@ class AsyncClient:
         self._begin_value_operation()
         try:
             response = await self._session_info(session_id)
-            return ParsedTree(response.file_path, self._own_value(response))
+            return ParsedTree(
+                response.file_path, self._own_value(response),
+                _absolute_source_file(response.file_path),
+            )
         finally:
             self._end_value_operation()
 
@@ -1026,6 +1045,8 @@ class Client:
     _async_client: AsyncClient | None = field(default=None, init=False, repr=False)
     _async_loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False)
     _query_session: QuerySession | None = field(default=None, init=False, repr=False)
+    _last_session_command: str | None = field(default=None, init=False, repr=False)
+    _last_session_command_request_id: str | None = field(default=None, init=False, repr=False)
     _background_handles: dict[str, BackgroundQuery] = field(default_factory=dict, init=False, repr=False)
     _values: dict[str, weakref.ReferenceType[CursorOwner[Client]]] = field(
         default_factory=dict, init=False, repr=False)
@@ -1093,7 +1114,10 @@ class Client:
         response = self._cursor_call("_parse_response", path,
             working_directory=working_directory, compile_arguments=compile_arguments,
             compilation_database=compilation_database)
-        return ParsedTree(str(path), self._own_value(response))
+        return ParsedTree(
+            str(path), self._own_value(response),
+            _absolute_source_file(path, working_directory),
+        )
 
     def match_in(
         self, query: str, target: MatchTarget, *,
@@ -1123,7 +1147,10 @@ class Client:
             "_stream_cursor_match", request, on_row=callback,
             source_session_id=source_id,
         )
-        return MatchValue[Client]._from_store(store, self._own_value(completion))
+        return MatchValue[Client]._from_store(
+            store, self._own_value(completion),
+            source_file=_absolute_source_file(target, working_directory),
+        )
 
     def close(self) -> None:
         """Release every high-level retained value owned by this client."""
@@ -1262,7 +1289,9 @@ class Client:
             raise QueryError("interactive query session is unavailable because its event loop has stopped")
         try:
             future = asyncio.run_coroutine_threadsafe(send(), self._async_loop)
-            future.result()
+            request_id = future.result()
+            self._last_session_command = command
+            self._last_session_command_request_id = request_id
         except QueryError:
             raise
         except Exception as exc:
@@ -1477,6 +1506,24 @@ def _value_request(
         traversal_mode=traversal_mode, **options)
     request.preserve_source = True
     return request
+
+
+def _absolute_source_file(
+    target: MatchTarget | str | Path, working_directory: str | Path | None = None,
+) -> str | None:
+    if isinstance(target, str | Path):
+        source = target
+    elif isinstance(target, ParsedTree):
+        source = target.source_file or target.path
+    else:
+        source = target.source_file
+    if source is None:
+        return None
+    path = Path(source).expanduser()
+    if not path.is_absolute():
+        base = Path(working_directory).expanduser() if working_directory is not None else Path.cwd()
+        path = base / path
+    return str(path.resolve())
 
 
 def _format_event(event: QueryEvent) -> str:

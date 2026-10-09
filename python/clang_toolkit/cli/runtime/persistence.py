@@ -15,7 +15,9 @@ from google.protobuf.message import DecodeError
 
 from .filesystem import Directory, File, FileSystemEntry
 from .values import MatchSet, MatcherExpr, QualifiedName
-from clang_toolkit.match_values import BindingSelection, MatchValue, ParsedTree
+from clang_toolkit.match_values import (
+    BindingSelection, MatchValue, NativeMatchCollection, ParsedTree,
+)
 
 
 class PersistenceError(ValueError):
@@ -28,7 +30,9 @@ _TYPES = {"str", "bool", "int", "float"}
 
 def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, MatchValue):
-        return {"type": "match_snapshot", "value": [_encode(row.to_dict()) for row in value.rows]}
+        return {"type": "match_snapshot", "value": [_encode(_detached_row(row)) for row in value.rows]}
+    if isinstance(value, NativeMatchCollection):
+        return {"type": "match_snapshot", "value": [_encode(_detached_row(row)) for row in value]}
     if isinstance(value, ParsedTree | BindingSelection):
         raise PersistenceError("native trees and binding selections cannot be saved")
     if value is None:
@@ -72,6 +76,13 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, MatchSet):
         return {"type": "match_snapshot", "value": [_encode(row) for row in value.rows]}
     raise PersistenceError(f"cannot save value of type {type(value).__name__}")
+
+
+def _detached_row(row: Any) -> dict[str, Any]:
+    value = row.to_dict()
+    if row.source_file is not None:
+        value["source_file"] = row.source_file
+    return value
 
 
 def _decode(envelope: Any) -> Any:

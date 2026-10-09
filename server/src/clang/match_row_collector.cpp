@@ -1,4 +1,5 @@
 #include "match_row_collector.hpp"
+#include "serialization/match_metadata_helpers.hpp"
 #include "serialization/node_serializers.hpp"
 
 namespace ctk::clang_layer {
@@ -26,13 +27,16 @@ void RowCollector::run(const MatchFinder::MatchResult &found) {
     serialization::SerializationContext context{
         *found.Context, serialization::ProjectionPolicy::Shallow};
     auto &value = (*row.mutable_bindings())[name];
-    if (!serialization::NodeSerializerDispatcher::serialize(node, value,
-                                                            context) &&
-        !value.has_unsupported()) {
+    const bool serialized =
+        serialization::NodeSerializerDispatcher::serialize(node, value,
+                                                            context);
+    if (!serialized && !value.has_unsupported()) {
       result_.code = MatchCode::Internal;
       result_.message = "native binding serialization failed";
       return;
     }
+    if (serialized)
+      serialization::helpers::write_match_metadata(node, value, context);
     native.emplace(name, node);
   }
   const auto size = row.ByteSizeLong();

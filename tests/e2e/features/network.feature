@@ -188,7 +188,7 @@ Feature: gRPC network client
       | tcp       |
 
   Scenario: Configured response budget can exceed the old four MiB cap
-    Given a cursor server with a 16-MiB response limit
+    Given a cursor server with a 32-MiB response limit
     And a C++ file with a large function declaration result
     When I match the large result through both SDKs and the console
     Then every client receives all function declarations

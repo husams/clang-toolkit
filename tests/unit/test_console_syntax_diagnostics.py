@@ -299,6 +299,24 @@ def test_has_field_at_eof_names_missing_string_argument():
     client.match.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ('print $node.fieldState()', 'fieldState requires a field name: `fieldState("field_name")`'),
+        ('foreach $node in [] do $node.fieldOr() done', 'fieldOr requires a field name and default'),
+        ('foreach $node in [] do $node.fieldOr("body") done', 'fieldOr requires a default after the field name'),
+    ],
+)
+def test_field_availability_methods_validate_arguments_before_evaluation(source, expected):
+    client = Mock(spec=Client)
+
+    result = dispatch(client, source)
+
+    assert expected in result
+    assert source.splitlines()[-1] in result
+    client.match.assert_not_called()
+
+
 def test_unexpected_token_preview_escapes_embedded_control_characters():
     client = Mock(spec=Client)
     source = 'let "a\nb" = 1'

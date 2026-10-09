@@ -6,8 +6,10 @@ import asyncio
 
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.document import Document
 
 from clang_toolkit.cli.prompt import create_session
+from clang_toolkit.cli.completion import ReplCompleter
 
 
 def test_match_command_shows_root_choices_and_inserts_valid_expression():
@@ -36,3 +38,13 @@ def test_match_command_shows_root_choices_and_inserts_valid_expression():
             return await asyncio.wait_for(prompt, 2)
 
     assert asyncio.run(run()) == "match functionDecl()"
+
+
+def test_very_long_partial_input_skips_automatic_completion(monkeypatch):
+    from clang_toolkit.cli import completion
+
+    def unexpected_completion(*_args, **_kwargs):
+        raise AssertionError("long partial input should not be parsed for completion")
+
+    monkeypatch.setattr(completion, "cursor_context", unexpected_completion)
+    assert list(ReplCompleter().get_completions(Document('"' + "x" * 2100), None)) == []

@@ -49,6 +49,11 @@ class ReplCompleter(Completer):
     ) -> Iterable[Completion]:
         source = document.text
         cursor = document.cursor_position
+        # Completion parses the whole editable command to recover its Lark
+        # context. On very long partial strings this is unnecessary work and
+        # can stall typing; the command is still parsed normally on submission.
+        if len(source) > 512:
+            return
         context = cursor_context(source, cursor)
         if context is not None:
             presence = has_field_argument(context.prefix_tokens, source[:cursor])

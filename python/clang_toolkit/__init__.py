@@ -5,7 +5,10 @@ from clang_toolkit.configuration import ConfigurationError, NetworkConfig, load_
 from clang_toolkit.cursors import CursorError
 from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.control_flow import CfgOptions
-from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, MatchValueError, ParsedTree
+from clang_toolkit.match_values import (
+    BindingSelection, MatchRow, MatchValue, MatchValueError, NativeBindingCollection,
+    NativeMatchCollection, ParsedTree,
+)
 
 __all__ = [
     "AnalysisError",
@@ -15,7 +18,9 @@ __all__ = [
     "BindingSelection",
     "MatchRow",
     "MatchValue",
+    "NativeMatchCollection",
     "MatchValueError",
+    "NativeBindingCollection",
     "ParsedTree",
     "ConfigurationError",
     "CursorError",

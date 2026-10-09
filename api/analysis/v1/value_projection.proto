@@ -1,0 +1,14 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+
+// Semantic expansion inside each graph item, independent of graph depth/count.
+message ValueProjection {
+  enum Mode {
+    MODE_UNSPECIFIED = 0; // Legacy requests retain RECURSIVE behavior.
+    SHALLOW = 1;
+    RECURSIVE = 2;
+  }
+  Mode mode = 1;
+  optional uint32 max_depth = 2; // Default 24; allowed 1..64.
+  optional uint64 max_nodes = 3; // Per item; default 10000; allowed 1..100000.
+}

@@ -67,6 +67,94 @@ TEST_F(AstTraversal,
   EXPECT_EQ(controller.traverse(request, [] { return true; }).code,
             MatchCode::InvalidArgument);
 }
+TEST_F(AstTraversal, ShallowProjectionPreservesTraversalAndBoundsOwnedPayloads) {
+  auto shallow_request = request;
+  shallow_request.mutable_projection()->set_mode(
+      ctk::analysis::v1::ValueProjection::SHALLOW);
+  auto shallow = controller.traverse(shallow_request, [] { return true; });
+  ASSERT_EQ(shallow.code, MatchCode::Ok) << shallow.message;
+
+  auto recursive_request = request;
+  recursive_request.mutable_projection()->set_mode(
+      ctk::analysis::v1::ValueProjection::RECURSIVE);
+  auto recursive = controller.traverse(recursive_request, [] { return true; });
+  ASSERT_EQ(recursive.code, MatchCode::Ok) << recursive.message;
+  ASSERT_EQ(shallow.response.nodes_size(), recursive.response.nodes_size());
+  EXPECT_GT(recursive.response.ByteSizeLong(),
+            shallow.response.ByteSizeLong() * 2);
+
+  bool shallow_function = false;
+  bool recursive_body = false;
+  for (const auto &node : shallow.response.nodes()) {
+    const auto &value = node.value().node();
+    if (value.has_function_decl() &&
+        value.function_decl().function().declarator().value().named()
+                .qualified_name() == "f") {
+      shallow_function = true;
+      EXPECT_FALSE(value.function_decl().function().has_body());
+    }
+  }
+  for (const auto &node : recursive.response.nodes()) {
+    const auto &value = node.value().node();
+    if (value.has_function_decl() &&
+        value.function_decl().function().declarator().value().named()
+                .qualified_name() == "f")
+      recursive_body = value.function_decl().function().has_body();
+  }
+  EXPECT_TRUE(shallow_function);
+  EXPECT_TRUE(recursive_body);
+
+  auto invalid = request;
+  invalid.mutable_projection()->set_max_depth(0);
+  EXPECT_EQ(controller.traverse(invalid, [] { return true; }).code,
+            MatchCode::InvalidArgument);
+  invalid.mutable_projection()->clear_max_depth();
+  invalid.mutable_projection()->set_max_nodes(100001);
+  EXPECT_EQ(controller.traverse(invalid, [] { return true; }).code,
+            MatchCode::InvalidArgument);
+}
+
+TEST_F(AstTraversal, MainFileScopeExcludesHeaderDeclarationsAndStatements) {
+  std::ofstream(directory.path() / "facts.hpp")
+      << "inline int header_only() { return 9012; }\n";
+  std::ofstream(directory.path() / "main_scope.cc")
+      << "#include \"facts.hpp\"\n"
+         "int main_only() { return header_only(); }\n";
+  request.mutable_file()->set_file_path("main_scope.cc");
+  request.mutable_file()->add_compile_arguments(
+      "-I" + directory.path().string());
+
+  auto all = controller.traverse(request, [] { return true; });
+  ASSERT_EQ(all.code, MatchCode::Ok) << all.message;
+  bool saw_header_function = false;
+  bool saw_header_literal = false;
+  for (const auto &record : all.response.nodes()) {
+    const auto &node = record.value().node();
+    if (node.has_function_decl())
+      saw_header_function |=
+          node.function_decl().function().declarator().value().named()
+                  .qualified_name() == "header_only";
+    if (node.has_integer_literal())
+      saw_header_literal |=
+          node.integer_literal().value().unsigned_decimal() == "9012";
+  }
+  EXPECT_TRUE(saw_header_function);
+  EXPECT_TRUE(saw_header_literal);
+
+  request.set_main_file_only(true);
+  auto main_only = controller.traverse(request, [] { return true; });
+  ASSERT_EQ(main_only.code, MatchCode::Ok) << main_only.message;
+  EXPECT_FALSE(main_only.response.depth_limited());
+  for (const auto &record : main_only.response.nodes()) {
+    const auto &node = record.value().node();
+    if (node.has_function_decl())
+      EXPECT_NE(node.function_decl().function().declarator().value().named()
+                    .qualified_name(),
+                "header_only");
+    if (node.has_integer_literal())
+      EXPECT_NE(node.integer_literal().value().unsigned_decimal(), "9012");
+  }
+}
 TEST_F(AstTraversal,
        NativeTemplateAndImplicitOptionsChangeTheVisitedOccurrences) {
   auto plain = controller.traverse(request, [] { return true; });

@@ -8,6 +8,10 @@ from unittest.mock import Mock
 from clang_toolkit.cli.app import dispatch
 from clang_toolkit.cli.runtime import Directory, File, MatchSet, MatcherExpr, Runtime
 from clang_toolkit.client import Client
+from clang_toolkit._row_store import RowStore
+from clang_toolkit._value_lifecycle import CursorOwner
+from clang_toolkit.match_values import MatchValue
+from clang_toolkit._generated.match.v1 import match_service_pb2
 
 
 def runtime(tmp_path, *, environment=None, config_vars=None):
@@ -92,10 +96,16 @@ def test_glob_is_sorted_and_match_receives_absolute_files(tmp_path):
     dispatch(client, 'let files = glob("*.cpp")', session)
     assert [type(entry) for entry in session.bindings["files"]] == [File, File]
     assert [str(entry) for entry in session.bindings["files"]] == ["a.cpp", "b.cpp"]
-    assert dispatch(client, "match varDecl() in $files", session) == "matched"
-    client.match.assert_called_once_with(
-        "varDecl()", files=[str(tmp_path / "a.cpp"), str(tmp_path / "b.cpp")],
-        working_directory=session.cwd, compile_arguments=[],
+    store = RowStore()
+    owner = CursorOwner(client, "empty", 1, lambda _: None)
+    client.match_in.return_value = MatchValue._from_store(store, owner)
+    assert dispatch(client, "match varDecl() in $files", session) == ""
+    assert [call.args[1] for call in client.match_in.call_args_list] == [
+        str((tmp_path / "a.cpp").resolve()), str((tmp_path / "b.cpp").resolve())
+    ]
+    assert all(
+        call.kwargs["traversal_mode"] == match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS
+        for call in client.match_in.call_args_list
     )
 
 

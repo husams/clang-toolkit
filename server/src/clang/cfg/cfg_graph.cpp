@@ -13,7 +13,7 @@ void write_graph(const clang::FunctionDecl &function, const clang::CFG &native,
   std::sort(ordered.begin(), ordered.end(),
             [](auto *a, auto *b) { return a->getBlockID() < b->getBlockID(); });
   for (auto *block : ordered) {
-    Context child{context.ast_context};
+    auto child = fresh_context(context);
     write_block(*block, *output.add_blocks(), child, budget);
     context.complete &= child.complete;
     context.availability.insert(context.availability.end(),

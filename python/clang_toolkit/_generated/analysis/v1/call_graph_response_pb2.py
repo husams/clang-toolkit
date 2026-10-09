@@ -27,7 +27,7 @@ from . import call_graph_edge_pb2 as analysis_dot_v1_dot_call__graph__edge__pb2
 from ...ast.v1 import common_pb2 as ast_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%analysis/v1/call_graph_response.proto\x12\x0f\x63tk.analysis.v1\x1a!analysis/v1/call_graph_node.proto\x1a!analysis/v1/call_graph_edge.proto\x1a\x13\x61st/v1/common.proto\"\xe3\x01\n\x11\x43\x61llGraphResponse\x12\x11\n\troot_node\x18\x01 \x01(\x04\x12-\n\x05nodes\x18\x02 \x03(\x0b\x32\x1e.ctk.analysis.v1.CallGraphNode\x12-\n\x05\x65\x64ges\x18\x03 \x03(\x0b\x32\x1e.ctk.analysis.v1.CallGraphEdge\x12\x18\n\x0bis_complete\x18\x04 \x01(\x08H\x00\x88\x01\x01\x12\x33\n\x0c\x61vailability\x18\x05 \x03(\x0b\x32\x1d.ctk.ast.v1.FieldAvailabilityB\x0e\n\x0c_is_completeb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%analysis/v1/call_graph_response.proto\x12\x0f\x63tk.analysis.v1\x1a!analysis/v1/call_graph_node.proto\x1a!analysis/v1/call_graph_edge.proto\x1a\x13\x61st/v1/common.proto\"\x9b\x02\n\x11\x43\x61llGraphResponse\x12\x11\n\troot_node\x18\x01 \x01(\x04\x12-\n\x05nodes\x18\x02 \x03(\x0b\x32\x1e.ctk.analysis.v1.CallGraphNode\x12-\n\x05\x65\x64ges\x18\x03 \x03(\x0b\x32\x1e.ctk.analysis.v1.CallGraphEdge\x12\x18\n\x0bis_complete\x18\x04 \x01(\x08H\x00\x88\x01\x01\x12\x33\n\x0c\x61vailability\x18\x05 \x03(\x0b\x32\x1d.ctk.ast.v1.FieldAvailability\x12\x16\n\x0emain_file_only\x18\x06 \x01(\x08\x12\x1e\n\x16\x65xternal_edges_omitted\x18\x07 \x01(\x04\x42\x0e\n\x0c_is_completeb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,5 +35,5 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'analysis.v1.call_graph_resp
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_CALLGRAPHRESPONSE']._serialized_start=150
-  _globals['_CALLGRAPHRESPONSE']._serialized_end=377
+  _globals['_CALLGRAPHRESPONSE']._serialized_end=433
 # @@protoc_insertion_point(module_scope)

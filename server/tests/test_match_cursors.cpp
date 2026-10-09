@@ -894,6 +894,115 @@ TEST_F(MatchCursors, SelectedDeclAndStmtRootsStayInsideTheirSubtrees) {
   }
 }
 
+TEST_F(MatchCursors, LambdaMethodRootIncludesBodyWithoutDuplicatingWholeTree) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "int callee(int x) { return x; }\n"
+         "int chosen() { auto l=[](){ return callee(1); }; return l(); }\n";
+
+  auto source = run(file("cxxMethodDecl(ofClass(cxxRecordDecl(isLambda())), "
+                         "hasName(\"operator()\"), isDefinition()).bind(\"lam\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  ASSERT_EQ(source.response.results_size(), 1);
+  auto selected = binding(source.response, "lam", "callExpr().bind(\"call\")");
+  auto selected_calls = run(selected);
+  ASSERT_EQ(selected_calls.code, MatchCode::Ok) << selected_calls.message;
+  ASSERT_EQ(selected_calls.response.results_size(), 1);
+  const auto &lambda_call = selected_calls.response.results(0).bindings().at("call");
+  EXPECT_NE(lambda_call.call_site().caller_name().find("operator()"),
+            std::string::npos);
+  EXPECT_FALSE(lambda_call.call_site().caller_symbol_identity().empty());
+
+  auto whole_source = run(file("functionDecl(hasName(\"chosen\")).bind(\"f\")"));
+  ASSERT_EQ(whole_source.code, MatchCode::Ok) << whole_source.message;
+  auto whole = binding(whole_source.response, "f", "callExpr().bind(\"call\")");
+  auto whole_calls = run(whole);
+  ASSERT_EQ(whole_calls.code, MatchCode::Ok) << whole_calls.message;
+  EXPECT_EQ(whole_calls.response.results_size(), 2);
+}
+
+TEST_F(MatchCursors, MatchMetadataPreservesIdentityDocsMacroAndStaticCalls) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "#define WRAP(x) documented(x)\n"
+         "/// Raw declaration documentation.\n"
+         "int documented(int);\n"
+         "int overloaded(int);\n"
+         "int overloaded(double);\n"
+         "struct Base { virtual int run(); };\n"
+         "int caller(int (*fp)(int), Base& base) {\n"
+         "  int a = WRAP(1); int b = fp(2); int c = base.run();\n"
+         "  return a + b + c;\n"
+         "}\n";
+
+  auto translation_unit = run(file("translationUnitDecl().bind(\"tu\")"));
+  ASSERT_EQ(translation_unit.code, MatchCode::Ok) << translation_unit.message;
+  ASSERT_EQ(translation_unit.response.results_size(), 1);
+  EXPECT_FALSE(translation_unit.response.results(0)
+                   .bindings()
+                   .at("tu")
+                   .location()
+                   .valid());
+
+  auto overloads = run(file("functionDecl(hasName(\"overloaded\")).bind(\"f\")"));
+  ASSERT_EQ(overloads.code, MatchCode::Ok) << overloads.message;
+  ASSERT_EQ(overloads.response.results_size(), 2);
+  const auto &first = overloads.response.results(0).bindings().at("f");
+  const auto &second = overloads.response.results(1).bindings().at("f");
+  EXPECT_FALSE(first.symbol_identity().empty());
+  EXPECT_NE(first.symbol_identity(), second.symbol_identity());
+  EXPECT_TRUE(first.location().valid());
+  EXPECT_EQ(first.location().line(), 4U);
+  EXPECT_FALSE(first.range().expansion_begin().file().empty());
+
+  auto documented = run(file("functionDecl(hasName(\"documented\")).bind(\"f\")"));
+  ASSERT_EQ(documented.code, MatchCode::Ok) << documented.message;
+  ASSERT_EQ(documented.response.results_size(), 1);
+  EXPECT_NE(documented.response.results(0).bindings().at("f").documentation()
+                .find("Raw declaration documentation"),
+            std::string::npos);
+
+  auto caller = run(file("functionDecl(hasName(\"caller\")).bind(\"f\")"));
+  ASSERT_EQ(caller.code, MatchCode::Ok) << caller.message;
+  auto calls = run(binding(caller.response, "f", "callExpr().bind(\"c\")"));
+  ASSERT_EQ(calls.code, MatchCode::Ok) << calls.message;
+  ASSERT_EQ(calls.response.results_size(), 3);
+  bool saw_macro = false;
+  bool saw_indirect = false;
+  bool saw_virtual = false;
+  for (const auto &row : calls.response.results()) {
+    const auto &facts = row.bindings().at("c").call_site();
+    EXPECT_EQ(facts.caller_name(), "caller");
+    EXPECT_FALSE(facts.caller_symbol_identity().empty());
+    if (facts.dispatch() == CALL_DISPATCH_INDIRECT)
+      saw_indirect = true;
+    if (facts.dispatch() == CALL_DISPATCH_VIRTUAL)
+      saw_virtual = true;
+    if (facts.static_callee_name() == "documented") {
+      EXPECT_EQ(facts.dispatch(), CALL_DISPATCH_DIRECT);
+      EXPECT_TRUE(row.bindings().at("c").location().is_macro());
+      EXPECT_EQ(row.bindings().at("c").range().expansion_begin().line(), 8U);
+      EXPECT_EQ(row.bindings().at("c").range().spelling_begin().line(), 1U);
+      saw_macro = true;
+    }
+  }
+  EXPECT_TRUE(saw_macro);
+  EXPECT_TRUE(saw_indirect);
+  EXPECT_TRUE(saw_virtual);
+}
+
+TEST_F(MatchCursors, MatchCoordinatesIgnoreLineDirectiveVirtualNames) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "#line 700 \"virtual-name.cc\"\n"
+         "int mapped() { return 1; }\n";
+  auto result = run(file("functionDecl(hasName(\"mapped\")).bind(\"f\")"));
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  ASSERT_EQ(result.response.results_size(), 1);
+  const auto &location = result.response.results(0).bindings().at("f").location();
+  ASSERT_TRUE(location.valid());
+  EXPECT_NE(location.file().find("fixture.cc"), std::string::npos);
+  EXPECT_EQ(location.file().find("virtual-name.cc"), std::string::npos);
+  EXPECT_EQ(location.line(), 2U);
+}
+
 TEST_F(MatchCursors, TypedefAwareInheritanceMatcherKeepsWholeTreeAliases) {
   std::ofstream(directory.path() / "fixture.cc")
       << "struct Base {};\n"
