@@ -15,6 +15,7 @@ from clang_toolkit.cli.language import parser, reference_parser
 _REGEX_LITERALS = {
     "BACKGROUND": "background",
     "PARSE": "parse",
+    "READ": "read",
     "YIELD": "yield",
     "CURSOR": "cursor",
     "OPEN": "open",

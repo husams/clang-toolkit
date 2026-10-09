@@ -30,6 +30,75 @@ def values_fixture(tmp_path: Path, request):
     return server, tmp_path
 
 
+@when("I read JSON and YAML documents through the console and SDKs", target_fixture="document_run")
+def read_documents(values_fixture):
+    from clang_toolkit import Client, AsyncClient
+
+    server, root = values_fixture
+    (root / "project.json").write_text(
+        '{"project": {"name": "demo"}, "sources": ["alpha.cc", "beta.cc"], "enabled": true}',
+        encoding="utf-8",
+    )
+    (root / "project.yaml").write_text(
+        "project:\n  name: demo\nsources: [alpha.cc, beta.cc]\nenabled: true\n",
+        encoding="utf-8",
+    )
+    (root / "broken.json").write_text("{broken}", encoding="utf-8")
+    script = '\n'.join([
+        'let json = read "project.json"',
+        'let yaml = read "project.yaml"',
+        'print "JSON_NAME=${json.project.name}"',
+        'print "YAML_NAME=${yaml.project.name}"',
+        'let sources = foreach $source in $yaml.sources do $source done',
+        'print "SOURCE_COUNT=${sources.length}"',
+        'print "FIRST_SOURCE=${sources[0]}"',
+        'print "ENABLED=${json.enabled}"',
+        'let filename = "project.yaml"',
+        'let indirect = read $filename',
+        'print "VARIABLE_NAME=${indirect.project.name}"',
+    ])
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint, "-e", script],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=root,
+        env=dict(os.environ, XDG_STATE_HOME=str(root / "read-state")),
+        timeout=30, check=False,
+    )
+    with Client(server.endpoint) as client:
+        sync_value = client.execute('read "project.json"', working_directory=root)
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            return await client.execute('read "project.yaml"', working_directory=root)
+
+    async_value = asyncio.run(run())
+    from clang_toolkit.cli.app import dispatch
+    from clang_toolkit.cli.runtime import Runtime
+
+    with Client(server.endpoint) as client:
+        runtime = Runtime(client, cwd=root, environment={})
+        try:
+            runtime.execute('let data = read "project.json"')
+            error = dispatch(client, 'let data = read "broken.json"', runtime)
+            preserved = runtime.execute("print $data.project.name")
+        finally:
+            runtime.close()
+    return console, sync_value, async_value, error, preserved
+
+
+@then("document fields, lists and failed reads preserve their expected values")
+def verify_documents(document_run):
+    console, sync_value, async_value, error, preserved = document_run
+    assert console.returncode == 0, console.stdout
+    for text in ("JSON_NAME=demo", "YAML_NAME=demo", "SOURCE_COUNT=2",
+                 "FIRST_SOURCE=alpha.cc", "ENABLED=true", "VARIABLE_NAME=demo"):
+        assert text in console.stdout
+    assert sync_value == async_value == {
+        "project": {"name": "demo"}, "sources": ["alpha.cc", "beta.cc"], "enabled": True,
+    }
+    assert "cannot read" in error
+    assert preserved == "demo"
+
+
 @when("I query native multi-file values through the console", target_fixture="values_run")
 def query_native_values(values_fixture):
     server, root = values_fixture

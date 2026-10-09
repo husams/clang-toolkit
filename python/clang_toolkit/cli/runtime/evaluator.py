@@ -37,7 +37,7 @@ from .semantic import MessageView, field_sources
 from .templates import TemplateError, evaluate_string
 from .history import HistoryStore
 from .output import OutputSink
-from .persistence import load, save
+from .persistence import load, read_document, save
 from .values import MatchSet, MatcherExpr, QualifiedName, matcher_text, render, render_inspection
 from .cursors import execute_cursor
 from .traversal import execute_traversal
@@ -577,6 +577,8 @@ class Runtime:
                 raise EvaluationError("parse requires a file path")
             return self._track_native_value(self.client.parse(target, working_directory=self.cwd,
                 compile_arguments=self.config_store.effective["extra_args"]))
+        if kind == "read_expression":
+            return read_document(self._output_path(node.children[1]))
         if kind == "analysis_block":
             return self._analysis_block(node)
         if kind == "traverse_expression":

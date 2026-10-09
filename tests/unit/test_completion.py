@@ -32,6 +32,14 @@ def test_blank_and_partial_input_offer_commands_only():
     assert complete("quitNow") == []
 
 
+def test_read_expression_offers_keyword_and_file_paths(tmp_path):
+    (tmp_path / "config.yaml").write_text("name: test\n")
+    assert "read" in complete("")
+    assert "read" in complete("let data = re")
+    assert "'config.yaml'" in complete("read ", cwd=tmp_path)
+    assert "'config.yaml'" in complete("let data = read ", cwd=tmp_path)
+
+
 def test_legacy_command_and_session_keywords_remain_available():
     assert "background" in complete("")
     assert set(complete("session ")) == {"start", "add", "match", "pause", "resume", "close", "label", "list", "attach"}

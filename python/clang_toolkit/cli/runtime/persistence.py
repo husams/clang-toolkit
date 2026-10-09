@@ -312,3 +312,31 @@ def load(path: Path) -> Any:
     return _decode(
         {key: value for key, value in document.items() if key != "schema_version"}
     )
+
+
+def read_document(path: Path) -> Any:
+    """Read ordinary JSON/YAML without interpreting CTK persistence envelopes."""
+    if path.suffix.lower() not in {".json", ".yaml", ".yml"}:
+        raise PersistenceError("read requires a .json, .yaml or .yml file")
+    try:
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle) if path.suffix.lower() == ".json" else yaml.safe_load(handle)
+        _check_document(value, set())
+        return value
+    except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:
+        raise PersistenceError(f"cannot read {path}: {exc}") from exc
+
+
+def _check_document(value: Any, ancestors: set[int]) -> None:
+    # YAML aliases may form cycles, which console field traversal cannot render.
+    if not isinstance(value, (dict, list)):
+        return
+    identity = id(value)
+    if identity in ancestors:
+        raise PersistenceError("recursive YAML aliases are not supported")
+    ancestors.add(identity)
+    try:
+        for item in value.values() if isinstance(value, dict) else value:
+            _check_document(item, ancestors)
+    finally:
+        ancestors.remove(identity)

@@ -293,6 +293,26 @@ _ENTRIES = (
         ),
     ),
     CommandHelp(
+        "read",
+        "Read an ordinary JSON or YAML file as a console value.",
+        ("read PATH", "let data = read PATH"),
+        (
+            "PATH: quoted/interpolated file path, string variable or File; .json, .yaml and .yml are supported.",
+            "Files are read on the client computer; relative paths use the session directory and ~/ uses HOME.",
+            "Objects expose fields and string-key indexing; lists support zero-based indexing and foreach. Scalar and null roots are also supported; empty YAML returns null.",
+            "YAML uses safe loading; recursive aliases are rejected. Errors preserve the previous assignment value.",
+            "read returns the document as written, including any schema_version/type/value keys. Use load to restore CTK save snapshots.",
+        ),
+        (
+            'let data = read "config.json"',
+            'let data = read "config.yaml"',
+            "print $data.project.name",
+            "print $data.sources[0]",
+            'let filename = "$HOME/config.yml"',
+            "let data = read $filename",
+        ),
+    ),
+    CommandHelp(
         "load",
         "Load persisted data into a simple variable.",
         ("load PATH into $NAME",),

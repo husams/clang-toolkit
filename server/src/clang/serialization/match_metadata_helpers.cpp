@@ -22,8 +22,9 @@ void write_point(clang::SourceLocation source, clang::SourceLocation coordinate,
   bool invalid_line = false;
   bool invalid_column = false;
   const auto filename = manager.getFilename(coordinate);
-  const auto line = manager.getLineNumber(coordinate, &invalid_line);
-  const auto column = manager.getColumnNumber(coordinate, &invalid_column);
+  const auto [file, offset] = manager.getDecomposedLoc(coordinate);
+  const auto line = manager.getLineNumber(file, offset, &invalid_line);
+  const auto column = manager.getColumnNumber(file, offset, &invalid_column);
   if (filename.empty() || invalid_line || invalid_column || line == 0 ||
       column == 0)
     return;

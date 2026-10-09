@@ -1,5 +1,10 @@
 Feature: Multi-file match values retain typed rows and safe semantic access
 
+  Scenario: Ordinary JSON and YAML files expose nested data through the console and SDKs
+    Given a private server and two source files for reasoning values
+    When I read JSON and YAML documents through the console and SDKs
+    Then document fields, lists and failed reads preserve their expected values
+
   Scenario: Two-file rows retain provenance, continuation, and collection operations
     Given a private server and two source files for reasoning values
     When I query native multi-file values through the console
