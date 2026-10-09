@@ -1,0 +1,4 @@
+interface:
+  display_name: "CTK C++ Reasoning"
+  short_description: "Reason about C++ through the typed Python SDK"
+  default_prompt: "Use $ctk-cpp-reasoning to answer this C++ code question with public SDK evidence."

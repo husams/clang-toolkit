@@ -1,0 +1,9 @@
+[project]
+name = "ctk-cpp-reasoning-runtime"
+version = "0.1.0"
+description = "Preinstalled Python SDK runtime for the CTK C++ reasoning skill"
+requires-python = ">=3.14"
+dependencies = ["clang-toolkit==0.1.0"]
+
+[tool.uv.sources]
+clang-toolkit = { path = "wheels/clang_toolkit-0.1.0-py3-none-any.whl" }
