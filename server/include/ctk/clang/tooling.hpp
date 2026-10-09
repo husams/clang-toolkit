@@ -9,6 +9,7 @@
 
 #include "ctk/cache/snapshot.hpp"
 #include "match/v1/match_result.pb.h"
+#include "match/v1/match_service.pb.h"
 
 namespace ctk::clang_layer {
 
@@ -60,6 +61,8 @@ public:
   virtual ctk::cache::SnapshotPtr acquire_snapshot(const FileInput &) {
     return {};
   }
+  virtual ctk::match::v1::CacheResources resources() const { return {}; }
+  virtual void prune_caches(bool, bool) {}
 };
 
 std::shared_ptr<IQueryEngine> make_query_engine();

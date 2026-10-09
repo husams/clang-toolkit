@@ -2,9 +2,11 @@
 #include "cursor_registry.hpp"
 #include "file_target_validation.hpp"
 #include "query_executor.hpp"
+#include "ctk/platform/process_memory.hpp"
 #include <algorithm>
 #include <future>
 #include <limits>
+#include <filesystem>
 
 namespace ctk::application {
 using ctk::clang_layer::MatchCode;
@@ -59,6 +61,7 @@ struct MatchController::Impl {
   std::shared_ptr<ctk::clang_layer::IMatchBackend> backend;
   detail::CursorRegistry registry;
   std::shared_ptr<OperationExecutor> executor;
+  const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
   Impl(CursorSettings config,
        std::shared_ptr<ctk::clang_layer::IMatchBackend> native,
        std::shared_ptr<OperationExecutor> work)
@@ -75,6 +78,8 @@ struct MatchController::Impl {
     registry.find(owner, "");
     auto cursor = std::make_shared<detail::ResultCursor>();
     cursor->owner = owner;
+    cursor->file_path = (std::filesystem::path(request.working_directory()) /
+                         request.file_path()).lexically_normal().string();
     std::lock_guard operation(cursor->operation);
     auto result = backend->parse(request, checkpoint, settings.results);
     if (result.code != MatchCode::Ok)
@@ -95,6 +100,8 @@ struct MatchController::Impl {
       registry.find(owner, "");
       cursor = std::make_shared<detail::ResultCursor>();
       cursor->owner = owner;
+      cursor->file_path = (std::filesystem::path(request.file().working_directory()) /
+                           request.file().file_path()).lexically_normal().string();
     } else {
       cursor = registry.find(owner, request.has_session()
                                         ? request.session().session_id()
@@ -166,6 +173,7 @@ struct MatchController::Impl {
     if (!request.has_file() && request.preserve_source()) {
       auto fork = std::make_shared<detail::ResultCursor>();
       fork->owner = owner;
+      fork->file_path = cursor->file_path;
       std::lock_guard fork_operation(fork->operation);
       auto reply = registry.commit(fork, std::move(result), checkpoint, true,
                                    stream_sink != nullptr);
@@ -316,4 +324,48 @@ MatchReply MatchController::close(const std::string &owner,
   return impl_->registry.close(owner, id);
 }
 void MatchController::stop_admission() { impl_->executor->stop_admission(); }
+
+ListSessionsResponse MatchController::list_sessions(const std::string &owner) {
+  return impl_->registry.list(owner);
+}
+MatchReply MatchController::attach_session(const std::string &owner,
+                                           const std::string &id,
+                                           SessionInfo &response) {
+  if (owner.empty())
+    return failure(MatchCode::InvalidArgument, "caller owner is required");
+  return impl_->registry.attach(owner, id, response);
+}
+ServerStatusResponse MatchController::server_status() {
+  ServerStatusResponse response;
+  response.set_uptime_ms(std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - impl_->started).count());
+  if (const auto rss = ctk::platform::resident_memory_bytes())
+    response.set_resident_memory_bytes(*rss);
+  const auto [count, bytes] = impl_->registry.usage();
+  response.set_active_sessions(count);
+  response.set_retained_memory_bytes(bytes);
+  response.set_max_sessions(impl_->settings.max_cursors);
+  response.set_max_retained_memory_bytes(impl_->settings.max_memory_bytes);
+  if (impl_->backend)
+    response.mutable_cache()->CopyFrom(impl_->backend->resources());
+  return response;
+}
+MatchReply MatchController::prune_caches(const PruneCachesRequest &request,
+                                        PruneCachesResponse &response) {
+  if (!request.memory() && !request.disk())
+    return failure(MatchCode::InvalidArgument, "select memory and/or disk caches");
+  if (!impl_->backend)
+    return failure(MatchCode::FailedPrecondition, "Clang analysis is disabled");
+  try {
+    response.mutable_before()->CopyFrom(impl_->backend->resources());
+    if ((request.memory() && !response.before().memory_available()) ||
+        (request.disk() && !response.before().storage_available()))
+      return failure(MatchCode::FailedPrecondition, "selected cache is unavailable");
+    impl_->backend->prune_caches(request.memory(), request.disk());
+    response.mutable_after()->CopyFrom(impl_->backend->resources());
+    return {};
+  } catch (const std::exception &error) {
+    return failure(MatchCode::Internal, error.what());
+  }
+}
 } // namespace ctk::application

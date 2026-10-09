@@ -52,6 +52,8 @@ KEYWORDS = {
     "USER",
     "HISTORY",
     "SESSION",
+    "LIST", "ATTACH", "SERVER", "STATUS", "CACHE", "PRUNE", "BINDINGS", "BINDING",
+    "DROP", "RENAME", "APPEND",
     "CURSOR",
     "OPEN",
     "CONTINUE",

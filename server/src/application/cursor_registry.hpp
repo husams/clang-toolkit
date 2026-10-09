@@ -18,6 +18,10 @@ public:
          const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
          bool create, bool streaming = false);
   MatchReply close(const std::string &owner, const std::string &id);
+  ctk::match::v1::ListSessionsResponse list(const std::string &owner);
+  MatchReply attach(const std::string &owner, const std::string &id,
+                    ctk::match::v1::SessionInfo &response);
+  std::pair<std::uint64_t, std::uint64_t> usage();
 
 private:
   struct Entry {

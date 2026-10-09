@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from google.protobuf.message import DecodeError
 
 from .filesystem import Directory, File, FileSystemEntry
 from .values import MatchSet, MatcherExpr, QualifiedName
@@ -21,7 +22,7 @@ class PersistenceError(ValueError):
     """A value cannot be saved or an external file cannot be loaded safely."""
 
 
-_SUFFIXES = {"yaml": ".yaml", "json": ".json", "csv": ".csv"}
+_SUFFIXES = {"yaml": ".yaml", "json": ".json", "csv": ".csv", "proto": ".proto"}
 _TYPES = {"str", "bool", "int", "float"}
 
 
@@ -236,19 +237,21 @@ def _save_path(path: Path, format_name: str | None) -> tuple[Path, str]:
 
 def save(value: Any, path: Path, *, format_name: str | None = None) -> Path:
     path, kind = _save_path(path, format_name)
-    path.parent.mkdir(parents=True, exist_ok=True)
     temp_name: str | None = None
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="",
+            mode="wb" if kind == "proto" else "w",
+            **({} if kind == "proto" else {"encoding": "utf-8", "newline": ""}),
             dir=path.parent,
             prefix=f".{path.name}.",
             delete=False,
         ) as handle:
             temp_name = handle.name
-            if kind == "csv":
+            if kind == "proto":
+                from .protobuf_persistence import encode
+                handle.write(encode(_encode(value)))
+            elif kind == "csv":
                 headers, rows = _csv_rows(value)
                 writer = csv.writer(handle)
                 writer.writerow(headers)
@@ -264,7 +267,7 @@ def save(value: Any, path: Path, *, format_name: str | None = None) -> Path:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_name, path)
-    except (OSError, yaml.YAMLError, TypeError) as exc:
+    except (OSError, yaml.YAMLError, TypeError, ValueError) as exc:
         raise PersistenceError(f"cannot save {path}: {exc}") from exc
     finally:
         if temp_name and os.path.exists(temp_name):
@@ -276,7 +279,7 @@ def load(path: Path) -> Any:
     if not path.suffix:
         candidates = [
             path.with_suffix(extension)
-            for extension in (".yaml", ".yml", ".json", ".csv")
+            for extension in (".yaml", ".yml", ".json", ".csv", ".proto")
         ]
         existing = [candidate for candidate in candidates if candidate.exists()]
         if len(existing) != 1:
@@ -284,11 +287,14 @@ def load(path: Path) -> Any:
         path = existing[0]
     kind = _format_from_path(path)
     try:
+        if kind == "proto":
+            from .protobuf_persistence import decode
+            return _decode(decode(path.read_bytes()))
         if kind == "csv":
             return _csv_load(path)
         with path.open(encoding="utf-8") as handle:
             document = json.load(handle) if kind == "json" else yaml.safe_load(handle)
-    except (OSError, ValueError, yaml.YAMLError, csv.Error) as exc:
+    except (OSError, ValueError, DecodeError, yaml.YAMLError, csv.Error) as exc:
         raise PersistenceError(f"cannot load {path}: {exc}") from exc
     if not isinstance(document, dict) or document.get("schema_version") != 1:
         raise PersistenceError("unsupported or missing schema_version")

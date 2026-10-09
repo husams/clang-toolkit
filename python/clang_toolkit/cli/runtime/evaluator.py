@@ -126,6 +126,11 @@ class Runtime:
             return None
         if kind in {"help", "help_shortcut"}:
             return render_help(statement)
+        if kind in {"server_status", "cache_status", "cache_prune", "session_list",
+                    "session_attach", "session_close_retained", "bindings_list",
+                    "binding_drop", "binding_rename"}:
+            from .management import execute_management
+            return self.output.emit(execute_management(self, statement))
         if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
             return self.output.emit(execute_cursor(self, statement))
         if kind == "traverse":
@@ -167,7 +172,7 @@ class Runtime:
             return ""
         if kind == "save_command":
             value = self._evaluate(statement.children[1])
-            path = self.cwd / self._string(str(statement.children[3]))
+            path = self._output_path(statement.children[3])
             format_name = (
                 str(statement.children[-1])
                 if len(statement.children) > 5 and statement.children[-1] is not None
@@ -176,7 +181,7 @@ class Runtime:
             save(value, path, format_name=format_name)
             return ""
         if kind == "load_command":
-            path = self.cwd / self._string(str(statement.children[1]))
+            path = self._output_path(statement.children[1])
             target = statement.children[3]
             names = [
                 str(item)
@@ -228,7 +233,15 @@ class Runtime:
                 compile_arguments=self.config_store.effective["extra_args"],
             )
         if kind == "print":
-            return self.output.emit(render(self._evaluate(statement.children[1])))
+            text = render(self._evaluate(statement.children[1]))
+            if len(statement.children) > 3 and statement.children[3] is not None:
+                destination = self._output_path(statement.children[3])
+                append = any(isinstance(item, Token) and item.type == "APPEND"
+                             for item in statement.children)
+                from .output import write_text
+                write_text(destination, text, append=append)
+                return ""
+            return self.output.emit(text)
         if kind == "inspect":
             return self.output.emit(render_inspection(self._evaluate(statement.children[1])))
         if kind == "display":
@@ -432,7 +445,7 @@ class Runtime:
             value = (
                 "stdout"
                 if isinstance(target, Token) and target.type == "STDOUT"
-                else self._string(str(target))
+                else str(self._output_path(target))
             )
             old = self.output.destination
             replace = any(
@@ -684,6 +697,19 @@ class Runtime:
         if name in self.config_vars:
             return self.config_vars[name]
         raise EvaluationError(f"unknown variable: {name}")
+
+    def _output_path(self, node: Any) -> Path:
+        value = self._evaluate(node)
+        if isinstance(value, FileSystemEntry):
+            value = value.absolute
+        if not isinstance(value, str) or not value:
+            raise EvaluationError("file destination must be a nonempty path string")
+        if value == "~" or value.startswith("~/"):
+            home = self.environment.get("HOME")
+            if not home:
+                raise EvaluationError("HOME is required to expand ~ in a file path")
+            value = home + value[1:]
+        return self.cwd / value
 
     def _string(self, raw: str) -> str:
         try:

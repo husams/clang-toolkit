@@ -697,6 +697,33 @@ public:
     return cache_.acquire(normalized_path(resolved), cache_context(resolved));
   }
 
+  ctk::match::v1::CacheResources resources() const override {
+    ctk::match::v1::CacheResources result;
+    const auto memory = cache_.stats();
+    result.set_memory_available(true);
+    result.set_reusable_snapshots(memory.reusable_snapshots);
+    result.set_reusable_memory_bytes(memory.estimated_reusable_bytes);
+    result.set_pending_builds(memory.pending_builds);
+    if (const auto store = shared_store()) {
+      const auto disk = store->stats();
+      result.set_storage_available(true);
+      result.set_artifact_disk_bytes(disk.physical_bytes);
+      result.set_ready_snapshots(disk.ready_snapshots);
+      result.set_stale_snapshots(disk.stale_snapshots);
+      result.set_leased_snapshots(disk.leased_snapshots);
+      result.set_storage_root(storage_root().string());
+    }
+    return result;
+  }
+
+  void prune_caches(bool memory, bool disk) override {
+    if (memory)
+      cache_.clear_reuse();
+    if (disk)
+      if (const auto store = shared_store())
+        store->prune_unused();
+  }
+
   QueryResult match(const FileInput &input, const std::string &query,
                     const Checkpoint &checkpoint,
                     const MatchCallback &on_match) override {

@@ -5,9 +5,35 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TextIO
 
+import os
+import tempfile
+
 
 class OutputError(OSError):
     """The selected output destination could not be used."""
+
+
+def write_text(path: Path, text: str, *, append: bool = False) -> None:
+    """Write one print result; replacement publishes a complete sibling file."""
+    temporary: str | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if append:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(text + "\n")
+            return
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", delete=False) as handle:
+            temporary = handle.name
+            handle.write(text + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except OSError as exc:
+        raise OutputError(f"cannot write output {path}: {exc}") from exc
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 class OutputSink:

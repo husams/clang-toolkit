@@ -433,6 +433,106 @@ def start_server(transport: str, tmp_path: Path, request) -> RunningServer:
     return _launch_server(transport, tmp_path, request)
 
 
+@given(parsers.parse("an isolated resource server using {transport}"), target_fixture="server")
+def start_resource_server(transport: str, tmp_path: Path, request, monkeypatch) -> RunningServer:
+    monkeypatch.setenv("CTK_STORAGE_ROOT", str(tmp_path / "native-storage"))
+    return _launch_server(transport, tmp_path, request)
+
+
+@when("I inspect attach prune and close retained native sessions through the SDKs and console",
+      target_fixture="managed_resources")
+def manage_native_resources(server: RunningServer, source: Path, tmp_path: Path):
+    from clang_toolkit import Client
+    from clang_toolkit.cli.runtime import Runtime
+    from clang_toolkit.match_values import MatchValueError
+
+    with Client(server.endpoint) as client:
+        rows = client.match_in('varDecl().bind("v")', source)
+        identity = rows._owner.session_id
+        listed = client.list_sessions()
+        assert any(info.session_id == identity and "v" in info.binding_names for info in listed.sessions)
+        status = client.server_status()
+        assert status.active_sessions >= 1 and status.retained_memory_bytes > 0
+        assert status.HasField("resident_memory_bytes") and status.resident_memory_bytes > 0
+        assert status.cache.memory_available and status.cache.storage_available
+        tree = client.attach_session(identity)
+        assert tree._owner is rows._owner
+        runtime = Runtime(client, cwd=tmp_path)
+        try:
+            runtime.bindings["tree"] = tree
+            runtime.execute("server status")
+            runtime.execute("cache status")
+            runtime.execute("session list")
+            runtime.execute("session attach $tree into $attached")
+            runtime.execute("cache prune all")
+            assert client.server_status().cache.reusable_snapshots == 0
+            child = client.match_in('varDecl().bind("child")', tree)
+            assert len(child) == 1
+            runtime.execute("session close $attached")
+            with pytest.raises(MatchValueError):
+                client.match_in("varDecl()", tree)
+            assert len(client.match_in("varDecl()", child)) == 1
+        finally:
+            runtime.close()
+        client.prune_caches(memory=True, disk=True)
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            tree = await client.parse(source)
+            info = (await client.list_sessions()).sessions
+            assert any(item.session_id == tree._owner.session_id for item in info)
+            attached = await client.attach_session(tree._owner.session_id)
+            assert attached._owner is tree._owner
+            await client.prune_caches(memory=True, disk=True)
+            assert (await client.server_status()).cache.reusable_snapshots == 0
+            assert len(await client.match_in("varDecl()", attached)) == 1
+            await client.close_match(tree._owner.session_id)
+            assert tree._owner.closed
+    asyncio.run(run())
+    return server.process.poll()
+
+
+@then("resource accounting is live and independent children survive closing their source")
+def verify_managed_resources(managed_resources):
+    assert managed_resources is None
+
+
+@when("I export matched values through variable paths and redirect print output",
+      target_fixture="exported_values")
+def export_values(server: RunningServer, source: Path, tmp_path: Path):
+    import sys
+    commands = [
+        f'let x = match varDecl().bind("v") in "{source}"',
+        'let filename = "$HOME/exported"',
+    ]
+    for kind in ("json", "yaml", "proto"):
+        commands.extend([f"save $x to $filename as {kind}",
+                         f'load "$HOME/exported.{kind}" into $snapshot',
+                         'print "loaded" to "$HOME/loaded.txt" mode append'])
+    commands.extend(['print "old" to "$HOME/output.txt"',
+                     'print "new" to "$HOME/output.txt" mode replace',
+                     'print "added" to "$HOME/output.txt" mode append',
+                     "bindings", "binding rename $x to $rows", "binding drop $rows", "quit"])
+    result = subprocess.run([sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+                            input="\n".join(commands) + "\n", text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            cwd=tmp_path, env=dict(os.environ, HOME=str(tmp_path),
+                                                  XDG_STATE_HOME=str(tmp_path / "state")),
+                            timeout=30)
+    assert result.returncode == 0 and "error:" not in result.stdout, result.stdout
+    return tmp_path
+
+
+@then("JSON YAML and protobuf snapshots reload and text replacement and append are correct")
+def verify_exported_values(exported_values: Path):
+    from clang_toolkit.cli.runtime.persistence import load
+    snapshots = [load(exported_values / f"exported.{kind}") for kind in ("json", "yaml", "proto")]
+    assert snapshots[0] == snapshots[1] == snapshots[2]
+    assert snapshots[0].rows and "v" in snapshots[0].rows[0]["bindings"]
+    assert (exported_values / "output.txt").read_text() == "new\nadded\n"
+    assert (exported_values / "loaded.txt").read_text() == "loaded\n" * 3
+
+
 @given("a query server with a one-file limit", target_fixture="server")
 def start_limited_server(tmp_path: Path, request) -> RunningServer:
     return _launch_server("unix", tmp_path, request, max_files=1)

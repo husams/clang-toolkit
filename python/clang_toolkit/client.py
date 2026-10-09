@@ -433,9 +433,17 @@ class AsyncClient:
             raise CursorError(error.code(), error.details()) from error
 
     def _own_value(self, response: Any) -> CursorOwner[AsyncClient]:
+        current = self._values.get(response.session_id)
+        existing = current() if current else None
+        if existing is not None and not existing.closed and existing.revision == response.result_revision:
+            return existing
+        holder: list[Any] = [None]
+        def release(session_id: str) -> None:
+            if self._values.get(session_id) is holder[0]:
+                self._release_value(session_id)
         owner = CursorOwner(cast(AsyncClient, self), response.session_id, response.result_revision,
-                             self._release_value, loop=asyncio.get_running_loop())
-        self._values[response.session_id] = weakref.ref(owner)
+                             release, loop=asyncio.get_running_loop())
+        holder[0] = self._values[response.session_id] = weakref.ref(owner)
         return owner
 
     def _release_value(self, session_id: str) -> None:
@@ -708,6 +716,44 @@ class AsyncClient:
                                     timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise CursorError(error.code(), error.details()) from error
+        reference = self._values.pop(session_id, None)
+        owner = reference() if reference else None
+        if owner is not None:
+            owner.closed = True
+
+    async def _management_call(self, method: str, request: Any) -> Any:
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        stub = match_service_pb2_grpc.MatchServiceStub(self._channel)
+        try:
+            return await getattr(stub, method)(request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise CursorError(error.code(), error.details()) from error
+
+    async def server_status(self) -> match_service_pb2.ServerStatusResponse:
+        """Read live process, retained cursor, memory cache and disk artifact usage."""
+        return await self._management_call("ServerStatus", match_service_pb2.ServerStatusRequest())
+
+    async def list_sessions(self) -> match_service_pb2.ListSessionsResponse:
+        """List retained cursors visible to the transport's caller owner."""
+        return await self._management_call("ListSessions", match_service_pb2.ListSessionsRequest())
+
+    async def _session_info(self, session_id: str) -> match_service_pb2.SessionInfo:
+        return await self._management_call("AttachSession", match_service_pb2.AttachSessionRequest(session_id=session_id))
+
+    async def attach_session(self, session_id: str) -> ParsedTree[AsyncClient]:
+        """Attach the latest cursor revision as a reusable tree and renew its TTL."""
+        self._begin_value_operation()
+        try:
+            response = await self._session_info(session_id)
+            return ParsedTree(response.file_path, self._own_value(response))
+        finally:
+            self._end_value_operation()
+
+    async def prune_caches(self, *, memory: bool = True, disk: bool = False
+                           ) -> match_service_pb2.PruneCachesResponse:
+        """Prune reusable entries; active cursor pins and storage leases survive."""
+        return await self._management_call("PruneCaches", match_service_pb2.PruneCachesRequest(memory=memory, disk=disk))
 
     def start_background_query(
         self,
@@ -988,9 +1034,17 @@ class Client:
         return self._cursor_call("server_version")
 
     def _own_value(self, response: Any) -> CursorOwner[Client]:
+        current = self._values.get(response.session_id)
+        existing = current() if current else None
+        if existing is not None and not existing.closed and existing.revision == response.result_revision:
+            return existing
+        holder: list[Any] = [None]
+        def release(session_id: str) -> None:
+            if self._values.get(session_id) is holder[0]:
+                self._release_value(session_id)
         owner = CursorOwner(cast(Client, self), response.session_id, response.result_revision,
-                             self._release_value)
-        self._values[response.session_id] = weakref.ref(owner)
+                             release)
+        holder[0] = self._values[response.session_id] = weakref.ref(owner)
         return owner
 
     def _release_value(self, session_id: str) -> None:
@@ -1124,6 +1178,24 @@ class Client:
 
     def close_match(self, session_id: str) -> None:
         self._cursor_call("close_match", session_id)
+        reference = self._values.pop(session_id, None)
+        owner = reference() if reference else None
+        if owner is not None:
+            owner.closed = True
+
+    def server_status(self) -> match_service_pb2.ServerStatusResponse:
+        return self._cursor_call("server_status")
+
+    def list_sessions(self) -> match_service_pb2.ListSessionsResponse:
+        return self._cursor_call("list_sessions")
+
+    def attach_session(self, session_id: str) -> ParsedTree[Client]:
+        response = self._cursor_call("_session_info", session_id)
+        return ParsedTree(response.file_path, self._own_value(response))
+
+    def prune_caches(self, *, memory: bool = True, disk: bool = False
+                     ) -> match_service_pb2.PruneCachesResponse:
+        return self._cursor_call("prune_caches", memory=memory, disk=disk)
 
     def traverse(self, path: str | Path, **kwargs: Any) -> traverse_response_pb2.TraverseResponse:
         return self._cursor_call("traverse", path, **kwargs)

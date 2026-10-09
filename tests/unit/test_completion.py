@@ -34,7 +34,7 @@ def test_blank_and_partial_input_offer_commands_only():
 
 def test_legacy_command_and_session_keywords_remain_available():
     assert "background" in complete("")
-    assert set(complete("session ")) == {"start", "add", "match", "pause", "resume", "close", "label"}
+    assert set(complete("session ")) == {"start", "add", "match", "pause", "resume", "close", "label", "list", "attach"}
     assert complete("session pa") == ["pause"]
     assert complete("session res") == ["resume"]
 

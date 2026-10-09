@@ -42,6 +42,8 @@ public:
   using RowSink = std::function<MatchCode(const ctk::match::v1::MatchResult &,
                                           std::string &)>;
   virtual ~IMatchBackend() = default;
+  virtual ctk::match::v1::CacheResources resources() const { return {}; }
+  virtual void prune_caches(bool, bool) {}
   virtual MatchExecution parse(const ctk::match::v1::ParseRequest &,
                                const Checkpoint &, const MatchLimits &) {
     MatchExecution result;

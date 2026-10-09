@@ -155,6 +155,8 @@ public:
   void mark_stale(SnapshotId id);
   void retire(SnapshotId id);
   void enforce_retention();
+  // Retire all unleased ready/stale snapshots; pinned closures stay readable.
+  void prune_unused();
   void recover();
   StoreStats stats() const;
 

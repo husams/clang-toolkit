@@ -158,6 +158,10 @@ ctk> set files to glob("*.cpp")
 ctk> clear traversal
 ctk> save $lines to "lines"
 ctk> save $lines to "lines.json" as json
+ctk> let filename = "$HOME/lines.proto"
+ctk> save $lines to $filename as proto
+ctk> print "first line" to "lines.txt" mode replace
+ctk> print "next line" to "lines.txt" mode append
 ctk> load "lines" into $restored
 ctk> set output to "results.txt"
 ctk> set output to "results.txt" mode replace
@@ -167,9 +171,12 @@ ctk> history save "commands.jsonl"
 ```
 
 The first save writes `lines.yaml`; the first output setting appends. JSON and
-YAML preserve typed values, while CSV accepts flat lists of primitive values
+YAML and binary protobuf preserve typed values, while CSV accepts flat lists of primitive values
 or records. Relative paths use the session's working directory; format is
 detected from the extension (or a unique matching extension if omitted).
+Destinations also accept string variables and double-quoted interpolation. See
+[file output and resource management](file-output-resource-management.md) for
+`server status`, `session list/attach/close`, `bindings`, and `cache status/prune`.
 History is saved automatically to `$XDG_STATE_HOME/clang_tools/history.jsonl`
 (or `~/.local/state/clang_tools/history.jsonl`) with a session UUID.
 Up and Down recall earlier and later commands, including commands from previous

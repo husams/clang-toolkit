@@ -1,4 +1,21 @@
 Feature: gRPC network client
+  Scenario Outline: Native session and resource commands preserve pinned trees
+    Given an isolated resource server using <transport>
+    And a C++ file containing a declaration
+    When I inspect attach prune and close retained native sessions through the SDKs and console
+    Then resource accounting is live and independent children survive closing their source
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
+  Scenario: Console file output preserves match snapshots and supports text append
+    Given an isolated resource server using unix
+    And a C++ file containing a declaration
+    When I export matched values through variable paths and redirect print output
+    Then JSON YAML and protobuf snapshots reload and text replacement and append are correct
+
   Scenario Outline: Version commands identify the client and running server
     Given a query server using <transport>
     When I request versions through the CLI and SDK

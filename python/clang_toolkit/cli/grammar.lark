@@ -13,13 +13,13 @@ assignment: LET NAME EQUAL value_expression
 
 ?command: MATCH root_expression [IN path_value_expression] -> match
         | BACKGROUND root_expression [IN path_value_expression] -> background
-        | PRINT value_expression         -> print
+        | PRINT value_expression [TO output_path [MODE (REPLACE | APPEND)]] -> print
         | INSPECT reference              -> inspect
         | SET USER? setting              -> set_command
         | CLEAR USER? NAME               -> clear_command
         | ADD EXTRA_ARG STRING           -> add_arg
-        | SAVE reference TO FILE_STRING [AS NAME] -> save_command
-        | LOAD FILE_STRING INTO reference -> load_command
+        | SAVE reference TO output_path [AS NAME] -> save_command
+        | LOAD output_path INTO reference -> load_command
         | HISTORY SAVE FILE_STRING       -> history_save
         | HISTORY CLEAR                  -> history_clear
         | SESSION LABEL STRING           -> session_label
@@ -29,6 +29,16 @@ assignment: LET NAME EQUAL value_expression
         | SESSION PAUSE                  -> session_pause
         | SESSION RESUME                 -> session_resume
         | SESSION CLOSE                  -> session_close
+        | SESSION CLOSE (STRING | reference) -> session_close_retained
+        | SESSION LIST                   -> session_list
+        | SESSION ATTACH (STRING | reference) INTO reference -> session_attach
+        | SERVER STATUS                  -> server_status
+        | CACHE STATUS                   -> cache_status
+        | CACHE PRUNE NAME?              -> cache_prune
+        | BINDINGS                       -> bindings_list
+        | BINDINGS LIST                  -> bindings_list
+        | BINDING DROP reference         -> binding_drop
+        | BINDING RENAME reference TO reference -> binding_rename
         | CFG cfg_expression            -> cfg
         | CFG cfg_expression IN path_target_expression cfg_option* -> cfg_file
         | CALLGRAPH -> callgraph
@@ -70,7 +80,9 @@ traverse_option: DEPTH NUMBER -> traverse_depth
         | COMPILE_COMMANDS STRING        -> compilation_database_setting
         | CACHE_DIR TO DIRECTORY_STRING  -> cache_setting
         | FILES TO path_value_expression -> files_setting
-        | OUTPUT TO (FILE_STRING | STDOUT) [MODE REPLACE] -> output_setting
+        | OUTPUT TO (output_path | STDOUT) [MODE (REPLACE | APPEND)] -> output_setting
+
+?output_path: FILE_STRING | reference
 
 ?value_expression: root_expression
                  | STRING
@@ -187,6 +199,16 @@ editor_start: editor_token*
              | USER
              | HISTORY
              | SESSION
+             | LIST
+             | ATTACH
+             | SERVER
+             | STATUS
+             | CACHE
+             | PRUNE
+             | BINDINGS
+             | BINDING
+             | DROP
+             | RENAME
              | LABEL
              | START
              | PAUSE
@@ -194,6 +216,7 @@ editor_start: editor_token*
              | CLOSE
              | MODE
              | REPLACE
+             | APPEND
              | JOIN_WITH
              | HAS_FIELD
              | CFG
@@ -273,6 +296,16 @@ INTO.2: /into(?![a-zA-Z0-9_])/
 USER.2: /user(?![a-zA-Z0-9_])/
 HISTORY.2: /history(?![a-zA-Z0-9_])/
 SESSION.2: /session(?![a-zA-Z0-9_])/
+LIST.2: /list(?![a-zA-Z0-9_])/
+ATTACH.2: /attach(?![a-zA-Z0-9_])/
+SERVER.2: /server(?![a-zA-Z0-9_])/
+STATUS.2: /status(?![a-zA-Z0-9_])/
+CACHE.2: /cache(?![a-zA-Z0-9_])/
+PRUNE.2: /prune(?![a-zA-Z0-9_])/
+BINDINGS.2: /bindings(?![a-zA-Z0-9_])/
+BINDING.2: /binding(?![a-zA-Z0-9_])/
+DROP.2: /drop(?![a-zA-Z0-9_])/
+RENAME.2: /rename(?![a-zA-Z0-9_])/
 LABEL.2: /label(?![a-zA-Z0-9_])/
 START.2: /start(?![a-zA-Z0-9_])/
 PAUSE.2: /pause(?![a-zA-Z0-9_])/
@@ -280,6 +313,7 @@ RESUME.2: /resume(?![a-zA-Z0-9_])/
 CLOSE.2: /close(?![a-zA-Z0-9_])/
 MODE.2: /mode(?![a-zA-Z0-9_])/
 REPLACE.3: /replace(?![a-zA-Z0-9_])/
+APPEND.3: /append(?![a-zA-Z0-9_])/
 JOIN_WITH.3: /joinWith(?![a-zA-Z0-9_])/
 HAS_FIELD.3: /hasField(?![a-zA-Z0-9_])/
 CFG.2: /cfg(?![a-zA-Z0-9_])/

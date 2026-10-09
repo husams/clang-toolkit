@@ -116,4 +116,17 @@ void Store::recover() {
   impl_->enforce_retention_locked();
 }
 
+void Store::prune_unused() {
+  std::lock_guard lock(impl_->mutex);
+  const auto budget = std::max<std::size_t>(impl_->options.recovery_entry_budget * 4096, 4096);
+  for (const auto id : impl_->metadata.retention_candidates(budget)) {
+    if (impl_->snapshot_leases.contains(id))
+      continue;
+    detail::Transaction transaction(impl_->database);
+    impl_->metadata.set_state(id, SnapshotState::Deleting);
+    transaction.commit();
+  }
+  impl_->collect_unreferenced_locked(budget);
+}
+
 } // namespace ctk::storage

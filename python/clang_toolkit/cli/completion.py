@@ -47,7 +47,6 @@ class ReplCompleter(Completer):
     def get_completions(
         self, document: Document, complete_event: Any
     ) -> Iterable[Completion]:
-        del complete_event
         source = document.text
         cursor = document.cursor_position
         context = cursor_context(source, cursor)
@@ -85,6 +84,13 @@ class ReplCompleter(Completer):
         if context is None:
             return
         accepted = accepted_after(context.prefix_tokens)
+        # Completed commands should remain editable history drafts. An implicit
+        # optional keyword menu makes Up/Down insert a continuation instead.
+        # Explicit Tab and typing whitespace still offer those continuations.
+        if (complete_event is not None and not complete_event.completion_requested
+                and "$END" in accepted and source[:cursor]
+                and not source[cursor - 1].isspace()):
+            return
         if "HELP_WORD" in accepted:
             prefix = " ".join(str(token) for token in context.prefix_tokens[1:])
             for topic in COMMAND_HELP:

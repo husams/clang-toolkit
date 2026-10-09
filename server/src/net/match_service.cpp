@@ -63,4 +63,36 @@ grpc::Status MatchServiceAdapter::CloseSession(
   const auto reply = controller_.close(owner(*context), request->session_id());
   return match_status(reply.code, reply.message, *context);
 }
+grpc::Status MatchServiceAdapter::ListSessions(
+    grpc::ServerContext *context, const ctk::match::v1::ListSessionsRequest *,
+    ctk::match::v1::ListSessionsResponse *response) {
+  try {
+    *response = controller_.list_sessions(owner(*context));
+    return grpc::Status::OK;
+  } catch (const std::exception &error) {
+    return grpc::Status(grpc::StatusCode::INTERNAL, error.what());
+  }
+}
+grpc::Status MatchServiceAdapter::AttachSession(
+    grpc::ServerContext *context, const ctk::match::v1::AttachSessionRequest *request,
+    ctk::match::v1::SessionInfo *response) {
+  const auto reply = controller_.attach_session(owner(*context), request->session_id(), *response);
+  return match_status(reply.code, reply.message, *context);
+}
+grpc::Status MatchServiceAdapter::ServerStatus(
+    grpc::ServerContext *, const ctk::match::v1::ServerStatusRequest *,
+    ctk::match::v1::ServerStatusResponse *response) {
+  try {
+    *response = controller_.server_status();
+    return grpc::Status::OK;
+  } catch (const std::exception &error) {
+    return grpc::Status(grpc::StatusCode::INTERNAL, error.what());
+  }
+}
+grpc::Status MatchServiceAdapter::PruneCaches(
+    grpc::ServerContext *context, const ctk::match::v1::PruneCachesRequest *request,
+    ctk::match::v1::PruneCachesResponse *response) {
+  const auto reply = controller_.prune_caches(*request, *response);
+  return match_status(reply.code, reply.message, *context);
+}
 } // namespace ctk::net

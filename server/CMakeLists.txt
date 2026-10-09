@@ -65,6 +65,7 @@ if(CTK_BUILD_NETWORK)
   find_library(CTK_YAML_LIBRARY yaml REQUIRED)
   target_sources(ctk_core PRIVATE
     src/platform/loopback_address.cpp
+    src/platform/process_memory.cpp
     src/config/config.cpp
     src/application/analysis_session.cpp
     src/application/query_controller.cpp)

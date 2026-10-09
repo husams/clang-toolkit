@@ -45,6 +45,12 @@ public:
                const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
                const StreamSink &sink);
   MatchReply close(const std::string &owner, const std::string &id);
+  ctk::match::v1::ListSessionsResponse list_sessions(const std::string &owner);
+  MatchReply attach_session(const std::string &owner, const std::string &id,
+                           ctk::match::v1::SessionInfo &response);
+  ctk::match::v1::ServerStatusResponse server_status();
+  MatchReply prune_caches(const ctk::match::v1::PruneCachesRequest &request,
+                         ctk::match::v1::PruneCachesResponse &response);
   void stop_admission();
 
 private:

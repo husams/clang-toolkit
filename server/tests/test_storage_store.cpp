@@ -123,6 +123,24 @@ TEST(StorageStore, PublishesAndReadsNativeBlobWithExactV1Schema) {
   sqlite3_close(database);
 }
 
+TEST(StorageStore, PruneUnusedPreservesLeasesAndCollectsAfterRelease) {
+  using namespace ctk::storage;
+  TemporaryRoot root;
+  auto store = Store::open(options(root.path()));
+  store->publish(draft());
+  auto lease = store->acquire_ready(draft().profile).front();
+  auto unused = draft("second-artifact");
+  unused.profile.arguments.emplace_back("-DOTHER_PROFILE=1");
+  store->publish(unused);
+  store->prune_unused();
+  EXPECT_EQ(store->stats().ready_snapshots, 1U);
+  EXPECT_EQ(lease->read_artifact(0), "native-tu-bytes");
+  lease.reset();
+  store->prune_unused();
+  EXPECT_EQ(store->stats().ready_snapshots, 0U);
+  EXPECT_EQ(store->stats().physical_bytes, 0U);
+}
+
 TEST(StorageStore, RetirementBlocksNewLeasesAndWaitsForExistingLease) {
   using namespace ctk::storage;
   TemporaryRoot root;

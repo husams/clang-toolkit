@@ -67,6 +67,9 @@ _REGEX_LITERALS = {
     "USER": "user",
     "HISTORY": "history",
     "SESSION": "session",
+    "LIST": "list", "ATTACH": "attach", "SERVER": "server", "STATUS": "status",
+    "CACHE": "cache", "PRUNE": "prune", "BINDINGS": "bindings", "BINDING": "binding",
+    "DROP": "drop", "RENAME": "rename", "APPEND": "append",
     "START": "start",
     "PAUSE": "pause",
     "RESUME": "resume",
@@ -113,6 +116,9 @@ def candidates_for(
     previous = context.prefix_tokens[-1].type if context.prefix_tokens else None
     if "NAME" in accepted and previous == "DOLLAR":
         names.extend((name, False, False, None) for name in references)
+    elif "NAME" in accepted and previous in {"PRUNE", "AS"}:
+        options = ("memory", "disk", "all") if previous == "PRUNE" else ("yaml", "json", "csv", "proto")
+        names.extend((name, False, False, None) for name in options)
     elif ({"NAME", "JOIN_WITH", "HAS_FIELD"} & accepted) and previous == "DOT":
         reference = _reference_before_terminal_dot(context, source_before_cursor)
         fields: tuple[object, ...] = ()

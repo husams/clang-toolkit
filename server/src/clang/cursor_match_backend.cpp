@@ -41,6 +41,12 @@ class CursorMatchBackend final : public IMatchBackend {
 public:
   explicit CursorMatchBackend(std::shared_ptr<IQueryEngine> engine)
       : engine_(std::move(engine)) {}
+  ctk::match::v1::CacheResources resources() const override {
+    return engine_->resources();
+  }
+  void prune_caches(bool memory, bool disk) override {
+    engine_->prune_caches(memory, disk);
+  }
   MatchExecution parse(const ParseRequest &request,
                        const Checkpoint &checkpoint,
                        const MatchLimits &) override {

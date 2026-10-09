@@ -380,10 +380,14 @@ import type { VarTemplateSpecializationDecl as _ctk_ast_v1_VarTemplateSpecializa
 import type { VariableArrayType as _ctk_ast_v1_VariableArrayType, VariableArrayType__Output as _ctk_ast_v1_VariableArrayType__Output } from './ctk/ast/v1/VariableArrayType.js';
 import type { VectorType as _ctk_ast_v1_VectorType, VectorType__Output as _ctk_ast_v1_VectorType__Output } from './ctk/ast/v1/VectorType.js';
 import type { WhileStmt as _ctk_ast_v1_WhileStmt, WhileStmt__Output as _ctk_ast_v1_WhileStmt__Output } from './ctk/ast/v1/WhileStmt.js';
+import type { AttachSessionRequest as _ctk_match_v1_AttachSessionRequest, AttachSessionRequest__Output as _ctk_match_v1_AttachSessionRequest__Output } from './ctk/match/v1/AttachSessionRequest.js';
 import type { BindingMatchTarget as _ctk_match_v1_BindingMatchTarget, BindingMatchTarget__Output as _ctk_match_v1_BindingMatchTarget__Output } from './ctk/match/v1/BindingMatchTarget.js';
+import type { CacheResources as _ctk_match_v1_CacheResources, CacheResources__Output as _ctk_match_v1_CacheResources__Output } from './ctk/match/v1/CacheResources.js';
 import type { CloseSessionRequest as _ctk_match_v1_CloseSessionRequest, CloseSessionRequest__Output as _ctk_match_v1_CloseSessionRequest__Output } from './ctk/match/v1/CloseSessionRequest.js';
 import type { CloseSessionResponse as _ctk_match_v1_CloseSessionResponse, CloseSessionResponse__Output as _ctk_match_v1_CloseSessionResponse__Output } from './ctk/match/v1/CloseSessionResponse.js';
 import type { FileMatchTarget as _ctk_match_v1_FileMatchTarget, FileMatchTarget__Output as _ctk_match_v1_FileMatchTarget__Output } from './ctk/match/v1/FileMatchTarget.js';
+import type { ListSessionsRequest as _ctk_match_v1_ListSessionsRequest, ListSessionsRequest__Output as _ctk_match_v1_ListSessionsRequest__Output } from './ctk/match/v1/ListSessionsRequest.js';
+import type { ListSessionsResponse as _ctk_match_v1_ListSessionsResponse, ListSessionsResponse__Output as _ctk_match_v1_ListSessionsResponse__Output } from './ctk/match/v1/ListSessionsResponse.js';
 import type { MatchBinding as _ctk_match_v1_MatchBinding, MatchBinding__Output as _ctk_match_v1_MatchBinding__Output } from './ctk/match/v1/MatchBinding.js';
 import type { MatchRequest as _ctk_match_v1_MatchRequest, MatchRequest__Output as _ctk_match_v1_MatchRequest__Output } from './ctk/match/v1/MatchRequest.js';
 import type { MatchResponse as _ctk_match_v1_MatchResponse, MatchResponse__Output as _ctk_match_v1_MatchResponse__Output } from './ctk/match/v1/MatchResponse.js';
@@ -393,6 +397,11 @@ import type { MatchStreamCompleted as _ctk_match_v1_MatchStreamCompleted, MatchS
 import type { MatchStreamEvent as _ctk_match_v1_MatchStreamEvent, MatchStreamEvent__Output as _ctk_match_v1_MatchStreamEvent__Output } from './ctk/match/v1/MatchStreamEvent.js';
 import type { ParseRequest as _ctk_match_v1_ParseRequest, ParseRequest__Output as _ctk_match_v1_ParseRequest__Output } from './ctk/match/v1/ParseRequest.js';
 import type { ParseResponse as _ctk_match_v1_ParseResponse, ParseResponse__Output as _ctk_match_v1_ParseResponse__Output } from './ctk/match/v1/ParseResponse.js';
+import type { PruneCachesRequest as _ctk_match_v1_PruneCachesRequest, PruneCachesRequest__Output as _ctk_match_v1_PruneCachesRequest__Output } from './ctk/match/v1/PruneCachesRequest.js';
+import type { PruneCachesResponse as _ctk_match_v1_PruneCachesResponse, PruneCachesResponse__Output as _ctk_match_v1_PruneCachesResponse__Output } from './ctk/match/v1/PruneCachesResponse.js';
+import type { ServerStatusRequest as _ctk_match_v1_ServerStatusRequest, ServerStatusRequest__Output as _ctk_match_v1_ServerStatusRequest__Output } from './ctk/match/v1/ServerStatusRequest.js';
+import type { ServerStatusResponse as _ctk_match_v1_ServerStatusResponse, ServerStatusResponse__Output as _ctk_match_v1_ServerStatusResponse__Output } from './ctk/match/v1/ServerStatusResponse.js';
+import type { SessionInfo as _ctk_match_v1_SessionInfo, SessionInfo__Output as _ctk_match_v1_SessionInfo__Output } from './ctk/match/v1/SessionInfo.js';
 import type { SessionMatchTarget as _ctk_match_v1_SessionMatchTarget, SessionMatchTarget__Output as _ctk_match_v1_SessionMatchTarget__Output } from './ctk/match/v1/SessionMatchTarget.js';
 import type { Timestamp as _google_protobuf_Timestamp, Timestamp__Output as _google_protobuf_Timestamp__Output } from './google/protobuf/Timestamp.js';
 
@@ -839,11 +848,15 @@ export interface ProtoGrpcType {
     }
     match: {
       v1: {
+        AttachSessionRequest: MessageTypeDefinition<_ctk_match_v1_AttachSessionRequest, _ctk_match_v1_AttachSessionRequest__Output>
         BindingMatchScope: EnumTypeDefinition
         BindingMatchTarget: MessageTypeDefinition<_ctk_match_v1_BindingMatchTarget, _ctk_match_v1_BindingMatchTarget__Output>
+        CacheResources: MessageTypeDefinition<_ctk_match_v1_CacheResources, _ctk_match_v1_CacheResources__Output>
         CloseSessionRequest: MessageTypeDefinition<_ctk_match_v1_CloseSessionRequest, _ctk_match_v1_CloseSessionRequest__Output>
         CloseSessionResponse: MessageTypeDefinition<_ctk_match_v1_CloseSessionResponse, _ctk_match_v1_CloseSessionResponse__Output>
         FileMatchTarget: MessageTypeDefinition<_ctk_match_v1_FileMatchTarget, _ctk_match_v1_FileMatchTarget__Output>
+        ListSessionsRequest: MessageTypeDefinition<_ctk_match_v1_ListSessionsRequest, _ctk_match_v1_ListSessionsRequest__Output>
+        ListSessionsResponse: MessageTypeDefinition<_ctk_match_v1_ListSessionsResponse, _ctk_match_v1_ListSessionsResponse__Output>
         MatchBinding: MessageTypeDefinition<_ctk_match_v1_MatchBinding, _ctk_match_v1_MatchBinding__Output>
         MatchRequest: MessageTypeDefinition<_ctk_match_v1_MatchRequest, _ctk_match_v1_MatchRequest__Output>
         MatchResponse: MessageTypeDefinition<_ctk_match_v1_MatchResponse, _ctk_match_v1_MatchResponse__Output>
@@ -854,6 +867,11 @@ export interface ProtoGrpcType {
         MatchTraversalMode: EnumTypeDefinition
         ParseRequest: MessageTypeDefinition<_ctk_match_v1_ParseRequest, _ctk_match_v1_ParseRequest__Output>
         ParseResponse: MessageTypeDefinition<_ctk_match_v1_ParseResponse, _ctk_match_v1_ParseResponse__Output>
+        PruneCachesRequest: MessageTypeDefinition<_ctk_match_v1_PruneCachesRequest, _ctk_match_v1_PruneCachesRequest__Output>
+        PruneCachesResponse: MessageTypeDefinition<_ctk_match_v1_PruneCachesResponse, _ctk_match_v1_PruneCachesResponse__Output>
+        ServerStatusRequest: MessageTypeDefinition<_ctk_match_v1_ServerStatusRequest, _ctk_match_v1_ServerStatusRequest__Output>
+        ServerStatusResponse: MessageTypeDefinition<_ctk_match_v1_ServerStatusResponse, _ctk_match_v1_ServerStatusResponse__Output>
+        SessionInfo: MessageTypeDefinition<_ctk_match_v1_SessionInfo, _ctk_match_v1_SessionInfo__Output>
         SessionMatchTarget: MessageTypeDefinition<_ctk_match_v1_SessionMatchTarget, _ctk_match_v1_SessionMatchTarget__Output>
       }
     }

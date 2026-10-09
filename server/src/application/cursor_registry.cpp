@@ -4,6 +4,7 @@
 #include <openssl/rand.h>
 #include <stdexcept>
 #include <unordered_set>
+#include <set>
 
 namespace ctk::application::detail {
 using ctk::clang_layer::MatchCode;
@@ -195,5 +196,76 @@ MatchReply CursorRegistry::close(const std::string &owner,
   cursor->state.reset();
   cursor->response.Clear();
   return {};
+}
+
+namespace {
+ctk::match::v1::SessionInfo session_info(const ResultCursor &cursor) {
+  ctk::match::v1::SessionInfo result;
+  result.set_session_id(cursor.id);
+  result.set_result_revision(cursor.response.result_revision());
+  result.set_file_path(cursor.file_path);
+  result.set_row_count(cursor.response.results_size());
+  result.mutable_expires_at()->CopyFrom(cursor.response.expires_at());
+  std::set<std::string> names;
+  for (const auto &row : cursor.response.results())
+    for (const auto &[name, binding] : row.bindings()) {
+      (void)binding;
+      names.insert(name);
+    }
+  for (const auto &name : names)
+    result.add_binding_names(name);
+  return result;
+}
+}
+
+ctk::match::v1::ListSessionsResponse CursorRegistry::list(const std::string &owner) {
+  prune();
+  std::vector<std::shared_ptr<ResultCursor>> selected;
+  {
+    std::lock_guard guard(mutex_);
+    for (const auto &[id, entry] : cursors_)
+      if (entry.cursor->owner == owner)
+        selected.push_back(entry.cursor);
+  }
+  ctk::match::v1::ListSessionsResponse result;
+  for (const auto &cursor : selected) {
+    std::lock_guard operation(cursor->operation);
+    if (!cursor->closed && cursor->deadline > std::chrono::steady_clock::now())
+      result.add_sessions()->CopyFrom(session_info(*cursor));
+  }
+  return result;
+}
+
+MatchReply CursorRegistry::attach(const std::string &owner, const std::string &id,
+                                 ctk::match::v1::SessionInfo &response) {
+  if (!valid_id(id))
+    return failure(MatchCode::InvalidArgument, "session_id must be a canonical UUIDv4");
+  const auto cursor = find(owner, id);
+  if (!cursor)
+    return failure(MatchCode::NotFound, "cursor unavailable");
+  std::lock_guard operation(cursor->operation);
+  if (cursor->closed || cursor->deadline <= std::chrono::steady_clock::now())
+    return failure(MatchCode::NotFound, "cursor expired or closed");
+  cursor->deadline = std::chrono::steady_clock::now() + settings_.idle_ttl;
+  const auto expiration = std::chrono::system_clock::now() + settings_.idle_ttl;
+  const auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      expiration.time_since_epoch()).count();
+  cursor->response.mutable_expires_at()->set_seconds(nanos / 1000000000);
+  cursor->response.mutable_expires_at()->set_nanos(nanos % 1000000000);
+  response = session_info(*cursor);
+  return {};
+}
+
+std::pair<std::uint64_t, std::uint64_t> CursorRegistry::usage() {
+  prune();
+  std::lock_guard guard(mutex_);
+  std::unordered_set<const ctk::cache::SnapshotEntry *> snapshots;
+  std::uint64_t bytes = 0;
+  for (const auto &[id, entry] : cursors_) {
+    bytes += entry.binding_bytes;
+    if (entry.snapshot && snapshots.insert(entry.snapshot.get()).second)
+      bytes += entry.snapshot->estimated_bytes;
+  }
+  return {cursors_.size(), bytes};
 }
 } // namespace ctk::application::detail

@@ -40,6 +40,14 @@ service MatchService {
   // It affects only a session belonging to that caller. A malformed session ID
   // is INVALID_ARGUMENT; a well-formed unavailable session is an idempotent OK.
   rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+  // Lists and attaches only cursors belonging to the transport's caller owner.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // Renews the idle lease and exposes a tree handle; it does not rerun matching.
+  rpc AttachSession(AttachSessionRequest) returns (SessionInfo);
+  // Resource accounting is process-wide; retained AST bytes are estimates.
+  rpc ServerStatus(ServerStatusRequest) returns (ServerStatusResponse);
+  // Releases reusable entries, never active cursor pins or disk leases.
+  rpc PruneCaches(PruneCachesRequest) returns (PruneCachesResponse);
 }
 
 enum MatchTraversalMode {
@@ -151,4 +159,48 @@ message CloseSessionRequest {
 }
 
 message CloseSessionResponse {
+}
+
+message ListSessionsRequest {}
+message ListSessionsResponse { repeated SessionInfo sessions = 1; }
+message AttachSessionRequest { string session_id = 1; }
+message SessionInfo {
+  string session_id = 1;
+  uint64 result_revision = 2;
+  string file_path = 3;
+  uint64 row_count = 4;
+  repeated string binding_names = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+message ServerStatusRequest {}
+message CacheResources {
+  bool memory_available = 1;
+  uint64 reusable_snapshots = 2;
+  uint64 reusable_memory_bytes = 3;
+  uint64 pending_builds = 4;
+  bool storage_available = 5;
+  // Physical native artifact bytes, excluding SQLite metadata and directory overhead.
+  uint64 artifact_disk_bytes = 6;
+  uint64 ready_snapshots = 7;
+  uint64 stale_snapshots = 8;
+  uint64 leased_snapshots = 9;
+  string storage_root = 10;
+}
+message ServerStatusResponse {
+  uint64 uptime_ms = 1;
+  optional uint64 resident_memory_bytes = 2;
+  uint64 active_sessions = 3;
+  uint64 retained_memory_bytes = 4;
+  uint64 max_sessions = 5;
+  uint64 max_retained_memory_bytes = 6;
+  CacheResources cache = 7;
+}
+message PruneCachesRequest {
+  // At least one selection is required; disk pruning retires unused snapshots.
+  bool memory = 1;
+  bool disk = 2;
+}
+message PruneCachesResponse {
+  CacheResources before = 1;
+  CacheResources after = 2;
 }

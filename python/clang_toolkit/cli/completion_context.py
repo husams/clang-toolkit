@@ -47,6 +47,8 @@ _KEYWORD_TYPES = {
     "USER",
     "HISTORY",
     "SESSION",
+    "LIST", "ATTACH", "SERVER", "STATUS", "CACHE", "PRUNE", "BINDINGS", "BINDING",
+    "DROP", "RENAME", "APPEND",
     "LABEL",
     "MODE",
     "REPLACE",

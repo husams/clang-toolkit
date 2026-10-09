@@ -108,4 +108,6 @@ def test_help_topic_completion():
         "resume",
         "close",
         "label",
+        "list",
+        "attach",
     }

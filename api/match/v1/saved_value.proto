@@ -1,0 +1,23 @@
+syntax = "proto3";
+package ctk.match.v1;
+
+// Detached runtime snapshot; no native cursor identities are restored by load.
+message SavedValue {
+  uint32 schema_version = 1;
+  SavedData envelope = 2;
+}
+message SavedData {
+  enum Null { NULL_VALUE = 0; }
+  oneof value {
+    Null null_value = 1;
+    bool bool_value = 2;
+    // Decimal text preserves integers wider than int64 without rounding.
+    string integer_value = 3;
+    double float_value = 4;
+    string string_value = 5;
+    SavedList list_value = 6;
+    SavedRecord record_value = 7;
+  }
+}
+message SavedList { repeated SavedData items = 1; }
+message SavedRecord { map<string, SavedData> fields = 1; }

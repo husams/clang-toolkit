@@ -56,6 +56,26 @@ class MatchServiceStub:
                 request_serializer=match_dot_v1_dot_match__service__pb2.CloseSessionRequest.SerializeToString,
                 response_deserializer=match_dot_v1_dot_match__service__pb2.CloseSessionResponse.FromString,
                 _registered_method=True)
+        self.ListSessions = channel.unary_unary(
+                '/ctk.match.v1.MatchService/ListSessions',
+                request_serializer=match_dot_v1_dot_match__service__pb2.ListSessionsRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_match__service__pb2.ListSessionsResponse.FromString,
+                _registered_method=True)
+        self.AttachSession = channel.unary_unary(
+                '/ctk.match.v1.MatchService/AttachSession',
+                request_serializer=match_dot_v1_dot_match__service__pb2.AttachSessionRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_match__service__pb2.SessionInfo.FromString,
+                _registered_method=True)
+        self.ServerStatus = channel.unary_unary(
+                '/ctk.match.v1.MatchService/ServerStatus',
+                request_serializer=match_dot_v1_dot_match__service__pb2.ServerStatusRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_match__service__pb2.ServerStatusResponse.FromString,
+                _registered_method=True)
+        self.PruneCaches = channel.unary_unary(
+                '/ctk.match.v1.MatchService/PruneCaches',
+                request_serializer=match_dot_v1_dot_match__service__pb2.PruneCachesRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_match__service__pb2.PruneCachesResponse.FromString,
+                _registered_method=True)
 
 
 class MatchServiceServicer:
@@ -110,6 +130,34 @@ class MatchServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListSessions(self, request, context):
+        """Lists and attaches only cursors belonging to the transport's caller owner.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AttachSession(self, request, context):
+        """Renews the idle lease and exposes a tree handle; it does not rerun matching.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ServerStatus(self, request, context):
+        """Resource accounting is process-wide; retained AST bytes are estimates.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PruneCaches(self, request, context):
+        """Releases reusable entries, never active cursor pins or disk leases.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MatchServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -132,6 +180,26 @@ def add_MatchServiceServicer_to_server(servicer, server):
                     servicer.CloseSession,
                     request_deserializer=match_dot_v1_dot_match__service__pb2.CloseSessionRequest.FromString,
                     response_serializer=match_dot_v1_dot_match__service__pb2.CloseSessionResponse.SerializeToString,
+            ),
+            'ListSessions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListSessions,
+                    request_deserializer=match_dot_v1_dot_match__service__pb2.ListSessionsRequest.FromString,
+                    response_serializer=match_dot_v1_dot_match__service__pb2.ListSessionsResponse.SerializeToString,
+            ),
+            'AttachSession': grpc.unary_unary_rpc_method_handler(
+                    servicer.AttachSession,
+                    request_deserializer=match_dot_v1_dot_match__service__pb2.AttachSessionRequest.FromString,
+                    response_serializer=match_dot_v1_dot_match__service__pb2.SessionInfo.SerializeToString,
+            ),
+            'ServerStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.ServerStatus,
+                    request_deserializer=match_dot_v1_dot_match__service__pb2.ServerStatusRequest.FromString,
+                    response_serializer=match_dot_v1_dot_match__service__pb2.ServerStatusResponse.SerializeToString,
+            ),
+            'PruneCaches': grpc.unary_unary_rpc_method_handler(
+                    servicer.PruneCaches,
+                    request_deserializer=match_dot_v1_dot_match__service__pb2.PruneCachesRequest.FromString,
+                    response_serializer=match_dot_v1_dot_match__service__pb2.PruneCachesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -242,6 +310,114 @@ class MatchService:
             '/ctk.match.v1.MatchService/CloseSession',
             match_dot_v1_dot_match__service__pb2.CloseSessionRequest.SerializeToString,
             match_dot_v1_dot_match__service__pb2.CloseSessionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListSessions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/ListSessions',
+            match_dot_v1_dot_match__service__pb2.ListSessionsRequest.SerializeToString,
+            match_dot_v1_dot_match__service__pb2.ListSessionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AttachSession(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/AttachSession',
+            match_dot_v1_dot_match__service__pb2.AttachSessionRequest.SerializeToString,
+            match_dot_v1_dot_match__service__pb2.SessionInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ServerStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/ServerStatus',
+            match_dot_v1_dot_match__service__pb2.ServerStatusRequest.SerializeToString,
+            match_dot_v1_dot_match__service__pb2.ServerStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PruneCaches(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/PruneCaches',
+            match_dot_v1_dot_match__service__pb2.PruneCachesRequest.SerializeToString,
+            match_dot_v1_dot_match__service__pb2.PruneCachesResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -142,12 +142,14 @@ in parse "examples/parse_match.cc" { let rows = match functionDecl(); yield rows
 Render a value through the configured output destination.
 
 ```text
-print VALUE
+print VALUE [to PATH [mode replace|append]]
 $reference
 QUOTED_STRING
 ```
 
 - VALUE: any value expression. Output defaults to stdout; let is silent.
+- to PATH writes only this print: replaces by default; mode append adds to an existing file.
+- PATH accepts a quoted/interpolated string or $variable; relative to the session directory.
 - Double quotes interpolate $name/${reference}; single quotes are literal.
 - Escape a dollar as \$ in double quotes. Lists expose length, isEmpty and joinWith(separator).
 
@@ -219,14 +221,14 @@ set [user] extra_args STRING_LIST
 set [user] compile_commands PATH
 set [user] cache_dir to DIRECTORY
 set [user] files to FILE_LIST
-set [user] output to PATH_OR_STDOUT [mode replace]
+set [user] output to PATH_OR_STDOUT [mode replace|append]
 ```
 
 - Default scope: ./.clang_tools.yaml; user scope: ~/.clang_tools.yaml.
 - Precedence: project > user > /etc/clang_tools/config.yaml > built-in defaults.
 - traversal: AsIs (default) or IgnoreUnlessSpelledInSource. extra_args: [] by default.
 - cache_dir: quoted directory, default null. files: list of paths/Files, default [].
-- output: quoted file or stdout (default). Files append; mode replace truncates.
+- output: quoted/interpolated path, $variable or stdout (default). Files append; mode replace truncates.
 - cache_dir is a persisted console setting; these console operations do not forward it as an RPC option.
 
 ```text
@@ -276,15 +278,18 @@ Persist an evaluated variable as detached data.
 save $REFERENCE to PATH [as FORMAT]
 ```
 
-- PATH: quoted output file, relative to the session directory.
-- FORMAT: yaml, json or csv; inferred from suffix, yaml when no suffix (adds .yaml).
+- PATH: quoted/interpolated output file or $variable, relative to the session directory; ~/ uses HOME.
+- FORMAT: yaml, json, proto or csv; inferred from suffix, yaml when no suffix (adds .yaml).
 - YAML/JSON preserve typed values. CSV supports flat primitive/record lists.
+- proto is binary SavedValue protobuf (api/match/v1/saved_value.proto), with a versioned typed envelope.
 - Exported native rows are detached and cannot be reused as live match targets.
 
 ```text
 let values = [1, 2, 3]
 save $values to "values"
 save $values to "values.json" as json
+let filename = "$HOME/results.proto"
+save $values to $filename as proto
 ```
 
 ## load
@@ -295,7 +300,7 @@ Load persisted data into a simple variable.
 load PATH into $NAME
 ```
 
-- PATH: quoted existing file; formats .yaml/.yml, .json and .csv.
+- PATH: quoted/interpolated existing file or $variable; formats .yaml/.yml, .json, .proto and .csv.
 - Without suffix: probe those extensions and require a unique match.
 - NAME must be a simple variable. Failed loading preserves its prior value.
 
@@ -355,7 +360,7 @@ history clear
 
 ## session
 
-Label local history or control an opted-in legacy bidirectional query.
+List, attach or close retained native sessions, label history or control a legacy query.
 
 ```text
 session label STRING
@@ -365,13 +370,187 @@ session match
 session pause
 session resume
 session close
+session list
+session attach ID into $tree
+session close ID_OR_VALUE
 ```
 
-- label is local. All other operations require launching ctk --session.
+- list/attach/close ID operate native retained cursors without --session; label is local.
+- start/add/match/pause/resume and bare close require launching ctk --session.
 - See help session <subcommand>. Use parse/match/in/yield for declarative analysis.
 
 ```text
 session label "study functions"
+```
+
+## session list
+
+List retained native sessions owned by this caller.
+
+```text
+session list
+```
+
+- Shows IDs, files, revisions, row counts, native binding names and idle expiry.
+
+```text
+session list
+```
+
+## session attach
+
+Attach a retained session as a reusable tree and renew its idle expiry.
+
+```text
+session attach ID_OR_VALUE into $tree
+```
+
+- ID_OR_VALUE: quoted UUID, UUID variable or retained tree/match value.
+- Only sessions owned by this caller are available; match in $tree creates independent results.
+- Attached handles share this cursor; closing it invalidates attachments in other clients.
+- Use session list to find IDs. Attaching does not restore result rows into a variable.
+
+```text
+session attach "00000000-0000-4000-8000-000000000001" into $tree
+```
+
+## server
+
+Inspect the running server.
+
+```text
+server status
+```
+
+- See help server status for memory and cache accounting.
+
+```text
+server status
+```
+
+## server status
+
+Show live server memory and retained resource usage.
+
+```text
+server status
+```
+
+- Reports uptime, current process RSS when available, session count and configured limits.
+- Retained/native memory counters are estimates; cache and cursor bytes can overlap.
+- Unavailable disk or memory cache accounting is explicitly flagged.
+
+```text
+server status
+```
+
+## cache
+
+Inspect and prune native caches.
+
+```text
+cache status
+cache prune [memory|disk|all]
+```
+
+- Active session trees and disk leases survive pruning.
+
+```text
+cache status
+cache prune memory
+```
+
+## cache status
+
+Show reusable memory snapshots and persistent native artifacts.
+
+```text
+cache status
+```
+
+- Disk bytes count native artifacts, excluding SQLite metadata and directory overhead.
+
+```text
+cache status
+```
+
+## cache prune
+
+Release reusable memory entries and retire unused disk snapshots.
+
+```text
+cache prune [memory|disk|all]
+```
+
+- Default: memory. all releases memory reuse before disk cleanup.
+- Pinned native sessions remain valid; their leased artifacts cannot be deleted.
+- Returns before/after counters. Concurrent work may publish new entries during cleanup.
+
+```text
+cache prune memory
+cache prune disk
+cache prune all
+```
+
+## bindings
+
+List local variable bindings and their retained session IDs.
+
+```text
+bindings
+bindings list
+```
+
+- Lists names and types without printing bound values or environment variables.
+- Native matcher binding names appear in session list; local variables use binding drop/rename.
+
+```text
+bindings
+```
+
+## binding
+
+Drop or rename local variables.
+
+```text
+binding drop $name
+binding rename $name to $new_name
+```
+
+- Targets must be simple variables. Rename rejects an occupied destination.
+- Dropping a final reference releases its cursor; aliases keep it alive.
+
+```text
+binding rename $rows to $functions
+binding drop $functions
+```
+
+## binding drop
+
+Remove one local variable.
+
+```text
+binding drop $name
+```
+
+- Aliases remain valid; dropping the last retained owner releases resources.
+
+```text
+binding drop $rows
+```
+
+## binding rename
+
+Rename a local variable without closing its resources.
+
+```text
+binding rename $name to $new_name
+```
+
+- The destination must not already exist; a same-name rename is a no-op.
+
+```text
+binding rename $rows to $functions
 ```
 
 ## session label
@@ -465,15 +644,19 @@ session resume
 
 ## session close
 
-Close the legacy bidirectional query session.
+Close a retained native cursor or the legacy bidirectional query session.
 
 ```text
+session close ID_OR_VALUE
 session close
 ```
 
-- Requires ctk --session; no arguments or options. The console remains open.
+- With a quoted UUID, UUID variable, tree, match value or binding: release that retained cursor.
+- A valid unavailable UUID is an idempotent close; derived independent cursors survive.
+- Without an argument: requires ctk --session. The console remains open.
 
 ```text
+session close $tree
 session close
 ```
 
@@ -875,14 +1058,14 @@ set user extra_args STRING_LIST
 set user compile_commands PATH
 set user cache_dir to DIRECTORY
 set user files to FILE_LIST
-set user output to PATH_OR_STDOUT [mode replace]
+set user output to PATH_OR_STDOUT [mode replace|append]
 ```
 
 - Writes ~/.clang_tools.yaml; project overrides still take precedence.
 - Precedence: project > user > /etc/clang_tools/config.yaml > built-in defaults.
 - traversal: AsIs (default) or IgnoreUnlessSpelledInSource. extra_args: [] by default.
 - cache_dir: quoted directory, default null. files: list of paths/Files, default [].
-- output: quoted file or stdout (default). Files append; mode replace truncates.
+- output: quoted/interpolated path, $variable or stdout (default). Files append; mode replace truncates.
 - cache_dir is a persisted console setting; these console operations do not forward it as an RPC option.
 
 ```text
