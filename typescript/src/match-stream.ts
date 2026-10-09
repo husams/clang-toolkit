@@ -90,7 +90,9 @@ export async function consumeMatchStream(
         if (event.event === "row") {
           if (completed !== undefined)
             throw new Error("match stream emitted a row after completion");
-          const row = event.row as SemanticRow;
+          const row = raw.row;
+          if (row === undefined || row === null)
+            throw new Error("match stream row payload is missing");
           const index = rows.length;
           await rows.append(row);
           if (onRow !== undefined) await onRow(snapshot(row), index);

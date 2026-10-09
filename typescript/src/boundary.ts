@@ -12,9 +12,15 @@ const binding = z.looseObject({
   node: semantic.nullish(),
   qualifiedType: semantic.nullish(),
   unsupported: semantic.nullish(),
+  baseSpecifier: semantic.nullish(),
   availability: z.array(semantic),
   supportedScopes: z.array(z.string()),
   isComplete: z.boolean().optional(),
+  location: semantic.nullish(),
+  range: semantic.nullish(),
+  symbolIdentity: z.string(),
+  documentation: z.string(),
+  callSite: semantic.nullish(),
 });
 export const rowSchema = z.looseObject({
   bindings: z.record(z.string(), binding),

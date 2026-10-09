@@ -20,7 +20,8 @@ enum BindingMatchScope {
 // One named value copied from a native BoundNodes tuple.
 // supported_scopes describes continuation capabilities for this value:
 // Decl/Stmt support ROOT_ONLY and SUBTREE; Type/QualType support ROOT_ONLY;
-// unsupported values support no scope. No native pointer or node ID is sent.
+// Base specifiers and unsupported values support no scope.
+// No native pointer or node ID is sent.
 // Match values contain immediate facts about each bound node. Child AST values
 // are omitted with UNREQUESTED availability; query the retained binding to
 // retrieve further nodes. QualType.description supplies immediate type facts.
@@ -30,6 +31,9 @@ message MatchBinding {
     ctk.ast.v1.AstNode node = 1;
     ctk.ast.v1.QualType qualified_type = 2;
     ctk.ast.v1.UnsupportedValue unsupported = 3;
+    // Auxiliary base specifications have a typed semantic value but are not
+    // core AstNode payloads or independently matchable continuation roots.
+    ctk.ast.v1.CXXBaseSpecifier base_specifier = 12;
   }
   repeated ctk.ast.v1.FieldAvailability availability = 4;
   // Always set by the server; true means the shallow projection is complete.

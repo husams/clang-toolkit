@@ -11,6 +11,8 @@ export interface CallGraphResponse {
   'edges'?: (_ctk_analysis_v1_CallGraphEdge)[];
   'isComplete'?: (boolean);
   'availability'?: (_ctk_ast_v1_FieldAvailability)[];
+  'mainFileOnly'?: (boolean);
+  'externalEdgesOmitted'?: (number | string | Long);
   '_isComplete'?: "isComplete";
 }
 
@@ -20,5 +22,7 @@ export interface CallGraphResponse__Output {
   'edges': (_ctk_analysis_v1_CallGraphEdge__Output)[];
   'isComplete'?: (boolean);
   'availability': (_ctk_ast_v1_FieldAvailability__Output)[];
+  'mainFileOnly': (boolean);
+  'externalEdgesOmitted': (string);
   '_isComplete'?: "isComplete";
 }

@@ -120,6 +120,7 @@ if(CTK_WITH_CLANG)
     src/clang/traversal_backend.cpp
     src/clang/serialization/node_serializers.cpp)
   file(GLOB_RECURSE _node_serializer_sources CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/aux/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/decl/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/stmt/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/clang/serialization/expr/*.cpp"

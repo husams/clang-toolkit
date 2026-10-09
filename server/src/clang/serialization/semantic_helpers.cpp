@@ -130,7 +130,8 @@ bool can_expand(const std::string &field_path, SerializationContext &context) {
     auto &entry = context.availability.emplace_back();
     entry.set_field_path(field_path);
     entry.set_state(ctk::ast::v1::FIELD_STATE_UNREQUESTED);
-    entry.set_reason("owned child expansion is not part of the shallow projection");
+    entry.set_reason(
+        "owned child expansion is not part of the shallow projection");
     return false;
   }
   if (context.depth < context.max_depth && context.nodes < context.max_nodes)
@@ -176,6 +177,55 @@ void unavailable(google::protobuf::Message &payload, const std::string &field,
                  const std::string &reason, SerializationContext &context) {
   unavailable(std::string(payload.GetDescriptor()->name()) + "." + field,
               reason, context);
+}
+void mark_availability(const google::protobuf::Message &owner,
+                       const std::string &field, ctk::ast::v1::FieldState state,
+                       SerializationContext &context) {
+  const auto *descriptor = owner.GetDescriptor();
+  if (!descriptor->FindFieldByName(field))
+    throw std::logic_error("availability field " +
+                           std::string(descriptor->name()) + "." + field +
+                           " does not exist in the protobuf schema");
+  // Nested serializers share the root binding's availability segment. Their
+  // descriptor paths can therefore refer to different native instances with
+  // the same message and field names. Producer states are safe only for the
+  // top-level serialized binding; nested expansion keeps its existing budget
+  // and unavailable reporting.
+  if (context.depth != 1)
+    return;
+  const auto path = std::string(descriptor->name()) + "." + field;
+  const auto start = context.availability_starts.empty()
+                         ? 0
+                         : context.availability_starts.back();
+  for (std::size_t i = start; i < context.availability.size(); ++i) {
+    auto &entry = context.availability[i];
+    if (entry.field_path() != path)
+      continue;
+    if (entry.state() == state)
+      return;
+    // A budget or native-availability failure is more specific than a
+    // producer's positive/negative semantic classification.
+    if (entry.state() == ctk::ast::v1::FIELD_STATE_TRUNCATED ||
+        entry.state() == ctk::ast::v1::FIELD_STATE_UNAVAILABLE)
+      return;
+    if (state == ctk::ast::v1::FIELD_STATE_TRUNCATED ||
+        state == ctk::ast::v1::FIELD_STATE_UNAVAILABLE) {
+      entry.set_state(state);
+      entry.clear_reason();
+      return;
+    }
+    // Replace projection-derived UNREQUESTED with native semantic knowledge.
+    // For other conflicts, retain the first classification and avoid emitting
+    // contradictory entries for one field in this binding segment.
+    if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED) {
+      entry.set_state(state);
+      entry.clear_reason();
+    }
+    return;
+  }
+  auto &entry = context.availability.emplace_back();
+  entry.set_field_path(path);
+  entry.set_state(state);
 }
 void finish_binding(ctk::match::v1::MatchBinding &binding,
                     SerializationContext &context) {

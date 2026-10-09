@@ -32,10 +32,11 @@ CALL_DISPATCH_INDIRECT: CallDispatch
 CALL_DISPATCH_VIRTUAL: CallDispatch
 
 class MatchBinding(_message.Message):
-    __slots__ = ("node", "qualified_type", "unsupported", "availability", "is_complete", "supported_scopes", "location", "range", "symbol_identity", "documentation", "call_site")
+    __slots__ = ("node", "qualified_type", "unsupported", "base_specifier", "availability", "is_complete", "supported_scopes", "location", "range", "symbol_identity", "documentation", "call_site")
     NODE_FIELD_NUMBER: _ClassVar[int]
     QUALIFIED_TYPE_FIELD_NUMBER: _ClassVar[int]
     UNSUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    BASE_SPECIFIER_FIELD_NUMBER: _ClassVar[int]
     AVAILABILITY_FIELD_NUMBER: _ClassVar[int]
     IS_COMPLETE_FIELD_NUMBER: _ClassVar[int]
     SUPPORTED_SCOPES_FIELD_NUMBER: _ClassVar[int]
@@ -47,6 +48,7 @@ class MatchBinding(_message.Message):
     node: _node_pb2.AstNode
     qualified_type: _semantic_pb2.QualType
     unsupported: _node_pb2.UnsupportedValue
+    base_specifier: _semantic_pb2.CXXBaseSpecifier
     availability: _containers.RepeatedCompositeFieldContainer[_common_pb2.FieldAvailability]
     is_complete: bool
     supported_scopes: _containers.RepeatedScalarFieldContainer[BindingMatchScope]
@@ -55,7 +57,7 @@ class MatchBinding(_message.Message):
     symbol_identity: str
     documentation: str
     call_site: CallSiteFacts
-    def __init__(self, node: _Optional[_Union[_node_pb2.AstNode, _Mapping]] = ..., qualified_type: _Optional[_Union[_semantic_pb2.QualType, _Mapping]] = ..., unsupported: _Optional[_Union[_node_pb2.UnsupportedValue, _Mapping]] = ..., availability: _Optional[_Iterable[_Union[_common_pb2.FieldAvailability, _Mapping]]] = ..., is_complete: _Optional[bool] = ..., supported_scopes: _Optional[_Iterable[_Union[BindingMatchScope, str]]] = ..., location: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., range: _Optional[_Union[MatchSourceRange, _Mapping]] = ..., symbol_identity: _Optional[str] = ..., documentation: _Optional[str] = ..., call_site: _Optional[_Union[CallSiteFacts, _Mapping]] = ...) -> None: ...
+    def __init__(self, node: _Optional[_Union[_node_pb2.AstNode, _Mapping]] = ..., qualified_type: _Optional[_Union[_semantic_pb2.QualType, _Mapping]] = ..., unsupported: _Optional[_Union[_node_pb2.UnsupportedValue, _Mapping]] = ..., base_specifier: _Optional[_Union[_semantic_pb2.CXXBaseSpecifier, _Mapping]] = ..., availability: _Optional[_Iterable[_Union[_common_pb2.FieldAvailability, _Mapping]]] = ..., is_complete: _Optional[bool] = ..., supported_scopes: _Optional[_Iterable[_Union[BindingMatchScope, str]]] = ..., location: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., range: _Optional[_Union[MatchSourceRange, _Mapping]] = ..., symbol_identity: _Optional[str] = ..., documentation: _Optional[str] = ..., call_site: _Optional[_Union[CallSiteFacts, _Mapping]] = ...) -> None: ...
 
 class MatchSourcePoint(_message.Message):
     __slots__ = ("file", "line", "column", "valid", "is_macro")

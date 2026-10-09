@@ -43,6 +43,8 @@ The intermediate split used `google.protobuf.Any node = 2` for owned children an
 
 Scalar presence distinguishes absence from false/zero. Availability uses response field paths. A serializer must bound expansion and explicitly report truncation; it must never substitute an opaque handle. `NullStmt`, `BreakStmt`, `ContinueStmt` and `SEHLeaveStmt` are unit variants whose kind supplies the control-flow meaning. Attribute arguments without typed contracts are explicitly unavailable. Semantic descriptions preserve meaning and values; they do not preserve AST object or evaluator allocation identity. Constant structures include base types and named fields rather than unlabeled value arrays.
 
+Direct `CXXBaseSpecifier` bindings use the additive `MatchBinding.base_specifier = 12` value branch and the existing typed base schema. They carry immediate type, effective access, virtualness and pack-expansion facts. They are auxiliary values outside the 251-node `AstNode` catalog and advertise no continuation scope.
+
 The [function example](examples/semantic_function.json) is a validated contract fixture with parameter names/types and a returned expression; it is not a claim of Clang extraction. `check.py` refreshes this fixture from its validated protobuf message before checking the round trip, so the saved fixture retains its semantic content.
 
 ## Check and build

@@ -28,6 +28,8 @@ if(CTK_WITH_CLANG)
     test_clang_query_regressions.cpp
     test_clang_serializer_regressions.cpp
     test_statement_semantics.cpp
+    test_base_specifier_semantics.cpp
+    test_availability_states.cpp
     test_declaration_semantics.cpp
     test_expression_semantics.cpp
     test_type_semantics.cpp
