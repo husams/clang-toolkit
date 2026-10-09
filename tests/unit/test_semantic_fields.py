@@ -16,7 +16,11 @@ from clang_toolkit.cli.runtime.references import (
 )
 from clang_toolkit.match_values import MatchValue
 from clang_toolkit.cli.runtime.values import render
-from clang_toolkit.cli.runtime.semantic import inspect_value as inspect_semantic_value
+from clang_toolkit.cli.runtime.semantic import (
+    display_value,
+    inspect_value as inspect_semantic_value,
+    view as semantic_view,
+)
 
 
 def _collection(row: match_result_pb2.MatchResult) -> tuple[MatchValue[object], CursorOwner[object]]:
@@ -216,3 +220,62 @@ def test_row_render_truncates_huge_binding_keys_and_payloads() -> None:
     assert len(rendered) <= 20_000
     assert "[key 0 truncated]" in rendered
     assert "… <truncated>" in rendered
+
+
+def test_ordinary_semantic_render_shows_fields_without_inspection_metadata() -> None:
+    qualified_type = semantic_pb2.QualType()
+    qualified_type.description.spelling = "int"
+    qualified_type.description.qualifiers.is_const = True
+    qualified_type.type.builtin_type.kind = semantic_pb2.BUILTIN_KIND_INT
+
+    rendered = json.loads(render(semantic_view(qualified_type)))
+
+    assert rendered == {
+        "description": {"qualifiers": {"is_const": True}, "spelling": "int"},
+        "type": {"builtin_type": {"kind": "BUILTIN_KIND_INT"}},
+    }
+    assert "ctk.ast.v1.QualType" not in json.dumps(rendered)
+    assert "active_oneof" not in json.dumps(rendered)
+    assert "methods" not in json.dumps(rendered)
+
+
+def test_ordinary_semantic_render_preserves_declaration_name_variant_and_bounds() -> None:
+    name = semantic_pb2.DeclarationName(literal_operator_suffix="_km")
+    rendered = json.loads(render(semantic_view(name)))
+    assert rendered == {"literal_operator_suffix": "_km"}
+
+    long_value = semantic_pb2.TypeDescription(spelling="x" * 30_000)
+    bounded = render(semantic_view(long_value))
+    assert len(bounded) <= 20_000
+    assert "truncated" in bounded
+
+
+def test_ordinary_semantic_projection_bounds_depth_and_repeated_values() -> None:
+    binding = match_result_pb2.MatchBinding()
+    binding.supported_scopes.extend([
+        match_result_pb2.BINDING_MATCH_SCOPE_ROOT_ONLY,
+        match_result_pb2.BINDING_MATCH_SCOPE_SUBTREE,
+    ])
+    value = semantic_view(binding)
+    assert json.loads(render(value))["supported_scopes"] == [
+        "BINDING_MATCH_SCOPE_ROOT_ONLY",
+        "BINDING_MATCH_SCOPE_SUBTREE",
+    ]
+
+    nested = semantic_pb2.QualType()
+    nested.description.spelling = "int"
+    assert display_value(semantic_view(nested), max_depth=1) == {"description": {"…": "depth truncated"}}
+
+
+def test_ordinary_semantic_projection_renders_maps_as_objects() -> None:
+    row = match_result_pb2.MatchResult()
+    row.bindings["f"].CopyFrom(_binding())
+    bindings = property_value(semantic_view(row), "bindings")
+
+    assert json.loads(render(bindings)) == {
+        "f": {
+            "is_complete": False,
+            "node": {"translation_unit_decl": {}},
+            "supported_scopes": ["BINDING_MATCH_SCOPE_ROOT_ONLY"],
+        }
+    }

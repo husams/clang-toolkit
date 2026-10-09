@@ -244,7 +244,7 @@ class MatchSet:
 
 def render(value: Any) -> str:
     """Return a stable, human-readable result for the REPL output sink."""
-    from .semantic import EnumValue, is_semantic_view, inspect_value
+    from .semantic import EnumValue, is_semantic_view, display_value
 
     if isinstance(value, datetime):
         return value.isoformat()
@@ -253,7 +253,7 @@ def render(value: Any) -> str:
     if is_semantic_view(value):
         import json
 
-        rendered = json.dumps(_bounded_inspection(inspect_value(value)), sort_keys=True, ensure_ascii=False)
+        rendered = json.dumps(_bounded_inspection(display_value(value)), sort_keys=True, ensure_ascii=False)
         return rendered if len(rendered) <= _MAX_RENDER_CHARS else rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
     if isinstance(value, FileSystemEntry):
         return value.path

@@ -47,6 +47,10 @@ concrete and inherited declaration fields are also available directly. Tab after
 `$m[0].f.value.node.` offers fields such as `name`, `qualified_name`, `return_type`,
 the active payload, and the `hasField(` method. Child fields such as `parameters`
 and `body` are intentionally unrequested in match results.
+Ordinary JSON display contains AST field values without protobuf package names,
+oneof inspection tables or method lists. For example, qualifiers display as
+`{"is_const": true}` rather than a `ctk.ast.v1.Qualifiers` wrapper. The explicit
+`inspect` command retains schema names, presence and method metadata.
 Exact schema paths remain available. For example:
 
 ```text
