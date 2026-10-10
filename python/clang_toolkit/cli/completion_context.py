@@ -73,6 +73,7 @@ _KEYWORD_TYPES = {
     "POP",
     "DELETE",
     "SPLIT",
+    "FLATTEN",
     "BY",
     "JOIN",
     "WITH",

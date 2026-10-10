@@ -97,6 +97,7 @@ _REGEX_LITERALS = {
     "POP": "pop",
     "DELETE": "delete",
     "SPLIT": "split",
+    "FLATTEN": "flatten",
     "BY": "by",
     "JOIN": "join",
     "WITH": "with",

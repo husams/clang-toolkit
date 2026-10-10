@@ -30,6 +30,31 @@ def test_collection_keywords_are_offered_in_their_grammar_positions():
     assert ":" in _options(completer, '{"a" ')
 
 
+def test_flatten_completes_in_expression_contexts_and_preserves_join():
+    completer = ReplCompleter()
+
+    for source in (
+        "fla",
+        "let rows = fla",
+        "print fla",
+        "[fla",
+        "{rows: fla",
+        "(fla",
+        "flatten(fla",
+    ):
+        options = _options(completer, source)
+        assert "flatten" in options, source
+
+    assignment = _options(completer, "let rows = fla")["flatten"]
+    assert assignment.text == "flatten"
+    assert assignment.start_position == -3
+
+    assert "flatten" not in _options(completer, 'print "fla')
+    assert "flatten" not in _options(completer, "# fla")
+    assert "join" in _options(completer, "joi")
+    assert "with" in _options(completer, "join xs ")
+
+
 def test_collection_reference_completion_labels_methods_and_preserves_fields():
     def fields(reference: str) -> tuple[CompletionField, ...]:
         if reference == "$dict":

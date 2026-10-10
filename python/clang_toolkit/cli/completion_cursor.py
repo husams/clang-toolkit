@@ -55,6 +55,7 @@ _WORD_TYPES = {
     "MODE",
     "REPLACE",
     "JOIN_WITH",
+    "FLATTEN",
 }
 _SAFE_SUFFIX = frozenset(" \t\r\n()[]{},.\"'")
 
