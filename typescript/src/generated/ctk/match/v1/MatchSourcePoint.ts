@@ -1,5 +1,6 @@
 // Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/match/v1/match_result.proto
 
+import type { Long } from '@grpc/proto-loader';
 
 export interface MatchSourcePoint {
   'file'?: (string);
@@ -7,6 +8,8 @@ export interface MatchSourcePoint {
   'column'?: (number);
   'valid'?: (boolean);
   'isMacro'?: (boolean);
+  'offset'?: (number | string | Long);
+  '_offset'?: "offset";
 }
 
 export interface MatchSourcePoint__Output {
@@ -15,4 +18,6 @@ export interface MatchSourcePoint__Output {
   'column': (number);
   'valid': (boolean);
   'isMacro': (boolean);
+  'offset'?: (string);
+  '_offset'?: "offset";
 }

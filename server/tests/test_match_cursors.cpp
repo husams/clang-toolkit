@@ -942,6 +942,8 @@ TEST_F(MatchCursors, MatchMetadataPreservesIdentityDocsMacroAndStaticCalls) {
                    .at("tu")
                    .location()
                    .valid());
+  EXPECT_FALSE(translation_unit.response.results(0)
+                   .bindings().at("tu").location().has_offset());
 
   auto overloads = run(file("functionDecl(hasName(\"overloaded\")).bind(\"f\")"));
   ASSERT_EQ(overloads.code, MatchCode::Ok) << overloads.message;
@@ -1002,6 +1004,91 @@ TEST_F(MatchCursors, MatchCoordinatesIgnoreLineDirectiveVirtualNames) {
   EXPECT_NE(location.file().find("fixture.cc"), std::string::npos);
   EXPECT_EQ(location.file().find("virtual-name.cc"), std::string::npos);
   EXPECT_EQ(location.line(), 2U);
+  ASSERT_TRUE(location.has_offset());
+  EXPECT_EQ(location.offset(),
+            std::string("#line 700 \"virtual-name.cc\"\n").size());
+}
+
+TEST_F(MatchCursors, MatchOffsetsCountBytesAndProvideExclusiveTokenEnds) {
+  const std::string source = "int callee(int);\r\n"
+                             "int owner() {\r\n"
+                             "  // caf\xC3\xA9\r\n"
+                             "  return callee(12345);\r\n"
+                             "}";
+  std::ofstream(directory.path() / "fixture.cc", std::ios::binary) << source;
+  const auto declarations =
+      run(file("functionDecl(hasName(\"callee\")).bind(\"f\")"));
+  ASSERT_EQ(declarations.code, MatchCode::Ok) << declarations.message;
+  ASSERT_EQ(declarations.response.results_size(), 1);
+  const auto &zero =
+      declarations.response.results(0).bindings().at("f").location();
+  ASSERT_TRUE(zero.valid());
+  ASSERT_TRUE(zero.has_offset());
+  EXPECT_EQ(zero.offset(), 0U);
+
+  const auto literals = run(file("integerLiteral().bind(\"n\")"));
+  ASSERT_EQ(literals.code, MatchCode::Ok) << literals.message;
+  ASSERT_EQ(literals.response.results_size(), 1);
+  const auto &literal = literals.response.results(0).bindings().at("n");
+  EXPECT_EQ(literal.location().offset(), source.find("12345"));
+  EXPECT_EQ(literal.location().line(), 4U);
+  EXPECT_EQ(literal.location().column(), 17U);
+  for (const auto *point :
+       {&literal.range().expansion_begin(), &literal.range().expansion_end(),
+        &literal.range().spelling_begin(), &literal.range().spelling_end()}) {
+    ASSERT_TRUE(point->valid());
+    ASSERT_TRUE(point->has_offset());
+    EXPECT_EQ(point->offset(), source.find("12345"));
+  }
+  for (const auto *point : {&literal.range().expansion_end_exclusive(),
+                            &literal.range().spelling_end_exclusive()}) {
+    ASSERT_TRUE(point->valid());
+    ASSERT_TRUE(point->has_offset());
+    EXPECT_EQ(point->offset(), source.find("12345") + 5);
+  }
+  const auto owner = run(file("functionDecl(hasName(\"owner\")).bind(\"f\")"));
+  ASSERT_EQ(owner.code, MatchCode::Ok) << owner.message;
+  ASSERT_EQ(owner.response.results_size(), 1);
+  const auto &range = owner.response.results(0).bindings().at("f").range();
+  ASSERT_TRUE(range.expansion_end_exclusive().valid());
+  EXPECT_EQ(range.expansion_end_exclusive().offset(), source.size());
+  EXPECT_EQ(source.substr(range.expansion_begin().offset(),
+                          range.expansion_end_exclusive().offset() -
+                              range.expansion_begin().offset()),
+            source.substr(source.find("int owner")));
+}
+
+TEST_F(MatchCursors, MatchOffsetsRetainNestedMacroSpellingAndInvocationExtent) {
+  const std::string source = "#define INNER(x) callee(x)\n"
+                             "#define OUTER(x) INNER(x)\n"
+                             "int callee(int);\n"
+                             "int owner() { return OUTER(12345); }\n";
+  std::ofstream(directory.path() / "fixture.cc") << source;
+  const auto calls = run(file("callExpr().bind(\"c\")"));
+  ASSERT_EQ(calls.code, MatchCode::Ok) << calls.message;
+  ASSERT_EQ(calls.response.results_size(), 1);
+  const auto &call = calls.response.results(0).bindings().at("c");
+  EXPECT_TRUE(call.location().is_macro());
+  EXPECT_EQ(call.location().offset(), source.find("OUTER(12345)"));
+  const auto &range = call.range();
+  ASSERT_TRUE(range.expansion_end_exclusive().valid());
+  EXPECT_EQ(source.substr(range.expansion_begin().offset(),
+                          range.expansion_end_exclusive().offset() -
+                              range.expansion_begin().offset()),
+            "OUTER(12345)");
+  ASSERT_TRUE(range.spelling_end_exclusive().valid());
+  EXPECT_EQ(source.substr(range.spelling_begin().offset(),
+                          range.spelling_end_exclusive().offset() -
+                              range.spelling_begin().offset()),
+            "callee(x)");
+  const auto literals = run(file("integerLiteral().bind(\"n\")"));
+  ASSERT_EQ(literals.code, MatchCode::Ok) << literals.message;
+  ASSERT_EQ(literals.response.results_size(), 1);
+  const auto &spelling =
+      literals.response.results(0).bindings().at("n").range();
+  EXPECT_EQ(spelling.spelling_begin().offset(), source.find("12345"));
+  EXPECT_EQ(spelling.spelling_end_exclusive().offset(),
+            source.find("12345") + 5);
 }
 
 TEST_F(MatchCursors, TypedefAwareInheritanceMatcherKeepsWholeTreeAliases) {

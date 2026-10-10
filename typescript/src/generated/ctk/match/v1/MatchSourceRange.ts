@@ -7,6 +7,8 @@ export interface MatchSourceRange {
   'expansionEnd'?: (_ctk_match_v1_MatchSourcePoint | null);
   'spellingBegin'?: (_ctk_match_v1_MatchSourcePoint | null);
   'spellingEnd'?: (_ctk_match_v1_MatchSourcePoint | null);
+  'expansionEndExclusive'?: (_ctk_match_v1_MatchSourcePoint | null);
+  'spellingEndExclusive'?: (_ctk_match_v1_MatchSourcePoint | null);
 }
 
 export interface MatchSourceRange__Output {
@@ -14,4 +16,6 @@ export interface MatchSourceRange__Output {
   'expansionEnd': (_ctk_match_v1_MatchSourcePoint__Output | null);
   'spellingBegin': (_ctk_match_v1_MatchSourcePoint__Output | null);
   'spellingEnd': (_ctk_match_v1_MatchSourcePoint__Output | null);
+  'expansionEndExclusive': (_ctk_match_v1_MatchSourcePoint__Output | null);
+  'spellingEndExclusive': (_ctk_match_v1_MatchSourcePoint__Output | null);
 }

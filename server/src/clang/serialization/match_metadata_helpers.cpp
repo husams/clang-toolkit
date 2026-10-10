@@ -5,6 +5,7 @@
 #include <clang/AST/RawCommentList.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Index/USRGeneration.h>
+#include <clang/Lex/Lexer.h>
 #include <llvm/ADT/SmallString.h>
 #include <algorithm>
 #include <string>
@@ -31,11 +32,13 @@ void write_point(clang::SourceLocation source, clang::SourceLocation coordinate,
   out->set_file(filename.str());
   out->set_line(line);
   out->set_column(column);
+  out->set_offset(offset);
   out->set_valid(true);
 }
 
 void write_source_range(clang::SourceRange range,
                         clang::SourceManager &manager,
+                        const clang::LangOptions &language,
                         ctk::match::v1::MatchBinding &binding) {
   if (range.isInvalid())
     return;
@@ -50,6 +53,17 @@ void write_source_range(clang::SourceRange range,
               out->mutable_spelling_begin());
   write_point(end, manager.getSpellingLoc(end), manager,
               out->mutable_spelling_end());
+  const auto expansion = manager.getExpansionRange(end);
+  const auto expansion_end = expansion.isTokenRange()
+                                 ? clang::Lexer::getLocForEndOfToken(
+                                       expansion.getEnd(), 0, manager, language)
+                                 : expansion.getEnd();
+  write_point(end, expansion_end, manager,
+              out->mutable_expansion_end_exclusive());
+  const auto spelling_end = clang::Lexer::getLocForEndOfToken(
+      manager.getSpellingLoc(end), 0, manager, language);
+  write_point(end, spelling_end, manager,
+              out->mutable_spelling_end_exclusive());
 }
 
 std::string symbol_identity(const clang::NamedDecl &declaration) {
@@ -145,7 +159,7 @@ void write_match_metadata(const clang::DynTypedNode &node,
   auto &manager = context.ast_context.getSourceManager();
   write_point(range.getBegin(), manager.getExpansionLoc(range.getBegin()),
               manager, binding.mutable_location());
-  write_source_range(range, manager, binding);
+  write_source_range(range, manager, context.ast_context.getLangOpts(), binding);
 }
 
 } // namespace ctk::clang_layer::serialization::helpers

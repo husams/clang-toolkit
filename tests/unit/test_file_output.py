@@ -140,9 +140,14 @@ def test_plain_binding_exports_ast_facts_but_no_operational_metadata(tmp_path, k
     binding.location.line = 7
     binding.location.column = 3
     binding.location.valid = True
+    binding.location.offset = 0
     binding.range.expansion_begin.file = "sample.cc"
     binding.range.expansion_begin.line = 7
     binding.range.expansion_begin.valid = True
+    binding.range.expansion_begin.offset = 0
+    binding.range.expansion_end_exclusive.file = "sample.cc"
+    binding.range.expansion_end_exclusive.valid = True
+    binding.range.expansion_end_exclusive.offset = 9
     binding.symbol_identity = "c:@N@sample"
     binding.documentation = "A declaration."
     binding.call_site.caller_name = "caller"
@@ -154,12 +159,16 @@ def test_plain_binding_exports_ast_facts_but_no_operational_metadata(tmp_path, k
     assert raw == {
         "string_literal": {"value": "literal"},
         "location": {
-            "file": "sample.cc", "line": 7, "column": 3, "valid": True
+            "file": "sample.cc", "line": 7, "column": 3, "valid": True,
+            "offset": 0,
         },
         "range": {
             "expansion_begin": {
-                "file": "sample.cc", "line": 7, "valid": True
-            }
+                "file": "sample.cc", "line": 7, "valid": True, "offset": 0
+            },
+            "expansion_end_exclusive": {
+                "file": "sample.cc", "valid": True, "offset": 9
+            },
         },
         "symbol_identity": "c:@N@sample",
         "documentation": "A declaration.",

@@ -130,8 +130,11 @@ foreach $row in $calls do "${row.c.call_site.caller_name} -> ${row.c.call_site.s
 $calls[0].c.location.valid
 $calls[0].c.location.file
 $calls[0].c.location.line
+$calls[0].c.location.offset
 $calls[0].c.range.spelling_begin.line
 $calls[0].c.range.expansion_begin.line
+$calls[0].c.range.expansion_begin.offset
+$calls[0].c.range.expansion_end_exclusive.offset
 $rows[0].f.documentation
 ```
 
@@ -139,7 +142,14 @@ $rows[0].f.documentation
 Coordinates are one-based physical source-buffer positions, valid only when
 `valid` is true; `#line` remapping does not change them. Ranges expose spelling
 and expansion endpoints, and points flag macro origins. Range endpoints follow
-Clang's token source-range convention. Raw attached documentation is available
+Clang's token source-range convention. Every valid point includes an optional
+zero-based byte `offset` (absent in older server responses). The additional
+`expansion_end_exclusive` and `spelling_end_exclusive` points follow the final
+token for `[begin.offset, end_exclusive.offset)` slices; the expansion end
+includes the final macro invocation. Slice physical file bytes, not decoded
+characters, and require valid points with offsets in the same file. A range
+does not include a trailing semicolon unless Clang includes it in that node.
+Raw attached documentation is available
 for declarations; ordinary comments depend on compiler comment parsing.
 
 `call_site` records the nearest enclosing function, including a lambda's

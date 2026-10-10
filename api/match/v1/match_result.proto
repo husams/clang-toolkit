@@ -56,20 +56,31 @@ message MatchBinding {
 
 // A source coordinate is valid only when `valid` is true. Coordinates use
 // Clang's one-based line and column values; file is the resolved source path.
+// Offsets count bytes from the start of that physical file, starting at zero.
 message MatchSourcePoint {
   string file = 1;
   uint32 line = 2;
   uint32 column = 3;
   bool valid = 4;
   bool is_macro = 5;
+  // Present on valid points from servers supporting byte offsets. Presence
+  // distinguishes offset zero from older servers that do not supply offsets.
+  optional uint64 offset = 6;
 }
 
 // Both macro spelling and expansion coordinates are retained where available.
+// Existing *_end points identify the start of the final token (Clang convention).
+// *_end_exclusive points follow the final token, for [begin, end) byte slices.
+// Expansion exclusive ends cover the entire final macro invocation. Only use
+// a slice when both points are valid, have offsets, and refer to the same file.
+// Spelling endpoints of macro arguments/bodies may span different source files.
 message MatchSourceRange {
   MatchSourcePoint expansion_begin = 1;
   MatchSourcePoint expansion_end = 2;
   MatchSourcePoint spelling_begin = 3;
   MatchSourcePoint spelling_end = 4;
+  MatchSourcePoint expansion_end_exclusive = 5;
+  MatchSourcePoint spelling_end_exclusive = 6;
 }
 
 enum CallDispatch {

@@ -37,6 +37,55 @@ def facts_fixture(tmp_path: Path, request):
     return server, source, tmp_path
 
 
+@when("I query byte offsets and exclusive range ends through the console",
+      target_fixture="offset_run")
+def query_offsets(facts_fixture):
+    server, source, tmp_path = facts_fixture
+    with source.open("ab") as output:
+        output.write("// caf\u00e9\r\nint offset_owner() { return documented(12345); }\r\n".encode())
+    script = "\n".join([
+        f'let tree = parse "{source}"',
+        'let owner = match functionDecl(hasName("offset_owner")).bind("f") in $tree',
+        'let literals = match integerLiteral().bind("n") in $owner.f',
+        'print "OFFSET=${literals[0].n.location.offset}"',
+        'print "BEGIN=${literals[0].n.range.expansion_begin.offset}"',
+        'print "TOKEN_END=${literals[0].n.range.expansion_end.offset}"',
+        'print "END=${literals[0].n.range.expansion_end_exclusive.offset}"',
+        'print "SPELLING_BEGIN=${literals[0].n.range.spelling_begin.offset}"',
+        'print "SPELLING_END=${literals[0].n.range.spelling_end_exclusive.offset}"',
+        'let macro_owner = match functionDecl(hasName("call_owner")).bind("f") in $tree',
+        'let macros = match callExpr(callee(functionDecl(hasName("documented"))))'
+        '.bind("c") in $macro_owner.f',
+        'print "MACRO_BEGIN=${macros[0].c.range.expansion_begin.offset}"',
+        'print "MACRO_END=${macros[0].c.range.expansion_end_exclusive.offset}"',
+    ])
+    return subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server",
+         server.endpoint, "-e", script],
+        capture_output=True, text=True, cwd=tmp_path,
+        env=dict(os.environ, XDG_STATE_HOME=str(tmp_path / "offset-state")),
+        timeout=45, check=False,
+    )
+
+
+@then("the offsets select complete source bytes including macro invocations")
+def verify_offsets(offset_run, facts_fixture):
+    assert offset_run.returncode == 0, offset_run.stdout + offset_run.stderr
+    values = dict(line.split("=", 1) for line in offset_run.stdout.splitlines()
+                  if "=" in line)
+    source = facts_fixture[1].read_bytes()
+    begin = source.index(b"12345")
+    for name in ("OFFSET", "BEGIN", "TOKEN_END", "SPELLING_BEGIN"):
+        assert int(values[name]) == begin
+    for name in ("END", "SPELLING_END"):
+        assert int(values[name]) == begin + 5
+    assert source[int(values["BEGIN"]):int(values["END"])] == b"12345"
+    assert source[int(values["MACRO_BEGIN"]):int(values["MACRO_END"])] == b"WRAP(1)"
+    edited = source[:int(values["BEGIN"])] + b"7" + source[int(values["END"]):]
+    assert b"documented(7)" in edited
+    assert facts_fixture[0].process.poll() is None
+
+
 @when("I query lambda and call-site facts through the console", target_fixture="facts_run")
 def query_facts(facts_fixture):
     server, source, tmp_path = facts_fixture

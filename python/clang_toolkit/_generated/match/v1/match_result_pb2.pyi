@@ -60,30 +60,36 @@ class MatchBinding(_message.Message):
     def __init__(self, node: _Optional[_Union[_node_pb2.AstNode, _Mapping]] = ..., qualified_type: _Optional[_Union[_semantic_pb2.QualType, _Mapping]] = ..., unsupported: _Optional[_Union[_node_pb2.UnsupportedValue, _Mapping]] = ..., base_specifier: _Optional[_Union[_semantic_pb2.CXXBaseSpecifier, _Mapping]] = ..., availability: _Optional[_Iterable[_Union[_common_pb2.FieldAvailability, _Mapping]]] = ..., is_complete: _Optional[bool] = ..., supported_scopes: _Optional[_Iterable[_Union[BindingMatchScope, str]]] = ..., location: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., range: _Optional[_Union[MatchSourceRange, _Mapping]] = ..., symbol_identity: _Optional[str] = ..., documentation: _Optional[str] = ..., call_site: _Optional[_Union[CallSiteFacts, _Mapping]] = ...) -> None: ...
 
 class MatchSourcePoint(_message.Message):
-    __slots__ = ("file", "line", "column", "valid", "is_macro")
+    __slots__ = ("file", "line", "column", "valid", "is_macro", "offset")
     FILE_FIELD_NUMBER: _ClassVar[int]
     LINE_FIELD_NUMBER: _ClassVar[int]
     COLUMN_FIELD_NUMBER: _ClassVar[int]
     VALID_FIELD_NUMBER: _ClassVar[int]
     IS_MACRO_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
     file: str
     line: int
     column: int
     valid: bool
     is_macro: bool
-    def __init__(self, file: _Optional[str] = ..., line: _Optional[int] = ..., column: _Optional[int] = ..., valid: _Optional[bool] = ..., is_macro: _Optional[bool] = ...) -> None: ...
+    offset: int
+    def __init__(self, file: _Optional[str] = ..., line: _Optional[int] = ..., column: _Optional[int] = ..., valid: _Optional[bool] = ..., is_macro: _Optional[bool] = ..., offset: _Optional[int] = ...) -> None: ...
 
 class MatchSourceRange(_message.Message):
-    __slots__ = ("expansion_begin", "expansion_end", "spelling_begin", "spelling_end")
+    __slots__ = ("expansion_begin", "expansion_end", "spelling_begin", "spelling_end", "expansion_end_exclusive", "spelling_end_exclusive")
     EXPANSION_BEGIN_FIELD_NUMBER: _ClassVar[int]
     EXPANSION_END_FIELD_NUMBER: _ClassVar[int]
     SPELLING_BEGIN_FIELD_NUMBER: _ClassVar[int]
     SPELLING_END_FIELD_NUMBER: _ClassVar[int]
+    EXPANSION_END_EXCLUSIVE_FIELD_NUMBER: _ClassVar[int]
+    SPELLING_END_EXCLUSIVE_FIELD_NUMBER: _ClassVar[int]
     expansion_begin: MatchSourcePoint
     expansion_end: MatchSourcePoint
     spelling_begin: MatchSourcePoint
     spelling_end: MatchSourcePoint
-    def __init__(self, expansion_begin: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., expansion_end: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., spelling_begin: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., spelling_end: _Optional[_Union[MatchSourcePoint, _Mapping]] = ...) -> None: ...
+    expansion_end_exclusive: MatchSourcePoint
+    spelling_end_exclusive: MatchSourcePoint
+    def __init__(self, expansion_begin: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., expansion_end: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., spelling_begin: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., spelling_end: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., expansion_end_exclusive: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., spelling_end_exclusive: _Optional[_Union[MatchSourcePoint, _Mapping]] = ...) -> None: ...
 
 class CallSiteFacts(_message.Message):
     __slots__ = ("caller_symbol_identity", "caller_name", "dispatch", "static_callee_symbol_identity", "static_callee_name")
