@@ -168,12 +168,22 @@ traverse_option: DEPTH NUMBER -> traverse_depth
 path_list_value: LSQB [path_value_expression (COMMA path_value_expression)*] RSQB -> list_value
 file_set_expression: FILES_EXPR path_value_expression -> files_expression
 batch_statement: BATCH NAME IN reference batch_grouping batch_option* DO statement_block
+               | (DURABLE | BACKGROUND) BATCH NAME IN reference batch_grouping durable_batch_option* DO statement_block -> durable_batch
+               | BATCH STATUS reference -> batch_status
+               | BATCH CANCEL reference -> batch_cancel
+               | BATCH RESUME reference -> batch_resume
+               | BATCH RETRY reference -> batch_retry
+               | BATCH PROMOTE reference -> batch_promote
 batch_grouping: SIZE NUMBER -> batch_size
               | COUNT NUMBER -> batch_count
 batch_option: JOBS NUMBER -> batch_jobs
             | MEMORY STRING -> batch_memory
             | ON ERROR_WORD (STOP | CONTINUE) -> batch_error_mode
             | PROGRESS (ON | OFF) -> batch_progress
+durable_batch_option: JOBS NUMBER -> batch_jobs
+                    | MEMORY STRING -> batch_memory
+                    | REQUEST STRING -> batch_request_id
+                    | ON ERROR_WORD (STOP | CONTINUE) -> batch_error_mode
 ?path_target_expression: target_matcher
                        | reference
                        | qualified_name
@@ -534,6 +544,11 @@ COMPILE_COMMANDS.2: /compile_commands(?![a-zA-Z0-9_])/
 FILE.2: /file(?![a-zA-Z0-9_])/
 RESOURCE.2: /resource(?![a-zA-Z0-9_])/
 BATCH.2: /batch(?![a-zA-Z0-9_])/
+DURABLE.2: /durable(?![a-zA-Z0-9_])/
+CANCEL.2: /cancel(?![a-zA-Z0-9_])/
+RETRY.2: /retry(?![a-zA-Z0-9_])/
+PROMOTE.2: /promote(?![a-zA-Z0-9_])/
+REQUEST.2: /request(?![a-zA-Z0-9_])/
 SIZE.2: /size(?![a-zA-Z0-9_])/
 COUNT.2: /count(?![a-zA-Z0-9_])/
 JOBS.2: /jobs(?![a-zA-Z0-9_])/

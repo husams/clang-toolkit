@@ -50,6 +50,20 @@ std::uint64_t add_saturated(std::uint64_t left, std::uint64_t right) {
 }
 } // namespace
 
+std::string input_identity(const ctk::match::v1::InputDescriptor &input) {
+  std::string identity = input.file_path();
+  if (input.has_profile()) {
+    identity += "\n";
+    identity += (input.profile().frozen() ? "frozen" : "mutable");
+    identity += "\n" + input.profile().profile_id() + "\n" +
+                input.profile().working_directory() + "\n" +
+                input.profile().compilation_database();
+    for (const auto &argument : input.profile().compile_arguments())
+      identity += "\n" + argument;
+  }
+  return identity;
+}
+
 struct ResourceManager::Impl {
   struct Cursor {
     std::string input_identity;
@@ -695,6 +709,17 @@ bool ResourceManager::scope_transient(const std::string &owner,
   const auto found = impl_->scopes.find(scope_id);
   return found != impl_->scopes.end() && found->second.owner == owner &&
          found->second.transient;
+}
+
+bool ResourceManager::scope_contains_input(
+    const std::string &owner, const std::string &scope_id,
+    const std::string &identity) const {
+  if (scope_id.empty())
+    return false;
+  std::lock_guard guard(impl_->mutex);
+  const auto found = impl_->scopes.find(scope_id);
+  return found != impl_->scopes.end() && found->second.owner == owner &&
+         found->second.reservations.contains(identity);
 }
 
 Code ResourceManager::describe_scope(const std::string &owner,

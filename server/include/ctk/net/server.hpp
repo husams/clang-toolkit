@@ -34,6 +34,7 @@ private:
   application::CfgController cfg_;
   application::CallGraphController calls_;
   application::ScriptController scripts_;
+  application::BatchRegistry batches_;
   AnalysisServiceAdapter analysis_service_;
   std::unique_ptr<platform::EndpointLease> lease_;
   std::unique_ptr<grpc::Server> server_;

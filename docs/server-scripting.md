@@ -19,7 +19,7 @@ emit traverse(max_depth=2);
 `let` binds an immutable value in the current lexical scope. Duplicate local
 bindings and undefined references fail; loop locals expire after each iteration.
 `emit` appends an owned typed value (and its variable name when applicable).
-`foreach` visits independent matched rows in order, preserving multiplicity.
+`foreach` visits matched rows or list values in order, preserving multiplicity.
 String literals use JSON escapes. Numbers retain int64 or finite double values;
 bools retain their protobuf kind. Comments start with `//`.
 
@@ -28,8 +28,9 @@ bools retain their protobuf kind. Comments start with `//`.
 | `match` | matcher string | `traversal="as_is"` or `"spelled"` |
 | `continue` | matched rows, binding name, matcher string | traversal; `scope="subtree"` or `"root"` |
 | `restart` | matched rows, matcher string | traversal |
-| `row` | matched rows, zero-based integer index | none |
-| `count` | matched rows, traversal, CFG, or call graph | none |
+| `row` | matched rows or list, zero-based integer index | none |
+| `count` | matched rows, files, lists, traversal, CFG, or call graph | none |
+| `flatten` | list of lists, matches, or traversals | none |
 | `traverse` | none | fields from TraverseRequest except file |
 | `cfg` | exact qualified function name | CfgOptions booleans and max_functions/max_blocks/max_elements |
 | `callgraph` | none | CallGraphRequest fields except file |
@@ -52,7 +53,35 @@ automatically bind the outer matcher as `root`, preserving explicit bindings.
 configured memory bound. Errors, cancellation, and any limit return no partial
 emissions. A script occupies one shared worker; native calls run directly within
 that worker, avoiding nested worker-queue waits. The DSL provides no shell,
-network, filesystem-writing, or dynamic code execution functions.
+network, or dynamic code execution functions. `save value to path as json|proto`
+publishes a typed `ScriptValue` envelope through a durable atomic replacement on
+the serving machine.
+
+Native expressions also support lists, objects, grouped values, member/index
+access, serving-side `files`, and value-producing `foreach ... do { ... }`.
+`batch part in inputs size N|count N [jobs N] [memory "..."] do { ... }`
+admits one group at a time and returns a report containing detached final values
+from successful groups. A `let` statement contributes its assigned value; a
+block's last statement determines its value. Final values are copied before
+scope cleanup. Match/parse values preserve their captured native bindings only
+while that scope is open; collected results contain no live continuation handle.
+Native collection is bounded to 10,000 items and 1 MiB across the run. Nested
+groups must be subsets of their parent's frozen inputs and share its ownership.
+
+```text
+let inputs = files "src/*.cpp";
+let run = batch part in $inputs size 2 jobs 2 do {
+  let rows = match functionDecl(isExpansionInMainFile()) in $part.inputs;
+  rows;
+};
+emit flatten(run.results);
+```
+
+`ScriptRequest.initial_values` supplies typed starting bindings. Setting
+`collect_final` appends the detached final value as an emission named `__final__`;
+ordinary requests retain explicit-emission behavior. Server-owned background
+runs use the same native interpreter through the batch lifecycle RPCs; see
+[durable-batches.md](durable-batches.md) for persistence, retry and export rules.
 
 Python:
 

@@ -873,16 +873,19 @@ def test_batch_options_validate_before_scope_open(
     assert client.scopes == []
 
 
-def test_batch_rejects_yielding_analysis_before_scope_admission(tmp_path: Path):
-    runtime, client = _runtime(tmp_path)
-    runtime.bindings["inputs"] = FileSet(
-        (InputDescriptor.from_path("a.cc", working_directory=tmp_path),)
-    )
+def test_batch_accepts_scoped_analysis_blocks_but_rejects_nested_batch(tmp_path: Path):
+    from clang_toolkit.cli.language import parser
+    from clang_toolkit.cli.runtime.batch_execution import _validate_body
 
-    with pytest.raises(EvaluationError, match="yielding analysis blocks"):
-        runtime.execute(
-            "batch part in $inputs size 1 do { "
-            "print in $part.inputs[0] { yield $part.index; }; }"
-        )
+    scoped = parser().parse(
+        "batch part in $inputs size 1 do { print in parse $part.inputs[0] { yield $part.index; }; }"
+    ).children[0]
+    body = next(child for child in scoped.children if getattr(child, "data", None) == "statement_block")
+    _validate_body(body)
 
-    assert client.scopes == []
+    nested = parser().parse(
+        "batch part in $inputs size 1 do { batch inner in $inputs size 1 do { print 1; }; }"
+    ).children[0]
+    nested_body = next(child for child in nested.children if getattr(child, "data", None) == "statement_block")
+    with pytest.raises(EvaluationError, match="group scopes cannot be shared"):
+        _validate_body(nested_body)

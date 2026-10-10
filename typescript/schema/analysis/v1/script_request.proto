@@ -3,6 +3,7 @@ package ctk.analysis.v1;
 
 import "match/v1/match_service.proto";
 import "analysis/v1/script_compilation_profile.proto";
+import "analysis/v1/script_value.proto";
 // Optional default file for legacy operations. Explicit parse/file expressions
 // can acquire their own trees; scoped blocks provide a lexical default tree.
 message ScriptRequest {
@@ -12,4 +13,9 @@ message ScriptRequest {
   // Omitted profiles preserve the legacy default-file compilation context.
   ScriptCompilationProfile profile = 4;
   string resource_scope_id = 5;
+  // Detached initial lexical values; native trees/identities are rejected.
+  map<string, ScriptValue> initial_values = 6;
+  // Append the final evaluated value as a detached emission. The default keeps
+  // the existing explicit-emission response contract.
+  bool collect_final = 7;
 }

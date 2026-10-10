@@ -102,8 +102,14 @@ syntax/options and interrupts still raise; assignment preserves its previous
 binding if evaluation raises. Scope cleanup must be acknowledged before another
 group starts, including after failures.
 
-Batch bodies reject nested batches, yielding analysis blocks and legacy cursor
-open/continue/restart, background and session start/add/match/resume operations
-before admission. Those acquisition paths do not carry group ownership; use the
-scoped `match`, `parse`, file and analysis operations inside a batch. The legacy
-commands remain expressions outside batch bodies.
+Foreground batch bodies support scoped analysis expressions; their yielded
+semantic values are detached before group cleanup. They reject nested foreground
+batches, legacy cursor open/continue/restart, background and session
+start/add/match/resume operations before admission because those acquisition
+paths lack parent group ownership. Use scoped match, parse, file and analysis
+operations; legacy commands remain expressions outside batch bodies.
+
+Server-owned `background batch` and `durable batch` evaluate native ANTLR bodies.
+Native nested groups share parent ownership and validate frozen input/profile
+subsets and lower job/memory limits. Their persistent lifecycle, results and
+explicit detached promotion are described in [durable-batches.md](durable-batches.md).

@@ -3,11 +3,62 @@
 #include <google/protobuf/util/json_util.h>
 #ifdef CTK_BUILD_SCRIPT
 #include "interpreter.hpp"
+#include "scoped_block.hpp"
 #endif
 namespace ctk::script {
-Result
-Engine::run(const std::string &source, Environment *environment, Limits limits,
-            const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+namespace {
+#ifdef CTK_BUILD_SCRIPT
+bool expression_contains_batch(const detail::Expression &expression);
+bool statements_contain_batch(
+    const std::vector<detail::Statement> &statements) {
+  for (const auto &statement : statements) {
+    if ((statement.expression &&
+         expression_contains_batch(*statement.expression)) ||
+        (statement.destination &&
+         expression_contains_batch(*statement.destination)) ||
+        statements_contain_batch(statement.body))
+      return true;
+  }
+  return false;
+}
+bool expression_contains_batch(const detail::Expression &expression) {
+  if (expression.kind == detail::Expression::Kind::Batch)
+    return true;
+  if (expression.source && expression_contains_batch(*expression.source))
+    return true;
+  if (expression.target && expression_contains_batch(*expression.target))
+    return true;
+  for (const auto &element : expression.elements)
+    if (element && expression_contains_batch(*element))
+      return true;
+  for (const auto &argument : expression.arguments)
+    if (argument.expression && expression_contains_batch(*argument.expression))
+      return true;
+  if (expression.block &&
+      (statements_contain_batch(expression.block->statements) ||
+       (expression.block->yielded &&
+        expression_contains_batch(*expression.block->yielded)) ||
+       (expression.block->target &&
+        expression_contains_batch(*expression.block->target))))
+    return true;
+  return expression.batch_body &&
+         statements_contain_batch(expression.batch_body->statements);
+}
+#endif
+} // namespace
+bool Engine::contains_batch(const std::string &source) const {
+#ifdef CTK_BUILD_SCRIPT
+  return statements_contain_batch(detail::parse(source).statements);
+#else
+  (void)source;
+  return false;
+#endif
+}
+Result Engine::run(
+    const std::string &source, Environment *environment, Limits limits,
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+    const std::map<std::string, ctk::analysis::v1::ScriptValue> &initial_values,
+    ExportSink export_sink, bool collect_final) {
   try {
     if (!limits.max_steps || limits.max_steps > 10000 ||
         !limits.max_source_bytes || !limits.max_retained_bytes ||
@@ -23,7 +74,9 @@ Engine::run(const std::string &source, Environment *environment, Limits limits,
     auto program = detail::parse(source);
     return {ctk::clang_layer::MatchCode::Ok,
             {},
-            detail::Interpreter(environment, limits, checkpoint).run(program)};
+            detail::Interpreter(environment, limits, checkpoint, initial_values,
+                                std::move(export_sink), collect_final)
+                .run(program)};
 #else
     return {ctk::clang_layer::MatchCode::FailedPrecondition,
             "server scripting is disabled",

@@ -4,6 +4,7 @@ from clang_toolkit.client import AsyncClient, Client, QueryError, QuerySession
 from clang_toolkit.configuration import ConfigurationError, NetworkConfig, load_network_config
 from clang_toolkit.cursors import CursorError
 from clang_toolkit.analysis_error import AnalysisError
+from clang_toolkit.batches import BatchRun, DetachedMatchRow, DetachedScriptValue
 from clang_toolkit.control_flow import CfgOptions
 from clang_toolkit.matchers import (
     Matcher, MatcherArg, MatcherInput, MatcherLiteral, allOf, anyOf, binaryOperator, callExpr, cxxBoolLiteral, cxxConstructExpr,
@@ -26,6 +27,9 @@ from clang_toolkit.resources import (
 
 __all__ = [
     "AnalysisError",
+    "BatchRun",
+    "DetachedMatchRow",
+    "DetachedScriptValue",
     "AsyncClient",
     "Client",
     "CfgOptions",

@@ -102,7 +102,12 @@ default error policy is `stop`; `continue` runs later groups after
 acknowledged cleanup but the final command still reports failure. Unconfirmed
 cleanup always stops later work. Live handles, trees, match results, or wrappers
 containing them cannot escape a group through outer variables, lists, dictionaries
-or closures; save detached data or scalar summaries instead.
+or closures. Successful final semantic values are copied into a bounded detached
+result collection before release; see [expression-values.md](expression-values.md).
+Use `background batch` or `durable batch` for a persisted server-owned native
+run, with status/cancel/resume/retry and explicit detached-result promotion;
+see [durable-batches.md](durable-batches.md) for its separate export envelope and
+recovery semantics.
 
 Output is emitted as statements run and is limited to 1,000,000 characters per
 group. The final JSON report is capped at 4,000 characters and includes a fixed

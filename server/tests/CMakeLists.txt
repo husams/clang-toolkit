@@ -15,7 +15,7 @@ add_executable(ctk_tests
 )
 target_link_libraries(ctk_tests PRIVATE ctk_core GTest::gtest_main ctk::sqlite)
 if(CTK_BUILD_NETWORK)
-  target_sources(ctk_tests PRIVATE test_network_config.cpp test_query_controller.cpp test_network_transport.cpp)
+  target_sources(ctk_tests PRIVATE test_network_config.cpp test_query_controller.cpp test_network_transport.cpp test_batch_registry.cpp)
   target_link_libraries(ctk_tests PRIVATE ctk_network)
 endif()
 if(CTK_WITH_CLANG)

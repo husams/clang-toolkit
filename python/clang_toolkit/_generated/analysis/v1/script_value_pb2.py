@@ -28,15 +28,24 @@ from . import traverse_response_pb2 as analysis_dot_v1_dot_traverse__response__p
 from . import cfg_response_pb2 as analysis_dot_v1_dot_cfg__response__pb2
 from . import call_graph_response_pb2 as analysis_dot_v1_dot_call__graph__response__pb2
 from . import script_tree_pb2 as analysis_dot_v1_dot_script__tree__pb2
+from ...match.v1 import resources_pb2 as match_dot_v1_dot_resources__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x61nalysis/v1/script_value.proto\x12\x0f\x63tk.analysis.v1\x1a\x1f\x61nalysis/v1/script_scalar.proto\x1a#analysis/v1/script_match_rows.proto\x1a#analysis/v1/traverse_response.proto\x1a\x1e\x61nalysis/v1/cfg_response.proto\x1a%analysis/v1/call_graph_response.proto\x1a\x1d\x61nalysis/v1/script_tree.proto\"\xc8\x02\n\x0bScriptValue\x12/\n\x06scalar\x18\x01 \x01(\x0b\x32\x1d.ctk.analysis.v1.ScriptScalarH\x00\x12\x33\n\x07matches\x18\x02 \x01(\x0b\x32 .ctk.analysis.v1.ScriptMatchRowsH\x00\x12\x36\n\ttraversal\x18\x03 \x01(\x0b\x32!.ctk.analysis.v1.TraverseResponseH\x00\x12+\n\x03\x63\x66g\x18\x04 \x01(\x0b\x32\x1c.ctk.analysis.v1.CfgResponseH\x00\x12\x38\n\ncall_graph\x18\x05 \x01(\x0b\x32\".ctk.analysis.v1.CallGraphResponseH\x00\x12+\n\x04tree\x18\x06 \x01(\x0b\x32\x1b.ctk.analysis.v1.ScriptTreeH\x00\x42\x07\n\x05valueb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x61nalysis/v1/script_value.proto\x12\x0f\x63tk.analysis.v1\x1a\x1f\x61nalysis/v1/script_scalar.proto\x1a#analysis/v1/script_match_rows.proto\x1a#analysis/v1/traverse_response.proto\x1a\x1e\x61nalysis/v1/cfg_response.proto\x1a%analysis/v1/call_graph_response.proto\x1a\x1d\x61nalysis/v1/script_tree.proto\x1a\x18match/v1/resources.proto\"\xdc\x03\n\x0bScriptValue\x12/\n\x06scalar\x18\x01 \x01(\x0b\x32\x1d.ctk.analysis.v1.ScriptScalarH\x00\x12\x33\n\x07matches\x18\x02 \x01(\x0b\x32 .ctk.analysis.v1.ScriptMatchRowsH\x00\x12\x36\n\ttraversal\x18\x03 \x01(\x0b\x32!.ctk.analysis.v1.TraverseResponseH\x00\x12+\n\x03\x63\x66g\x18\x04 \x01(\x0b\x32\x1c.ctk.analysis.v1.CfgResponseH\x00\x12\x38\n\ncall_graph\x18\x05 \x01(\x0b\x32\".ctk.analysis.v1.CallGraphResponseH\x00\x12+\n\x04tree\x18\x06 \x01(\x0b\x32\x1b.ctk.analysis.v1.ScriptTreeH\x00\x12+\n\x04list\x18\x07 \x01(\x0b\x32\x1b.ctk.analysis.v1.ScriptListH\x00\x12/\n\x06object\x18\x08 \x01(\x0b\x32\x1d.ctk.analysis.v1.ScriptObjectH\x00\x12\x34\n\x05\x66iles\x18\t \x01(\x0b\x32#.ctk.match.v1.DiscoverFilesResponseH\x00\x42\x07\n\x05value\":\n\nScriptList\x12,\n\x06values\x18\x01 \x03(\x0b\x32\x1c.ctk.analysis.v1.ScriptValue\"\x96\x01\n\x0cScriptObject\x12\x39\n\x06\x66ields\x18\x01 \x03(\x0b\x32).ctk.analysis.v1.ScriptObject.FieldsEntry\x1aK\n\x0b\x46ieldsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12+\n\x05value\x18\x02 \x01(\x0b\x32\x1c.ctk.analysis.v1.ScriptValue:\x02\x38\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'analysis.v1.script_value_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SCRIPTVALUE']._serialized_start=261
-  _globals['_SCRIPTVALUE']._serialized_end=589
+  _globals['_SCRIPTOBJECT_FIELDSENTRY']._loaded_options = None
+  _globals['_SCRIPTOBJECT_FIELDSENTRY']._serialized_options = b'8\001'
+  _globals['_SCRIPTVALUE']._serialized_start=287
+  _globals['_SCRIPTVALUE']._serialized_end=763
+  _globals['_SCRIPTLIST']._serialized_start=765
+  _globals['_SCRIPTLIST']._serialized_end=823
+  _globals['_SCRIPTOBJECT']._serialized_start=826
+  _globals['_SCRIPTOBJECT']._serialized_end=976
+  _globals['_SCRIPTOBJECT_FIELDSENTRY']._serialized_start=901
+  _globals['_SCRIPTOBJECT_FIELDSENTRY']._serialized_end=976
 # @@protoc_insertion_point(module_scope)

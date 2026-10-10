@@ -66,6 +66,7 @@ if(CTK_BUILD_NETWORK)
   target_sources(ctk_core PRIVATE
     src/platform/loopback_address.cpp
     src/platform/process_memory.cpp
+    src/platform/durable_file.cpp
     src/config/config.cpp
     src/application/analysis_session.cpp
     src/application/query_controller.cpp)
@@ -76,6 +77,7 @@ if(CTK_BUILD_NETWORK)
     src/application/file_target_validation.cpp
     src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/call_graph_controller.cpp
     src/application/script_controller.cpp src/application/native_script_environment.cpp src/application/script_options.cpp)
+  target_sources(ctk_core PRIVATE src/application/batch_registry.cpp)
   target_include_directories(ctk_core PRIVATE "${CTK_YAML_INCLUDE_DIR}")
   target_link_libraries(ctk_core PRIVATE "${CTK_YAML_LIBRARY}")
   target_link_libraries(ctk_core PRIVATE OpenSSL::Crypto)

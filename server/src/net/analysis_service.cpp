@@ -13,6 +13,46 @@ std::string owner(grpc::ServerContext &context) {
   return "local-user";
 }
 } // namespace
+grpc::Status AnalysisServiceAdapter::StartBatch(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::StartBatchRequest *request,
+    ctk::analysis::v1::BatchRun *response) {
+  std::string message;
+  const auto code = batches_.start(*request, owner(*context), *response, message);
+  return match_status(code, message, *context);
+}
+grpc::Status AnalysisServiceAdapter::BatchStatus(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::BatchRunRequest *request,
+    ctk::analysis::v1::BatchRun *response) {
+  std::string message;
+  const auto code = batches_.status(*request, owner(*context), *response, message);
+  return match_status(code, message, *context);
+}
+grpc::Status AnalysisServiceAdapter::CancelBatch(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::BatchControlRequest *request,
+    ctk::analysis::v1::BatchRun *response) {
+  std::string message;
+  const auto code = batches_.cancel(*request, owner(*context), *response, message);
+  return match_status(code, message, *context);
+}
+grpc::Status AnalysisServiceAdapter::ResumeBatch(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::BatchControlRequest *request,
+    ctk::analysis::v1::BatchRun *response) {
+  std::string message;
+  const auto code = batches_.resume(*request, owner(*context), *response, message);
+  return match_status(code, message, *context);
+}
+grpc::Status AnalysisServiceAdapter::RetryBatch(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::BatchControlRequest *request,
+    ctk::analysis::v1::BatchRun *response) {
+  std::string message;
+  const auto code = batches_.retry(*request, owner(*context), *response, message);
+  return match_status(code, message, *context);
+}
 grpc::Status AnalysisServiceAdapter::RunScript(
     grpc::ServerContext *context,
     const ctk::analysis::v1::ScriptRequest *request,

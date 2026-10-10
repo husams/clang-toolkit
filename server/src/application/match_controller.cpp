@@ -96,7 +96,7 @@ ctk::match::v1::FileMatchTarget target_from_resolved(
 
 std::string descriptor_identity(
     const ctk::match::v1::InputDescriptor &descriptor) {
-  return descriptor.file_path() + "\n" + descriptor.profile().profile_id();
+  return ctk::application::input_identity(descriptor);
 }
 
 std::string new_lease_id() {
@@ -293,7 +293,7 @@ struct MatchController::Impl {
     cursor->input_identity = descriptor_identity(resolved.descriptor);
     cursor->scope_id = request.resource_scope_id();
     cursor->input = resolved.descriptor;
-    std::lock_guard operation(cursor->operation);
+    std::unique_lock operation(cursor->operation);
     if (cursor->state)
       resources->register_work_snapshot(
           owner, work_token, cursor->input_identity,
@@ -321,6 +321,7 @@ struct MatchController::Impl {
             (state ? state->retained_bytes() : 0) +
                 cursor->response.ByteSizeLong());
       } catch (const std::exception &error) {
+        operation.unlock();
         (void)registry->close(owner, cursor->id);
         return failure(MatchCode::ResourceExhausted, error.what());
       }

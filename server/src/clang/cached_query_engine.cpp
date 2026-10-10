@@ -552,6 +552,7 @@ private:
             // Staging is owned transport for the TU bytes, not a source
             // freshness input.
             filesystem->exclude_staged(staged->path().string());
+            filesystem->exclude_staged(staged->path().parent_path().string());
             owner.filesystem = std::move(filesystem);
             owner.native_artifact = std::move(staged);
             owner.storage_lease = lease;
