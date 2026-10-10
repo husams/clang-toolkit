@@ -64,3 +64,26 @@ The earlier delivery totals describe the published `ed1d55e` baseline.
 - Ruff and diff whitespace checks passed; generated command reference equals live help. The wiki plan/manual/design and published specification have been updated and read back.
 
 Native match copies remain usable for local inspection/export, while native continuation requires a live owner. Aggregate collection limits are 10,000 retained items and 1,000,000 estimated bytes. RHEL packaging, background/resumable batches, legacy ownership migration and native ANTLR batch-language parity remain deferred.
+
+## Functional flatten — 2026-10-10
+
+User-authorized follow-up: introduce `flatten($run.results)` after verifying all
+previous changes are already committed on clean local/remote main `2fbcec2`.
+One-level concatenation preserves order and row identity, skips empty children,
+does not mutate/requery inputs, rejects noncollection children by index and
+caps output at 10,000 items. `join` retains string semantics. Grammar, editor
+tokenization, dedicated help and generated reference are updated.
+
+Verification complete: all 878 Python unit tests and 105 full real-server E2E
+BDD scenarios passed, along with seven separately repeated native batch
+scenarios. The new real-server scenario flattens silent batch collections,
+prints three function names, saves/reloads the flat protobuf list, and confirms
+zero native ownership/accounting counters. No native source or wire contract
+changed; the native suite's existing 312/312 result applies to the unchanged
+native implementation.
+
+Evidence: `/tmp/ctk-flatten-full-units.log`, `/tmp/ctk-flatten-native.log`,
+`/tmp/ctk-flatten-e2e-final.log`. Actual TTY examples confirmed local flatten
+assignment, nested-list preservation, standalone rendering and `help flatten`.
+Ruff, whitespace and generated-help consistency checks passed; the wiki
+plan/manual and published specification include the functional API.

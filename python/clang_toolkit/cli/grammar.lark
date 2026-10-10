@@ -118,6 +118,7 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                  | pop_expression
                  | split_expression
                  | join_expression
+                 | flatten_expression
                  | collection_command
                  | command_expression
 
@@ -141,6 +142,7 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                    | pop_expression
                    | split_expression
                    | join_expression
+                   | flatten_expression
 
 // Distinct string roles tell the editor which arguments accept filesystem paths.
 // They share the same quoting syntax and evaluate to ordinary string values.
@@ -161,6 +163,7 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                       | pop_expression
                       | split_expression
                       | join_expression
+                      | flatten_expression
                       | command_expression
 path_list_value: LSQB [path_value_expression (COMMA path_value_expression)*] RSQB -> list_value
 file_set_expression: FILES_EXPR path_value_expression -> files_expression
@@ -196,7 +199,7 @@ graph_option: PROJECTION NAME -> graph_projection
 list_value: LSQB [value_expression (COMMA value_expression)*] RSQB
 dict_value: LBRACE [dict_entry (COMMA dict_entry)*] RBRACE
 dict_entry: (STRING | collection_name) COLON value_expression
-?collection_name: NAME | USER | FILES | TRAVERSAL | EXTRA_ARGS | COMPILE_COMMANDS | CACHE_DIR | OUTPUT | PUSH | POP | DELETE | SPLIT | JOIN | BY | WITH | INSERT | REMOVE | CLEAR | IMPORT
+?collection_name: NAME | USER | FILES | TRAVERSAL | EXTRA_ARGS | COMPILE_COMMANDS | CACHE_DIR | OUTPUT | PUSH | POP | DELETE | SPLIT | FLATTEN | JOIN | BY | WITH | INSERT | REMOVE | CLEAR | IMPORT
 bare_value: collection_name (DOT collection_name | LSQB index_expression RSQB)*
 bare_access: collection_name (DOT collection_name | LSQB index_expression RSQB)+
 ?collection_ref: bare_value | reference
@@ -204,6 +207,7 @@ bare_access: collection_name (DOT collection_name | LSQB index_expression RSQB)+
 pop_expression: POP collection_ref
 split_expression: SPLIT value_expression BY value_expression
 join_expression: JOIN collection_ref WITH value_expression
+flatten_expression: FLATTEN LPAR value_expression RPAR -> flatten_expression
 grouped_expression: LPAR value_expression RPAR grouped_suffix* -> grouped_expression
 grouped_suffix: DOT NAME -> grouped_property
               | DOT method_call -> grouped_method
@@ -250,7 +254,7 @@ target_matcher: NAME LPAR [target_arguments] RPAR bind? -> matcher
 target_arguments: target_expression (COMMA target_expression)*
 
 reference: DOLLAR NAME (DOT property_name | DOT method_call | LSQB index_expression RSQB)*
-?property_name: NAME | PUSH | POP | DELETE | SPLIT | JOIN | BY | WITH | INSERT | REMOVE | CLEAR | IMPORT | OUTPUT | FILES | TRAVERSAL | EXTRA_ARGS | COMPILE_COMMANDS | CACHE_DIR | USER
+?property_name: NAME | PUSH | POP | DELETE | SPLIT | FLATTEN | JOIN | BY | WITH | INSERT | REMOVE | CLEAR | IMPORT | OUTPUT | FILES | TRAVERSAL | EXTRA_ARGS | COMPILE_COMMANDS | CACHE_DIR | USER
 ?method_call: HAS_FIELD LPAR STRING RPAR -> has_field_call
             | FIELD_STATE LPAR STRING RPAR -> field_state_call
             | FIELD_OR LPAR STRING COMMA value_expression RPAR -> field_or_call
@@ -325,6 +329,7 @@ editor_start: editor_token*
              | POP
              | DELETE
              | SPLIT
+             | FLATTEN
              | JOIN
              | BY
              | WITH
@@ -447,6 +452,7 @@ DELETE.2: /delete(?![a-zA-Z0-9_])/
 INSERT.2: /insert(?![a-zA-Z0-9_])/
 REMOVE.2: /remove(?![a-zA-Z0-9_])/
 SPLIT.2: /split(?![a-zA-Z0-9_])/
+FLATTEN.2: /flatten(?![a-zA-Z0-9_])/
 JOIN.2: /join(?![a-zA-Z0-9_])/
 BY.2: /by(?![a-zA-Z0-9_])/
 WITH.2: /with(?![a-zA-Z0-9_])/

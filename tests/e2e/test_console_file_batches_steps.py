@@ -112,3 +112,43 @@ def collected_batch_cleanup(collected_batch_evidence):
         "accounted_native_bytes", "reusable_snapshots",
     ):
         assert getattr(status, counter) == 0, counter
+
+
+@when("I flatten native batch results print their names and reload the saved rows",
+      target_fixture="flattened_batch_evidence")
+def flatten_batch_values(batch_value_server):
+    server, root = batch_value_server
+    source = '\n'.join([
+        'let inputs = files "*.cc"',
+        'let run = batch part in $inputs size 1 jobs 1 do {',
+        '  match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in $part.inputs;',
+        '}',
+        'let all_matches = flatten($run.results)',
+        'foreach row in $all_matches do { print $row.bindings["f"].node.qualified_name; }',
+        'save $all_matches to "flattened.proto" as proto',
+        'load "flattened.proto" into $restored',
+        'foreach row in $restored do { print $row.bindings["f"].node.qualified_name; }',
+        'print $all_matches.length',
+    ])
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint, "-e", source],
+        cwd=root, env=dict(os.environ, XDG_STATE_HOME=str(root / "console-state")),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=90, check=False,
+    )
+    with Client(server.endpoint) as client:
+        status = client.resource_status()
+    return result, root, status
+
+
+@then("every flattened function name survives with no live native resources")
+def flattened_batch_cleanup(flattened_batch_evidence):
+    result, root, status = flattened_batch_evidence
+    assert result.returncode == 0, result.stdout
+    names = [f"collected_{index}" for index in range(3)]
+    assert result.stdout.splitlines() == names + names + ["3"]
+    assert len(load(root / "flattened.proto")) == 3
+    for counter in (
+        "result_cursors", "explicit_file_leases", "active_work", "reserved_bytes",
+        "accounted_native_bytes", "reusable_snapshots",
+    ):
+        assert getattr(status, counter) == 0, counter

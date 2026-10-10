@@ -85,6 +85,7 @@ class CompletionField:
 _KNOWN_NON_ROOT = frozenset(VALIDATION_NESTED_MATCHERS) - frozenset(ROOT_MATCHERS)
 _PUNCTUATION = {"LPAR", "RPAR", "LSQB", "RSQB", "COMMA", "DOT", "SCOPE"}
 _SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".c++", ".C", ".m", ".mm"}
+MAX_CONSOLE_COLLECTION_ITEMS = 10_000
 _COLLECTION_VALUE_KINDS = frozenset(
     {"push_command", "delete_command", "set_item_command"}
 )
@@ -1053,6 +1054,53 @@ class Runtime:
             raise EvaluationError("split separator cannot be empty")
         return value.split(separator)
 
+    @staticmethod
+    def _flatten_members(value: Any) -> Any | None:
+        """Return a one-level collection iterator, excluding record/scalar values."""
+        if type(value) in (list, tuple):
+            return iter(value)
+        if isinstance(value, MatchSet):
+            return iter(value.rows)
+        if isinstance(value, MatchValue):
+            return value.iter_rows()
+        if isinstance(value, NativeMatchCollection | NativeBindingCollection):
+            return iter(value)
+        from .semantic import RepeatedView
+
+        if isinstance(value, RepeatedView):
+            return iter(value)
+        return None
+
+    def _flatten_collection(self, value: Any) -> list[Any]:
+        outer = self._flatten_members(value)
+        if outer is None:
+            raise EvaluationError(
+                "flatten requires a list or query-result collection; "
+                f"got {type(value).__name__}"
+            )
+
+        result: list[Any] = []
+        for index, child in enumerate(outer):
+            members = self._flatten_members(child)
+            if members is None:
+                if isinstance(child, str):
+                    reason = "strings are scalar values, not collections"
+                elif isinstance(child, Mapping):
+                    reason = "dictionaries are records, not collections"
+                else:
+                    reason = f"{type(child).__name__} is not a supported collection"
+                raise EvaluationError(
+                    f"flatten child at index {index} is invalid: {reason}; "
+                    "expected a list or query-result collection"
+                )
+            for member in members:
+                if len(result) >= MAX_CONSOLE_COLLECTION_ITEMS:
+                    raise EvaluationError(
+                        f"flatten result exceeds {MAX_CONSOLE_COLLECTION_ITEMS} items"
+                    )
+                result.append(member)
+        return result
+
     def _define_matcher(self, statement: Tree) -> MatcherFunction:
         name = str(statement.children[1])
         if name in set(ROOT_MATCHERS) | set(NESTED_MATCHERS):
@@ -1262,6 +1310,8 @@ class Runtime:
             if not isinstance(values, list) or not isinstance(separator, str):
                 raise EvaluationError("join requires a list and a string separator")
             return separator.join(render(item) for item in values)
+        if kind == "flatten_expression":
+            return self._flatten_collection(self._evaluate(node.children[2]))
         if kind == "grouped_expression":
             return self._grouped_expression(node)
         if kind == "glob_call":

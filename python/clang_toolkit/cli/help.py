@@ -130,7 +130,7 @@ _ENTRIES = (
             "let silently retains typed query and graph results. Read counts with .length, rows with [index], and select bind label f across rows with $rows.f.",
             "Use unique(field), sort(field) and filter(field, expected) on supported collections; field selectors may be dotted paths.",
             "Lists and dictionaries are mutable local values. Use help collections for literals, properties, methods and mutation statements.",
-            "split STRING by SEPARATOR and join LIST with SEPARATOR produce values locally.",
+            "split STRING by SEPARATOR and join LIST with SEPARATOR produce values locally. flatten(VALUE) concatenates one level of list/query-result children in order, skips empty children, and returns a plain list; child rows keep their original objects. Strings, dictionaries and scalars are not child collections. The flattened result is limited to 10000 items.",
         ),
         (
             'let predicate = hasName("main")',
@@ -148,6 +148,7 @@ _ENTRIES = (
             'let found = $d.hasKey("a")',
             'let parts = split "a/b" by "/"',
             'let text = join parts with ","',
+            "let rows = flatten($run.results)",
         ),
     ),
     CommandHelp(
@@ -225,6 +226,21 @@ _ENTRIES = (
         ("let NAME = split STRING by SEPARATOR",),
         ("STRING and SEPARATOR are string values; an empty separator is rejected.",),
         ('let parts = split "a/b" by "/"',),
+    ),
+    CommandHelp(
+        "flatten",
+        "Concatenate the children of a collection by one level, locally.",
+        ("flatten(VALUE)", "let NAME = flatten(VALUE)"),
+        (
+            "VALUE is a list, tuple or query-result collection. Each child must itself be a list, tuple, MatchSet, MatchValue, native match/binding collection or repeated semantic field.",
+            "Children are visited in order; empty children contribute nothing. The result is a plain list and retains the original row objects without copying or requerying.",
+            "Flattening is one level only. Strings, dictionaries and scalar children are rejected with their index; output is limited to 10000 items.",
+        ),
+        (
+            "let rows = flatten($run.results)",
+            "let grouped = [[1, 2], [], [3]]",
+            "flatten($grouped)",
+        ),
     ),
     CommandHelp(
         "join",

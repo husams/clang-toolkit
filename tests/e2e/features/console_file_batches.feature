@@ -21,3 +21,8 @@ Feature: File inventory and foreground resource batches
     Given an isolated console batch value server with three sources
     When I collect native match values through an assigned console batch and save them
     Then the collected values remain readable with no live native resources
+
+  Scenario: Flattened batch rows retain names after cleanup and persistence
+    Given an isolated console batch value server with three sources
+    When I flatten native batch results print their names and reload the saved rows
+    Then every flattened function name survives with no live native resources

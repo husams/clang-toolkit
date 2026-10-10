@@ -23,6 +23,26 @@ blocks preserve their existing per-statement output. Match `do` blocks retain
 their captured display text as the returned value; scoped analysis blocks keep
 their explicit terminal `yield` contract.
 
+## Flattening collections
+
+`flatten(COLLECTION)` concatenates one level of nested collections into a new
+plain list. It preserves order and row values, skips empty collections, and does
+not mutate inputs or run another query. Use it with collected batch results:
+
+```text
+let all_matches = flatten($run.results)
+foreach row in $all_matches do {
+    print $row.bindings["f"].node.qualified_name;
+}
+save $all_matches to "all-matches.json" as json
+```
+
+Each child must be a supported collection, such as a list or match collection;
+strings, dictionaries and scalar children are rejected with the child index.
+Flattening is one level: `flatten([[1, [2]], [], [3]])` produces `[1, [2], 3]`.
+The result is limited to 10,000 items. `join` and `.joinWith` keep their existing
+string-joining behavior.
+
 ## Batch values
 
 ```text
