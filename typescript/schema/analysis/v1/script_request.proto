@@ -11,4 +11,5 @@ message ScriptRequest {
   optional uint32 max_steps = 3;
   // Omitted profiles preserve the legacy default-file compilation context.
   ScriptCompilationProfile profile = 4;
+  string resource_scope_id = 5;
 }

@@ -77,4 +77,29 @@ def test_multiline_foreach_block_waits_for_done():
     complete = input_state('foreach $x in $items do\n    "${x}"\ndone')
     assert complete.block_depth == 0
     assert complete.needs_more is False
+    plain_iterator = input_state('foreach x in $items do "$x"\ndone')
+    assert plain_iterator.block_depth == 0
+    assert plain_iterator.needs_more is False
     assert input_state('foreach $x in $items do "${x}"').needs_more is False
+
+
+def test_multiline_foreach_brace_block_uses_brace_completeness():
+    pending = input_state("foreach x in $items do {\n  print $x")
+    assert pending.stack == ("{",)
+    assert pending.block_depth == 0
+    assert pending.needs_more is True
+
+    complete = input_state("foreach x in $items do {\n  print $x\n}")
+    assert complete.stack == ()
+    assert complete.block_depth == 0
+    assert complete.needs_more is False
+
+    empty = input_state("foreach x in $items do {\n}")
+    assert empty.needs_more is False
+
+    commented = input_state(
+        "foreach x in $items do\n# statement block follows\n{ print $x }"
+    )
+    assert commented.block_depth == 0
+    assert commented.stack == ()
+    assert commented.needs_more is False

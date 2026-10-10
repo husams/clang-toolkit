@@ -8,6 +8,7 @@ export interface ScriptRequest {
   'source'?: (string);
   'maxSteps'?: (number);
   'profile'?: (_ctk_analysis_v1_ScriptCompilationProfile | null);
+  'resourceScopeId'?: (string);
   '_maxSteps'?: "maxSteps";
 }
 
@@ -16,5 +17,6 @@ export interface ScriptRequest__Output {
   'source': (string);
   'maxSteps'?: (number);
   'profile': (_ctk_analysis_v1_ScriptCompilationProfile__Output | null);
+  'resourceScopeId': (string);
   '_maxSteps'?: "maxSteps";
 }

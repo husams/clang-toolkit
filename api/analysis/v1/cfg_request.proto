@@ -14,4 +14,5 @@ message CfgRequest {
   optional uint64 max_elements = 6; // Default 100000; hard limit 1000000.
   ValueProjection projection = 7;
   bool main_file_only = 8;
+  string resource_scope_id = 9;
 }

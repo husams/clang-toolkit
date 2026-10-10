@@ -12,6 +12,7 @@ export interface CallGraphRequest {
   'maxEdges'?: (number | string | Long);
   'projection'?: (_ctk_analysis_v1_ValueProjection | null);
   'mainFileOnly'?: (boolean);
+  'resourceScopeId'?: (string);
   '_visitImplicitCode'?: "visitImplicitCode";
   '_visitTemplateInstantiations'?: "visitTemplateInstantiations";
   '_maxNodes'?: "maxNodes";
@@ -26,6 +27,7 @@ export interface CallGraphRequest__Output {
   'maxEdges'?: (string);
   'projection': (_ctk_analysis_v1_ValueProjection__Output | null);
   'mainFileOnly': (boolean);
+  'resourceScopeId': (string);
   '_visitImplicitCode'?: "visitImplicitCode";
   '_visitTemplateInstantiations'?: "visitTemplateInstantiations";
   '_maxNodes'?: "maxNodes";

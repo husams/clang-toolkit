@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import Mock
 
-from clang_toolkit.cli.app import dispatch
+from clang_toolkit.cli.app import dispatch, dispatch_result
+from clang_toolkit.cli.batch import execute_batch
 from clang_toolkit.cli.runtime import Directory, File, MatchSet, MatcherExpr, Runtime
 from clang_toolkit.client import Client
 from clang_toolkit._row_store import RowStore
@@ -57,6 +58,20 @@ def test_non_root_match_and_wrong_reference_do_not_send_request(tmp_path):
     client.match.assert_not_called()
 
 
+def test_registry_node_constructor_reaches_server_as_root(tmp_path):
+    client, session = runtime(tmp_path)
+    assert dispatch(client, "match pointerType()", session) == "matched"
+    assert client.match.call_args.args == ("pointerType()",)
+
+
+def test_completion_catalog_does_not_extend_local_root_rejection(tmp_path):
+    client, session = runtime(tmp_path)
+    # This previously uncatalogued name remains the server's responsibility
+    # to validate when used outside a concrete node matcher.
+    assert dispatch(client, "match isExpansionInSystemHeader()", session) == "matched"
+    assert client.match.call_args.args == ("isExpansionInSystemHeader()",)
+
+
 def test_values_env_config_and_scoped_foreach(tmp_path):
     client, session = runtime(
         tmp_path, environment={"item": "environment"}, config_vars={"item": "config"}
@@ -76,6 +91,125 @@ def test_values_env_config_and_scoped_foreach(tmp_path):
     assert dispatch(client, "$env.item", session) == "environment"
     assert dispatch(client, "$config.item", session) == "config"
     client.match.assert_not_called()
+
+
+def test_foreach_statement_blocks_print_in_order_and_restore_scope(tmp_path):
+    client, session = runtime(tmp_path)
+    dispatch(client, 'let xs = [{root: {decl_name: "alpha"}}, {root: {decl_name: "beta"}}]', session)
+    dispatch(client, 'let m = "outer"', session)
+
+    output = dispatch(
+        client,
+        "foreach m in $xs do {\n"
+        "  let current = $m.root.decl_name\n"
+        "  print $current\n"
+        "  foreach $n in [1, 2] do { print $n }\n"
+        "}",
+        session,
+    )
+
+    assert output == "alpha\n1\n2\nbeta\n1\n2"
+    dispatch(
+        client,
+        "let names = foreach m in $xs do $m.root.decl_name done",
+        session,
+    )
+    assert dispatch(client, "$names", session) == "alpha\nbeta"
+    assert dispatch(client, "$m", session) == "outer"
+    assert "current" not in session.bindings
+    client.match.assert_not_called()
+
+
+def test_foreach_empty_block_and_legacy_dictionary_expression(tmp_path):
+    client, session = runtime(tmp_path)
+    dispatch(client, "let xs = [1]", session)
+
+    assert dispatch(client, "foreach x in $xs do {\n}", session) == ""
+    assert dispatch(client, "foreach x in $xs do {}", session) == ""
+    assert dispatch(
+        client, "let empty_maps = foreach x in $xs do {} done", session
+    ) == ""
+    assert dispatch(client, "$empty_maps[0]", session) == "{}"
+    assert dispatch(
+        client, 'let values = foreach x in $xs do {"item": $x} done', session
+    ) == ""
+    assert dispatch(client, "$values[0]", session) == '{"item": 1}'
+    assert dispatch(
+        client, "let empty = foreach $x in $xs do {} done", session
+    ) == ""
+    assert dispatch(client, "$empty[0]", session) == "{}"
+    assert dispatch(client, "let truths = foreach x in $xs do true done", session) == ""
+    assert dispatch(client, "$truths[0]", session) == "true"
+
+
+def test_foreach_plain_iterator_rejects_dotted_declarations(tmp_path):
+    client, session = runtime(tmp_path)
+    dispatch(client, "let xs = [1]", session)
+
+    output = dispatch(client, "foreach item.field in $xs do {}", session)
+
+    assert "unexpected `.`" in output
+    client.match.assert_not_called()
+
+
+def test_brace_foreach_blocks_leave_batch_newlines_for_following_commands(tmp_path):
+    client, session = runtime(tmp_path)
+    source = "\n".join([
+        "let xs = [1, 2]",
+        "foreach x in $xs do { print $x }",
+        "foreach y in $xs do { print $y }",
+        "foreach z in $xs do {}",
+        "let names = foreach m in $xs do $m",
+        "# the expression body ends on the next line",
+        "done",
+        "let empty_maps = foreach m in $xs do {} done",
+        'print "done"',
+    ])
+
+    result = execute_batch(
+        source,
+        lambda command: dispatch_result(client, command, session),
+    )
+
+    assert result.exit_code == 0
+    assert result.outputs == ("1\n2", "1\n2", "done")
+    assert session.bindings["names"] == [1, 2]
+    assert session.bindings["empty_maps"] == [{}, {}]
+
+
+def test_legacy_foreach_multiline_done_leaves_following_batch_command(tmp_path):
+    client, session = runtime(tmp_path)
+    source = "\n".join([
+        "let xs = [1, 2]",
+        "foreach $x in $xs do",
+        '"$x"',
+        "done",
+        'print "after"',
+    ])
+
+    result = execute_batch(
+        source,
+        lambda command: dispatch_result(client, command, session),
+    )
+
+    assert result.exit_code == 0
+    assert result.outputs == ("1\n2", "after")
+
+
+def test_nested_foreach_block_match_uses_generated_matcher_text(tmp_path):
+    client, session = runtime(tmp_path)
+    dispatch(client, "let xs = [1]", session)
+
+    dispatch(
+        client,
+        "let output = foreach x in $xs do { match functionDecl() }",
+        session,
+    )
+
+    client.match.assert_called_once_with(
+        "functionDecl()", files=None, working_directory=session.cwd,
+        compile_arguments=[],
+    )
 
 
 def test_foreach_failure_leaves_assignment_unmodified(tmp_path):

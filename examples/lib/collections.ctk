@@ -1,0 +1,4 @@
+# Reusable variables and a parameterized matcher.
+let path_separator = "/"
+let csv_separator = ","
+let namedFunction(name) = functionDecl(hasName($name))

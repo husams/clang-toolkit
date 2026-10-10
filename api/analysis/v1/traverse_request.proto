@@ -16,4 +16,5 @@ message TraverseRequest {
   ValueProjection projection = 6;
   // Restrict declaration/statement candidates by expansion in the main file.
   bool main_file_only = 7;
+  string resource_scope_id = 8;
 }

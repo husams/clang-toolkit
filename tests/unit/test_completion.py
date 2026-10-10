@@ -58,6 +58,23 @@ def test_match_uses_roots_and_let_offers_nested_matcher_constructors():
     assert not {"let", "cfg", "callgraph"}.intersection(root)
 
 
+def test_catalog_includes_registered_matchers_and_keeps_root_catalog_node_only():
+    assert NESTED_MATCHERS == tuple(sorted(set(NESTED_MATCHERS)))
+    assert ROOT_MATCHERS == tuple(sorted(set(ROOT_MATCHERS)))
+    assert {
+        "isExpansionInSystemHeader",
+        "hasCondition",
+        "hasInitializer",
+        "conceptDecl",
+        "cxxTryStmt",
+    }.issubset(set(NESTED_MATCHERS) | set(ROOT_MATCHERS))
+    assert complete("match functionDecl(isExpansionInSys") == [
+        "isExpansionInSystemHeader("
+    ]
+    assert "isExpansionInSystemHeader(" not in complete("match ")
+    assert "allOf(" not in complete("match ")
+
+
 def test_exact_match_command_appends_root_matcher_with_separator():
     document = Document("match")
     choices = completions(document.text)
@@ -156,7 +173,19 @@ def test_runtime_list_and_filesystem_properties_complete_from_live_bindings(tmp_
     (tmp_path / "a.cpp").write_text("x")
     dispatch(client, 'let files = glob("*.cpp")', runtime)
     runtime.bindings["file"] = runtime.bindings["files"][0]
-    assert live("$files.") == ["isEmpty", "joinWith(", "length"]
+    assert live("$files.") == [
+        "clear(",
+        "filter(",
+        "insert(",
+        "isEmpty",
+        "joinWith(",
+        "length",
+        "pop(",
+        "push(",
+        "remove(",
+        "sort(",
+        "unique(",
+    ]
     assert live("$files.joinW") == ["joinWith("]
     assert live("$file.") == [
         "absolute",

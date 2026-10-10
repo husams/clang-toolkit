@@ -17,6 +17,7 @@ from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
 from clang_toolkit._value_lifecycle import CursorOwner, MatchValueError
 from clang_toolkit._row_store import RowStore
 from clang_toolkit.matchers import MatcherInput
+from clang_toolkit.resources import FileHandle, InputDescriptor
 
 if TYPE_CHECKING:
     from clang_toolkit.client import AsyncClient, Client
@@ -483,7 +484,7 @@ def _binding_decl_type(binding: results.MatchBinding) -> str | None:
     return None
 
 
-MatchTarget = str | Path | ParsedTree[Any] | MatchValue[Any] | BindingSelection[Any]
+MatchTarget = str | Path | ParsedTree[Any] | MatchValue[Any] | BindingSelection[Any] | FileHandle[Any] | InputDescriptor
 
 
 async def _close_value(owner: CursorOwner[Any]) -> None:

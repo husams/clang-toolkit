@@ -44,7 +44,7 @@ async def _tab(pipe, session, expected: str) -> None:
             await _wait_text(session, expected)
             return
         await asyncio.sleep(0.01)
-    raise AssertionError("Tab did not produce path candidates")
+    raise AssertionError("Tab did not produce completion candidates")
 
 
 async def _prompt(
@@ -80,6 +80,22 @@ def offline_client():
 
 
 @when(
+    "I press Enter on blank and whitespace-only prompts", target_fixture="blank_outputs"
+)
+def submit_blank(offline_client, tmp_path):
+    return [
+        dispatch(offline_client, asyncio.run(_prompt(tmp_path, text)))
+        for text in ("", "   ")
+    ]
+
+
+@then("the console stays quiet and explicit help remains available")
+def quiet_blank(blank_outputs, offline_client):
+    assert blank_outputs == ["", ""]
+    assert "help <command>" in dispatch(offline_client, "help")
+
+
+@when(
     parsers.parse('I submit help text "{command}" through the prompt'),
     target_fixture="help_output",
 )
@@ -104,8 +120,12 @@ def unknown_topic(help_output):
 
 @given("console files with spaces", target_fixture="console_files")
 def console_files(tmp_path):
+    (tmp_path / "system.hpp").write_text(
+        "#pragma GCC system_header\ninline int header_function() { return 1; }\n"
+    )
     (tmp_path / "source space.cc").write_text(
-        "int completed_function() { return 7; }\n"
+        '#include "system.hpp"\nint *completed_pointer = nullptr;\n'
+        'int completed_function() { return 7; }\n'
     )
     (tmp_path / "source dir").mkdir()
     (tmp_path / "source dir" / "nested file.cc").write_text(
@@ -172,3 +192,47 @@ def execute_analysis(console_files, console_server):
 @then("native analysis finds the declared function")
 def native_function(native_output):
     assert "completed_function" in native_output
+
+
+@when(
+    "I complete the system-header matcher through the prompt and execute it",
+    target_fixture="system_header_output",
+)
+def execute_system_header_matcher(console_files, console_server):
+    async def complete_matcher():
+        with create_pipe_input() as pipe:
+            session = create_session(input=pipe, output=DummyOutput(), cwd=console_files)
+            task = asyncio.create_task(session.prompt_async("ctk> "))
+            try:
+                source = "match functionDecl(isExpansionInSystemH"
+                pipe.send_text(source)
+                await _wait_text(session, source)
+                completed = "match functionDecl(isExpansionInSystemHeader("
+                await _tab(pipe, session, completed)
+                sentence = completed + ')) in "source space.cc"'
+                pipe.send_text(')) in "source space.cc"')
+                await _wait_text(session, sentence)
+                pipe.send_text("\r")
+                return await asyncio.wait_for(task, 3)
+            finally:
+                if not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+
+    line = asyncio.run(complete_matcher())
+    with Client(console_server.endpoint) as client:
+        runtime = Runtime(client, cwd=console_files, environment={})
+        try:
+            output = dispatch(client, line, runtime)
+            assert dispatch(
+                client, 'let pointers = match pointerType() in "source space.cc"', runtime
+            ) == ""
+            assert int(dispatch(client, "$pointers.length", runtime)) > 0
+            return output
+        finally:
+            runtime.close()
+
+
+@then("native analysis finds the system-header function")
+def system_header_function(system_header_output):
+    assert "header_function" in system_header_output

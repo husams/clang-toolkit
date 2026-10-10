@@ -9,12 +9,14 @@ from itertools import islice
 from typing import Any
 
 from .filesystem import FileSystemEntry
+from clang_toolkit.resources import FileBatch, FileHandle, FileSet, InputDescriptor
 from .values import MatchSet, render
 from .semantic import (
     BindingMapView,
     SemanticError,
     call_method as semantic_call_method,
     field_names as semantic_field_names,
+    field_sources,
     index_value as semantic_index_value,
     inspect_value as semantic_inspect_value,
     property_value as semantic_property_value,
@@ -32,9 +34,51 @@ class ReferenceError(ValueError):
 
 
 _FILE_PROPERTIES = frozenset({"size", "modified", "basename", "dirname", "absolute", "parts"})
+_BINDING_SELECTOR_PROPERTIES = frozenset({
+    "name", "source_file", "scope", "value", "decl_name", "decl_type",
+    "parameter_name", "record_name", "type_name", "location", "range",
+    "symbol_identity", "documentation", "call_site",
+})
+
+
+def _binding_keys(value: BindingSelection) -> list[str]:
+    """Discover readable AST properties rather than the native binding carrier."""
+    semantic = semantic_view(value.value)
+    sources = field_sources(semantic)
+    keys = []
+    readable = semantic_property_value(semantic, "keys")
+    readable.sort(key=lambda name: sources[name][0].descriptor.full_name == "ctk.match.v1.MatchBinding")
+    for name in readable:
+        owner, descriptor = sources[name]
+        if owner.descriptor.full_name == "ctk.match.v1.MatchBinding" and (
+            descriptor.containing_oneof is not None
+            or name in {"availability", "is_complete", "supported_scopes"}
+        ):
+            continue
+        if owner.descriptor.full_name == "ctk.ast.v1.AstNode" and name == "availability":
+            continue
+        keys.append(name)
+    # Selector conveniences are useful direct properties too, but only list
+    # them when their declaration/type data is readable in this projection.
+    for source_names, aliases in (
+        (("qualified_name", "name"), ("decl_name", "parameter_name", "record_name")),
+        (("declared_type", "type", "description"), ("decl_type", "type_name")),
+    ):
+        if not any(name in keys for name in source_names):
+            continue
+        for name in aliases:
+            if getattr(value, name) is not None and name not in keys:
+                keys.append(name)
+    return keys
 
 
 def property_value(value: Any, name: str) -> Any:
+    if isinstance(value, FileSet) and name in {"length", "isEmpty"}:
+        return len(value) if name == "length" else not len(value)
+    if isinstance(value, FileBatch) and name == "paths":
+        return value.paths
+    if isinstance(value, FileHandle) and name in {"path", "profile_id"}:
+        return getattr(value, name)
     if isinstance(value, MatchSet):
         if name == "length":
             return len(value.rows)
@@ -83,6 +127,11 @@ def property_value(value: Any, name: str) -> Any:
             return value.source_file
         return value.binding(name)
     if isinstance(value, BindingSelection):
+        if name == "keys":
+            try:
+                return _binding_keys(value)
+            except (SemanticError, MatchValueError) as error:
+                raise ReferenceError(str(error)) from error
         if name == "name":
             return value.name
         if name == "source_file":
@@ -103,13 +152,25 @@ def property_value(value: Any, name: str) -> Any:
                 return semantic_property_value(semantic_view(value.value), name)
             except (SemanticError, MatchValueError) as error:
                 raise ReferenceError(str(error)) from error
-        raise ReferenceError(f"unknown field: {name}")
+        try:
+            return semantic_property_value(semantic_view(value.value), name)
+        except (SemanticError, MatchValueError) as error:
+            raise ReferenceError(str(error)) from error
     try:
         return semantic_property_value(value, name)
     except SemanticError as error:
         if is_semantic_view(value):
             raise ReferenceError(str(error)) from error
     if isinstance(value, list):
+        if name == "length":
+            return len(value)
+        if name == "isEmpty":
+            return not value
+    if type(value) is dict:
+        if name == "keys":
+            return list(value)
+        if name == "values":
+            return list(value.values())
         if name == "length":
             return len(value)
         if name == "isEmpty":
@@ -125,11 +186,82 @@ def property_value(value: Any, name: str) -> Any:
 
 
 def call_method(value: Any, name: str, arguments: list[Any]) -> Any:
+    if isinstance(value, BindingSelection) and name in {"hasField", "fieldState", "fieldOr"}:
+        try:
+            return semantic_call_method(semantic_view(value.value), name, arguments)
+        except (SemanticError, MatchValueError) as error:
+            raise ReferenceError(str(error)) from error
     try:
         return semantic_call_method(value, name, arguments)
     except SemanticError as error:
         if name in {"hasField", "fieldState", "fieldOr"}:
             raise ReferenceError(str(error)) from error
+    if isinstance(value, list):
+        from .collections import ensure_insertable
+
+        if name == "push":
+            if len(arguments) != 1:
+                raise ReferenceError("push requires one value")
+            ensure_insertable(value, arguments[0])
+            value.append(arguments[0])
+            return value
+        if name == "pop":
+            if len(arguments) > 1 or (arguments and type(arguments[0]) is not int):
+                raise ReferenceError("pop accepts an optional integer index")
+            if not value:
+                raise ReferenceError("cannot pop from an empty list")
+            index = arguments[0] if arguments else -1
+            try:
+                return value.pop(index)
+            except IndexError as error:
+                raise ReferenceError("list pop index is out of range") from error
+        if name == "insert":
+            if len(arguments) != 2 or type(arguments[0]) is not int:
+                raise ReferenceError("insert requires an integer index and a value")
+            ensure_insertable(value, arguments[1])
+            if arguments[0] < 0 or arguments[0] > len(value):
+                raise ReferenceError("list insert index is out of range")
+            value.insert(arguments[0], arguments[1])
+            return value
+        if name == "remove":
+            if len(arguments) != 1:
+                raise ReferenceError("remove requires one value")
+            try:
+                value.remove(arguments[0])
+            except ValueError as error:
+                raise ReferenceError("list value was not found") from error
+            return value
+        if name == "clear":
+            if arguments:
+                raise ReferenceError("clear takes no arguments")
+            value.clear()
+            return value
+    if type(value) is dict:
+        from .collections import ensure_insertable
+
+        if name == "get":
+            if len(arguments) not in {1, 2} or not isinstance(arguments[0], str):
+                raise ReferenceError("get requires a string key and optional default")
+            return value.get(*arguments)
+        if name == "set":
+            if len(arguments) != 2 or not isinstance(arguments[0], str):
+                raise ReferenceError("set requires a string key and a value")
+            ensure_insertable(value, arguments[1])
+            value[arguments[0]] = arguments[1]
+            return arguments[1]
+        if name in {"delete", "hasKey"}:
+            if len(arguments) != 1 or not isinstance(arguments[0], str):
+                raise ReferenceError(f"{name} requires one string key")
+            if name == "hasKey":
+                return arguments[0] in value
+            if arguments[0] not in value:
+                raise ReferenceError(f"dictionary key not found: {arguments[0]}")
+            return value.pop(arguments[0])
+        if name == "clear":
+            if arguments:
+                raise ReferenceError("clear takes no arguments")
+            value.clear()
+            return value
     if name == "joinWith" and isinstance(value, list):
         if len(arguments) != 1 or not isinstance(arguments[0], str):
             raise ReferenceError("joinWith requires one string separator")
@@ -223,6 +355,19 @@ def _sort_key(value: Any) -> tuple[Any, ...]:
 
 
 def index_value(value: Any, key: Any) -> Any:
+    if type(value) is dict:
+        if not isinstance(key, str):
+            raise ReferenceError("dictionary keys must be strings")
+        if key not in value:
+            raise ReferenceError(f"dictionary key not found: {key}")
+        return value[key]
+    if type(value) is list:
+        if type(key) is not int or key < 0:
+            raise ReferenceError("list index must be a nonnegative integer")
+        try:
+            return value[key]
+        except IndexError as error:
+            raise ReferenceError("list index is out of range") from error
     if type(key) is int and key < 0:
         raise ReferenceError("index must be a nonnegative zero-based integer or string key")
     if type(key) is not int and not isinstance(key, str):
@@ -236,6 +381,15 @@ def index_value(value: Any, key: Any) -> Any:
             return value[key]
         except (IndexError, ValueError, TypeError) as error:
             raise ReferenceError(str(error)) from error
+    if isinstance(value, BindingSelection):
+        try:
+            if isinstance(key, str) and key in {
+                "decl_name", "parameter_name", "record_name", "decl_type", "type_name"
+            } and key in _binding_keys(value):
+                return getattr(value, key)
+            return semantic_index_value(semantic_view(value.value), key)
+        except (SemanticError, MatchValueError, IndexError, KeyError, TypeError) as error:
+            raise ReferenceError(str(error)) from error
     try:
         return semantic_index_value(value, key)
     except (SemanticError, IndexError, KeyError, TypeError) as error:
@@ -243,6 +397,14 @@ def index_value(value: Any, key: Any) -> Any:
 
 
 def field_names(value: Any) -> tuple[str, ...]:
+    if isinstance(value, FileSet):
+        return ("inputs", "diagnostics", "metadata_bytes", "length", "isEmpty")
+    if isinstance(value, FileBatch):
+        return ("index", "length", "inputs", "paths")
+    if isinstance(value, FileHandle):
+        return ("path", "profile_id", "source_revision", "snapshot_id", "state")
+    if isinstance(value, InputDescriptor):
+        return tuple(value.__dataclass_fields__)
     if isinstance(value, MatchSet):
         return ("length", "isEmpty", "unique", "sort", "filter")
     if isinstance(value, MatchValue):
@@ -256,13 +418,31 @@ def field_names(value: Any) -> tuple[str, ...]:
     if isinstance(value, MatchRow):
         return tuple(sorted(value.bindings)) + ("bindings", "source_match_index", "source_file")
     if isinstance(value, BindingSelection):
-        return (
+        metadata = (
             "name", "value", "scope", "source_file", "decl_name", "decl_type",
             "parameter_name", "record_name", "type_name", "location", "range",
             "symbol_identity", "documentation", "call_site",
         )
+        semantic_fields: tuple[str, ...] = ()
+        if value._binding_data is not None and value._index is not None:
+            try:
+                semantic_fields = tuple(
+                    name for name in semantic_field_names(semantic_view(value.value))
+                    if name not in _BINDING_SELECTOR_PROPERTIES
+                )
+            except (SemanticError, MatchValueError):
+                pass
+        return (*metadata, *semantic_fields)
     if isinstance(value, list):
-        return ("length", "isEmpty", "joinWith", "unique", "sort", "filter")
+        return ("length", "isEmpty", "push", "pop", "insert", "remove", "clear", "joinWith", "unique", "sort", "filter")
+    if type(value) is dict:
+        keys = tuple(str(key) for key in value)
+        properties = tuple(
+            name for name in ("keys", "values", "length", "isEmpty")
+            if name not in value
+        )
+        methods = ("get", "set", "delete", "hasKey", "clear")
+        return (*keys, *properties, *methods)
     if isinstance(value, FileSystemEntry):
         return tuple(sorted(_FILE_PROPERTIES | {"path"}))
     if isinstance(value, Mapping):
@@ -277,6 +457,24 @@ def field_names(value: Any) -> tuple[str, ...]:
 
 
 def inspect_value(value: Any) -> Any:
+    if isinstance(value, FileSet):
+        return {
+            "type": "FileSet",
+            "input_count": len(value),
+            "diagnostics": list(value.diagnostics[:20]),
+            "metadata_bytes": value.metadata_bytes,
+        }
+    if isinstance(value, FileBatch):
+        return {"type": "FileBatch", "index": value.index, "length": value.length,
+                "paths": list(value.paths[:20])}
+    if isinstance(value, FileHandle):
+        return {"type": "FileHandle", "lease_id": value.lease_id,
+                "path": value.path, "profile_id": value.profile_id,
+                "source_revision": value.source_revision, "state": value.state}
+    if isinstance(value, InputDescriptor):
+        return {"type": "InputDescriptor", "path": value.path,
+                "profile_id": value.profile_id,
+                "estimated_parse_bytes": value.estimated_parse_bytes}
     if isinstance(value, BindingSelection):
         result: dict[str, Any] = {
             "type": "BindingSelection",

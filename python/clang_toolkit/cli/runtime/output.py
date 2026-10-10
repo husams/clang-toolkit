@@ -22,8 +22,13 @@ def write_text(path: Path, text: str, *, append: bool = False) -> None:
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(text + "\n")
             return
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                         prefix=f".{path.name}.", delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as handle:
             temporary = handle.name
             handle.write(text + "\n")
             handle.flush()
@@ -41,7 +46,30 @@ class OutputSink:
         self.cwd = cwd
         self.destination = "stdout"
         self._handle: TextIO | None = None
+        self._output_limit: int | None = None
+        self._output_count = 0
+        self._last_output_count = 0
+        self.emission_count = 0
         self.configure(destination)
+
+    def begin_limited_output(self, maximum: int) -> None:
+        self._output_limit = maximum
+        self._output_count = 0
+
+    def end_limited_output(self) -> int:
+        self._last_output_count = self._output_count
+        self._output_limit = None
+        self._output_count = 0
+        return self._last_output_count
+
+    def check_output(self, text: str) -> None:
+        if self._output_limit is None:
+            return
+        if self._output_count + len(text) > self._output_limit:
+            raise OutputError(
+                f"batch output exceeds {self._output_limit} characters for one group"
+            )
+        self._output_count += len(text)
 
     def configure(self, destination: str, *, replace: bool = False) -> None:
         new_handle: TextIO | None = None
@@ -60,6 +88,9 @@ class OutputSink:
             old_handle.close()
 
     def emit(self, text: str) -> str:
+        self.check_output(text)
+        if self._output_limit is not None:
+            self.emission_count += 1
         if self._handle is None:
             return text
         try:

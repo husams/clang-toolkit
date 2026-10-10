@@ -39,7 +39,7 @@ public:
     return true;
   }
 
-  std::size_t pending_count() {
+  std::size_t pending_count() override {
     std::lock_guard lock(mutex_);
     return tasks_.size();
   }

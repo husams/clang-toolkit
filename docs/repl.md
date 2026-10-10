@@ -7,6 +7,8 @@ including escaped quotes and backslashes. An unfinished string also continues
 input. A mismatched closing delimiter is shown as an error that can be edited.
 Ctrl+C cancels the current input and returns to a fresh prompt; Ctrl+D exits.
 Bracketed paste preserves a multiline command for editing before submission.
+Enter on an empty or whitespace-only line returns to a fresh prompt without
+output or a history entry; type `help` to display help.
 
 `help` lists commands and expression forms with their purpose. `help match` and
 `match?` show equivalent local usage, arguments, defaults and examples, without
@@ -92,16 +94,24 @@ The grammar declares root and nested matcher-name roles separately from ordinary
 identifiers. Candidate providers select the appropriate catalog from those
 roles; the prompt_toolkit adapter only renders and inserts the resulting
 suggestions. Cursor handling and parser context are separate small modules.
-The catalog follows the [Clang matcher categories](https://clang.llvm.org/docs/LibASTMatchersReference.html#node-matchers).
-It is an extensible offline subset, not a complete Clang overload/type checker;
-manual matcher spellings remain available for the server to validate.
+The offline catalog is generated from LLVM 22.1.8's dynamic matcher registry:
+209 concrete node constructors and 483 names reachable through its completion
+contexts. Nested suggestions include `isExpansionInMainFile`,
+`isExpansionInSystemHeader`, and `isExpansionInFileMatching`.
+The server validates matcher availability and overloads against its own LLVM
+build. To refresh the snapshot for a toolchain, run
+`uv run python scripts/generate_matcher_catalog.py --llvm-config /path/to/llvm-config`.
+Manual matcher spellings remain available.
 
 The shared language definitions are in `python/clang_toolkit/cli/grammar.lark`.
 The editor token rule recognizes incomplete strings, invalid characters, and
-all three delimiter pairs. Lists are executable values; braces delimit scoped
-parsed-tree blocks with a terminal `yield`. See
+all three delimiter pairs. Lists and dictionaries are executable values;
+braces also delimit scoped parsed-tree blocks with a terminal `yield`,
+streamed match bodies and foreach statement bodies. See
 [parse/match expressions](parse-match-expressions.md) for executable examples.
-A multiline `foreach ... do` continues until `done`.
+A multiline value-expression `foreach ... do` continues until `done`;
+`foreach ... do { ... }` accepts statements separated by newlines or semicolons
+and submits when its closing `}` is entered.
 Retained match expressions collect rows through `StreamMatch` and spool large
 collections to temporary storage. `let` publishes its reusable value only after
 successful completion; failed or cancelled streams preserve earlier assignments.
@@ -119,16 +129,25 @@ ctk> let files = glob("*.cpp")
 ctk> $files.length
 ctk> $files.isEmpty
 ctk> $files.joinWith(", ")
-ctk> foreach $file in $files do "${file.basename}: ${file.size} bytes"
+ctk> foreach file in $files do "${file.basename}: ${file.size} bytes"
 ctk> match $f in $files
 ctk> let values = [1, 2, 3]
-ctk> let lines = foreach $x in $values do "value=${x}" done
+ctk> let lines = foreach x in $values do "value=${x}" done
 ctk> $lines
+ctk> foreach m in $r do {
+...> print $m.root.decl_name
+...> }
 ```
 
 A bare `$name`, `print $name`, or a template string displays a value. `foreach`
-may be single-line or `do`/`done` multiline; assignments capture its list
-without printing. `glob` resolves relative patterns against the session's
+may be single-line or `do`/`done` multiline; expression bodies return a list
+that assignments capture without printing. Brace bodies execute statements
+and produce only their explicit output. Declare the iterator with a plain name
+and reference it with `$name` inside its body. Legacy `$name` declarations also
+remain accepted. The iterator is scoped to its body. An empty `do {}` is a
+statement block; `do {} done` evaluates an empty dictionary for each item.
+For quoted field interpolation, use `${m.root.decl_name}`; short `$m` interpolation
+includes only the variable name. `glob` resolves relative patterns against the session's
 working directory and returns sorted `File` and `Directory` values. Printing
 one shows its relative path. Both expose `.size`, `.modified`, `.basename`,
 `.dirname`, `.absolute`, and `.parts`; `.size` and `.modified` are snapshots
@@ -137,6 +156,13 @@ than a recursive sum. The list exposes `.length`, `.isEmpty`, and
 `.joinWith(", ")`. Matching accepts files and rejects directories.
 Runtime names take precedence over environment and config-variable mappings;
 `$env.NAME` and `$config.NAME` select a source explicitly.
+
+For a selected match, `$lst[0].root.keys` lists readable AST fields, inherited
+declaration fields and available conveniences such as `decl_name`. Read class
+data with `$lst[0].root.record` or `$lst[0].root["record"]`, and its name with
+`$lst[0].root.qualified_name` or `$lst[0].root.decl_name`. The list omits the
+`node` carrier and serializer metadata, as well as absent or unrequested
+fields. Explicit `.node`, `.value` and availability inspection remain usable.
 
 Double-quoted strings interpolate `${name}` or the shorter `$name`, including
 in matcher string arguments. Use `\$name` or `\${name}` to leave a dollar

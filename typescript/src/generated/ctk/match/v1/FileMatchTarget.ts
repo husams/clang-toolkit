@@ -6,6 +6,8 @@ export interface FileMatchTarget {
   'compileArguments'?: (string)[];
   'workingDirectory'?: (string);
   'compilationDatabase'?: (string);
+  'expectedProfileId'?: (string);
+  'frozenProfile'?: (boolean);
 }
 
 export interface FileMatchTarget__Output {
@@ -13,4 +15,6 @@ export interface FileMatchTarget__Output {
   'compileArguments': (string)[];
   'workingDirectory': (string);
   'compilationDatabase': (string);
+  'expectedProfileId': (string);
+  'frozenProfile': (boolean);
 }

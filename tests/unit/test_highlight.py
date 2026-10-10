@@ -82,3 +82,12 @@ def test_runtime_keywords_and_boolean_value_colours():
     assert s["do"] == "class:keyword"
     assert styles("print true")["print"] == "class:keyword"
     assert s["true"] == "class:value"
+
+
+def test_multiline_foreach_done_remains_coloured_after_newline_comment():
+    text = 'foreach $m in $xs do $m\n# comment\ndone'
+    fragments = highlight(text)
+
+    assert "".join(fragment for _, fragment in fragments) == text
+    assert ("class:keyword", "done") in fragments
+    assert ("", "# comment") in fragments

@@ -19,6 +19,10 @@ from clang_toolkit.match_values import (
     BindingSelection, MatchRow, MatchValue, MatchValueError, NativeBindingCollection,
     NativeMatchCollection, ParsedTree,
 )
+from clang_toolkit.resources import (
+    FileBatch, FileHandle, FileSet, InputDescriptor, ResourceError, ResourceScope,
+    partition_inputs, require_complete,
+)
 
 __all__ = [
     "AnalysisError",
@@ -32,6 +36,14 @@ __all__ = [
     "MatchValueError",
     "NativeBindingCollection",
     "ParsedTree",
+    "FileBatch",
+    "FileHandle",
+    "FileSet",
+    "InputDescriptor",
+    "ResourceError",
+    "ResourceScope",
+    "partition_inputs",
+    "require_complete",
     "ConfigurationError",
     "CursorError",
     "NetworkConfig",

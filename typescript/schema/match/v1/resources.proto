@@ -1,0 +1,148 @@
+syntax = "proto3";
+package ctk.match.v1;
+import "google/protobuf/timestamp.proto";
+
+// Frozen serving-machine compilation context. profile_id is computed by the
+// server from normalized effective compiler arguments/toolchain and directory.
+// A descriptor must be revalidated at acquisition; discovery does not pin ASTs.
+message CompilationProfile {
+  string profile_id = 1;
+  repeated string compile_arguments = 2;
+  string working_directory = 3;
+  string compilation_database = 4;
+  // Flags have been resolved and normalized by discovery; database is
+  // provenance only and must not be rediscovered or re-appended on acquisition.
+  bool frozen = 5;
+}
+message InputDescriptor {
+  string file_path = 1;
+  CompilationProfile profile = 2;
+  uint64 source_bytes = 3;
+  uint64 estimated_parse_bytes = 4;
+}
+message DiscoverFilesRequest {
+  // Server paths, directories or globs. Stable ordered metadata-only discovery.
+  repeated string paths = 1;
+  CompilationProfile profile = 2;
+  // Optional explicit manifest validated by the server; never interpreted as
+  // paths on the client machine. Distinct profiles are distinct inputs.
+  repeated InputDescriptor inputs = 3;
+  optional uint64 max_inputs = 4;
+  optional uint64 max_metadata_bytes = 5;
+}
+message DiscoverFilesResponse {
+  repeated InputDescriptor inputs = 1;
+  repeated string diagnostics = 2;
+  uint64 metadata_bytes = 3;
+}
+enum FileState {
+  FILE_STATE_UNSPECIFIED = 0;
+  FILE_STATE_OPENING = 1;
+  FILE_STATE_OPEN = 2;
+  FILE_STATE_PINNED = 3;
+  FILE_STATE_CLOSING = 4;
+  FILE_STATE_FAILED = 5;
+  FILE_STATE_CLOSED = 6;
+}
+message FileInfo {
+  string lease_id = 1;
+  InputDescriptor input = 2;
+  string snapshot_id = 3;
+  string source_revision = 4;
+  uint64 explicit_leases = 5;
+  uint64 cursor_count = 6;
+  uint64 active_work = 7;
+  // Native estimates shared by snapshots, not disjoint per-owner RSS.
+  uint64 accounted_native_bytes = 8;
+  FileState state = 9;
+  repeated string session_ids = 10;
+  string resource_scope_id = 11;
+  google.protobuf.Timestamp expires_at = 12;
+  // Present for ParsedTree's paired lease; ordinary FileHandle has no cursor.
+  string root_session_id = 13;
+}
+message OpenFileRequest {
+  InputDescriptor input = 1;
+  string resource_scope_id = 2;
+}
+message ListFilesRequest {}
+message ListFilesResponse { repeated FileInfo files = 1; }
+message DescribeFileRequest {
+  oneof handle { string lease_id = 1; string session_id = 2; }
+}
+message CloseFileRequest {
+  oneof handle { string lease_id = 1; string session_id = 2; }
+}
+message CloseFileResponse {
+  uint64 released_leases = 1;
+  uint64 closed_cursors = 2;
+  repeated FileInfo remaining = 3;
+}
+message CloseAllFilesRequest {}
+message RefreshFileRequest {
+  oneof handle { string lease_id = 1; string session_id = 2; }
+  string resource_scope_id = 3;
+}
+message FileHandleTarget { string lease_id = 1; }
+
+enum ResourceScopeState {
+  RESOURCE_SCOPE_STATE_UNSPECIFIED = 0;
+  RESOURCE_SCOPE_STATE_OPEN = 1;
+  RESOURCE_SCOPE_STATE_CANCELLING = 2;
+  RESOURCE_SCOPE_STATE_RELEASING = 3;
+  RESOURCE_SCOPE_STATE_RELEASED = 4;
+  RESOURCE_SCOPE_STATE_EXPIRED = 5;
+}
+message OpenResourceScopeRequest {
+  // Reserve the whole group atomically before any native file work starts.
+  repeated InputDescriptor inputs = 1;
+  optional uint64 memory_bytes = 2;
+  optional uint32 jobs = 3;
+  // Batch scopes relinquish only reuse they acquired, never global pruning.
+  bool transient = 4;
+  optional uint64 ttl_ms = 5;
+}
+message ResourceScopeRequest { string resource_scope_id = 1; }
+message ResourceScopeInfo {
+  string resource_scope_id = 1;
+  ResourceScopeState state = 2;
+  uint64 admitted_inputs = 3;
+  uint64 reserved_bytes = 4;
+  uint64 accounted_native_bytes = 5;
+  uint64 file_leases = 6;
+  uint64 result_cursors = 7;
+  uint64 active_work = 8;
+  uint64 result_buffer_bytes = 9;
+  uint64 memory_limit_bytes = 10;
+  uint32 jobs = 11;
+  bool transient = 12;
+  google.protobuf.Timestamp expires_at = 13;
+  // Terminal acknowledgment means no scope-owned work/lease/cursor remains.
+  // Unknown/forgotten scopes return NOT_FOUND, never fabricated cleanup proof.
+  bool cleanup_acknowledged = 14;
+  uint64 peak_accounted_bytes = 15;
+  uint64 peak_reserved_bytes = 16;
+}
+message ResourceStatusRequest {}
+message ResourceStatusResponse {
+  uint64 opened_inputs = 1;
+  uint64 explicit_file_leases = 2;
+  uint64 result_cursors = 3;
+  uint64 active_work = 4;
+  uint64 accounted_native_bytes = 5;
+  uint64 reserved_bytes = 6;
+  uint64 result_buffer_bytes = 7;
+  uint64 queued_work = 8;
+  uint64 reusable_snapshots = 9;
+  uint64 reusable_memory_bytes = 10;
+  optional uint64 resident_memory_bytes = 11;
+  uint64 max_inputs = 12;
+  uint64 max_memory_bytes = 13;
+  uint64 max_result_rows = 14;
+  uint64 max_result_bytes = 15;
+  uint64 max_manifest_inputs = 16;
+  uint64 max_manifest_bytes = 17;
+  repeated ResourceScopeInfo scopes = 18;
+  // Legacy QueryService admission is a separate domain until unified.
+  bool legacy_accounting_separate = 19;
+}

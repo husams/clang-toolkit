@@ -209,9 +209,9 @@ def query_native_values(values_fixture):
             'save $rows to "values-snapshot.yaml"',
             'load "values-snapshot.yaml" into $snapshot',
             'print "DETACHED_COUNT=${snapshot.length}"',
-            'print $snapshot[0].source_file',
-            'print "DETACHED_FIRST=${snapshot[0].bindings.f.node.function_decl.function.declarator.value.named.qualified_name}"',
-            'let detached_names = foreach $row in $snapshot do $row.bindings.f.node.function_decl.function.declarator.value.named.qualified_name done',
+            'print $snapshot[0].bindings.f.location.file',
+            'print "DETACHED_FIRST=${snapshot[0].bindings.f.function_decl.function.declarator.value.named.qualified_name}"',
+            'let detached_names = foreach $row in $snapshot do $row.bindings.f.function_decl.function.declarator.value.named.qualified_name done',
             'print "DETACHED_ITERATION=${detached_names.length}"',
         ]
     )

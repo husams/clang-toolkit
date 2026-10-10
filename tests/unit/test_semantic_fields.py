@@ -79,6 +79,7 @@ def test_repeated_and_map_views_have_cardinality_indexing_and_iteration() -> Non
     assert property_value(index_value(bindings, "f"), "is_complete") is False
     assert property_value(index_value(bindings, "length"), "is_complete") is False
     assert set(bindings) == {"f", "length"}
+    assert set(property_value(bindings, "keys")) == {"f", "length"}
     scopes = property_value(index_value(bindings, "f"), "supported_scopes")
     assert len(scopes) == 1
     assert str(index_value(scopes, 0)) == "BINDING_MATCH_SCOPE_ROOT_ONLY"
@@ -86,6 +87,49 @@ def test_repeated_and_map_views_have_cardinality_indexing_and_iteration() -> Non
         index_value(scopes, 1)
     with pytest.raises(ReferenceError, match="keys must be strings"):
         index_value(bindings, 0)
+    with pytest.raises(ReferenceError, match="unknown semantic map key"):
+        index_value(bindings, "missing")
+
+
+def test_semantic_keys_lists_only_readable_fields_and_preserves_read_only_views() -> None:
+    binding = match_result_pb2.MatchBinding()
+    binding.node.translation_unit_decl.SetInParent()
+    binding.is_complete = False
+    binding.availability.add(
+        field_path="MatchBinding.unsupported",
+        state=common_pb2.FIELD_STATE_UNAVAILABLE,
+        reason="not serialized",
+    )
+    semantic = semantic_view(binding)
+
+    keys = property_value(semantic, "keys")
+    assert {"node", "is_complete", "supported_scopes", "availability"} <= set(keys)
+    assert "unsupported" not in keys
+    assert "keys" not in keys
+    assert not {"hasField", "fieldState", "fieldOr"} & set(keys)
+    assert property_value(semantic, "is_complete") is False
+    keys.append("caller_local_only")
+    assert "caller_local_only" not in property_value(semantic, "keys")
+    with pytest.raises(ReferenceError, match="unknown semantic field"):
+        index_value(semantic, "keys")
+
+    node = property_value(semantic, "node")
+    node_keys = property_value(node, "keys")
+    assert "translation_unit_decl" in node_keys
+    assert "declarations" in node_keys  # readable inherited declaration property
+    assert index_value(node_keys, node_keys.index("translation_unit_decl")) == "translation_unit_decl"
+
+
+def test_semantic_keys_respect_unrequested_fields() -> None:
+    binding = match_result_pb2.MatchBinding()
+    binding.node.translation_unit_decl.SetInParent()
+    binding.availability.add(
+        field_path="MatchBinding.is_complete",
+        state=common_pb2.FIELD_STATE_UNREQUESTED,
+        reason="not requested",
+    )
+    binding_view = semantic_view(binding)
+    assert "is_complete" not in property_value(binding_view, "keys")
 
 
 def test_explicit_row_binding_map_resolves_collisions_and_collection_value_needs_index() -> None:
@@ -94,8 +138,10 @@ def test_explicit_row_binding_map_resolves_collisions_and_collection_value_needs
     row.bindings["name"].CopyFrom(_binding())
     rows, _owner = _collection(row)
     selected_row = rows[0]
-    explicit = property_value(property_value(selected_row, "bindings"), "length")
+    bindings = property_value(selected_row, "bindings")
+    explicit = property_value(bindings, "length")
     assert explicit == 2
+    assert set(property_value(bindings, "keys")) == {"bindings", "name"}
     selector = index_value(property_value(selected_row, "bindings"), "bindings")
     assert selector.name == "bindings"
     assert property_value(selector, "name") == "bindings"

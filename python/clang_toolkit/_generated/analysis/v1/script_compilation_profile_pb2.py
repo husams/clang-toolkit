@@ -24,13 +24,13 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n,analysis/v1/script_compilation_profile.proto\x12\x0f\x63tk.analysis.v1\"n\n\x18ScriptCompilationProfile\x12\x19\n\x11working_directory\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x1c\n\x14\x63ompilation_database\x18\x03 \x01(\tb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n,analysis/v1/script_compilation_profile.proto\x12\x0f\x63tk.analysis.v1\"\x9b\x01\n\x18ScriptCompilationProfile\x12\x19\n\x11working_directory\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x1c\n\x14\x63ompilation_database\x18\x03 \x01(\t\x12\x0e\n\x06\x66rozen\x18\x04 \x01(\x08\x12\x1b\n\x13\x65xpected_profile_id\x18\x05 \x01(\tb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'analysis.v1.script_compilation_profile_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SCRIPTCOMPILATIONPROFILE']._serialized_start=65
-  _globals['_SCRIPTCOMPILATIONPROFILE']._serialized_end=175
+  _globals['_SCRIPTCOMPILATIONPROFILE']._serialized_start=66
+  _globals['_SCRIPTCOMPILATIONPROFILE']._serialized_end=221
 # @@protoc_insertion_point(module_scope)

@@ -157,9 +157,16 @@ def _bounded_inspection(value: Any) -> Any:
     """Limit the total scalar content of an inspect preview before JSON encoding."""
     budget = [16_000]
 
-    def walk(item: Any) -> Any:
+    def walk(item: Any, depth: int = 0) -> Any:
         if budget[0] <= 0:
             return "… <truncated>"
+        if depth >= _PREVIEW_DEPTH:
+            return {"…": "maximum depth reached"}
+        if isinstance(item, bytes):
+            try:
+                item = item.decode("utf-8")
+            except UnicodeDecodeError:
+                item = repr(item)
         if isinstance(item, str):
             limit = min(len(item), budget[0], _PREVIEW_STRING_CHARS)
             result = item[:limit]
@@ -168,6 +175,9 @@ def _bounded_inspection(value: Any) -> Any:
         if isinstance(item, dict):
             result: dict[str, Any] = {}
             for key_index, (key, child) in enumerate(item.items()):
+                if key_index >= _PREVIEW_ITEMS:
+                    result["truncated_items"] = len(item) - key_index
+                    break
                 if budget[0] <= 0:
                     result["…"] = "truncated"
                     break
@@ -177,15 +187,18 @@ def _bounded_inspection(value: Any) -> Any:
                 if len(text_key) > key_limit:
                     selected_key += f"… [key {key_index} truncated]"
                 budget[0] -= len(selected_key)
-                result[selected_key] = walk(child)
+                result[selected_key] = walk(child, depth + 1)
             return result
         if isinstance(item, list):
             result = []
-            for child in item:
+            for index, child in enumerate(item):
+                if index >= _PREVIEW_ITEMS:
+                    result.append({"truncated_items": len(item) - index})
+                    break
                 if budget[0] <= 0:
                     result.append("… <truncated>")
                     break
-                result.append(walk(child))
+                result.append(walk(child, depth + 1))
             return result
         if item is None or isinstance(item, bool | int | float):
             return item
@@ -246,6 +259,7 @@ class MatchSet:
 
 def render(value: Any) -> str:
     """Return a stable, human-readable result for the REPL output sink."""
+    from clang_toolkit.resources import FileBatch, FileHandle, FileSet, InputDescriptor
     from .semantic import EnumValue, is_semantic_view, display_value
 
     if isinstance(value, datetime):
@@ -259,6 +273,14 @@ def render(value: Any) -> str:
         return rendered if len(rendered) <= _MAX_RENDER_CHARS else rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
     if isinstance(value, FileSystemEntry):
         return value.path
+    if isinstance(value, FileSet):
+        return f"FileSet({len(value)} inputs, {len(value.diagnostics)} diagnostics)"
+    if isinstance(value, FileBatch):
+        return f"FileBatch({value.index}, {value.length} inputs)"
+    if isinstance(value, InputDescriptor):
+        return f"{value.path} [{value.profile_id or 'default profile'}]"
+    if isinstance(value, FileHandle):
+        return f"FileHandle({value.path}, lease {value.lease_id})"
     if isinstance(value, MatchSet):
         return _render_sequence(value.rows)
     if isinstance(value, MatchValue):
@@ -272,9 +294,25 @@ def render(value: Any) -> str:
     if isinstance(value, ParsedTree):
         return f"parsed {value.path}"
     if isinstance(value, BindingSelection):
-        return f"binding {value.name}"
+        if value._index is None or value._binding_data is None:
+            return f"binding {value.name}"
+        from .semantic import view
+        return render(view(value.value))
     if isinstance(value, list):
         return _render_sequence(value)
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return repr(value)
+    if type(value) is dict:
+        import json
+
+        rendered = json.dumps(
+            _bounded_inspection(value),
+            sort_keys=True, ensure_ascii=False,
+        )
+        return rendered if len(rendered) <= _MAX_RENDER_CHARS else rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, MatcherExpr):

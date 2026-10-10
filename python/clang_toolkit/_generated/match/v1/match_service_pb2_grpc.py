@@ -6,6 +6,7 @@ from . import match_service_pb2 as match_dot_v1_dot_match__service__pb2
 from . import match_stream_pb2 as match_dot_v1_dot_match__stream__pb2
 from . import parse_request_pb2 as match_dot_v1_dot_parse__request__pb2
 from . import parse_response_pb2 as match_dot_v1_dot_parse__response__pb2
+from . import resources_pb2 as match_dot_v1_dot_resources__pb2
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -36,6 +37,66 @@ class MatchServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.DiscoverFiles = channel.unary_unary(
+                '/ctk.match.v1.MatchService/DiscoverFiles',
+                request_serializer=match_dot_v1_dot_resources__pb2.DiscoverFilesRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.DiscoverFilesResponse.FromString,
+                _registered_method=True)
+        self.OpenFile = channel.unary_unary(
+                '/ctk.match.v1.MatchService/OpenFile',
+                request_serializer=match_dot_v1_dot_resources__pb2.OpenFileRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.FileInfo.FromString,
+                _registered_method=True)
+        self.ListFiles = channel.unary_unary(
+                '/ctk.match.v1.MatchService/ListFiles',
+                request_serializer=match_dot_v1_dot_resources__pb2.ListFilesRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.ListFilesResponse.FromString,
+                _registered_method=True)
+        self.DescribeFile = channel.unary_unary(
+                '/ctk.match.v1.MatchService/DescribeFile',
+                request_serializer=match_dot_v1_dot_resources__pb2.DescribeFileRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.FileInfo.FromString,
+                _registered_method=True)
+        self.CloseFile = channel.unary_unary(
+                '/ctk.match.v1.MatchService/CloseFile',
+                request_serializer=match_dot_v1_dot_resources__pb2.CloseFileRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.CloseFileResponse.FromString,
+                _registered_method=True)
+        self.CloseAllFiles = channel.unary_unary(
+                '/ctk.match.v1.MatchService/CloseAllFiles',
+                request_serializer=match_dot_v1_dot_resources__pb2.CloseAllFilesRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.CloseFileResponse.FromString,
+                _registered_method=True)
+        self.RefreshFile = channel.unary_unary(
+                '/ctk.match.v1.MatchService/RefreshFile',
+                request_serializer=match_dot_v1_dot_resources__pb2.RefreshFileRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.FileInfo.FromString,
+                _registered_method=True)
+        self.OpenResourceScope = channel.unary_unary(
+                '/ctk.match.v1.MatchService/OpenResourceScope',
+                request_serializer=match_dot_v1_dot_resources__pb2.OpenResourceScopeRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.ResourceScopeInfo.FromString,
+                _registered_method=True)
+        self.DescribeResourceScope = channel.unary_unary(
+                '/ctk.match.v1.MatchService/DescribeResourceScope',
+                request_serializer=match_dot_v1_dot_resources__pb2.ResourceScopeRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.ResourceScopeInfo.FromString,
+                _registered_method=True)
+        self.CancelResourceScope = channel.unary_unary(
+                '/ctk.match.v1.MatchService/CancelResourceScope',
+                request_serializer=match_dot_v1_dot_resources__pb2.ResourceScopeRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.ResourceScopeInfo.FromString,
+                _registered_method=True)
+        self.ReleaseResourceScope = channel.unary_unary(
+                '/ctk.match.v1.MatchService/ReleaseResourceScope',
+                request_serializer=match_dot_v1_dot_resources__pb2.ResourceScopeRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.ResourceScopeInfo.FromString,
+                _registered_method=True)
+        self.ResourceStatus = channel.unary_unary(
+                '/ctk.match.v1.MatchService/ResourceStatus',
+                request_serializer=match_dot_v1_dot_resources__pb2.ResourceStatusRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_resources__pb2.ResourceStatusResponse.FromString,
+                _registered_method=True)
         self.Parse = channel.unary_unary(
                 '/ctk.match.v1.MatchService/Parse',
                 request_serializer=match_dot_v1_dot_parse__request__pb2.ParseRequest.SerializeToString,
@@ -80,6 +141,78 @@ class MatchServiceStub:
 
 class MatchServiceServicer:
     """Missing associated documentation comment in .proto file."""
+
+    def DiscoverFiles(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def OpenFile(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListFiles(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DescribeFile(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CloseFile(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CloseAllFiles(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RefreshFile(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def OpenResourceScope(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DescribeResourceScope(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CancelResourceScope(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReleaseResourceScope(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResourceStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def Parse(self, request, context):
         """Acquire a pinned immutable tree without evaluating a matcher. The opaque
@@ -161,6 +294,66 @@ class MatchServiceServicer:
 
 def add_MatchServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'DiscoverFiles': grpc.unary_unary_rpc_method_handler(
+                    servicer.DiscoverFiles,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.DiscoverFilesRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.DiscoverFilesResponse.SerializeToString,
+            ),
+            'OpenFile': grpc.unary_unary_rpc_method_handler(
+                    servicer.OpenFile,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.OpenFileRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.FileInfo.SerializeToString,
+            ),
+            'ListFiles': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListFiles,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.ListFilesRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.ListFilesResponse.SerializeToString,
+            ),
+            'DescribeFile': grpc.unary_unary_rpc_method_handler(
+                    servicer.DescribeFile,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.DescribeFileRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.FileInfo.SerializeToString,
+            ),
+            'CloseFile': grpc.unary_unary_rpc_method_handler(
+                    servicer.CloseFile,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.CloseFileRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.CloseFileResponse.SerializeToString,
+            ),
+            'CloseAllFiles': grpc.unary_unary_rpc_method_handler(
+                    servicer.CloseAllFiles,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.CloseAllFilesRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.CloseFileResponse.SerializeToString,
+            ),
+            'RefreshFile': grpc.unary_unary_rpc_method_handler(
+                    servicer.RefreshFile,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.RefreshFileRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.FileInfo.SerializeToString,
+            ),
+            'OpenResourceScope': grpc.unary_unary_rpc_method_handler(
+                    servicer.OpenResourceScope,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.OpenResourceScopeRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.ResourceScopeInfo.SerializeToString,
+            ),
+            'DescribeResourceScope': grpc.unary_unary_rpc_method_handler(
+                    servicer.DescribeResourceScope,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.ResourceScopeRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.ResourceScopeInfo.SerializeToString,
+            ),
+            'CancelResourceScope': grpc.unary_unary_rpc_method_handler(
+                    servicer.CancelResourceScope,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.ResourceScopeRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.ResourceScopeInfo.SerializeToString,
+            ),
+            'ReleaseResourceScope': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReleaseResourceScope,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.ResourceScopeRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.ResourceScopeInfo.SerializeToString,
+            ),
+            'ResourceStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResourceStatus,
+                    request_deserializer=match_dot_v1_dot_resources__pb2.ResourceStatusRequest.FromString,
+                    response_serializer=match_dot_v1_dot_resources__pb2.ResourceStatusResponse.SerializeToString,
+            ),
             'Parse': grpc.unary_unary_rpc_method_handler(
                     servicer.Parse,
                     request_deserializer=match_dot_v1_dot_parse__request__pb2.ParseRequest.FromString,
@@ -211,6 +404,330 @@ def add_MatchServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class MatchService:
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def DiscoverFiles(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/DiscoverFiles',
+            match_dot_v1_dot_resources__pb2.DiscoverFilesRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.DiscoverFilesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def OpenFile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/OpenFile',
+            match_dot_v1_dot_resources__pb2.OpenFileRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.FileInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListFiles(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/ListFiles',
+            match_dot_v1_dot_resources__pb2.ListFilesRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.ListFilesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DescribeFile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/DescribeFile',
+            match_dot_v1_dot_resources__pb2.DescribeFileRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.FileInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CloseFile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/CloseFile',
+            match_dot_v1_dot_resources__pb2.CloseFileRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.CloseFileResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CloseAllFiles(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/CloseAllFiles',
+            match_dot_v1_dot_resources__pb2.CloseAllFilesRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.CloseFileResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RefreshFile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/RefreshFile',
+            match_dot_v1_dot_resources__pb2.RefreshFileRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.FileInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def OpenResourceScope(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/OpenResourceScope',
+            match_dot_v1_dot_resources__pb2.OpenResourceScopeRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.ResourceScopeInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DescribeResourceScope(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/DescribeResourceScope',
+            match_dot_v1_dot_resources__pb2.ResourceScopeRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.ResourceScopeInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CancelResourceScope(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/CancelResourceScope',
+            match_dot_v1_dot_resources__pb2.ResourceScopeRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.ResourceScopeInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReleaseResourceScope(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/ReleaseResourceScope',
+            match_dot_v1_dot_resources__pb2.ResourceScopeRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.ResourceScopeInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResourceStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/ResourceStatus',
+            match_dot_v1_dot_resources__pb2.ResourceStatusRequest.SerializeToString,
+            match_dot_v1_dot_resources__pb2.ResourceStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def Parse(request,

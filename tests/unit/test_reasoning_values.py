@@ -136,7 +136,9 @@ def test_binding_aggregate_skips_members_without_the_label_and_inspects(tmp_path
     snapshot_path = tmp_path / "rows.yaml"
     save(collection, snapshot_path)
     detached = load(snapshot_path)
-    assert detached.rows[0]["source_file"] == "a.cpp"
+    assert set(detached[0]) == {"bindings"}
+    assert set(detached[0]["bindings"]) == {"f"}
+    assert set(detached[1]["bindings"]) == {"g"}
 
 
 def test_collection_sort_orders_numbers_numerically_and_mixed_types_deterministically():
@@ -248,7 +250,7 @@ def test_detached_match_snapshots_keep_count_index_iteration_and_field_access(tm
     assert property_value(restored, "length") == 2
     row = index_value(restored, 1)
     assert property_value(property_value(property_value(property_value(row, "bindings"), "f"), "node"), "declaration")["name"] == "second"
-    assert len(restored.rows) == 2
+    assert len(restored) == 2
 
 
 def test_field_state_distinguishes_unrequested_and_field_or_only_defaults_absence():

@@ -1,5 +1,7 @@
-#include "ctk/clang/tooling.hpp"
 #include "ctk/clang/compilation_database.hpp"
+#include "ctk/clang/file_discovery.hpp"
+#include "ctk/clang/snapshot_resource_scope.hpp"
+#include "ctk/clang/tooling.hpp"
 
 #include "ctk/cache/compilation_context.hpp"
 #include "ctk/cache/snapshot_cache.hpp"
@@ -83,6 +85,18 @@ std::string normalized_path(const FileInput &file) {
   if (path.is_relative() && !file.working_directory.empty())
     path = std::filesystem::path(file.working_directory) / path;
   return path.lexically_normal().string();
+}
+
+FileInput frozen_input(const FileInput &file) {
+  ctk::match::v1::InputDescriptor input;
+  input.set_file_path(file.path);
+  auto *profile = input.mutable_profile();
+  profile->set_working_directory(file.working_directory);
+  profile->set_compilation_database(file.compilation_database);
+  profile->set_frozen(file.compilation_profile_frozen);
+  for (const auto &argument : file.compile_arguments)
+    profile->add_compile_arguments(argument);
+  return resolve_file_descriptor(input).file;
 }
 
 std::uint64_t ast_memory(const clang::ASTUnit &unit) {
@@ -336,12 +350,11 @@ public:
     if (!owner->reusable) {
       loaded.inputs.clear();
       if (!invalid_main_buffer) {
-        loaded.inputs.push_back(
-            {normalized_path(file),
-             ctk::cache::InputKind::File,
-             sha256_hex(main_buffer),
-             "native-source-buffer-v1",
-             {}});
+        loaded.inputs.push_back({normalized_path(file),
+                                 ctk::cache::InputKind::File,
+                                 sha256_hex(main_buffer),
+                                 "native-source-buffer-v1",
+                                 {}});
       }
     }
     loaded.reusable = owner->reusable;
@@ -640,7 +653,9 @@ private:
   std::shared_ptr<ctk::storage::Store> store_;
 };
 
-class NativeQueryEngine final : public IQueryEngine {
+class NativeQueryEngine final
+    : public IQueryEngine,
+      public std::enable_shared_from_this<NativeQueryEngine> {
   class Callback final
       : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
@@ -693,8 +708,8 @@ public:
         cache_(loader_) {}
 
   ctk::cache::SnapshotPtr acquire_snapshot(const FileInput &file) override {
-    const auto resolved = resolve_compilation_command(file);
-    return cache_.acquire(normalized_path(resolved), cache_context(resolved));
+    const auto resolved = frozen_input(file);
+    return acquire_owned(resolved, cache_context(resolved));
   }
 
   ctk::match::v1::CacheResources resources() const override {
@@ -729,7 +744,7 @@ public:
                     const MatchCallback &on_match) override {
     QueryResult result;
     try {
-      const auto file = resolve_compilation_command(input);
+      const auto file = frozen_input(input);
       auto context = cache_context(file);
       result.profile = context.digest();
       clang::ast_matchers::dynamic::Diagnostics diagnostics;
@@ -748,14 +763,16 @@ public:
         result.message = "query cancelled";
         return result;
       }
-      auto snapshot = cache_.acquire(normalized_path(file), context);
+      auto snapshot = acquire_owned(file, context);
       std::unique_lock execution(snapshot->execution_mutex());
       const auto owner =
           std::static_pointer_cast<const AstSnapshotOwner>(snapshot->owner);
       if (!owner || !owner->unit)
         throw std::runtime_error(
             "snapshot cache returned an invalid AST owner");
-      retain_snapshot(file, context, snapshot);
+      if (!SnapshotResourceScope::current() ||
+          SnapshotResourceScope::current()->transient_owner().empty())
+        retain_snapshot(file, context, snapshot);
       result.snapshot_retained = true;
       result.storage_hit = owner->storage_loaded;
       result.storage_message = owner->storage_message;
@@ -789,6 +806,27 @@ public:
   }
 
 private:
+  ctk::cache::SnapshotPtr
+  acquire_owned(const FileInput &file,
+                const ctk::cache::CompilationContext &context) {
+    const auto observer = SnapshotResourceScope::current();
+    const auto transient_owner =
+        observer ? observer->transient_owner() : std::string{};
+    const auto path = normalized_path(file);
+    auto snapshot = cache_.acquire(path, context, {}, transient_owner);
+    if (observer) {
+      std::function<void()> release;
+      if (!transient_owner.empty()) {
+        auto self = shared_from_this();
+        release = [self, path, snapshot, transient_owner] {
+          self->cache_.release_transient(path, snapshot, transient_owner);
+        };
+      }
+      observer->acquired(file, snapshot, std::move(release));
+    }
+    return snapshot;
+  }
+
   void retain_snapshot(const FileInput &file,
                        const ctk::cache::CompilationContext &context,
                        ctk::cache::SnapshotPtr snapshot) {
@@ -814,6 +852,13 @@ private:
 };
 
 } // namespace
+
+std::string resolved_compilation_profile(const FileInput &file) {
+  auto context = cache_context(file);
+  context.input_spelling = "<compilation-profile>";
+  context.reusable = true;
+  return context.digest();
+}
 
 std::shared_ptr<IQueryEngine> make_cached_query_engine() {
   return std::make_shared<NativeQueryEngine>();

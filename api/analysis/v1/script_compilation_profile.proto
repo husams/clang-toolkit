@@ -6,4 +6,8 @@ message ScriptCompilationProfile {
   string working_directory = 1;
   repeated string compile_arguments = 2;
   string compilation_database = 3;
+  // Frozen serving-machine flags and optional compilation-profile identity.
+  // The profile can be used for explicit parse/file expressions in a scope.
+  bool frozen = 4;
+  string expected_profile_id = 5;
 }

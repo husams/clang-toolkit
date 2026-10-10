@@ -25,6 +25,7 @@ if(CTK_WITH_CLANG)
   target_sources(ctk_tests PRIVATE
     test_clang_query.cpp
     test_compilation_database.cpp
+    test_file_discovery.cpp
     test_clang_query_regressions.cpp
     test_clang_serializer_regressions.cpp
     test_statement_semantics.cpp

@@ -1,0 +1,22 @@
+import "lib/collections.ctk"
+
+let d1 = {}
+let d2 = {a: 1, b: 2}
+let a1 = []
+let a2 = [1, 2, 3]
+
+set d2['a'] = 10
+delete d2['b']
+push a2, 4
+let last = pop a2
+
+let parts = split "ss/ddd/ddd" by $path_separator
+let csv = join a2 with $csv_separator
+print $csv
+print $last
+print $d2['a']
+print $d2.keys
+print join parts with "|"
+
+let selected = namedFunction("main")
+print $selected

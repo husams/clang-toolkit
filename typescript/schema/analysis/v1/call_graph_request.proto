@@ -11,4 +11,5 @@ message CallGraphRequest {
   ValueProjection projection = 6;
   // Only emit main-file callable declarations and edges between them.
   bool main_file_only = 7;
+  string resource_scope_id = 8;
 }

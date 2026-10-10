@@ -12,7 +12,8 @@ public:
   ~CfgController();
   ctk::clang_layer::CfgResult
   build(const ctk::analysis::v1::CfgRequest &,
-        const ctk::clang_layer::IMatchBackend::Checkpoint &);
+        const ctk::clang_layer::IMatchBackend::Checkpoint &,
+        const std::string &owner = "local-user");
   void stop_admission();
 
 private:

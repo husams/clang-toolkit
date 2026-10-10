@@ -301,6 +301,40 @@ TEST_F(ScriptNative, ExplicitParseUsesProfileWithoutDefaultFile) {
   EXPECT_EQ(result.response.emissions(0).value().scalar().integer(), 1);
   EXPECT_EQ(result.response.emissions(1).value().scalar().integer(), 1);
 }
+TEST_F(ScriptNative, RelativeScriptPathSurvivesDatabaseCommandDirectoryFreeze) {
+  const auto project = directory.path() / "project";
+  const auto build = project / "build";
+  const auto source = project / "src";
+  std::filesystem::create_directories(build);
+  std::filesystem::create_directories(source);
+  std::ofstream(source / "profile.cc")
+      << "#ifndef SCRIPT_DB_FLAG\n#error missing database flag\n#endif\n"
+         "int selected() { return 1; }\n";
+  std::ofstream database(project / "compile_commands.json");
+  database << "[{\"directory\":\"" << build.generic_string()
+           << "\",\"arguments\":[\"clang++\",\"-DSCRIPT_DB_FLAG\","
+              "\"-c\",\"../src/profile.cc\"],"
+              "\"file\":\"../src/profile.cc\"}]";
+  database.close();
+  request.clear_file();
+  request.mutable_profile()->set_working_directory(project.string());
+  request.mutable_profile()->set_compilation_database(
+      (project / "compile_commands.json").string());
+  request.set_source(R"script(
+    let tree = parse "src/profile.cc";
+    let selected = match functionDecl(hasName("selected")) in $tree;
+    emit tree;
+    emit count(selected);
+  )script");
+
+  ScriptController controller;
+  const auto result = controller.run(request, [] { return true; });
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  ASSERT_EQ(result.response.emissions_size(), 2);
+  EXPECT_EQ(result.response.emissions(0).value().tree().file().file_path(),
+            "src/profile.cc");
+  EXPECT_EQ(result.response.emissions(1).value().scalar().integer(), 1);
+}
 TEST_F(ScriptNative, ContinueRejectsUnsupportedBindingScopeAndMissingBind) {
   std::ofstream(directory.path() / "fixture.cc")
       << "struct B {}; struct D : B {};";

@@ -12,7 +12,8 @@ public:
   ~CallGraphController();
   ctk::clang_layer::CallGraphResult
   build(const ctk::analysis::v1::CallGraphRequest &,
-        const ctk::clang_layer::IMatchBackend::Checkpoint &);
+        const ctk::clang_layer::IMatchBackend::Checkpoint &,
+        const std::string &owner = "local-user");
   void stop_admission();
 
 private:

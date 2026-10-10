@@ -653,8 +653,14 @@ def export_values(server: RunningServer, source: Path, tmp_path: Path):
 def verify_exported_values(exported_values: Path):
     from clang_toolkit.cli.runtime.persistence import load
     snapshots = [load(exported_values / f"exported.{kind}") for kind in ("json", "yaml", "proto")]
-    assert snapshots[0] == snapshots[1] == snapshots[2]
-    assert snapshots[0].rows and "v" in snapshots[0].rows[0]["bindings"]
+    assert snapshots[0] == snapshots[1]
+    assert snapshots[0] and "v" in snapshots[0][0]["bindings"]
+    assert snapshots[2].rows and "v" in snapshots[2].rows[0]["bindings"]
+    for snapshot in snapshots[:2]:
+        binding = snapshot[0]["bindings"]["v"]
+        assert "var_decl" in binding
+        assert not {"node", "availability", "is_complete", "supported_scopes"} & binding.keys()
+    assert snapshots[2].rows[0]["bindings"]["v"]["is_complete"] is True
     assert (exported_values / "output.txt").read_text() == "new\nadded\n"
     assert (exported_values / "loaded.txt").read_text() == "loaded\n" * 3
 

@@ -50,13 +50,16 @@ calls_backend(std::shared_ptr<ctk::clang_layer::IQueryEngine> engine) {
   return {};
 #endif
 }
-application::CursorSettings cursor_settings(const config::Settings &settings) {
+application::CursorSettings cursor_settings(
+    const config::Settings &settings,
+    std::shared_ptr<application::ResourceManager> resources) {
   application::CursorSettings result;
   result.workers = static_cast<std::size_t>(settings.pool_size);
   result.pending_requests = static_cast<std::size_t>(settings.queue_size);
   result.max_cursors = static_cast<std::size_t>(settings.max_files);
   result.max_memory_bytes =
       static_cast<std::uint64_t>(settings.max_memory_bytes);
+  result.resources = std::move(resources);
   result.results.max_bytes = static_cast<std::size_t>(std::min<std::uint64_t>(
       result.max_memory_bytes, std::numeric_limits<int>::max()));
   // Reject oversized responses before publishing a new cursor revision.
@@ -74,16 +77,22 @@ GrpcServerHost::GrpcServerHost(config::Settings settings,
       service_(controller), operations_(application::make_operation_executor(
                                 settings_.pool_size, settings_.queue_size)),
       native_engine_(native_engine()),
-      matches_(cursor_settings(settings_), matcher(native_engine_),
+      resources_(std::make_shared<application::ResourceManager>(
+          application::ResourceManagerSettings{
+              static_cast<std::uint64_t>(settings_.max_files),
+              static_cast<std::uint64_t>(settings_.max_memory_bytes),
+              static_cast<std::uint32_t>(settings_.pool_size), 128,
+              std::chrono::minutes(5), std::chrono::minutes(5)})),
+      matches_(cursor_settings(settings_, resources_), matcher(native_engine_),
                operations_),
       match_service_(matches_),
-      traversals_(cursor_settings(settings_), visitor(native_engine_),
+      traversals_(cursor_settings(settings_, resources_), visitor(native_engine_),
                   operations_),
-      cfg_(cursor_settings(settings_), cfg_backend(native_engine_),
+      cfg_(cursor_settings(settings_, resources_), cfg_backend(native_engine_),
            operations_),
-      calls_(cursor_settings(settings_), calls_backend(native_engine_),
+      calls_(cursor_settings(settings_, resources_), calls_backend(native_engine_),
              operations_),
-      scripts_(cursor_settings(settings_), native_engine_, operations_),
+      scripts_(cursor_settings(settings_, resources_), native_engine_, operations_),
       analysis_service_(traversals_, cfg_, calls_, scripts_) {}
 GrpcServerHost::~GrpcServerHost() {
   if (server_)

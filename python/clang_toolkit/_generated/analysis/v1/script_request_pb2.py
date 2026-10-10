@@ -26,7 +26,7 @@ from ...match.v1 import match_service_pb2 as match_dot_v1_dot_match__service__pb
 from . import script_compilation_profile_pb2 as analysis_dot_v1_dot_script__compilation__profile__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n analysis/v1/script_request.proto\x12\x0f\x63tk.analysis.v1\x1a\x1cmatch/v1/match_service.proto\x1a,analysis/v1/script_compilation_profile.proto\"\xae\x01\n\rScriptRequest\x12+\n\x04\x66ile\x18\x01 \x01(\x0b\x32\x1d.ctk.match.v1.FileMatchTarget\x12\x0e\n\x06source\x18\x02 \x01(\t\x12\x16\n\tmax_steps\x18\x03 \x01(\rH\x00\x88\x01\x01\x12:\n\x07profile\x18\x04 \x01(\x0b\x32).ctk.analysis.v1.ScriptCompilationProfileB\x0c\n\n_max_stepsb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n analysis/v1/script_request.proto\x12\x0f\x63tk.analysis.v1\x1a\x1cmatch/v1/match_service.proto\x1a,analysis/v1/script_compilation_profile.proto\"\xc9\x01\n\rScriptRequest\x12+\n\x04\x66ile\x18\x01 \x01(\x0b\x32\x1d.ctk.match.v1.FileMatchTarget\x12\x0e\n\x06source\x18\x02 \x01(\t\x12\x16\n\tmax_steps\x18\x03 \x01(\rH\x00\x88\x01\x01\x12:\n\x07profile\x18\x04 \x01(\x0b\x32).ctk.analysis.v1.ScriptCompilationProfile\x12\x19\n\x11resource_scope_id\x18\x05 \x01(\tB\x0c\n\n_max_stepsb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,5 +34,5 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'analysis.v1.script_request_
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_SCRIPTREQUEST']._serialized_start=130
-  _globals['_SCRIPTREQUEST']._serialized_end=304
+  _globals['_SCRIPTREQUEST']._serialized_end=331
 # @@protoc_insertion_point(module_scope)

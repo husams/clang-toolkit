@@ -13,6 +13,21 @@ from clang_toolkit.cli.completion_cursor import CursorContext
 from clang_toolkit.cli.language import parser, reference_parser
 
 _REGEX_LITERALS = {
+    "FILE": "file",
+    "RESOURCE": "resource",
+    "BATCH": "batch",
+    "FILES_EXPR": "files",
+    "SIZE": "size",
+    "COUNT": "count",
+    "JOBS": "jobs",
+    "MEMORY": "memory",
+    "ON": "on",
+    "ERROR_WORD": "error",
+    "STOP": "stop",
+    "ALL": "all",
+    "DISCOVERED": "discovered",
+    "INFO": "info",
+    "REFRESH": "refresh",
     "BACKGROUND": "background",
     "PARSE": "parse",
     "READ": "read",
@@ -77,10 +92,23 @@ _REGEX_LITERALS = {
     "LABEL": "label",
     "MODE": "mode",
     "REPLACE": "replace",
+    "IMPORT": "import",
+    "PUSH": "push",
+    "POP": "pop",
+    "DELETE": "delete",
+    "SPLIT": "split",
+    "BY": "by",
+    "JOIN": "join",
+    "WITH": "with",
+    "COLON": ":",
 }
 _NO_VALUE_TERMINALS = {"STRING", "OPEN_STRING", "NUMBER", "DOLLAR", "SEMICOLON"}
 _PUNCTUATION = {"(", ")", "]", "}", ",", "."}
-_METHOD_NAMES = {"hasField", "fieldState", "fieldOr", "joinWith", "unique", "sort", "filter"}
+_METHOD_NAMES = {
+    "hasField", "fieldState", "fieldOr", "joinWith", "unique", "sort", "filter",
+    "get", "set", "delete", "hasKey", "clear",
+    "push", "pop", "insert", "remove",
+}
 
 
 @dataclass(frozen=True)
@@ -120,7 +148,9 @@ def candidates_for(
     elif "NAME" in accepted and previous in {"PRUNE", "AS"}:
         options = ("memory", "disk", "all") if previous == "PRUNE" else ("yaml", "json", "csv", "proto")
         names.extend((name, False, False, None) for name in options)
-    elif ({"NAME", "JOIN_WITH", "HAS_FIELD"} & accepted) and previous == "DOT":
+    elif (
+        {"NAME", "JOIN_WITH", "HAS_FIELD", "FIELD_STATE", "FIELD_OR"} & accepted
+    ) and previous == "DOT":
         reference = _reference_before_terminal_dot(context, source_before_cursor)
         fields: tuple[object, ...] = ()
         if reference is not None and field_resolver is not None:
@@ -151,6 +181,12 @@ def candidates_for(
 
     candidates: list[Candidate] = []
     for terminal in accepted - _NO_VALUE_TERMINALS - matcher_roles:
+        # Reference properties and methods come from local field metadata.
+        # Grammar literals here would pollute them with unrelated commands or
+        # add reserved names without their call syntax. `.bind` is the one
+        # literal continuation that has no field metadata.
+        if previous == "DOT" and terminal != "BIND":
+            continue
         literal = _literal_for(terminal)
         if literal is not None and literal.startswith(context.partial):
             candidates.append(Candidate(literal, literal, -len(context.partial)))

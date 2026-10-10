@@ -213,6 +213,13 @@ def test_runtime_metadata_guides_active_node_and_nested_schema_fields(tmp_path):
         }
 
     try:
+        direct_binding_fields = options("$m[0].f.")
+        assert {"node", "is_complete", "keys", "value", "name"} <= set(direct_binding_fields)
+        assert "hasField(" in direct_binding_fields
+        assert "method" in to_plain_text(direct_binding_fields["hasField("].display_meta)
+        assert "field" in to_plain_text(direct_binding_fields["is_complete"].display_meta)
+        assert client.mock_calls == []
+
         node_fields = options("$m[0].f.value.node.")
         assert {
             "cxx_method_decl",
@@ -268,7 +275,7 @@ def test_runtime_metadata_guides_active_node_and_nested_schema_fields(tmp_path):
             "$m[0].f.value.node.cxx_method_decl.method.function."
             "declarator.value.named.name."
         )
-        assert set(name_fields) == {"identifier", "hasField(", "fieldState(", "fieldOr("}
+        assert set(name_fields) == {"identifier", "keys", "hasField(", "fieldState(", "fieldOr("}
         identifier_meta = to_plain_text(name_fields["identifier"].display_meta)
         assert identifier_meta == "active field"
         assert "continue with ." not in identifier_meta

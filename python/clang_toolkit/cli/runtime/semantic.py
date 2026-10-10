@@ -161,7 +161,13 @@ def _availability_error(view_value: MessageView, field_name: str) -> str | None:
 
 
 _AST_NODE_TYPE = "ctk.ast.v1.AstNode"
+_MATCH_BINDING_TYPE = "ctk.match.v1.MatchBinding"
 _AST_BASE_FIELDS = {
+    "ctk.ast.v1.CXXRecordDecl": "record",
+    "ctk.ast.v1.RecordDecl": "record",
+    "ctk.ast.v1.RecordDeclInfo": "tag",
+    "ctk.ast.v1.TagDeclInfo": "type_declaration",
+    "ctk.ast.v1.TypeDeclInfo": "named",
     "ctk.ast.v1.FunctionDecl": "function",
     "ctk.ast.v1.CXXMethodDecl": "method",
     "ctk.ast.v1.CXXConstructorDecl": "method",
@@ -234,6 +240,18 @@ def field_sources(
 
     root_message = value._message()
     add_owner(value, root_message)
+    if value.descriptor.full_name == _MATCH_BINDING_TYPE:
+        active_value = root_message.WhichOneof("value")
+        if active_value is None or active_value == "unsupported":
+            return sources
+        try:
+            payload = _read_direct_field(value, value.descriptor.fields_by_name[active_value])
+        except SemanticError:
+            return sources
+        for name, source in field_sources(payload, include_inactive=include_inactive).items():
+            if name not in shadowed:
+                sources[name] = source
+        return sources
     current = value
     if value.descriptor.full_name == _AST_NODE_TYPE:
         active_payload = root_message.WhichOneof("payload")
@@ -294,14 +312,21 @@ def _convert(value: Any, field: FieldDescriptor, availability: tuple[tuple[str, 
 def field_names(value: Any) -> tuple[str, ...]:
     if isinstance(value, MessageView):
         names = []
-        for name, (owner, descriptor) in field_sources(value).items():
+        sources = field_sources(value)
+        for name, (owner, descriptor) in sources.items():
             unavailable = _availability_error(owner, descriptor.name)
             if unavailable is None or not unavailable.startswith("field was not requested:"):
                 names.append(name)
+        # A real protobuf field named ``keys`` owns the spelling. Otherwise
+        # expose the read-only collection property for semantic values.
+        if "keys" not in field_sources(value, include_inactive=True):
+            names.append("keys")
         return tuple(names) + ("fieldOr", "fieldState", "hasField")
     if isinstance(value, EnumValue):
         return ("name", "number")
     if isinstance(value, (RepeatedView, MapView, BindingMapView)):
+        if isinstance(value, (MapView, BindingMapView)):
+            return ("length", "isEmpty", "keys")
         return ("length", "isEmpty")
     return ()
 
@@ -360,12 +385,29 @@ def property_value(value: Any, name: str) -> Any:
             if found is None:
                 raise SemanticError(f"AST node has no available {name} convenience field")
             return found
+        if name == "keys":
+            source = field_sources(value, include_inactive=True).get(name)
+            if source is not None:
+                owner, descriptor = source
+                return _read_direct_field(owner, descriptor)
+            readable = []
+            for field_name, (owner, descriptor) in field_sources(value).items():
+                try:
+                    _read_direct_field(owner, descriptor)
+                except SemanticError:
+                    continue
+                readable.append(field_name)
+            return readable
         return _field_value(value, name)
     if isinstance(value, EnumValue) and name in ("name", "number"):
         return getattr(value, name)
     if isinstance(value, (RepeatedView, MapView, BindingMapView)) and name in ("length", "isEmpty"):
         size = len(value)
         return size if name == "length" else size == 0
+    if isinstance(value, MapView) and name == "keys":
+        return list(value)
+    if isinstance(value, BindingMapView) and name == "keys":
+        return list(value)
     raise SemanticError(f"unknown field: {name}")
 
 

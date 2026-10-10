@@ -26,7 +26,6 @@ from clang_toolkit.cli.app import dispatch
 from clang_toolkit.cli.input_state import input_state
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
 from clang_toolkit.cli.runtime.persistence import PersistenceError, load, save
-from clang_toolkit.cli.runtime.values import MatchSet
 
 
 def response(identifier: str, query: str = "functionDecl()") -> pb.MatchResponse:
@@ -333,12 +332,20 @@ def test_multiline_block_completion_and_detached_export(owned_client, tmp_path):
     functions = client.match_in("functionDecl()", "example.cc")
     saved = save(functions, tmp_path / "functions.json")
     snapshot = load(saved)
-    assert isinstance(snapshot, MatchSet)
+    assert isinstance(snapshot, list)
     text = saved.read_text()
     assert "cursor-" not in text and "session_id" not in text and "revision" not in text
-    assert snapshot.rows[0]["bindings"]["f"]["unsupported"]["clang_kind"] == "FunctionDecl"
-    with pytest.raises(PersistenceError, match="cannot be saved"):
-        save(functions.binding("f"), tmp_path / "binding.json")
+    assert snapshot[0]["bindings"]["f"]["clang_kind"] == "FunctionDecl"
+    selection = functions[0].binding("f")
+    binding_path = save(selection, tmp_path / "binding.json")
+    binding_snapshot = load(binding_path)
+    assert binding_snapshot["clang_kind"] == "FunctionDecl"
+    assert not {"is_complete", "availability", "supported_scopes", "node"} & binding_snapshot.keys()
+    assert "name" not in binding_snapshot and "value" not in binding_snapshot
+    binding_text = binding_path.read_text()
+    assert "cursor-" not in binding_text and "session_id" not in binding_text
+    with pytest.raises(PersistenceError, match="explicit row index"):
+        save(functions.binding("f"), tmp_path / "unindexed-binding.json")
 
 
 def test_python_execute_returns_live_typed_values(owned_client, tmp_path):

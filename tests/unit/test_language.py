@@ -43,6 +43,23 @@ def test_lex_preserves_whitespace_and_covers_every_character():
     assert next(token for token in tokens if str(token) == "'label'").type == "STRING"
 
 
+def test_multiline_done_token_is_losslessly_split_for_editor_consumers():
+    text = 'foreach $m in $xs do $m\n# comment\ndone'
+    tokens = lex(text)
+
+    assert "".join(str(token) for token in tokens) == text
+    assert [(token.type, str(token)) for token in tokens[-4:]] == [
+        ("WS", "\n"),
+        ("COMMENT", "# comment"),
+        ("WS", "\n"),
+        ("DONE", "done"),
+    ]
+    assert [(token.start_pos, token.end_pos) for token in tokens[-4:]] == [
+        (23, 24),
+        (24, 33),
+        (33, 34),
+        (34, 38),
+    ]
 def test_lex_marks_bad_characters_and_keeps_scanning():
     tokens = lex("foo @ bar")
     assert [(token.type, str(token)) for token in tokens] == [

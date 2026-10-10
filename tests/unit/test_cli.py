@@ -91,6 +91,60 @@ def test_interactive_command_failure_sets_nonzero_process_status(monkeypatch, tm
     assert asyncio.run(app._run()) == 1
 
 
+def test_blank_interactive_submission_returns_to_an_empty_prompt(monkeypatch, tmp_path, capsys):
+    import asyncio
+    import sys
+    from unittest.mock import Mock
+
+    from clang_toolkit.cli import app
+
+    class QuerySession:
+        closing = False
+
+        async def events(self):
+            if False:
+                yield None
+
+        async def aclose(self):
+            self.closing = True
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def query_session(self):
+            return QuerySession()
+
+        async def wait_background(self):
+            return None
+
+    class Prompt:
+        def __init__(self):
+            self.commands = iter([" \t", "quit"])
+            self.prompts = []
+
+        def prompt(self, message):
+            self.prompts.append(message)
+            return next(self.commands)
+
+    prompt = Prompt()
+    monkeypatch.setattr(app, "Client", lambda *_args, **_kwargs: Mock())
+    monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(app, "create_session", lambda **_kwargs: prompt)
+    monkeypatch.setattr(sys, "argv", ["ctk"])
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+
+    assert asyncio.run(app._run()) == 0
+    assert prompt.prompts == ["ctk> ", "ctk> "]
+    assert capsys.readouterr().out == ""
+
+
 def test_quit_returns_none():
     assert dispatch(Client(), "quit") is None
 

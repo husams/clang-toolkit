@@ -6,6 +6,7 @@
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -47,6 +48,8 @@ struct SnapshotRecord {
   std::weak_ptr<ProfileEntry> profile;
   std::vector<std::weak_ptr<FileEntry>> dependencies;
   bool reusable = true;
+  bool external_reuse = true;
+  std::set<std::string> transient_owners;
 };
 
 } // namespace ctk::cache::detail

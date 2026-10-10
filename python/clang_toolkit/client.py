@@ -27,6 +27,7 @@ from clang_toolkit.cursors import CursorError, file_request, retained_request
 from clang_toolkit._generated.match.v1 import match_service_pb2, match_service_pb2_grpc
 from clang_toolkit._generated.match.v1 import match_result_pb2
 from clang_toolkit._generated.match.v1 import match_stream_pb2
+from clang_toolkit._generated.match.v1 import resources_pb2
 from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2
 from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.traversal import traversal_request
@@ -36,6 +37,13 @@ from clang_toolkit.match_values import (
     BindingSelection, MatchTarget, MatchValue, MatchValueError, ParsedTree,
 )
 from clang_toolkit.matchers import MatcherInput, matcher_query
+from clang_toolkit.resources import (
+    FileHandle,
+    FileSet,
+    InputDescriptor,
+    ResourceScope,
+    _preserve_cleanup_error,
+)
 from clang_toolkit._value_lifecycle import CursorOwner, OperationLease
 from clang_toolkit._row_store import RowStore
 from clang_toolkit._generated.match.v1 import parse_request_pb2, parse_response_pb2
@@ -165,6 +173,8 @@ class AsyncClient:
     _value_cleanup_by_id: dict[str, asyncio.Task[None]] = field(
         default_factory=dict, init=False, repr=False)
     _pending_value_cleanup: set[str] = field(default_factory=set, init=False, repr=False)
+    _file_leases: set[str] = field(default_factory=set, init=False, repr=False)
+    _resource_scopes: dict[str, ResourceScope[AsyncClient]] = field(default_factory=dict, init=False, repr=False)
     _expression_runtime: Any = field(default=None, init=False, repr=False)
     _expression_lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
     _value_closing: bool = field(default=False, init=False, repr=False)
@@ -178,14 +188,24 @@ class AsyncClient:
         selected = str(self.compilation_database or "")
         if not selected:
             return request
-        if hasattr(request, "compilation_database") and not request.compilation_database:
+        if (hasattr(request, "compilation_database") and not request.compilation_database
+                and not getattr(request, "frozen_profile", False)):
             request.compilation_database = selected
         if hasattr(request, "file") and request.HasField("file"):
-            if not request.file.compilation_database:
+            if not request.file.compilation_database and not getattr(request.file, "frozen_profile", False):
                 request.file.compilation_database = selected
         if hasattr(request, "profile") and request.HasField("profile"):
-            if not request.profile.compilation_database:
+            if (not request.profile.compilation_database
+                    and not getattr(request.profile, "frozen", False)):
                 request.profile.compilation_database = selected
+        if hasattr(request, "input") and request.HasField("input"):
+            if (not request.input.profile.compilation_database
+                    and not request.input.profile.frozen):
+                request.input.profile.compilation_database = selected
+        for input_descriptor in getattr(request, "inputs", ()):
+            if (not input_descriptor.profile.compilation_database
+                    and not input_descriptor.profile.frozen):
+                input_descriptor.profile.compilation_database = selected
         for file in getattr(request, "files", ()):
             if not file.compilation_database:
                 file.compilation_database = selected
@@ -216,6 +236,189 @@ class AsyncClient:
                 raise QueryError("connected server does not support version reporting; update and restart it") from error
             raise QueryError(f"server version request failed: {error.code().name}: {error.details()}") from error
         return VersionInfo(response.version, response.revision)
+
+    async def _resource_call(self, method: str, request: Any) -> Any:
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        stub = match_service_pb2_grpc.MatchServiceStub(self._channel)
+        try:
+            return await getattr(stub, method)(
+                self._compilation_request(request), timeout=self.config.rpc_timeout
+            )
+        except grpc.aio.AioRpcError as error:
+            raise CursorError(error.code(), error.details()) from error
+
+    async def discover_files(
+        self,
+        paths: Sequence[str | Path] = (),
+        *,
+        inputs: Sequence[InputDescriptor] = (),
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        compilation_database: str | Path | None = None,
+        max_inputs: int | None = None,
+        max_metadata_bytes: int | None = None,
+    ) -> FileSet:
+        """Discover server-side paths as frozen metadata without parsing ASTs."""
+        if paths and inputs:
+            raise ValueError("provide paths or inputs, not both")
+        profile = resources_pb2.CompilationProfile(
+            compile_arguments=compile_arguments,
+            working_directory=str(working_directory) if working_directory is not None else str(Path.cwd()),
+            compilation_database=str(compilation_database or self.compilation_database or ""),
+        )
+        request = resources_pb2.DiscoverFilesRequest(
+            paths=[str(path) for path in paths],
+            profile=profile,
+            inputs=[item.to_proto() for item in inputs],
+        )
+        if max_inputs is not None:
+            request.max_inputs = max_inputs
+        if max_metadata_bytes is not None:
+            request.max_metadata_bytes = max_metadata_bytes
+        response = await self._resource_call("DiscoverFiles", request)
+        return FileSet(
+            tuple(InputDescriptor.from_proto(item) for item in response.inputs),
+            tuple(response.diagnostics),
+            response.metadata_bytes,
+        )
+
+    async def open_file(
+        self,
+        value: str | Path | InputDescriptor,
+        *,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        compilation_database: str | Path | None = None,
+        scope: ResourceScope[AsyncClient] | str | None = None,
+    ) -> FileHandle[AsyncClient]:
+        descriptor = value if isinstance(value, InputDescriptor) else InputDescriptor.from_path(
+            value, working_directory=working_directory, compile_arguments=compile_arguments,
+            compilation_database=compilation_database or self.compilation_database,
+        )
+        request = resources_pb2.OpenFileRequest(
+            input=descriptor.to_proto(), resource_scope_id=_scope_id(scope)
+        )
+        info = await self._resource_call("OpenFile", request)
+        handle = _file_handle(self, info)
+        if scope is None:
+            self._file_leases.add(handle.lease_id)
+        return handle
+
+    async def list_files(self) -> tuple[Any, ...]:
+        response = await self._resource_call("ListFiles", resources_pb2.ListFilesRequest())
+        return tuple(response.files)
+
+    async def file_info(self, handle: FileHandle[AsyncClient] | ParsedTree[AsyncClient]) -> Any:
+        request = resources_pb2.DescribeFileRequest()
+        if isinstance(handle, FileHandle):
+            request.lease_id = handle.lease_id
+        else:
+            request.session_id = handle._owner.session_id
+        return await self._resource_call("DescribeFile", request)
+
+    async def close_file(
+        self, handle: FileHandle[AsyncClient] | ParsedTree[AsyncClient] | str,
+    ) -> Any:
+        request = resources_pb2.CloseFileRequest()
+        if isinstance(handle, FileHandle):
+            request.lease_id = handle.lease_id
+        elif isinstance(handle, str):
+            request.lease_id = handle
+        else:
+            request.session_id = handle._owner.session_id
+        try:
+            response = await self._resource_call("CloseFile", request)
+        except CursorError as error:
+            if (
+                request.WhichOneof("handle") != "lease_id"
+                or error.code != grpc.StatusCode.NOT_FOUND
+            ):
+                raise
+            # Closing a lease is idempotent. NOT_FOUND means it was already
+            # released or expired; it must not remain in shutdown tracking.
+            response = resources_pb2.CloseFileResponse()
+        if request.WhichOneof("handle") == "lease_id":
+            self._file_leases.discard(request.lease_id)
+        return response
+
+    async def close_all_files(self) -> Any:
+        response = await self._resource_call("CloseAllFiles", resources_pb2.CloseAllFilesRequest())
+        self._file_leases.clear()
+        return response
+
+    async def refresh_file(
+        self,
+        handle: FileHandle[AsyncClient] | ParsedTree[AsyncClient],
+        *,
+        scope: ResourceScope[AsyncClient] | str | None = None,
+    ) -> FileHandle[AsyncClient]:
+        request = resources_pb2.RefreshFileRequest(resource_scope_id=_scope_id(scope))
+        if isinstance(handle, FileHandle):
+            request.lease_id = handle.lease_id
+        else:
+            request.session_id = handle._owner.session_id
+        refreshed = _file_handle(self, await self._resource_call("RefreshFile", request))
+        if scope is None:
+            self._file_leases.add(refreshed.lease_id)
+        return refreshed
+
+    async def open_resource_scope(
+        self,
+        *,
+        inputs: Sequence[InputDescriptor] = (),
+        memory_bytes: int | None = None,
+        jobs: int | None = None,
+        transient: bool = False,
+        ttl_ms: int | None = None,
+    ) -> ResourceScope[AsyncClient]:
+        request = resources_pb2.OpenResourceScopeRequest(
+            inputs=[item.to_proto() for item in inputs], transient=transient
+        )
+        if memory_bytes is not None:
+            request.memory_bytes = memory_bytes
+        if jobs is not None:
+            request.jobs = jobs
+        if ttl_ms is not None:
+            request.ttl_ms = ttl_ms
+        info = await self._resource_call("OpenResourceScope", request)
+        if not info.resource_scope_id:
+            raise CursorError(grpc.StatusCode.DATA_LOSS, "resource scope reply has no scope ID")
+        scope = ResourceScope(info.resource_scope_id, info, self)
+        self._resource_scopes[scope.resource_scope_id] = scope
+        return scope
+
+    async def describe_resource_scope(
+        self, scope: ResourceScope[AsyncClient] | str,
+    ) -> Any:
+        return await self._resource_call(
+            "DescribeResourceScope",
+            resources_pb2.ResourceScopeRequest(resource_scope_id=_scope_id(scope)),
+        )
+
+    async def cancel_resource_scope(
+        self, scope: ResourceScope[AsyncClient] | str,
+    ) -> Any:
+        return await self._resource_call(
+            "CancelResourceScope",
+            resources_pb2.ResourceScopeRequest(resource_scope_id=_scope_id(scope)),
+        )
+
+    async def release_resource_scope(
+        self, scope: ResourceScope[AsyncClient] | str,
+    ) -> Any:
+        info = await self._resource_call(
+            "ReleaseResourceScope",
+            resources_pb2.ResourceScopeRequest(resource_scope_id=_scope_id(scope)),
+        )
+        if info.cleanup_acknowledged:
+            self._resource_scopes.pop(_scope_id(scope), None)
+        return info
+
+    async def resource_status(self) -> Any:
+        return await self._resource_call(
+            "ResourceStatus", resources_pb2.ResourceStatusRequest()
+        )
 
     async def iter_events(
         self,
@@ -436,16 +639,27 @@ class AsyncClient:
                         pass
 
     async def _parse_response(
-        self, path: str | Path, *, working_directory: str | Path | None = None,
+        self, path: str | Path | InputDescriptor, *, working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None,
+        scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> parse_response_pb2.ParseResponse:
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
+        descriptor = path if isinstance(path, InputDescriptor) else None
+        source_path = descriptor.path if descriptor is not None else str(path)
         request = parse_request_pb2.ParseRequest(
-            file_path=str(path), compile_arguments=compile_arguments,
-            compilation_database=str(compilation_database or ""),
-            working_directory=str(Path(working_directory or Path.cwd()).resolve()),
+            file_path=source_path,
+            compile_arguments=(descriptor.compile_arguments if descriptor else compile_arguments),
+            compilation_database=(descriptor.compilation_database if descriptor else
+                                  str(compilation_database or "")),
+            working_directory=(descriptor.working_directory if descriptor and descriptor.working_directory else
+                               str(working_directory) if working_directory is not None else str(Path.cwd())),
+            resource_scope_id=_scope_id(scope),
         )
+        if descriptor is not None and descriptor.profile_id:
+            request.expected_profile_id = descriptor.profile_id
+        if descriptor is not None:
+            request.frozen_profile = descriptor.frozen_profile
         try:
             return await match_service_pb2_grpc.MatchServiceStub(self._channel).Parse(
                 self._compilation_request(request), timeout=self.config.rpc_timeout)
@@ -546,23 +760,27 @@ class AsyncClient:
             self._value_idle.set()
 
     async def parse(
-        self, path: str | Path, *, working_directory: str | Path | None = None,
+        self, path: str | Path | InputDescriptor, *, working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None,
+        scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> ParsedTree[AsyncClient]:
         """Parse a file once and retain a reusable immutable native tree."""
         return await self._parse_with_lease(path, working_directory=working_directory,
-                                            compile_arguments=compile_arguments, compilation_database=compilation_database, lease=None)
+                                            compile_arguments=compile_arguments, compilation_database=compilation_database,
+                                            lease=None, scope=scope)
 
     async def _parse_with_lease(
-        self, path: str | Path, *, working_directory: str | Path | None = None,
-        compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None, lease: OperationLease | None,
+        self, path: str | Path | InputDescriptor, *, working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None,
+        lease: OperationLease | None, scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> ParsedTree[AsyncClient]:
         self._begin_value_operation(lease)
         try:
             response = await self._parse_response(path, working_directory=working_directory,
-                compile_arguments=compile_arguments, compilation_database=compilation_database)
+                compile_arguments=compile_arguments, compilation_database=compilation_database,
+                scope=scope)
             return ParsedTree(
-                str(path), self._own_value(response),
+                path.path if isinstance(path, InputDescriptor) else str(path), self._own_value(response),
                 _absolute_source_file(path, working_directory),
             )
         finally:
@@ -574,11 +792,12 @@ class AsyncClient:
         compile_arguments: Sequence[str] = (),
         traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
         on_row: AsyncMatchRowCallback | None = None,
+        scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> MatchValue[AsyncClient]:
         """Match a path, pinned tree or binding selection without changing it."""
         return await self._match_in_with_lease(query, target,
             working_directory=working_directory, compile_arguments=compile_arguments,
-            traversal_mode=traversal_mode, on_row=on_row, lease=None)
+            traversal_mode=traversal_mode, on_row=on_row, lease=None, scope=scope)
 
     async def _match_in_with_lease(
         self, query: MatcherInput, target: MatchTarget, *,
@@ -586,13 +805,13 @@ class AsyncClient:
         compile_arguments: Sequence[str] = (),
         traversal_mode: match_service_pb2.MatchTraversalMode = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
         on_row: AsyncMatchRowCallback | None = None,
-        lease: OperationLease | None,
+        lease: OperationLease | None, scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> MatchValue[AsyncClient]:
         self._begin_value_operation(lease)
         try:
             request = _value_request(self, query, target,
                 working_directory=working_directory, compile_arguments=compile_arguments,
-                traversal_mode=traversal_mode)
+                traversal_mode=traversal_mode, scope=scope)
             source_id = target._owner.session_id if isinstance(
                 target, (ParsedTree, MatchValue, BindingSelection)
             ) else None
@@ -609,6 +828,7 @@ class AsyncClient:
     async def execute(
         self, source: str, *, working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] | None = None,
+        scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> Any:
         """Evaluate the console's Lark expressions and return typed live values."""
         self._begin_value_operation()
@@ -617,7 +837,7 @@ class AsyncClient:
             if self._expression_lock is None:
                 self._expression_lock = asyncio.Lock()
             async with self._expression_lock:
-                adapter = _AsyncExpressionAdapter(self, lease)
+                adapter = _AsyncExpressionAdapter(self, lease, scope)
                 runtime = _expression_runtime(self, adapter,
                                               working_directory, compile_arguments)
                 runtime.client = adapter
@@ -634,18 +854,21 @@ class AsyncClient:
             self._end_value_operation()
 
     async def traverse(
-        self, path: str | Path, *, working_directory: str | Path | None = None,
+        self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, *, working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] = (), visit_implicit_code: bool = False,
         visit_template_instantiations: bool = False, max_depth: int | None = None,
         max_nodes: int | None = None, projection: str = "shallow",
         main_file_only: bool = False, payload_depth: int = 24,
-        payload_nodes: int = 10000,
+        payload_nodes: int = 10000, scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> traverse_response_pb2.TraverseResponse:
+        path, input_descriptor = _analysis_input(path)
         request = traversal_request(path, working_directory=working_directory,
             compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
             visit_template_instantiations=visit_template_instantiations, max_depth=max_depth,
             max_nodes=max_nodes, projection=projection, main_file_only=main_file_only,
             payload_depth=payload_depth, payload_nodes=payload_nodes)
+        _apply_input_descriptor(request.file, input_descriptor)
+        request.resource_scope_id = _scope_id(scope)
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
         try:
@@ -654,18 +877,22 @@ class AsyncClient:
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
 
-    async def cfg(self, path: str | Path, function: str, *,
+    async def cfg(self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, function: str, *,
                   working_directory: str | Path | None = None,
                   compile_arguments: Sequence[str] = (), options: CfgOptions | None = None,
                   max_functions: int | None = None, max_blocks: int | None = None,
                   max_elements: int | None = None, projection: str = "shallow",
                   main_file_only: bool = False, payload_depth: int = 24,
-                  payload_nodes: int = 10000) -> cfg_response_pb2.CfgResponse:
+                  payload_nodes: int = 10000,
+                  scope: ResourceScope[AsyncClient] | str | None = None) -> cfg_response_pb2.CfgResponse:
+        path, input_descriptor = _analysis_input(path)
         request = cfg_request(path, function, working_directory=working_directory,
             compile_arguments=compile_arguments, options=options, max_functions=max_functions,
             max_blocks=max_blocks, max_elements=max_elements, projection=projection,
             main_file_only=main_file_only, payload_depth=payload_depth,
             payload_nodes=payload_nodes)
+        _apply_input_descriptor(request.file, input_descriptor)
+        request.resource_scope_id = _scope_id(scope)
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
         try:
@@ -674,12 +901,17 @@ class AsyncClient:
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
 
-    async def run_script(self, source: str, *, path: str | Path | None = None,
+    async def run_script(
+                         self, source: str, *,
+                         path: str | Path | FileHandle[AsyncClient] | InputDescriptor | None = None,
                          working_directory: str | Path | None = None,
-                         compile_arguments: Sequence[str] = (), max_steps: int | None = None
+                         compile_arguments: Sequence[str] = (), max_steps: int | None = None,
+                         profile: InputDescriptor | None = None,
+                         scope: ResourceScope[AsyncClient] | str | None = None,
                          ) -> script_response_pb2.ScriptResponse:
         request = script_request(source, path=path, working_directory=working_directory,
-            compile_arguments=compile_arguments, max_steps=max_steps)
+            compile_arguments=compile_arguments, max_steps=max_steps, profile=profile)
+        request.resource_scope_id = _scope_id(scope)
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
         try:
@@ -688,18 +920,22 @@ class AsyncClient:
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
 
-    async def callgraph(self, path: str | Path, *,
+    async def callgraph(self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, *,
                         working_directory: str | Path | None = None,
                         compile_arguments: Sequence[str] = (), visit_implicit_code: bool | None = None,
                         visit_template_instantiations: bool | None = None, max_nodes: int | None = None,
                         max_edges: int | None = None, projection: str = "shallow",
                         main_file_only: bool = False, payload_depth: int = 24,
-                        payload_nodes: int = 10000) -> call_graph_response_pb2.CallGraphResponse:
+                        payload_nodes: int = 10000,
+                        scope: ResourceScope[AsyncClient] | str | None = None) -> call_graph_response_pb2.CallGraphResponse:
+        path, input_descriptor = _analysis_input(path)
         request = call_graph_request(path, working_directory=working_directory,
             compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
             visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
             max_edges=max_edges, projection=projection, main_file_only=main_file_only,
             payload_depth=payload_depth, payload_nodes=payload_nodes)
+        _apply_input_descriptor(request.file, input_descriptor)
+        request.resource_scope_id = _scope_id(scope)
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
         try:
@@ -891,6 +1127,18 @@ class AsyncClient:
                     errors.append(outcome)
                 else:
                     self._values.pop(identifier, None)
+            for scope_id, scope in tuple(self._resource_scopes.items()):
+                try:
+                    await scope.arelease()
+                except BaseException as error:
+                    errors.append(error)
+                else:
+                    self._resource_scopes.pop(scope_id, None)
+            for lease_id in tuple(self._file_leases):
+                try:
+                    await self.close_file(lease_id)
+                except BaseException as error:
+                    errors.append(error)
         finally:
             if self._channel is not None:
                 try:
@@ -906,8 +1154,13 @@ class AsyncClient:
         self._ensure_stub()
         return self
 
-    async def __aexit__(self, *_: object) -> None:
-        await self.aclose()
+    async def __aexit__(
+        self, exc_type: object, exc: BaseException | None, tb: object
+    ) -> None:
+        try:
+            await self.aclose()
+        except BaseException as cleanup:
+            _preserve_cleanup_error(exc, cleanup, "async client")
 
 
 @dataclass
@@ -1072,6 +1325,8 @@ class Client:
     _values: dict[str, weakref.ReferenceType[CursorOwner[Client]]] = field(
         default_factory=dict, init=False, repr=False)
     _pending_value_cleanup: set[str] = field(default_factory=set, init=False, repr=False)
+    _file_leases: set[str] = field(default_factory=set, init=False, repr=False)
+    _resource_scopes: dict[str, ResourceScope[Client]] = field(default_factory=dict, init=False, repr=False)
     _expression_runtime: Any = field(default=None, init=False, repr=False)
 
     def _configuration(self) -> NetworkConfig:
@@ -1129,12 +1384,13 @@ class Client:
         self.close_match(identifier)
         self._pending_value_cleanup.discard(identifier)
 
-    def parse(self, path: str | Path, *, working_directory: str | Path | None = None,
-              compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None) -> ParsedTree[Client]:
+    def parse(self, path: str | Path | InputDescriptor, *, working_directory: str | Path | None = None,
+              compile_arguments: Sequence[str] = (), compilation_database: str | Path | None = None,
+              scope: ResourceScope[Client] | str | None = None) -> ParsedTree[Client]:
         """Parse a file and retain a tree with automatic native ownership."""
         response = self._cursor_call("_parse_response", path,
             working_directory=working_directory, compile_arguments=compile_arguments,
-            compilation_database=compilation_database)
+            compilation_database=compilation_database, scope=scope)
         return ParsedTree(
             str(path), self._own_value(response),
             _absolute_source_file(path, working_directory),
@@ -1146,6 +1402,7 @@ class Client:
         compile_arguments: Sequence[str] = (),
         traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
         on_row: MatchRowCallback | None = None,
+        scope: ResourceScope[Client] | str | None = None,
     ) -> MatchValue[Client]:
         callback: AsyncMatchRowCallback | None = None
         if on_row is not None:
@@ -1156,7 +1413,7 @@ class Client:
 
         request = _value_request(self, query, target,
             working_directory=working_directory, compile_arguments=compile_arguments,
-            traversal_mode=traversal_mode)
+            traversal_mode=traversal_mode, scope=scope)
         source_id = target._owner.session_id if isinstance(
             target, (ParsedTree, MatchValue, BindingSelection)
         ) else None
@@ -1189,6 +1446,18 @@ class Client:
             self._flush_value_cleanup()
         except Exception as error:
             errors.append(error)
+        for scope_id, scope in tuple(self._resource_scopes.items()):
+            try:
+                scope.release()
+            except Exception as error:
+                errors.append(error)
+            else:
+                self._resource_scopes.pop(scope_id, None)
+        for lease_id in tuple(self._file_leases):
+            try:
+                self.close_file(lease_id)
+            except Exception as error:
+                errors.append(error)
         _raise_cleanup_errors(errors)
 
     def execute(
@@ -1203,8 +1472,11 @@ class Client:
         self._configuration()
         return self
 
-    def __exit__(self, *_: object) -> None:
-        self.close()
+    def __exit__(self, exc_type: object, exc: BaseException | None, tb: object) -> None:
+        try:
+            self.close()
+        except BaseException as cleanup:
+            _preserve_cleanup_error(exc, cleanup, "client")
 
     def _cursor_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
         try:
@@ -1219,6 +1491,27 @@ class Client:
         async def run() -> Any:
             async with AsyncClient(self.address, config=config, compilation_database=self.compilation_database) as client:
                 return await getattr(client, method)(*args, **kwargs)
+        return asyncio.run(run())
+
+    def _cursor_call_keep_resource(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        """Call once while transferring a newly returned lease/scope to this facade."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("synchronous cursor methods cannot run inside an active event loop")
+        config = self._configuration()
+
+        async def run() -> Any:
+            async with AsyncClient(self.address, config=config,
+                                   compilation_database=self.compilation_database) as client:
+                result = await getattr(client, method)(*args, **kwargs)
+                if isinstance(result, FileHandle):
+                    client._file_leases.discard(result.lease_id)
+                elif isinstance(result, ResourceScope):
+                    client._resource_scopes.pop(result.resource_scope_id, None)
+                return result
         return asyncio.run(run())
 
     def match_file(self, path: str | Path, query: MatcherInput, **kwargs: Any) -> match_service_pb2.MatchResponse:
@@ -1237,6 +1530,62 @@ class Client:
         if owner is not None:
             owner.closed = True
 
+    def discover_files(self, paths: Sequence[str | Path] = (), **kwargs: Any) -> FileSet:
+        return self._cursor_call("discover_files", paths, **kwargs)
+
+    def open_file(self, value: str | Path | InputDescriptor, **kwargs: Any) -> FileHandle[Client]:
+        handle = self._cursor_call_keep_resource("open_file", value, **kwargs)
+        result = FileHandle(handle.lease_id, handle.input, self,
+                            handle.source_revision, handle.snapshot_id, handle.state)
+        if kwargs.get("scope") is None:
+            self._file_leases.add(result.lease_id)
+        return result
+
+    def list_files(self) -> tuple[Any, ...]:
+        return self._cursor_call("list_files")
+
+    def file_info(self, handle: FileHandle[Client] | ParsedTree[Client]) -> Any:
+        return self._cursor_call("file_info", handle)
+
+    def close_file(self, handle: FileHandle[Client] | ParsedTree[Client] | str) -> Any:
+        response = self._cursor_call("close_file", handle)
+        if isinstance(handle, FileHandle | str):
+            self._file_leases.discard(handle.lease_id if isinstance(handle, FileHandle) else handle)
+        return response
+
+    def close_all_files(self) -> Any:
+        response = self._cursor_call("close_all_files")
+        self._file_leases.clear()
+        return response
+
+    def refresh_file(self, handle: FileHandle[Client] | ParsedTree[Client], **kwargs: Any) -> FileHandle[Client]:
+        updated = self._cursor_call_keep_resource("refresh_file", handle, **kwargs)
+        if kwargs.get("scope") is None:
+            self._file_leases.add(updated.lease_id)
+        return FileHandle(updated.lease_id, updated.input, self,
+                          updated.source_revision, updated.snapshot_id, updated.state)
+
+    def open_resource_scope(self, **kwargs: Any) -> ResourceScope[Client]:
+        scope = self._cursor_call_keep_resource("open_resource_scope", **kwargs)
+        scope._client = self
+        self._resource_scopes[scope.resource_scope_id] = scope
+        return scope
+
+    def describe_resource_scope(self, scope: ResourceScope[Client] | str) -> Any:
+        return self._cursor_call("describe_resource_scope", scope)
+
+    def cancel_resource_scope(self, scope: ResourceScope[Client] | str) -> Any:
+        return self._cursor_call("cancel_resource_scope", scope)
+
+    def release_resource_scope(self, scope: ResourceScope[Client] | str) -> Any:
+        info = self._cursor_call("release_resource_scope", scope)
+        if info.cleanup_acknowledged:
+            self._resource_scopes.pop(_scope_id(scope), None)
+        return info
+
+    def resource_status(self) -> Any:
+        return self._cursor_call("resource_status")
+
     def server_status(self) -> match_service_pb2.ServerStatusResponse:
         return self._cursor_call("server_status")
 
@@ -1251,7 +1600,11 @@ class Client:
                      ) -> match_service_pb2.PruneCachesResponse:
         return self._cursor_call("prune_caches", memory=memory, disk=disk)
 
-    def traverse(self, path: str | Path, **kwargs: Any) -> traverse_response_pb2.TraverseResponse:
+    def traverse(
+        self,
+        path: str | Path | FileHandle[Client] | InputDescriptor,
+        **kwargs: Any,
+    ) -> traverse_response_pb2.TraverseResponse:
         return self._cursor_call("traverse", path, **kwargs)
 
     def bind_async_client(self, client: AsyncClient) -> None:
@@ -1404,21 +1757,29 @@ class Client:
 
         return asyncio.run(run())
 
-    def cfg(self, function: str, *, path: str | Path | None = None,
+    def cfg(
+            self, function: str, *,
+            path: str | Path | FileHandle[Client] | InputDescriptor | None = None,
             **kwargs: Any) -> cfg_response_pb2.CfgResponse:
         if path is None:
             raise ValueError("CFG requires a file path; pass path=...")
         return self._cursor_call("cfg", path, function, **kwargs)
 
-    def run_script(self, source: str, *, path: str | Path | None = None,
+    def run_script(
+                   self, source: str, *,
+                   path: str | Path | FileHandle[Client] | InputDescriptor | None = None,
                    working_directory: str | Path | None = None,
                    compile_arguments: Sequence[str] = (),
-                   max_steps: int | None = None) -> script_response_pb2.ScriptResponse:
+                   max_steps: int | None = None,
+                   profile: InputDescriptor | None = None,
+                   scope: ResourceScope[Client] | str | None = None) -> script_response_pb2.ScriptResponse:
         return self._cursor_call("run_script", source, path=path,
             working_directory=working_directory, compile_arguments=compile_arguments,
-            max_steps=max_steps)
+            max_steps=max_steps, profile=profile, scope=scope)
 
-    def callgraph(self, path: str | Path | None = None,
+    def callgraph(
+                  self,
+                  path: str | Path | FileHandle[Client] | InputDescriptor | None = None,
                   **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse:
         if path is None:
             raise ValueError("callgraph requires a file path")
@@ -1435,9 +1796,11 @@ def _raise_cleanup_errors(errors: Sequence[BaseException]) -> None:
 class _AsyncExpressionAdapter:
     """Run the shared synchronous evaluator with calls on its owner's loop."""
 
-    def __init__(self, client: AsyncClient, lease: OperationLease) -> None:
+    def __init__(self, client: AsyncClient, lease: OperationLease,
+                 scope: ResourceScope[AsyncClient] | str | None = None) -> None:
         self.client = client
         self.lease = lease
+        self.scope = scope
         self._cancelled = False
         self._futures: set[concurrent.futures.Future[Any]] = set()
         self._future_lock = Lock()
@@ -1480,7 +1843,7 @@ class _AsyncExpressionAdapter:
               compile_arguments: Sequence[str] = ()) -> ParsedTree[AsyncClient]:
         return self._call("_parse_with_lease", path,
             working_directory=working_directory, compile_arguments=compile_arguments,
-            lease=self.lease)
+            lease=self.lease, scope=self.scope)
 
     def match_in(self, query: MatcherInput, target: MatchTarget, *,
                  working_directory: str | Path | None = None,
@@ -1501,7 +1864,7 @@ class _AsyncExpressionAdapter:
         return self._call("_match_in_with_lease", query, target,
             working_directory=working_directory, compile_arguments=compile_arguments,
             traversal_mode=traversal_mode, on_row=callback if on_row is not None else None,
-            lease=self.lease)
+            lease=self.lease, scope=self.scope)
 
     def match(self, query: MatcherInput, *, files: Sequence[str] | None = None,
               **kwargs: Any) -> list[Any]:
@@ -1528,21 +1891,38 @@ def _value_request(
     working_directory: str | Path | None = None,
     compile_arguments: Sequence[str] = (),
     traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
+    scope: ResourceScope[Any] | str | None = None,
 ) -> match_service_pb2.MatchRequest:
-    if isinstance(target, str | Path):
-        return file_request(target, query, working_directory=working_directory,
+    if isinstance(target, str | Path | InputDescriptor):
+        target_path = target.path if isinstance(target, InputDescriptor) else target
+        request = file_request(target_path, query, working_directory=working_directory,
                             compile_arguments=compile_arguments,
                             traversal_mode=traversal_mode)
-    if not isinstance(target, ParsedTree | MatchValue | BindingSelection):
-        raise TypeError("match target must be a file path, parsed tree or binding selection")
-    target._owner.check(client)
-    options: dict[str, Any] = {}
-    if isinstance(target, BindingSelection):
-        options.update(bind=target.name, match_index=target._index, scope=target.scope)
-    request = retained_request(target._owner.session_id, query,
-        expected_result_revision=target._owner.revision,
-        traversal_mode=traversal_mode, **options)
-    request.preserve_source = True
+        if isinstance(target, InputDescriptor):
+            request.file.expected_profile_id = target.profile_id
+            request.file.working_directory = target.working_directory or request.file.working_directory
+            request.file.compile_arguments[:] = target.compile_arguments
+            request.file.compilation_database = target.compilation_database
+            request.file.frozen_profile = target.frozen_profile
+    elif isinstance(target, FileHandle):
+        if target._client is not client:
+            raise MatchValueError("file handle belongs to a different client")
+        request = match_service_pb2.MatchRequest(
+            query=matcher_query(query), traversal_mode=traversal_mode,
+            file_handle=resources_pb2.FileHandleTarget(lease_id=target.lease_id),
+        )
+    elif isinstance(target, ParsedTree | MatchValue | BindingSelection):
+        target._owner.check(client)
+        options: dict[str, Any] = {}
+        if isinstance(target, BindingSelection):
+            options.update(bind=target.name, match_index=target._index, scope=target.scope)
+        request = retained_request(target._owner.session_id, query,
+            expected_result_revision=target._owner.revision,
+            traversal_mode=traversal_mode, **options)
+        request.preserve_source = True
+    else:
+        raise TypeError("match target must be a path, descriptor, file handle, parsed tree or binding selection")
+    request.resource_scope_id = _scope_id(scope)
     return request
 
 
@@ -1551,6 +1931,10 @@ def _absolute_source_file(
 ) -> str | None:
     if isinstance(target, str | Path):
         source = target
+    elif isinstance(target, InputDescriptor):
+        source = target.path
+    elif isinstance(target, FileHandle):
+        source = target.path
     elif isinstance(target, ParsedTree):
         source = target.source_file or target.path
     else:
@@ -1562,6 +1946,43 @@ def _absolute_source_file(
         base = Path(working_directory).expanduser() if working_directory is not None else Path.cwd()
         path = base / path
     return str(path.resolve())
+
+
+def _scope_id(scope: ResourceScope[Any] | str | None) -> str:
+    return scope.resource_scope_id if isinstance(scope, ResourceScope) else (scope or "")
+
+
+def _file_handle(client: Any, info: Any) -> FileHandle[Any]:
+    if not info.lease_id or not info.HasField("input"):
+        raise CursorError(grpc.StatusCode.DATA_LOSS, "file lease reply is missing its identity")
+    return FileHandle(
+        info.lease_id,
+        InputDescriptor.from_proto(info.input),
+        client,
+        info.source_revision,
+        info.snapshot_id,
+        info.state,
+    )
+
+
+def _analysis_input(
+    value: str | Path | FileHandle[Any] | InputDescriptor,
+) -> tuple[str | Path, InputDescriptor | None]:
+    if isinstance(value, FileHandle):
+        return value.path, value.input
+    if isinstance(value, InputDescriptor):
+        return value.path, value
+    return value, None
+
+
+def _apply_input_descriptor(target: Any, descriptor: InputDescriptor | None) -> None:
+    if descriptor is None:
+        return
+    target.expected_profile_id = descriptor.profile_id
+    target.compile_arguments[:] = descriptor.compile_arguments
+    target.working_directory = descriptor.working_directory
+    target.compilation_database = descriptor.compilation_database
+    target.frozen_profile = descriptor.frozen_profile
 
 
 def _format_event(event: QueryEvent) -> str:

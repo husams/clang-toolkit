@@ -800,3 +800,41 @@ TEST(SnapshotCache, LoaderCanReturnFreshNonReusableSnapshotWithoutRetention) {
   EXPECT_NE(first, second);
   EXPECT_EQ(loader->loads, 2);
 }
+
+TEST(SnapshotCache, TransientReuseReleasesOnlyTheFinalScopeAndPreservesPins) {
+  auto loader = std::make_shared<FunctionLoader>(
+      [](const std::string &path, const CompilationContext &) {
+        return loaded({file_input(path)});
+      });
+  SnapshotCache cache(loader);
+  auto first = cache.acquire("/src/main.cpp", context_for(), {}, "scope-one");
+  auto second = cache.acquire("/src/main.cpp", context_for(), {}, "scope-two");
+  ASSERT_EQ(first, second);
+  EXPECT_EQ(cache.stats().reusable_snapshots, 1U);
+  cache.release_transient("/src/main.cpp", first, "scope-one");
+  cache.release_transient("/src/main.cpp", first, "scope-one");
+  EXPECT_EQ(cache.stats().reusable_snapshots, 1U);
+  cache.release_transient("/src/main.cpp", second, "scope-two");
+  EXPECT_EQ(cache.stats().reusable_snapshots, 0U);
+  EXPECT_NE(first->owner, nullptr);
+  EXPECT_EQ(loader->loads, 1);
+}
+
+TEST(SnapshotCache, TransientReleaseNeverPrunesExistingOrNewExternalReuse) {
+  auto loader = std::make_shared<FunctionLoader>(
+      [](const std::string &path, const CompilationContext &) {
+        return loaded({file_input(path)});
+      });
+  SnapshotCache cache(loader);
+  auto outside = cache.acquire("/src/main.cpp", context_for());
+  auto inside = cache.acquire("/src/main.cpp", context_for(), {}, "batch");
+  ASSERT_EQ(outside, inside);
+  cache.release_transient("/src/main.cpp", inside, "batch");
+  EXPECT_EQ(cache.stats().reusable_snapshots, 1U);
+  auto fresh = cache.acquire("/src/fresh.cpp", context_for("/src/fresh.cpp"),
+                             {}, "batch");
+  EXPECT_EQ(cache.acquire("/src/fresh.cpp", context_for("/src/fresh.cpp")),
+            fresh);
+  cache.release_transient("/src/fresh.cpp", fresh, "batch");
+  EXPECT_EQ(cache.stats().reusable_snapshots, 2U);
+}

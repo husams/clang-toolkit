@@ -1,0 +1,11 @@
+match fieldDecl(
+    hasDeclContext(
+        recordDecl().bind("class")
+    ),
+    unless(
+        anyOf(
+            isExpansionInSystemHeader(),
+            isImplicit()
+        )
+    )
+).bind("field")

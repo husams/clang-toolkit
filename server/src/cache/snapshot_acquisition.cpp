@@ -128,6 +128,10 @@ SnapshotPtr SnapshotCache::Impl::reuse_candidate(
   std::lock_guard lock(mutex);
   if (valid && attempt.candidate->reusable &&
       same_file_locked(request, attempt)) {
+    if (request.transient_owner.empty())
+      attempt.candidate->external_reuse = true;
+    else
+      attempt.candidate->transient_owners.insert(request.transient_owner);
     lru.touch(attempt.candidate);
     return attempt.candidate->snapshot;
   }
@@ -153,8 +157,18 @@ SnapshotCache::Impl::join_flight(const detail::AcquisitionRequest &request,
   std::vector<SnapshotPtr> retired;
   std::lock_guard lock(mutex);
   if (valid && result.publication_epoch == invalidation_epoch &&
-      same_file_locked(request, attempt))
+      same_file_locked(request, attempt)) {
+    if (attempt.profile)
+      for (const auto &record : attempt.profile->generations)
+        if (record->snapshot == result.snapshot) {
+          if (request.transient_owner.empty())
+            record->external_reuse = true;
+          else
+            record->transient_owners.insert(request.transient_owner);
+          break;
+        }
     return result.snapshot;
+  }
   if (!valid)
     retire_snapshot_locked(attempt.profile, result.snapshot, retired);
   return {};
@@ -210,6 +224,9 @@ SnapshotPtr SnapshotCache::Impl::publish_generation(
     return {};
   if (!prepared.snapshot->reusable)
     return prepared.snapshot;
+  prepared.record->external_reuse = request.transient_owner.empty();
+  if (!request.transient_owner.empty())
+    prepared.record->transient_owners.insert(request.transient_owner);
   register_inputs_locked(prepared);
   retain_generation_locked(attempt.profile, prepared, retired);
   return prepared.snapshot;

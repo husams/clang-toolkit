@@ -8,7 +8,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class TraverseRequest(_message.Message):
-    __slots__ = ("file", "visit_implicit_code", "visit_template_instantiations", "max_depth", "max_nodes", "projection", "main_file_only")
+    __slots__ = ("file", "visit_implicit_code", "visit_template_instantiations", "max_depth", "max_nodes", "projection", "main_file_only", "resource_scope_id")
     FILE_FIELD_NUMBER: _ClassVar[int]
     VISIT_IMPLICIT_CODE_FIELD_NUMBER: _ClassVar[int]
     VISIT_TEMPLATE_INSTANTIATIONS_FIELD_NUMBER: _ClassVar[int]
@@ -16,6 +16,7 @@ class TraverseRequest(_message.Message):
     MAX_NODES_FIELD_NUMBER: _ClassVar[int]
     PROJECTION_FIELD_NUMBER: _ClassVar[int]
     MAIN_FILE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_SCOPE_ID_FIELD_NUMBER: _ClassVar[int]
     file: _match_service_pb2.FileMatchTarget
     visit_implicit_code: bool
     visit_template_instantiations: bool
@@ -23,4 +24,5 @@ class TraverseRequest(_message.Message):
     max_nodes: int
     projection: _value_projection_pb2.ValueProjection
     main_file_only: bool
-    def __init__(self, file: _Optional[_Union[_match_service_pb2.FileMatchTarget, _Mapping]] = ..., visit_implicit_code: _Optional[bool] = ..., visit_template_instantiations: _Optional[bool] = ..., max_depth: _Optional[int] = ..., max_nodes: _Optional[int] = ..., projection: _Optional[_Union[_value_projection_pb2.ValueProjection, _Mapping]] = ..., main_file_only: _Optional[bool] = ...) -> None: ...
+    resource_scope_id: str
+    def __init__(self, file: _Optional[_Union[_match_service_pb2.FileMatchTarget, _Mapping]] = ..., visit_implicit_code: _Optional[bool] = ..., visit_template_instantiations: _Optional[bool] = ..., max_depth: _Optional[int] = ..., max_nodes: _Optional[int] = ..., projection: _Optional[_Union[_value_projection_pb2.ValueProjection, _Mapping]] = ..., main_file_only: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ...) -> None: ...

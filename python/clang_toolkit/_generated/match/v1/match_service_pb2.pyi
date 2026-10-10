@@ -5,6 +5,7 @@ from . import match_result_pb2 as _match_result_pb2
 from . import match_stream_pb2 as _match_stream_pb2
 from . import parse_request_pb2 as _parse_request_pb2
 from . import parse_response_pb2 as _parse_response_pb2
+from . import resources_pb2 as _resources_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
@@ -24,32 +25,40 @@ MATCH_TRAVERSAL_MODE_AS_IS: MatchTraversalMode
 MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE: MatchTraversalMode
 
 class MatchRequest(_message.Message):
-    __slots__ = ("query", "file", "session", "binding", "traversal_mode", "preserve_source")
+    __slots__ = ("query", "file", "session", "binding", "file_handle", "traversal_mode", "preserve_source", "resource_scope_id")
     QUERY_FIELD_NUMBER: _ClassVar[int]
     FILE_FIELD_NUMBER: _ClassVar[int]
     SESSION_FIELD_NUMBER: _ClassVar[int]
     BINDING_FIELD_NUMBER: _ClassVar[int]
+    FILE_HANDLE_FIELD_NUMBER: _ClassVar[int]
     TRAVERSAL_MODE_FIELD_NUMBER: _ClassVar[int]
     PRESERVE_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_SCOPE_ID_FIELD_NUMBER: _ClassVar[int]
     query: str
     file: FileMatchTarget
     session: SessionMatchTarget
     binding: BindingMatchTarget
+    file_handle: _resources_pb2.FileHandleTarget
     traversal_mode: MatchTraversalMode
     preserve_source: bool
-    def __init__(self, query: _Optional[str] = ..., file: _Optional[_Union[FileMatchTarget, _Mapping]] = ..., session: _Optional[_Union[SessionMatchTarget, _Mapping]] = ..., binding: _Optional[_Union[BindingMatchTarget, _Mapping]] = ..., traversal_mode: _Optional[_Union[MatchTraversalMode, str]] = ..., preserve_source: _Optional[bool] = ...) -> None: ...
+    resource_scope_id: str
+    def __init__(self, query: _Optional[str] = ..., file: _Optional[_Union[FileMatchTarget, _Mapping]] = ..., session: _Optional[_Union[SessionMatchTarget, _Mapping]] = ..., binding: _Optional[_Union[BindingMatchTarget, _Mapping]] = ..., file_handle: _Optional[_Union[_resources_pb2.FileHandleTarget, _Mapping]] = ..., traversal_mode: _Optional[_Union[MatchTraversalMode, str]] = ..., preserve_source: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ...) -> None: ...
 
 class FileMatchTarget(_message.Message):
-    __slots__ = ("file_path", "compile_arguments", "working_directory", "compilation_database")
+    __slots__ = ("file_path", "compile_arguments", "working_directory", "compilation_database", "expected_profile_id", "frozen_profile")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     COMPILE_ARGUMENTS_FIELD_NUMBER: _ClassVar[int]
     WORKING_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     COMPILATION_DATABASE_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_PROFILE_ID_FIELD_NUMBER: _ClassVar[int]
+    FROZEN_PROFILE_FIELD_NUMBER: _ClassVar[int]
     file_path: str
     compile_arguments: _containers.RepeatedScalarFieldContainer[str]
     working_directory: str
     compilation_database: str
-    def __init__(self, file_path: _Optional[str] = ..., compile_arguments: _Optional[_Iterable[str]] = ..., working_directory: _Optional[str] = ..., compilation_database: _Optional[str] = ...) -> None: ...
+    expected_profile_id: str
+    frozen_profile: bool
+    def __init__(self, file_path: _Optional[str] = ..., compile_arguments: _Optional[_Iterable[str]] = ..., working_directory: _Optional[str] = ..., compilation_database: _Optional[str] = ..., expected_profile_id: _Optional[str] = ..., frozen_profile: _Optional[bool] = ...) -> None: ...
 
 class SessionMatchTarget(_message.Message):
     __slots__ = ("session_id", "expected_result_revision")

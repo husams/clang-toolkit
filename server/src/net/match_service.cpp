@@ -95,4 +95,90 @@ grpc::Status MatchServiceAdapter::PruneCaches(
   const auto reply = controller_.prune_caches(*request, *response);
   return match_status(reply.code, reply.message, *context);
 }
+grpc::Status MatchServiceAdapter::DiscoverFiles(
+    grpc::ServerContext *context, const ctk::match::v1::DiscoverFilesRequest *request,
+    ctk::match::v1::DiscoverFilesResponse *response) {
+  ctk::clang_layer::MatchCode code;
+  std::string message;
+  *response = controller_.discover_files(
+      *request, [context] { return !context->IsCancelled(); }, code, message);
+  return match_status(code, message, *context);
+}
+grpc::Status MatchServiceAdapter::OpenFile(
+    grpc::ServerContext *context, const ctk::match::v1::OpenFileRequest *request,
+    ctk::match::v1::FileInfo *response) {
+  std::string message;
+  const auto code = controller_.open_file(
+      owner(*context), *request,
+      [context] { return !context->IsCancelled(); }, *response, message);
+  return match_status(code, message, *context);
+}
+grpc::Status MatchServiceAdapter::ListFiles(
+    grpc::ServerContext *context, const ctk::match::v1::ListFilesRequest *,
+    ctk::match::v1::ListFilesResponse *response) {
+  *response = controller_.list_files(owner(*context));
+  return grpc::Status::OK;
+}
+grpc::Status MatchServiceAdapter::DescribeFile(
+    grpc::ServerContext *context, const ctk::match::v1::DescribeFileRequest *request,
+    ctk::match::v1::FileInfo *response) {
+  const auto code = controller_.describe_file(owner(*context), *request, *response);
+  return match_status(code, {}, *context);
+}
+grpc::Status MatchServiceAdapter::CloseFile(
+    grpc::ServerContext *context, const ctk::match::v1::CloseFileRequest *request,
+    ctk::match::v1::CloseFileResponse *response) {
+  const auto code = controller_.close_file(owner(*context), *request, *response);
+  return match_status(code, {}, *context);
+}
+grpc::Status MatchServiceAdapter::CloseAllFiles(
+    grpc::ServerContext *context, const ctk::match::v1::CloseAllFilesRequest *,
+    ctk::match::v1::CloseFileResponse *response) {
+  const auto code = controller_.close_all_files(owner(*context), *response);
+  return match_status(code, {}, *context);
+}
+grpc::Status MatchServiceAdapter::RefreshFile(
+    grpc::ServerContext *context, const ctk::match::v1::RefreshFileRequest *request,
+    ctk::match::v1::FileInfo *response) {
+  std::string message;
+  const auto code = controller_.refresh_file(
+      owner(*context), *request,
+      [context] { return !context->IsCancelled(); }, *response, message);
+  return match_status(code, message, *context);
+}
+grpc::Status MatchServiceAdapter::OpenResourceScope(
+    grpc::ServerContext *context, const ctk::match::v1::OpenResourceScopeRequest *request,
+    ctk::match::v1::ResourceScopeInfo *response) {
+  std::string message;
+  const auto code = controller_.open_resource_scope(owner(*context), *request,
+                                                     *response, message);
+  return match_status(code, message, *context);
+}
+grpc::Status MatchServiceAdapter::DescribeResourceScope(
+    grpc::ServerContext *context, const ctk::match::v1::ResourceScopeRequest *request,
+    ctk::match::v1::ResourceScopeInfo *response) {
+  const auto code = controller_.describe_resource_scope(
+      owner(*context), request->resource_scope_id(), *response);
+  return match_status(code, {}, *context);
+}
+grpc::Status MatchServiceAdapter::CancelResourceScope(
+    grpc::ServerContext *context, const ctk::match::v1::ResourceScopeRequest *request,
+    ctk::match::v1::ResourceScopeInfo *response) {
+  const auto code = controller_.cancel_resource_scope(
+      owner(*context), request->resource_scope_id(), *response);
+  return match_status(code, {}, *context);
+}
+grpc::Status MatchServiceAdapter::ReleaseResourceScope(
+    grpc::ServerContext *context, const ctk::match::v1::ResourceScopeRequest *request,
+    ctk::match::v1::ResourceScopeInfo *response) {
+  const auto code = controller_.release_resource_scope(
+      owner(*context), request->resource_scope_id(), *response);
+  return match_status(code, {}, *context);
+}
+grpc::Status MatchServiceAdapter::ResourceStatus(
+    grpc::ServerContext *, const ctk::match::v1::ResourceStatusRequest *,
+    ctk::match::v1::ResourceStatusResponse *response) {
+  *response = controller_.resource_status();
+  return grpc::Status::OK;
+}
 } // namespace ctk::net

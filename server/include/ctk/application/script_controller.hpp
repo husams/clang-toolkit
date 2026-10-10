@@ -10,7 +10,8 @@ public:
       std::shared_ptr<ctk::clang_layer::IQueryEngine> engine = {},
       std::shared_ptr<OperationExecutor> executor = {});
   ctk::script::Result run(const ctk::analysis::v1::ScriptRequest &,
-                          const ctk::clang_layer::IMatchBackend::Checkpoint &);
+                          const ctk::clang_layer::IMatchBackend::Checkpoint &,
+                          const std::string &owner = "local-user");
 
 private:
   CursorSettings settings_;

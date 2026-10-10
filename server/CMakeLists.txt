@@ -72,6 +72,7 @@ if(CTK_BUILD_NETWORK)
   target_sources(ctk_core PRIVATE src/application/match_controller.cpp
     src/application/operation_executor.cpp
     src/application/cursor_registry.cpp
+    src/application/resource_manager.cpp
     src/application/file_target_validation.cpp
     src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/call_graph_controller.cpp
     src/application/script_controller.cpp src/application/native_script_environment.cpp src/application/script_options.cpp)
@@ -109,6 +110,8 @@ if(CTK_WITH_CLANG)
     src/clang/call_graph_project.cpp
     src/clang/cached_query_engine.cpp
     src/clang/compilation_database.cpp
+    src/clang/file_discovery.cpp
+    src/clang/snapshot_resource_scope.cpp
     src/clang/snapshot/compilation_environment.cpp
     src/clang/snapshot/captured_filesystem.cpp
     src/clang/snapshot/build_snapshot.cpp

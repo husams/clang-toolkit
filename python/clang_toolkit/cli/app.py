@@ -5,9 +5,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import signal
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import FrameType
+from typing import Any
 
 from lark.exceptions import UnexpectedInput
 
@@ -18,8 +22,10 @@ from clang_toolkit.cli.syntax_diagnostics import (
     unknown_command_diagnostic,
 )
 from clang_toolkit.cli.batch import batch_requirements, execute_batch
+from clang_toolkit.cli.runtime.batch_execution import BatchInterrupted
 from clang_toolkit.cli.prompt import PersistentPromptHistory, create_session
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
+from clang_toolkit.cli.runtime.imports import script_source
 from clang_toolkit.cli.runtime.config import ConfigError
 from clang_toolkit.cli.runtime.history import HistoryError, HistoryStore
 from clang_toolkit.cli.runtime.output import OutputError
@@ -32,6 +38,7 @@ from clang_toolkit.configuration import ConfigurationError, load_network_config
 from clang_toolkit.version import client_version
 
 _SESSION_CLOSE_TIMEOUT = 5.0
+_BATCH_RUNNER_CANCEL_TIMEOUT = 30.0
 
 
 @dataclass(frozen=True)
@@ -103,7 +110,8 @@ class _SessionCompletionTracker:
                     progress = self._latest_progress.get(request_id)
                     if (
                         progress is not None
-                        and progress.progress.completed_files >= progress.progress.accepted_files
+                        and progress.progress.completed_files
+                        >= progress.progress.accepted_files
                     ):
                         return progress
                 elif control is not None:
@@ -132,7 +140,7 @@ def dispatch_result(
 ) -> DispatchResult:
     """Validate one sentence and evaluate it in the active REPL runtime."""
     if not line.strip():
-        line = "help"
+        return DispatchResult("", True)
     try:
         statement = command_parser().parse(line).children[0]
         if statement.data in {"help", "help_shortcut"}:
@@ -149,7 +157,9 @@ def dispatch_result(
                 return DispatchResult(f"error: {history_error}", False)
         first = next(token for token in lex(line) if token.type != "WS")
         if first.type == "NAME" and str(first) not in COMMANDS:
-            return DispatchResult(unknown_command_diagnostic(line, str(first), COMMANDS), False)
+            return DispatchResult(
+                unknown_command_diagnostic(line, str(first), COMMANDS), False
+            )
         return DispatchResult(syntax_diagnostic(line, exc), False)
     except (
         EvaluationError,
@@ -180,6 +190,108 @@ def _load_prompt_history(store: HistoryStore) -> PersistentPromptHistory | None:
         return None
 
 
+async def _run_batch_with_interrupts(
+    runtime: Runtime,
+    runner: Callable[[], Any],
+    *,
+    async_client: AsyncClient | None = None,
+    on_interrupt: Callable[[], Any] | None = None,
+) -> tuple[Any | None, bool]:
+    """Run sync SDK work off-loop while the main thread owns SIGINT handling."""
+    loop = asyncio.get_running_loop()
+    previous_handler = signal.getsignal(signal.SIGINT)
+    cancel_task: asyncio.Task[None] | None = None
+
+    def interrupt_once(signum: int, frame: FrameType | None) -> None:
+        nonlocal cancel_task
+        runtime.request_batch_cancel()
+        if cancel_task is None or cancel_task.done():
+            cancel_task = loop.create_task(cancel_active_scope())
+
+    async def cancel_active_scope() -> None:
+        if on_interrupt is not None:
+            try:
+                interrupted = on_interrupt()
+                if inspect.isawaitable(interrupted):
+                    await interrupted
+            except Exception as exc:
+                print(f"error: batch session cancellation was not confirmed: {exc}")
+        # Scope creation is atomic, but SIGINT can arrive while admission is
+        # still in flight. Wait briefly for its acknowledged scope handle.
+        deadline = loop.time() + _SESSION_CLOSE_TIMEOUT
+        while runtime._active_resource_scope is None and loop.time() < deadline:
+            if runner_task.done():
+                return
+            await asyncio.sleep(0.02)
+        scope = runtime._active_resource_scope
+        if scope is None:
+            return
+        try:
+            async with asyncio.timeout(_SESSION_CLOSE_TIMEOUT):
+                if async_client is not None:
+                    await async_client.cancel_resource_scope(
+                        scope.resource_scope_id
+                    )
+                else:
+                    await asyncio.to_thread(scope.cancel)
+        except Exception as exc:
+            print(f"error: batch scope cancellation was not confirmed: {exc}")
+
+    signal.signal(signal.SIGINT, interrupt_once)
+    runner_task = asyncio.create_task(asyncio.to_thread(runner))
+    interrupted = False
+    try:
+        try:
+            result = await asyncio.shield(runner_task)
+        except BatchInterrupted:
+            result = None
+            interrupted = True
+        if runtime._batch_cancel_requested.is_set():
+            interrupted = True
+        if cancel_task is not None:
+            await asyncio.gather(cancel_task, return_exceptions=True)
+        return result, interrupted
+    except asyncio.CancelledError:
+        # Protect the worker-owned Runtime stacks from asyncio's cancellation
+        # path too (for example, a caller cancelling _run() directly).
+        runtime.request_batch_cancel()
+        if cancel_task is None:
+            cancel_task = loop.create_task(cancel_active_scope())
+        # asyncio.Runner may receive SIGINT just before our temporary handler
+        # is installed. Run the same service/scope cancellation hook before
+        # joining the worker in that race too.
+        await asyncio.gather(cancel_task, return_exceptions=True)
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(runner_task), timeout=_BATCH_RUNNER_CANCEL_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            print(
+                "batch cancellation is still draining; waiting for the runner "
+                "to finish before releasing local state"
+            )
+            await asyncio.shield(runner_task)
+        except BatchInterrupted:
+            pass
+        if cancel_task is not None:
+            await asyncio.gather(cancel_task, return_exceptions=True)
+        return None, True
+    finally:
+        # Joining must precede Runtime.close(), which mutates the same lexical
+        # stacks the runner owns. Do not falsely report a successful join.
+        if not runner_task.done():
+            runtime.request_batch_cancel()
+            if cancel_task is None:
+                cancel_task = loop.create_task(cancel_active_scope())
+            try:
+                await asyncio.shield(runner_task)
+            except BatchInterrupted:
+                pass
+        if cancel_task is not None and not cancel_task.done():
+            await asyncio.gather(cancel_task, return_exceptions=True)
+        signal.signal(signal.SIGINT, previous_handler)
+
+
 async def _prompt(session, prompt: str) -> str:
     prompt_async = getattr(session, "prompt_async", None)
     if prompt_async is not None and inspect.iscoroutinefunction(prompt_async):
@@ -197,34 +309,55 @@ async def _run() -> int:
             "stops at the first failed command unless --continue-on-error is set."
         ),
     )
-    parser.add_argument("--version", action="version", version=client_version().format("ctk"))
-    parser.add_argument("--server-version", action="store_true", help="print the connected server version and exit")
-    parser.add_argument("--compile-commands", help="server-side compile_commands.json file or directory")
+    parser.add_argument(
+        "--version", action="version", version=client_version().format("ctk")
+    )
+    parser.add_argument(
+        "--server-version",
+        action="store_true",
+        help="print the connected server version and exit",
+    )
+    parser.add_argument(
+        "--compile-commands", help="server-side compile_commands.json file or directory"
+    )
     parser.add_argument("--server", help="override the configured gRPC endpoint")
     parser.add_argument("-c", "--cofing", "--config-path", dest="config_path")
     parser.add_argument("--print-config", action="store_true")
     parser.add_argument("--query", help="run one query expression")
     batch_args = parser.add_mutually_exclusive_group()
     batch_args.add_argument(
-        "-e", "--execute", dest="execute_text",
+        "-e",
+        "--execute",
+        dest="execute_text",
         help="execute console script text and exit",
     )
-    batch_args.add_argument("--script", help="execute commands from a script file and exit")
+    batch_args.add_argument(
+        "--script", help="execute commands from a script file and exit"
+    )
     parser.add_argument(
-        "--continue-on-error", action="store_true",
+        "--continue-on-error",
+        action="store_true",
         help="continue a batch after failed commands (batch input only)",
     )
-    parser.add_argument("--file", action="append", default=[], help="query input file (repeatable)")
-    parser.add_argument("--background", action="store_true", help="run --query while the prompt remains active")
+    parser.add_argument(
+        "--file", action="append", default=[], help="query input file (repeatable)"
+    )
+    parser.add_argument(
+        "--background",
+        action="store_true",
+        help="run --query while the prompt remains active",
+    )
     parser.add_argument("--session", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     batch_source: str | None = None
+    batch_source_path: Path | None = None
     if args.execute_text is not None:
         batch_source = args.execute_text
     elif args.script is not None:
         try:
-            batch_source = Path(args.script).read_text(encoding="utf-8")
+            batch_source_path = Path(args.script).resolve()
+            batch_source = batch_source_path.read_text(encoding="utf-8")
         except OSError as exc:
             print(f"error: cannot read script {args.script}: {exc}")
             return 1
@@ -236,7 +369,9 @@ async def _run() -> int:
             # real redirected stream remains a batch input source.
             batch_source = None
     if args.continue_on_error and batch_source is None:
-        parser.error("--continue-on-error requires --execute, --script, or nonterminal stdin")
+        parser.error(
+            "--continue-on-error requires --execute, --script, or nonterminal stdin"
+        )
     if batch_source is not None and args.query is not None:
         parser.error("batch input cannot be combined with --query")
 
@@ -250,7 +385,9 @@ async def _run() -> int:
         return 0
     if args.server_version:
         try:
-            async with AsyncClient(args.server, args.config_path, network_config) as client:
+            async with AsyncClient(
+                args.server, args.config_path, network_config
+            ) as client:
                 print((await client.server_version()).format("ctk-server"))
         except QueryError as exc:
             print(f"error: {exc}")
@@ -259,8 +396,11 @@ async def _run() -> int:
     if args.background and not args.query:
         parser.error("--background requires --query")
 
-    compilation_options = ({"compilation_database": args.compile_commands}
-                           if args.compile_commands is not None else {})
+    compilation_options = (
+        {"compilation_database": args.compile_commands}
+        if args.compile_commands is not None
+        else {}
+    )
     client = (
         Client(args.server, **compilation_options)
         if args.config_path is None
@@ -271,17 +411,30 @@ async def _run() -> int:
         try:
             runtime = Runtime(client)
             if args.compile_commands is not None:
-                runtime.config_store.effective["compile_commands"] = args.compile_commands
+                runtime.config_store.effective["compile_commands"] = (
+                    args.compile_commands
+                )
             if runtime.config_store.effective["compile_commands"] is not None:
-                compilation_options["compilation_database"] = runtime.config_store.effective["compile_commands"]
+                compilation_options["compilation_database"] = (
+                    runtime.config_store.effective["compile_commands"]
+                )
             requirements = batch_requirements(batch_source)
-            runner = lambda: execute_batch(
-                batch_source,
-                lambda command: dispatch_result(client, command, runtime),
-                continue_on_error=args.continue_on_error,
-            )
+
+            def runner():
+                with script_source(runtime, batch_source_path):
+                    return execute_batch(
+                        batch_source,
+                        lambda command: dispatch_result(client, command, runtime),
+                        continue_on_error=args.continue_on_error,
+                    )
+
             if not requirements.query_session and not requirements.background_query:
-                result = await asyncio.to_thread(runner)
+                runtime.clear_batch_cancel()
+                result, interrupted = await _run_batch_with_interrupts(
+                    runtime, runner
+                )
+                if interrupted:
+                    return 130
                 for output in result.outputs:
                     print(output)
                 return result.exit_code
@@ -297,7 +450,9 @@ async def _run() -> int:
                 if requirements.query_session:
                     query_session = await async_client.query_session()
                     client.bind_query_session(query_session)
-                    completion_tracker = _SessionCompletionTracker(asyncio.get_running_loop())
+                    completion_tracker = _SessionCompletionTracker(
+                        asyncio.get_running_loop()
+                    )
 
                     async def print_batch_session_events() -> None:
                         try:
@@ -320,28 +475,67 @@ async def _run() -> int:
                     session_reader = asyncio.create_task(print_batch_session_events())
 
                 def dispatch_batch_command(command: str) -> DispatchResult:
+                    if runtime._batch_cancel_requested.is_set():
+                        raise BatchInterrupted("batch cancellation requested")
                     client._last_session_command = None
                     client._last_session_command_request_id = None
                     outcome = dispatch_result(client, command, runtime)
                     request_id = client._last_session_command_request_id
                     session_command = client._last_session_command
-                    if request_id is None or session_command is None or completion_tracker is None:
+                    if (
+                        request_id is None
+                        or session_command is None
+                        or completion_tracker is None
+                    ):
                         return outcome
                     try:
-                        event = completion_tracker.wait_from_thread(request_id, session_command)
+                        event = completion_tracker.wait_from_thread(
+                            request_id, session_command
+                        )
                     except Exception as exc:
+                        if runtime._batch_cancel_requested.is_set():
+                            raise BatchInterrupted(
+                                "batch interrupted while awaiting session completion"
+                            ) from exc
                         return DispatchResult(f"error: {exc}", False)
+                    if runtime._batch_cancel_requested.is_set():
+                        raise BatchInterrupted("batch cancellation requested")
                     if event.WhichOneof("event") == "rejected":
                         return DispatchResult(f"error: {event.rejected.message}", False)
                     return outcome
 
+                def run_batch():
+                    with script_source(runtime, batch_source_path):
+                        return execute_batch(
+                            batch_source,
+                            dispatch_batch_command,
+                            continue_on_error=args.continue_on_error,
+                        )
+
+                runtime.clear_batch_cancel()
+
+                async def cancel_batch_services() -> None:
+                    if completion_tracker is not None:
+                        completion_tracker.fail(QueryError("batch interrupted"))
+                    if query_session is not None:
+                        await query_session.cancel()
+                    background = tuple(getattr(async_client, "_background", ()))
+                    for task in background:
+                        if not task.done():
+                            task.cancel()
+                    if background:
+                        await asyncio.gather(*background, return_exceptions=True)
+
                 try:
-                    result = await asyncio.to_thread(
-                        execute_batch,
-                        batch_source,
-                        dispatch_batch_command,
-                        continue_on_error=args.continue_on_error,
+                    result, interrupted = await _run_batch_with_interrupts(
+                        runtime,
+                        run_batch,
+                        async_client=async_client,
+                        on_interrupt=cancel_batch_services,
                     )
+                    if interrupted:
+                        return 130
+                    assert result is not None
                 finally:
                     if query_session is not None:
                         cancel_stream = False
@@ -356,12 +550,16 @@ async def _run() -> int:
                             session_errors.append(str(exc))
                             print(f"error: {exc}")
                         finally:
-                            if cancel_stream or (session_reader is not None and not session_reader.done()):
+                            if cancel_stream or (
+                                session_reader is not None and not session_reader.done()
+                            ):
                                 await query_session.cancel()
                             if session_reader is not None and not session_reader.done():
                                 session_reader.cancel()
                             if session_reader is not None:
-                                await asyncio.gather(session_reader, return_exceptions=True)
+                                await asyncio.gather(
+                                    session_reader, return_exceptions=True
+                                )
                 if requirements.background_query:
                     try:
                         await async_client.wait_background()
@@ -398,18 +596,24 @@ async def _run() -> int:
     if args.compile_commands is not None:
         runtime.config_store.effective["compile_commands"] = args.compile_commands
     if runtime.config_store.effective["compile_commands"] is not None:
-        compilation_options["compilation_database"] = runtime.config_store.effective["compile_commands"]
+        compilation_options["compilation_database"] = runtime.config_store.effective[
+            "compile_commands"
+        ]
     query_session = None
     session_reader = None
     exit_code = 0
     try:
-        async with AsyncClient(args.server, args.config_path, network_config, **compilation_options) as async_client:
+        async with AsyncClient(
+            args.server, args.config_path, network_config, **compilation_options
+        ) as async_client:
             client.bind_async_client(async_client)
             try:
                 if args.query and not args.background:
                     try:
                         await async_client.query(
-                            args.query, args.file, on_event=lambda event: print(_format_event(event))
+                            args.query,
+                            args.file,
+                            on_event=lambda event: print(_format_event(event)),
                         )
                     except QueryError as exc:
                         print(f"error: {exc}")
@@ -432,7 +636,9 @@ async def _run() -> int:
                 session_reader = asyncio.create_task(print_session_events())
                 if args.query:
                     async_client.start_background_query(
-                        args.query, args.file, on_event=lambda event: print(_format_event(event)),
+                        args.query,
+                        args.file,
+                        on_event=lambda event: print(_format_event(event)),
                         on_error=lambda error: print(f"error: {error}"),
                     )
                     print("background query started; enter REPL commands while it runs")
@@ -444,7 +650,9 @@ async def _run() -> int:
                     except KeyboardInterrupt:
                         continue
                     try:
-                        outcome = await asyncio.to_thread(dispatch_result, client, line, runtime)
+                        outcome = await asyncio.to_thread(
+                            dispatch_result, client, line, runtime
+                        )
                     except (NotImplementedError, CursorError, AnalysisError) as exc:
                         outcome = DispatchResult(f"error: {exc}", False)
                     except (QueryError, ConfigurationError) as exc:
@@ -474,7 +682,9 @@ async def _run() -> int:
                         print(f"error: {exc}")
                         exit_code = 1
                     finally:
-                        if cancel_stream or (session_reader is not None and not session_reader.done()):
+                        if cancel_stream or (
+                            session_reader is not None and not session_reader.done()
+                        ):
                             await query_session.cancel()
                         if session_reader is not None and not session_reader.done():
                             session_reader.cancel()

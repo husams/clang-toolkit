@@ -6,10 +6,11 @@
 namespace ctk::application::detail {
 struct ResultCursor {
   std::mutex operation;
-  std::string owner, id, file_path;
+  std::string owner, id, file_path, input_identity, scope_id;
   bool closed{false};
   std::chrono::steady_clock::time_point deadline;
   std::shared_ptr<const ctk::clang_layer::NativeBindingState> state;
   ctk::match::v1::MatchResponse response;
+  ctk::match::v1::InputDescriptor input;
 };
 } // namespace ctk::application::detail

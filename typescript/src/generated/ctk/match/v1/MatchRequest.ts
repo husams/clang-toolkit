@@ -4,6 +4,7 @@ import type { FileMatchTarget as _ctk_match_v1_FileMatchTarget, FileMatchTarget_
 import type { SessionMatchTarget as _ctk_match_v1_SessionMatchTarget, SessionMatchTarget__Output as _ctk_match_v1_SessionMatchTarget__Output } from '../../../ctk/match/v1/SessionMatchTarget.js';
 import type { BindingMatchTarget as _ctk_match_v1_BindingMatchTarget, BindingMatchTarget__Output as _ctk_match_v1_BindingMatchTarget__Output } from '../../../ctk/match/v1/BindingMatchTarget.js';
 import type { MatchTraversalMode as _ctk_match_v1_MatchTraversalMode, MatchTraversalMode__Output as _ctk_match_v1_MatchTraversalMode__Output } from '../../../ctk/match/v1/MatchTraversalMode.js';
+import type { FileHandleTarget as _ctk_match_v1_FileHandleTarget, FileHandleTarget__Output as _ctk_match_v1_FileHandleTarget__Output } from '../../../ctk/match/v1/FileHandleTarget.js';
 
 export interface MatchRequest {
   'query'?: (string);
@@ -12,7 +13,9 @@ export interface MatchRequest {
   'binding'?: (_ctk_match_v1_BindingMatchTarget | null);
   'traversalMode'?: (_ctk_match_v1_MatchTraversalMode);
   'preserveSource'?: (boolean);
-  'target'?: "file"|"session"|"binding";
+  'fileHandle'?: (_ctk_match_v1_FileHandleTarget | null);
+  'resourceScopeId'?: (string);
+  'target'?: "file"|"session"|"binding"|"fileHandle";
 }
 
 export interface MatchRequest__Output {
@@ -22,5 +25,7 @@ export interface MatchRequest__Output {
   'binding'?: (_ctk_match_v1_BindingMatchTarget__Output | null);
   'traversalMode': (_ctk_match_v1_MatchTraversalMode__Output);
   'preserveSource': (boolean);
-  'target'?: "file"|"session"|"binding";
+  'fileHandle'?: (_ctk_match_v1_FileHandleTarget__Output | null);
+  'resourceScopeId': (string);
+  'target'?: "file"|"session"|"binding"|"fileHandle";
 }

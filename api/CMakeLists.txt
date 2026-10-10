@@ -26,7 +26,7 @@ add_custom_command(
 
 set(_match_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/query-generated")
 set(_parse_sources)
-foreach(_module IN ITEMS parse_request parse_response match_stream saved_value)
+foreach(_module IN ITEMS parse_request parse_response match_stream saved_value resources)
   list(APPEND _parse_sources "${_match_generated_dir}/match/v1/${_module}.pb.cc"
        "${_match_generated_dir}/match/v1/${_module}.pb.h")
 endforeach()
@@ -44,12 +44,14 @@ add_custom_command(
           "${_api_schema_dir}/match/v1/parse_response.proto"
           "${_api_schema_dir}/match/v1/match_stream.proto"
           "${_api_schema_dir}/match/v1/saved_value.proto"
+          "${_api_schema_dir}/match/v1/resources.proto"
           "${_api_schema_dir}/match/v1/match_service.proto"
   DEPENDS "${_api_schema_dir}/match/v1/match_result.proto"
           "${_api_schema_dir}/match/v1/parse_request.proto"
           "${_api_schema_dir}/match/v1/parse_response.proto"
           "${_api_schema_dir}/match/v1/match_stream.proto"
           "${_api_schema_dir}/match/v1/saved_value.proto"
+          "${_api_schema_dir}/match/v1/resources.proto"
           "${_api_schema_dir}/match/v1/match_service.proto"
   VERBATIM)
 add_library(ctk_match_api STATIC ${_parse_sources}

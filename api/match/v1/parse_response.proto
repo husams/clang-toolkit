@@ -7,4 +7,6 @@ message ParseResponse {
   string session_id = 1;
   uint64 result_revision = 2;
   google.protobuf.Timestamp expires_at = 3;
+  // Paired explicit file lease; closing this ParsedTree closes its root cursor.
+  string file_lease_id = 4;
 }

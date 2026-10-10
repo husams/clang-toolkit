@@ -6,6 +6,9 @@ export interface ParseRequest {
   'compileArguments'?: (string)[];
   'workingDirectory'?: (string);
   'compilationDatabase'?: (string);
+  'resourceScopeId'?: (string);
+  'expectedProfileId'?: (string);
+  'frozenProfile'?: (boolean);
 }
 
 export interface ParseRequest__Output {
@@ -13,4 +16,7 @@ export interface ParseRequest__Output {
   'compileArguments': (string)[];
   'workingDirectory': (string);
   'compilationDatabase': (string);
+  'resourceScopeId': (string);
+  'expectedProfileId': (string);
+  'frozenProfile': (boolean);
 }

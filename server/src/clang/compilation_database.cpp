@@ -241,6 +241,8 @@ private:
 } // namespace
 
 FileInput resolve_compilation_command(const FileInput &input) {
+  if (input.compilation_profile_frozen)
+    return input;
   auto working = fs::absolute(input.working_directory.empty()
                                   ? fs::current_path()
                                   : fs::path(input.working_directory));

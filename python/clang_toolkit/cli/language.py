@@ -82,6 +82,49 @@ def _editor_parser() -> Lark:
     )
 
 
+def _editor_tokens_for_done_after_newline(token: Token) -> list[Token]:
+    """Split the parser-only multiline terminator into lossless editor tokens."""
+    text = str(token)
+    parts: list[tuple[str, int, int]] = []
+    cursor = 0
+    while cursor < len(text) and text[cursor] in "\r\n":
+        newline_end = cursor + (2 if text.startswith("\r\n", cursor) else 1)
+        whitespace_end = newline_end
+        while whitespace_end < len(text) and text[whitespace_end] in " \t":
+            whitespace_end += 1
+        parts.append(("WS", cursor, whitespace_end))
+        cursor = whitespace_end
+        if cursor < len(text) and text[cursor] == "#":
+            comment_end = cursor
+            while comment_end < len(text) and text[comment_end] not in "\r\n":
+                comment_end += 1
+            parts.append(("COMMENT", cursor, comment_end))
+            cursor = comment_end
+    if cursor < len(text):
+        parts.append(("DONE", cursor, len(text)))
+
+    def position(offset: int) -> tuple[int, int]:
+        prefix = text[:offset]
+        line_breaks = prefix.count("\n")
+        if line_breaks:
+            return int(token.line) + line_breaks, len(prefix.rsplit("\n", 1)[-1]) + 1
+        return int(token.line), int(token.column) + offset
+
+    return [
+        Token(
+            kind,
+            text[start:end],
+            start_pos=int(token.start_pos) + start,
+            line=position(start)[0],
+            column=position(start)[1],
+            end_line=position(end)[0],
+            end_column=position(end)[1],
+            end_pos=int(token.start_pos) + end,
+        )
+        for kind, start, end in parts
+    ]
+
+
 def lex(text: str) -> list[Token]:
     """Tokenize all input, retaining whitespace and representing bad chars.
 
@@ -92,6 +135,9 @@ def lex(text: str) -> list[Token]:
     """
     editor_tokens = []
     for token in _editor_parser().lex(text, dont_ignore=True):
+        if token.type == "DONE_AFTER_NEWLINE":
+            editor_tokens.extend(_editor_tokens_for_done_after_newline(token))
+            continue
         if token.type == "EDITOR_NAME":
             token = Token.new_borrow_pos("NAME", str(token), token)
         elif token.type == "BATCH_SEPARATOR":

@@ -2,6 +2,7 @@
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 #include <fstream>
+#include <filesystem>
 #include <future>
 #include <gtest/gtest.h>
 #include <thread>
@@ -1107,14 +1108,16 @@ public:
 MatchRequest publication_request() {
   MatchRequest request;
   request.set_query("decl()");
-  request.mutable_file()->set_file_path("unused.cc");
-  request.mutable_file()->set_working_directory("/tmp");
+  request.mutable_file()->set_file_path(
+      std::filesystem::absolute(__FILE__).string());
+  request.mutable_file()->set_working_directory(
+      std::filesystem::temp_directory_path().string());
   return request;
 }
 ParseRequest publication_parse_request() {
   ParseRequest request;
-  request.set_file_path("unused.cc");
-  request.set_working_directory("/tmp");
+  request.set_file_path(std::filesystem::absolute(__FILE__).string());
+  request.set_working_directory(std::filesystem::temp_directory_path().string());
   return request;
 }
 TEST(CursorPublication, ParseAndForkCancellationAtCommitConsumeNoCapacity) {

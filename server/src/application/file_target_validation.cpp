@@ -14,7 +14,7 @@ std::string invalid_file_target(const ctk::match::v1::FileMatchTarget &file) {
       "-include", "-include-pch", "-fmodule-file", "-imacros",
       "-D",       "-U",           "-isysroot",     "--sysroot",
       "-target",  "--target",     "-resource-dir", "-x",
-      "-Xclang",  "-mllvm"};
+      "-arch",    "-Xclang",      "-mllvm"};
   for (int i = 0; i < file.compile_arguments_size(); ++i) {
     const auto &argument = file.compile_arguments(i);
     if (argument.empty() || argument[0] != '-' || argument == "--" ||

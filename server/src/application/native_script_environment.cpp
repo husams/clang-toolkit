@@ -1,4 +1,5 @@
 #include "native_script_environment.hpp"
+#include "ctk/clang/file_discovery.hpp"
 #include "ctk/script/error.hpp"
 #include "file_target_validation.hpp"
 #include "pinned_query_engine.hpp"
@@ -90,6 +91,11 @@ NativeScriptEnvironment::file_target(const std::string &path) const {
     file.set_compilation_database(request_.profile().compilation_database());
     file.clear_compile_arguments();
     *file.mutable_compile_arguments() = request_.profile().compile_arguments();
+    file.set_frozen_profile(request_.profile().frozen());
+    if (request_.profile().frozen() &&
+        (!request_.has_file() ||
+         path == request_.file().file_path()))
+      file.set_expected_profile_id(request_.profile().expected_profile_id());
   }
   file.set_file_path(path);
   if (file.working_directory().empty())
@@ -97,7 +103,39 @@ NativeScriptEnvironment::file_target(const std::string &path) const {
   auto invalid = invalid_file_target(file);
   if (!invalid.empty())
     throw Error(Code::InvalidArgument, invalid);
-  return file;
+  ctk::match::v1::InputDescriptor descriptor;
+  descriptor.set_file_path(file.file_path());
+  auto *profile = descriptor.mutable_profile();
+  profile->set_working_directory(file.working_directory());
+  profile->set_compilation_database(file.compilation_database());
+  profile->set_frozen(file.frozen_profile());
+  for (const auto &argument : file.compile_arguments())
+    profile->add_compile_arguments(argument);
+  profile->set_profile_id(file.expected_profile_id());
+  try {
+    const auto resolved = ctk::clang_layer::resolve_file_descriptor(descriptor);
+    ctk::match::v1::FileMatchTarget frozen;
+    // The frozen profile may use the compilation database command's working
+    // directory, so retain the resolved absolute source path for acquisition.
+    frozen.set_file_path(resolved.descriptor.file_path());
+    frozen.set_working_directory(
+        resolved.descriptor.profile().working_directory());
+    frozen.set_compilation_database(
+        resolved.descriptor.profile().compilation_database());
+    frozen.set_frozen_profile(true);
+    frozen.set_expected_profile_id(
+        resolved.descriptor.profile().profile_id());
+    for (const auto &argument :
+         resolved.descriptor.profile().compile_arguments())
+      frozen.add_compile_arguments(argument);
+    return frozen;
+  } catch (const ctk::clang_layer::ProfileMismatch &error) {
+    throw Error(Code::FailedPrecondition, error.what());
+  } catch (const std::length_error &error) {
+    throw Error(Code::ResourceExhausted, error.what());
+  } catch (const std::exception &error) {
+    throw Error(Code::InvalidArgument, error.what());
+  }
 }
 void NativeScriptEnvironment::acquire_file(
     const ctk::match::v1::FileMatchTarget &file) {
@@ -109,7 +147,8 @@ void NativeScriptEnvironment::acquire_file(
   pinned_->acquire_snapshot(
       {file.file_path(),
        {file.compile_arguments().begin(), file.compile_arguments().end()},
-       file.working_directory(), file.compilation_database()});
+       file.working_directory(), file.compilation_database(),
+       file.frozen_profile()});
   if (!checkpoint_())
     throw Error(Code::Cancelled, "script cancelled");
 }
@@ -121,12 +160,17 @@ NativeScriptEnvironment::parse_file(const std::string &path) {
   request.set_file_path(file.file_path());
   request.set_working_directory(file.working_directory());
   request.set_compilation_database(file.compilation_database());
+  request.set_frozen_profile(file.frozen_profile());
+  request.set_expected_profile_id(file.expected_profile_id());
   *request.mutable_compile_arguments() = file.compile_arguments();
   auto result = matches_->parse(request, checkpoint_, settings_.results);
   if (result.code != Code::Ok)
     throw Error(result.code, result.message);
   auto wire = std::make_shared<ctk::analysis::v1::ScriptValue>();
   *wire->mutable_tree()->mutable_file() = file;
+  // Script values retain the spelling supplied by the script even though the
+  // native target carries an absolute path paired with its frozen profile.
+  wire->mutable_tree()->mutable_file()->set_file_path(path);
   return {wire, std::move(result.state), {}};
 }
 ctk::script::Value

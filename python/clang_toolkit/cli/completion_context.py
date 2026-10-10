@@ -10,6 +10,21 @@ from lark.exceptions import UnexpectedInput
 from clang_toolkit.cli.language import parser, reference_parser
 
 _KEYWORD_TYPES = {
+    "FILE",
+    "RESOURCE",
+    "BATCH",
+    "FILES_EXPR",
+    "SIZE",
+    "COUNT",
+    "JOBS",
+    "MEMORY",
+    "ON",
+    "ERROR_WORD",
+    "STOP",
+    "ALL",
+    "DISCOVERED",
+    "INFO",
+    "REFRESH",
     "PARSE",
     "YIELD",
     "LET",
@@ -53,6 +68,17 @@ _KEYWORD_TYPES = {
     "MODE",
     "REPLACE",
     "JOIN_WITH",
+    "IMPORT",
+    "PUSH",
+    "POP",
+    "DELETE",
+    "SPLIT",
+    "BY",
+    "JOIN",
+    "WITH",
+    "HAS_FIELD",
+    "FIELD_STATE",
+    "FIELD_OR",
 }
 
 

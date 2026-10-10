@@ -7,8 +7,21 @@ import "match/v1/match_result.proto";
 import "match/v1/match_stream.proto";
 import "match/v1/parse_request.proto";
 import "match/v1/parse_response.proto";
+import "match/v1/resources.proto";
 
 service MatchService {
+  rpc DiscoverFiles(DiscoverFilesRequest) returns (DiscoverFilesResponse);
+  rpc OpenFile(OpenFileRequest) returns (FileInfo);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc DescribeFile(DescribeFileRequest) returns (FileInfo);
+  rpc CloseFile(CloseFileRequest) returns (CloseFileResponse);
+  rpc CloseAllFiles(CloseAllFilesRequest) returns (CloseFileResponse);
+  rpc RefreshFile(RefreshFileRequest) returns (FileInfo);
+  rpc OpenResourceScope(OpenResourceScopeRequest) returns (ResourceScopeInfo);
+  rpc DescribeResourceScope(ResourceScopeRequest) returns (ResourceScopeInfo);
+  rpc CancelResourceScope(ResourceScopeRequest) returns (ResourceScopeInfo);
+  rpc ReleaseResourceScope(ResourceScopeRequest) returns (ResourceScopeInfo);
+  rpc ResourceStatus(ResourceStatusRequest) returns (ResourceStatusResponse);
   // Acquire a pinned immutable tree without evaluating a matcher. The opaque
   // tree cursor is caller-owned and is released by CloseSession or idle expiry.
   rpc Parse(ParseRequest) returns (ParseResponse);
@@ -73,6 +86,7 @@ message MatchRequest {
     FileMatchTarget file = 2;
     SessionMatchTarget session = 3;
     BindingMatchTarget binding = 4;
+    FileHandleTarget file_handle = 7;
   }
   MatchTraversalMode traversal_mode = 5;
   // Publish into a fresh cursor instead of replacing a retained target. The
@@ -82,6 +96,8 @@ message MatchRequest {
   // before publication. An empty source collection selects zero roots and
   // produces a fresh empty collection; an explicit missing row/bind is NOT_FOUND.
   bool preserve_source = 6;
+  // Scope registers provisional ownership before any result ID is published.
+  string resource_scope_id = 8;
 }
 
 message FileMatchTarget {
@@ -103,6 +119,9 @@ message FileMatchTarget {
   // The file's database command supplies flags and its working directory;
   // compile_arguments append overrides. Explicit lookup misses are errors.
   string compilation_database = 4;
+  // Frozen descriptor identity guard; a mismatch is FAILED_PRECONDITION.
+  string expected_profile_id = 5;
+  bool frozen_profile = 6;
 }
 
 message SessionMatchTarget {

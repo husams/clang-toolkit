@@ -45,7 +45,8 @@ def test_help_does_not_initialize_settings_or_output(monkeypatch):
     monkeypatch.setattr("clang_toolkit.cli.app.Runtime", unexpected_runtime)
     client = Mock(spec=Client)
     assert "help <command>" in dispatch(client, "help")
-    assert dispatch(client, "") == dispatch(client, "help")
+    assert dispatch(client, "") == ""
+    assert dispatch(client, " \t\n") == ""
     assert "parse PATH" in dispatch(client, "parse?")
     unknown = dispatch(client, "unknown")
     assert unknown.startswith("unknown command: unknown at line 1, column 1.")

@@ -17,11 +17,39 @@ SnapshotCache::~SnapshotCache() = default;
 // engine owns selection, validation, flight waiting and publication separately.
 SnapshotPtr SnapshotCache::acquire(std::string_view spelling,
                                    const CompilationContext &context,
-                                   std::stop_token cancellation) {
+                                   std::stop_token cancellation,
+                                   std::string_view transient_owner) {
   const auto path = path_key(spelling);
   const auto identity = context.canonical_bytes();
   const auto digest = impl_->options.profile_digest(identity);
-  return impl_->acquire({path, identity, digest, context, cancellation});
+  return impl_->acquire({path, identity, digest, context, cancellation,
+                         std::string(transient_owner)});
+}
+
+void SnapshotCache::release_transient(std::string_view spelling,
+                                      const SnapshotPtr &snapshot,
+                                      std::string_view transient_owner) {
+  if (!snapshot || transient_owner.empty())
+    return;
+  const auto path = path_key(spelling);
+  const auto digest = impl_->options.profile_digest(snapshot->profile_identity);
+  std::vector<SnapshotPtr> retired;
+  std::lock_guard lock(impl_->mutex);
+  const auto file = impl_->files.find(path);
+  if (file == impl_->files.end())
+    return;
+  const auto profile = file->second->profiles.find(digest);
+  if (profile == file->second->profiles.end() ||
+      profile->second->canonical_context != snapshot->profile_identity)
+    return;
+  for (const auto &record : profile->second->generations) {
+    if (record->snapshot != snapshot)
+      continue;
+    record->transient_owners.erase(std::string(transient_owner));
+    if (!record->external_reuse && record->transient_owners.empty())
+      impl_->retire_locked(record, retired);
+    return;
+  }
 }
 
 void SnapshotCache::invalidate_path(std::string_view spelling) {

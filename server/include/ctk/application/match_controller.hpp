@@ -2,6 +2,7 @@
 #include "ctk/application/operation_executor.hpp"
 
 #include "ctk/clang/matching.hpp"
+#include "ctk/application/resource_manager.hpp"
 #include "match/v1/match_stream.pb.h"
 #include <chrono>
 #include <functional>
@@ -13,6 +14,7 @@ struct CursorSettings {
   std::uint64_t max_memory_bytes{2147483648ULL};
   std::chrono::milliseconds idle_ttl{300000};
   ctk::clang_layer::MatchLimits results;
+  std::shared_ptr<ResourceManager> resources;
 };
 struct MatchReply {
   ctk::clang_layer::MatchCode code{ctk::clang_layer::MatchCode::Ok};
@@ -36,6 +38,29 @@ public:
   ParseReply
   parse(const std::string &owner, const ctk::match::v1::ParseRequest &request,
         const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint);
+  ctk::match::v1::DiscoverFilesResponse discover_files(
+      const ctk::match::v1::DiscoverFilesRequest &request,
+      const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+      ctk::clang_layer::MatchCode &code, std::string &message);
+  ctk::clang_layer::MatchCode open_file(
+      const std::string &owner, const ctk::match::v1::OpenFileRequest &request,
+      const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+      ctk::match::v1::FileInfo &response, std::string &message);
+  ctk::match::v1::ListFilesResponse list_files(const std::string &owner);
+  ctk::clang_layer::MatchCode describe_file(
+      const std::string &owner,
+      const ctk::match::v1::DescribeFileRequest &request,
+      ctk::match::v1::FileInfo &response);
+  ctk::clang_layer::MatchCode close_file(
+      const std::string &owner, const ctk::match::v1::CloseFileRequest &request,
+      ctk::match::v1::CloseFileResponse &response);
+  ctk::clang_layer::MatchCode close_all_files(
+      const std::string &owner, ctk::match::v1::CloseFileResponse &response);
+  ctk::clang_layer::MatchCode refresh_file(
+      const std::string &owner,
+      const ctk::match::v1::RefreshFileRequest &request,
+      const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+      ctk::match::v1::FileInfo &response, std::string &message);
   MatchReply
   match(const std::string &owner, const ctk::match::v1::MatchRequest &request,
         const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint);
@@ -51,6 +76,20 @@ public:
   ctk::match::v1::ServerStatusResponse server_status();
   MatchReply prune_caches(const ctk::match::v1::PruneCachesRequest &request,
                          ctk::match::v1::PruneCachesResponse &response);
+  ctk::clang_layer::MatchCode open_resource_scope(
+      const std::string &owner,
+      const ctk::match::v1::OpenResourceScopeRequest &request,
+      ctk::match::v1::ResourceScopeInfo &response, std::string &message);
+  ctk::clang_layer::MatchCode describe_resource_scope(
+      const std::string &owner, const std::string &id,
+      ctk::match::v1::ResourceScopeInfo &response);
+  ctk::clang_layer::MatchCode cancel_resource_scope(
+      const std::string &owner, const std::string &id,
+      ctk::match::v1::ResourceScopeInfo &response);
+  ctk::clang_layer::MatchCode release_resource_scope(
+      const std::string &owner, const std::string &id,
+      ctk::match::v1::ResourceScopeInfo &response);
+  ctk::match::v1::ResourceStatusResponse resource_status();
   void stop_admission();
 
 private:

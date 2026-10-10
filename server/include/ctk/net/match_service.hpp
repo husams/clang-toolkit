@@ -32,6 +32,31 @@ public:
   grpc::Status PruneCaches(grpc::ServerContext *,
                           const ctk::match::v1::PruneCachesRequest *,
                           ctk::match::v1::PruneCachesResponse *) override;
+  grpc::Status DiscoverFiles(grpc::ServerContext *,
+      const ctk::match::v1::DiscoverFilesRequest *,
+      ctk::match::v1::DiscoverFilesResponse *) override;
+  grpc::Status OpenFile(grpc::ServerContext *,
+      const ctk::match::v1::OpenFileRequest *, ctk::match::v1::FileInfo *) override;
+  grpc::Status ListFiles(grpc::ServerContext *,
+      const ctk::match::v1::ListFilesRequest *, ctk::match::v1::ListFilesResponse *) override;
+  grpc::Status DescribeFile(grpc::ServerContext *,
+      const ctk::match::v1::DescribeFileRequest *, ctk::match::v1::FileInfo *) override;
+  grpc::Status CloseFile(grpc::ServerContext *,
+      const ctk::match::v1::CloseFileRequest *, ctk::match::v1::CloseFileResponse *) override;
+  grpc::Status CloseAllFiles(grpc::ServerContext *,
+      const ctk::match::v1::CloseAllFilesRequest *, ctk::match::v1::CloseFileResponse *) override;
+  grpc::Status RefreshFile(grpc::ServerContext *,
+      const ctk::match::v1::RefreshFileRequest *, ctk::match::v1::FileInfo *) override;
+  grpc::Status OpenResourceScope(grpc::ServerContext *,
+      const ctk::match::v1::OpenResourceScopeRequest *, ctk::match::v1::ResourceScopeInfo *) override;
+  grpc::Status DescribeResourceScope(grpc::ServerContext *,
+      const ctk::match::v1::ResourceScopeRequest *, ctk::match::v1::ResourceScopeInfo *) override;
+  grpc::Status CancelResourceScope(grpc::ServerContext *,
+      const ctk::match::v1::ResourceScopeRequest *, ctk::match::v1::ResourceScopeInfo *) override;
+  grpc::Status ReleaseResourceScope(grpc::ServerContext *,
+      const ctk::match::v1::ResourceScopeRequest *, ctk::match::v1::ResourceScopeInfo *) override;
+  grpc::Status ResourceStatus(grpc::ServerContext *,
+      const ctk::match::v1::ResourceStatusRequest *, ctk::match::v1::ResourceStatusResponse *) override;
 
 private:
   application::MatchController &controller_;

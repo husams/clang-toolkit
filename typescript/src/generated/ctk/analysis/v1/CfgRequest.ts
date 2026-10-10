@@ -14,6 +14,7 @@ export interface CfgRequest {
   'maxElements'?: (number | string | Long);
   'projection'?: (_ctk_analysis_v1_ValueProjection | null);
   'mainFileOnly'?: (boolean);
+  'resourceScopeId'?: (string);
   '_maxFunctions'?: "maxFunctions";
   '_maxBlocks'?: "maxBlocks";
   '_maxElements'?: "maxElements";
@@ -28,6 +29,7 @@ export interface CfgRequest__Output {
   'maxElements'?: (string);
   'projection': (_ctk_analysis_v1_ValueProjection__Output | null);
   'mainFileOnly': (boolean);
+  'resourceScopeId': (string);
   '_maxFunctions'?: "maxFunctions";
   '_maxBlocks'?: "maxBlocks";
   '_maxElements'?: "maxElements";

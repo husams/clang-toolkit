@@ -1,0 +1,41 @@
+cxx_record_decl:
+  record:
+    tag:
+      type_declaration:
+        named:
+          declaration:
+            is_implicit: false
+            is_invalid: false
+          name:
+            identifier: CompilationContext
+          qualified_name: ctk::cache::CompilationContext
+      tag_kind: TAG_KIND_STRUCT
+      is_complete_definition: false
+  is_lambda: false
+location:
+  file: /Users/husam/workspace/clang-toolkit/server/include/ctk/cache/snapshot.hpp
+  line: 13
+  column: 1
+  valid: true
+range:
+  expansion_begin:
+    file: /Users/husam/workspace/clang-toolkit/server/include/ctk/cache/snapshot.hpp
+    line: 13
+    column: 1
+    valid: true
+  expansion_end:
+    file: /Users/husam/workspace/clang-toolkit/server/include/ctk/cache/snapshot.hpp
+    line: 13
+    column: 8
+    valid: true
+  spelling_begin:
+    file: /Users/husam/workspace/clang-toolkit/server/include/ctk/cache/snapshot.hpp
+    line: 13
+    column: 1
+    valid: true
+  spelling_end:
+    file: /Users/husam/workspace/clang-toolkit/server/include/ctk/cache/snapshot.hpp
+    line: 13
+    column: 8
+    valid: true
+symbol_identity: c:@N@ctk@N@cache@S@CompilationContext

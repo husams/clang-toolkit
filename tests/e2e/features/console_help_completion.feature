@@ -1,5 +1,10 @@
 @e2e
 Feature: Detailed help and contextual filesystem completion
+  Scenario: Enter on an empty prompt stays quiet
+    Given an offline interactive console
+    When I press Enter on blank and whitespace-only prompts
+    Then the console stays quiet and explicit help remains available
+
   Scenario Outline: Command help without a running server
     Given an offline interactive console
     When I submit help text "<command>" through the prompt
@@ -35,3 +40,9 @@ Feature: Detailed help and contextual filesystem completion
     And console files with spaces
     When I complete the unfinished path and execute declarative analysis
     Then native analysis finds the declared function
+
+  Scenario: Tab completes a system-header expansion matcher
+    Given a native server for console completion
+    And console files with spaces
+    When I complete the system-header matcher through the prompt and execute it
+    Then native analysis finds the system-header function

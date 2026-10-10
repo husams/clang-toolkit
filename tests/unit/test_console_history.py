@@ -64,6 +64,17 @@ def test_prompt_history_submission_does_not_write_a_duplicate(tmp_path):
     runtime.close()
 
 
+def test_blank_console_submission_is_quiet_and_not_recorded(tmp_path):
+    store = HistoryStore(tmp_path / "history.jsonl")
+    client = Mock()
+    runtime = Runtime(client, cwd=tmp_path, environment={}, history=store)
+
+    assert dispatch(client, " \t\n", runtime) == ""
+    assert store.read_commands() == []
+    assert client.mock_calls == []
+    runtime.close()
+
+
 def test_ctrl_r_search_accepts_then_submits_the_full_multiline_entry(tmp_path):
     async def run():
         with create_pipe_input() as pipe:

@@ -267,7 +267,7 @@ def unknown_command_diagnostic(
     line, column = _line_column(source, position)
     safe_name = _safe_preview(command_name)
     candidates = sorted({name for name in command_names if isinstance(name, str)})
-    suggestions = get_close_matches(command_name, candidates, n=2, cutoff=0.55)
+    suggestions = get_close_matches(command_name, candidates, n=1, cutoff=0.55)
     message = f"unknown command: {safe_name} at line {line}, column {column}."
     if suggestions:
         suggestion_text = ", ".join(f"`{name}`" for name in suggestions)
@@ -276,10 +276,17 @@ def unknown_command_diagnostic(
     return message + "\n" + _source_caret(source, position)
 
 
-def _expected_summary(expected: Iterable[str]) -> str:
+def _expected_summary(
+    expected: Iterable[str], preferred: Iterable[str] = ()
+) -> str:
     available = set(expected)
     labels: list[str] = []
-    ordered = [token_type for token_type in _EXPECTED_ORDER if token_type in available]
+    ordered = [token_type for token_type in preferred if token_type in available]
+    ordered.extend(
+        token_type
+        for token_type in _EXPECTED_ORDER
+        if token_type in available and token_type not in ordered
+    )
     ordered.extend(
         terminal.name
         for terminal in parser().terminals
@@ -425,10 +432,21 @@ def syntax_diagnostic(source: str, error: UnexpectedInput) -> str:
         message = f"unexpected character `{char}`."
     else:
         message = "unexpected input."
+    preferred: tuple[str, ...] = ()
+    if len(tokens) == 1 and tokens[0].type == "SET":
+        preferred = ("TRAVERSAL", "FILES", "EXTRA_ARGS", "COMPILE_COMMANDS", "CACHE_DIR", "OUTPUT")
+    elif (
+        isinstance(error_token, Token)
+        and error_token.type in {"RPAR", "RSQB", "RBRACE"}
+        and error_token.type not in expected
+    ):
+        preferred = tuple(
+            closer for closer in ("RPAR", "RSQB", "RBRACE") if closer in expected
+        )
     return (
         prefix
         + message
-        + _expected_summary(expected)
+        + _expected_summary(expected, preferred)
         + "\n"
         + _source_caret(source, position)
     )

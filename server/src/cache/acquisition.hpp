@@ -15,6 +15,7 @@ struct AcquisitionRequest {
   std::string digest;
   const CompilationContext &context;
   std::stop_token cancellation;
+  std::string transient_owner;
 
   void check_cancelled() const;
 };

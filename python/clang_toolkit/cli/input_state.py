@@ -33,12 +33,25 @@ def input_state(text: str) -> InputState:
     open_string = False
     block_depth = 0
 
-    for token in lex(text):
+    tokens = lex(text)
+    for index, token in enumerate(tokens):
         if token.type == "DO":
             remainder = text[token.end_pos :]
-            if not remainder.strip() or remainder.lstrip(" \t\r").startswith("\n"):
+            next_token_index = index + 1
+            while next_token_index < len(tokens) and tokens[next_token_index].type in {
+                "WS", "COMMENT"
+            }:
+                next_token_index += 1
+            opens_brace_block = (
+                next_token_index < len(tokens)
+                and tokens[next_token_index].type == "LBRACE"
+            )
+            if (
+                not opens_brace_block
+                and (not remainder.strip() or remainder.lstrip(" \t\r").startswith("\n"))
+            ):
                 block_depth += 1
-        elif token.type == "DONE" and block_depth:
+        elif token.type in {"DONE", "DONE_AFTER_NEWLINE"} and block_depth:
             block_depth -= 1
         if token.type == "OPEN_STRING":
             open_string = True

@@ -9,7 +9,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class CfgRequest(_message.Message):
-    __slots__ = ("file", "function", "options", "max_functions", "max_blocks", "max_elements", "projection", "main_file_only")
+    __slots__ = ("file", "function", "options", "max_functions", "max_blocks", "max_elements", "projection", "main_file_only", "resource_scope_id")
     FILE_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     OPTIONS_FIELD_NUMBER: _ClassVar[int]
@@ -18,6 +18,7 @@ class CfgRequest(_message.Message):
     MAX_ELEMENTS_FIELD_NUMBER: _ClassVar[int]
     PROJECTION_FIELD_NUMBER: _ClassVar[int]
     MAIN_FILE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_SCOPE_ID_FIELD_NUMBER: _ClassVar[int]
     file: _match_service_pb2.FileMatchTarget
     function: str
     options: _cfg_options_pb2.CfgOptions
@@ -26,4 +27,5 @@ class CfgRequest(_message.Message):
     max_elements: int
     projection: _value_projection_pb2.ValueProjection
     main_file_only: bool
-    def __init__(self, file: _Optional[_Union[_match_service_pb2.FileMatchTarget, _Mapping]] = ..., function: _Optional[str] = ..., options: _Optional[_Union[_cfg_options_pb2.CfgOptions, _Mapping]] = ..., max_functions: _Optional[int] = ..., max_blocks: _Optional[int] = ..., max_elements: _Optional[int] = ..., projection: _Optional[_Union[_value_projection_pb2.ValueProjection, _Mapping]] = ..., main_file_only: _Optional[bool] = ...) -> None: ...
+    resource_scope_id: str
+    def __init__(self, file: _Optional[_Union[_match_service_pb2.FileMatchTarget, _Mapping]] = ..., function: _Optional[str] = ..., options: _Optional[_Union[_cfg_options_pb2.CfgOptions, _Mapping]] = ..., max_functions: _Optional[int] = ..., max_blocks: _Optional[int] = ..., max_elements: _Optional[int] = ..., projection: _Optional[_Union[_value_projection_pb2.ValueProjection, _Mapping]] = ..., main_file_only: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ...) -> None: ...

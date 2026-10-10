@@ -7,10 +7,12 @@ export interface ParseResponse {
   'sessionId'?: (string);
   'resultRevision'?: (number | string | Long);
   'expiresAt'?: (_google_protobuf_Timestamp | null);
+  'fileLeaseId'?: (string);
 }
 
 export interface ParseResponse__Output {
   'sessionId': (string);
   'resultRevision': (string);
   'expiresAt': (_google_protobuf_Timestamp__Output | null);
+  'fileLeaseId': (string);
 }

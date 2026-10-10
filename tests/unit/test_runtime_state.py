@@ -11,7 +11,9 @@ from clang_toolkit.cli.app import dispatch
 from clang_toolkit.cli.runtime import File, Runtime
 from clang_toolkit.cli.runtime.config import ConfigError, ConfigStore
 from clang_toolkit.cli.runtime.history import HistoryStore
-from clang_toolkit.cli.runtime.persistence import PersistenceError, load, save
+from clang_toolkit.cli.runtime.persistence import (
+    PersistenceError, load, read_document, save,
+)
 from clang_toolkit.cli.runtime.values import MatchSet, MatcherExpr
 from clang_toolkit.client import Client
 
@@ -72,18 +74,28 @@ def test_yaml_json_csv_round_trips_and_invalid_load_is_atomic(tmp_path):
     )
     yaml_path = save(matcher, tmp_path / "matcher")
     assert yaml_path.name == "matcher.yaml"
-    assert load(tmp_path / "matcher") == matcher
+    assert load(yaml_path) == {
+        "name": "varDecl",
+        "arguments": [{"name": "hasType", "arguments": [{"name": "pointerType", "arguments": [], "binding": None}], "binding": None}],
+        "binding": None,
+    }
+    proto_path = save(matcher, tmp_path / "matcher.proto")
+    assert load(proto_path) == matcher
     json_path = save([1, True, "x"], tmp_path / "values.json")
     assert load(json_path) == [1, True, "x"]
     csv_path = save(
         [{"name": "a", "count": 2}, {"name": "b", "count": 3}], tmp_path / "rows.csv"
     )
     assert load(csv_path) == [{"name": "a", "count": 2}, {"name": "b", "count": 3}]
-    assert load(save(MatchSet(("one", "two")), tmp_path / "results.yaml")) == MatchSet(
-        ("one", "two")
-    )
+    assert load(save(MatchSet(("one", "two")), tmp_path / "results.yaml")) == [
+        "one", "two"
+    ]
     (tmp_path / "bad.yaml").write_text("schema_version: 999\n")
-    with pytest.raises(PersistenceError, match="schema_version"):
+    assert load(tmp_path / "bad.yaml") == {"schema_version": 999}
+    (tmp_path / "bad.yaml").write_text(
+        "schema_version: 1\ntype: bool\nvalue: not-a-boolean\n"
+    )
+    with pytest.raises(PersistenceError, match="typed value"):
         load(tmp_path / "bad.yaml")
     with pytest.raises(PersistenceError, match="flat lists"):
         save([{"nested": [1]}], tmp_path / "bad.csv")
@@ -150,9 +162,32 @@ def test_file_values_round_trip_without_losing_type_or_display_path(tmp_path):
     session = Runtime(client, cwd=tmp_path, environment={})
     dispatch(client, 'let files = glob("*.cpp")', session)
     original = session.bindings["files"][0]
-    save(session.bindings["files"], tmp_path / "files.json")
-    loaded = load(tmp_path / "files.json")
-    assert loaded == [original]
-    assert isinstance(loaded[0], File)
-    assert str(loaded[0]) == "unit.cpp"
-    assert loaded[0].absolute == str(tmp_path / "unit.cpp")
+    json_path = save(session.bindings["files"], tmp_path / "files.json")
+    plain = load(json_path)
+    assert plain == [{
+        "path": "unit.cpp",
+        "absolute": str(tmp_path / "unit.cpp"),
+        "size": 3,
+        "modified": original.modified.isoformat(),
+    }]
+    proto_loaded = load(save(session.bindings["files"], tmp_path / "files.proto"))
+    assert proto_loaded == [original]
+    assert isinstance(proto_loaded[0], File)
+    assert str(proto_loaded[0]) == "unit.cpp"
+    assert proto_loaded[0].absolute == str(tmp_path / "unit.cpp")
+
+
+def test_read_preserves_exact_legacy_envelope_while_load_decodes_it(tmp_path):
+    legacy = {"schema_version": 1, "type": "bool", "value": True}
+    path = tmp_path / "legacy.yaml"
+    path.write_text("schema_version: 1\ntype: bool\nvalue: true\n")
+
+    assert read_document(path) == legacy
+    assert load(path) is True
+
+    generic = {"schema_version": 1, "type": "custom-record", "value": {"x": 3}}
+    path.write_text(
+        "schema_version: 1\ntype: custom-record\nvalue:\n  x: 3\n"
+    )
+    assert read_document(path) == generic
+    assert load(path) == generic

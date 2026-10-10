@@ -62,7 +62,12 @@ public:
   SnapshotCache &operator=(const SnapshotCache &) = delete;
 
   SnapshotPtr acquire(std::string_view path, const CompilationContext &context,
-                      std::stop_token cancellation = {});
+                      std::stop_token cancellation = {},
+                      std::string_view transient_owner = {});
+  // Release only this scope's reuse attribution. External reuse and other
+  // scopes stay intact; native owners pinned elsewhere remain valid.
+  void release_transient(std::string_view path, const SnapshotPtr &snapshot,
+                         std::string_view transient_owner);
   void invalidate_path(std::string_view path);
   void invalidate_directory(std::string_view directory);
   // Changes also invalidate the parent directory namespace (negative lookups).

@@ -10,4 +10,7 @@ message ParseRequest {
   // in the working/source directory or parents (including build/). Explicit
   // databases must contain this file; compile_arguments append overrides.
   string compilation_database = 4;
+  string resource_scope_id = 5;
+  string expected_profile_id = 6;
+  bool frozen_profile = 7;
 }

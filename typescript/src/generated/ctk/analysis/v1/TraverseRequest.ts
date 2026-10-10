@@ -12,6 +12,7 @@ export interface TraverseRequest {
   'maxNodes'?: (number | string | Long);
   'projection'?: (_ctk_analysis_v1_ValueProjection | null);
   'mainFileOnly'?: (boolean);
+  'resourceScopeId'?: (string);
   '_maxDepth'?: "maxDepth";
   '_maxNodes'?: "maxNodes";
 }
@@ -24,6 +25,7 @@ export interface TraverseRequest__Output {
   'maxNodes'?: (string);
   'projection': (_ctk_analysis_v1_ValueProjection__Output | null);
   'mainFileOnly': (boolean);
+  'resourceScopeId': (string);
   '_maxDepth'?: "maxDepth";
   '_maxNodes'?: "maxNodes";
 }

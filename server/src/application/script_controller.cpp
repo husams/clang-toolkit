@@ -2,6 +2,7 @@
 #include "ctk/clang/tooling.hpp"
 #include "file_target_validation.hpp"
 #include "native_script_environment.hpp"
+#include "resource_scope_guard.hpp"
 #include <future>
 namespace ctk::application {
 using Code = ctk::clang_layer::MatchCode;
@@ -22,7 +23,8 @@ ScriptController::ScriptController(
 }
 ctk::script::Result ScriptController::run(
     const ctk::analysis::v1::ScriptRequest &request,
-    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+    const std::string &owner) {
   if (request.has_file()) {
     auto file = request.file();
     if (request.has_profile()) {
@@ -46,18 +48,33 @@ ctk::script::Result ScriptController::run(
     return {Code::InvalidArgument, "script max_steps must be 1..10000", {}};
   if (request.source().size() > 1024 * 1024)
     return {Code::ResourceExhausted, "script source byte limit exceeded", {}};
+  auto work = std::make_shared<ResourceManager::WorkLease>();
+  if (settings_.resources) {
+    std::string message;
+    const auto code = settings_.resources->begin_work(
+        owner, request.resource_scope_id(), *work, message);
+    if (code != Code::Ok)
+      return {code, std::move(message), {}};
+  }
+  const auto scoped_checkpoint = [checkpoint, work] {
+    return (!checkpoint || checkpoint()) && work->checkpoint();
+  };
   auto promise = std::make_shared<std::promise<ctk::script::Result>>();
   auto future = promise->get_future();
-  if (!executor_->enqueue([this, promise, request, checkpoint] {
+  if (!executor_->enqueue([this, promise, request, scoped_checkpoint, owner,
+                           work] {
         try {
+          auto resource_scope = detail::make_snapshot_scope(
+              settings_.resources, owner, request.resource_scope_id(),
+              work->token());
           detail::NativeScriptEnvironment environment(request, settings_,
-                                                      engine_, checkpoint);
+                                                      engine_, scoped_checkpoint);
           ctk::script::Limits limits;
           limits.max_steps =
               request.has_max_steps() ? request.max_steps() : 100;
           limits.max_response_bytes = settings_.results.max_bytes;
           promise->set_value(ctk::script::Engine{}.run(
-              request.source(), &environment, limits, checkpoint));
+              request.source(), &environment, limits, scoped_checkpoint));
         } catch (const std::exception &error) {
           promise->set_value({Code::Internal, error.what(), {}});
         } catch (...) {

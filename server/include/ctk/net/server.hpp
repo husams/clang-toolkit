@@ -27,6 +27,7 @@ private:
   NetworkServiceAdapter service_;
   std::shared_ptr<application::OperationExecutor> operations_;
   std::shared_ptr<ctk::clang_layer::IQueryEngine> native_engine_;
+  std::shared_ptr<application::ResourceManager> resources_;
   application::MatchController matches_;
   MatchServiceAdapter match_service_;
   application::TraversalController traversals_;

@@ -63,7 +63,7 @@ match MATCHER in TARGET do { STATEMENT; ... }
 - TARGET: quoted file path, directory or glob; File, Directory, file list, parsed tree, match value or binding selection.
 - Directories recurse over C/C++/Objective-C source files; globs support absolute paths and **. Expansion uses the client's filesystem. Empty selections return an empty collection.
 - Target variables must already exist; bind labels name bindings in the new results.
-- With do { ... }, run ordinary statements as each streamed row arrives. Every bind label becomes a local variable: .bind("func") exposes $func.value.node. Newlines or semicolons separate statements; # starts a comment.
+- With do { ... }, run ordinary statements as each streamed row arrives. Every bind label becomes a local variable: .bind("func") exposes $func.node. Newlines or semicolons separate statements; # starts a comment.
 - Each row gets a fresh local scope; outer variables are restored afterwards. Streamed bindings provide copied semantic fields; native continuation requires a completed retained result. Row work is serialized across concurrent file streams; row order follows arrival order. Limits: 10000 rows and 1000000 bytes of collected output.
 - A missing `match` in this assignment form shows its insertion point and a corrected command.
 - Without in: use the enclosing block tree, otherwise configured files (default []).
@@ -71,7 +71,9 @@ match MATCHER in TARGET do { STATEMENT; ... }
 - Collections expose length, isEmpty, rows, zero-based indexing, and unique(field), sort(field), filter(field, expected). Selectors accept dotted paths; unique preserves the first row and sort orders numbers numerically, strings lexically, and other values deterministically by type and text.
 - A directory, glob or file-list query returns one typed collection with per-row source_file provenance. Files run in parallel up to pool.size, retaining input order. Continue from one binding with match ... in $rows[0].f, or from every row with match ... in $rows.f.
 - Continuation rows expose source_match_index (the zero-based parent row) and source_file, so multi-file and parent-row provenance remain inspectable.
-- Semantic fields continue from the bound node, for example $rows[0].f.value.node.
+- Read binding fields directly, for example $rows[0].f.node or $rows[0].f.is_complete; .value remains available for existing scripts.
+- An indexed binding such as $rows[0].f displays its copied semantic value directly; it remains usable as a native match target.
+- Binding .keys lists readable AST fields and conveniences such as decl_name, omitting node and serializer metadata; .node.keys lists readable immediate and inherited AST properties. Map .keys lists actual map names.
 - Declaration conveniences include node.name (typed DeclarationName), node.qualified_name (string), node.declared_type, and binding shortcuts such as decl_name, parameter_name, record_name, type_name and decl_type.
 - Bindings expose symbol_identity (Clang USR for named declarations), raw documentation, location and range. Location file/line/column is valid only when location.valid is true; coordinates are one-based and include macro status. Ranges retain expansion and spelling endpoints.
 - Call-expression bindings expose call_site with caller identity/name, static callee identity/name and CALL_DISPATCH_DIRECT, CALL_DISPATCH_INDIRECT or CALL_DISPATCH_VIRTUAL. VIRTUAL records the statically selected declaration, not a runtime target.
@@ -89,6 +91,8 @@ let rows = match functionDecl().bind("f") in "examples/parse_match.cc"
 let m = match functionDecl(isExpansionInMainFile()).bind("f") in $f
 match callExpr() in $rows.f
 $rows[0].f.value.node.qualified_name
+$rows[1].root.keys
+$rows[0].f.qualified_name
 $rows[0].f.value.node.name.identifier
 $rows[0].f.value.node.function_decl.function.declarator.value.named.qualified_name
 $rows[0].f.value.node.cxx_method_decl.method.function.declarator.value.named.qualified_name
@@ -123,6 +127,8 @@ let NAME(PARAM, ...) = MATCHER
 - A routine body must return a matcher. Arguments may be strings, numbers, booleans, matcher values or references. Parameters are local to each call; other references and routines use their current values at call time. Argument counts must match, parameter names must be unique, built-in matcher names are reserved, and call depth is limited to 64.
 - let silently retains typed query and graph results. Read counts with .length, rows with [index], and select bind label f across rows with $rows.f.
 - Use unique(field), sort(field) and filter(field, expected) on supported collections; field selectors may be dotted paths.
+- Lists and dictionaries are mutable local values. Use help collections for literals, properties, methods and mutation statements.
+- split STRING by SEPARATOR and join LIST with SEPARATOR produce values locally.
 
 ```text
 let predicate = hasName("main")
@@ -134,6 +140,139 @@ let rows = match $matcher in $files
 let continued = match callExpr().bind("call") in $rows.f
 let unique = $rows.unique("f.symbol_identity").sort("f.decl_name")
 let graph = traverse "examples/parse_match.cc" depth 1 projection shallow main-file true
+let d = {a: 1, b: 2}
+let names = $d.keys
+let values = $d.values
+let found = $d.hasKey("a")
+let parts = split "a/b" by "/"
+let text = join parts with ","
+```
+
+## collections
+
+Create and work with local mutable lists and dictionaries.
+
+```text
+let d = {a: 1, b: 2}
+set d['a'] = 1
+push xs, 4
+let x = pop xs
+delete d['a']
+let parts = split "a/b" by "/"
+let text = join parts with ","
+```
+
+- Dictionary literals accept identifier keys or quoted string keys. Properties: keys, values, length and isEmpty.
+- Dictionary methods: get("key"), set("key", value), delete("key"), hasKey("key") and clear().
+- List properties: length and isEmpty. Methods: push(value), pop([index]), insert(index, value), remove(value) and clear().
+- remove(value) removes the first equal item; it does not take an index.
+- push NAME, VALUE and push NAME with VALUE append; pop NAME removes and returns the final item.
+- set NAME[KEY] = VALUE, delete NAME[KEY] and delete NAME[INDEX] mutate a collection in place.
+- split STRING by SEPARATOR returns a list; join NAME with SEPARATOR returns a string.
+- Mutations are local to the runtime and do not modify source files or query results.
+
+```text
+let d = {"a": 1, "b": 2}
+$d.keys
+$d.values
+$d.get("a")
+$d.hasKey("a")
+set d['a'] = 3
+delete d['a']
+let xs = [1, 2, 3]
+push xs, 4
+let x = pop xs
+let parts = split "a/b" by "/"
+let text = join parts with ","
+```
+
+## import
+
+Load local matcher and value definitions from a console library.
+
+```text
+import "lib/module.ctk"
+```
+
+- A relative path is resolved from the importing library; a top-level import uses the --script source directory or runtime working directory.
+- Libraries may contain top-level let assignments, parameterized matcher definitions and nested imports. Definitions become visible in the current runtime.
+- Imports share the current runtime; there are no namespaces or separate exports. Import cycles are rejected.
+
+```text
+import "lib/module.ctk"
+```
+
+## push
+
+Append a value to a named local list.
+
+```text
+push NAME, VALUE
+push NAME with VALUE
+```
+
+- NAME is a local list binding; this statement mutates that list in place.
+
+```text
+push xs, 4
+push xs with 4
+```
+
+## pop
+
+Remove and return the last item in a named local list.
+
+```text
+let NAME = pop LIST
+```
+
+- The list must be nonempty; assign the returned value with let.
+
+```text
+let x = pop xs
+```
+
+## delete
+
+Delete one item from a named local list or dictionary.
+
+```text
+delete NAME[KEY]
+```
+
+- KEY is a string for dictionaries or a zero-based index for lists.
+
+```text
+delete d['a']
+delete xs[0]
+```
+
+## split
+
+Split a string into a local list using a separator.
+
+```text
+let NAME = split STRING by SEPARATOR
+```
+
+- STRING and SEPARATOR are string values; an empty separator is rejected.
+
+```text
+let parts = split "a/b" by "/"
+```
+
+## join
+
+Join a named list of strings using a separator.
+
+```text
+let NAME = join LIST with SEPARATOR
+```
+
+- Every list item and the separator must be a string.
+
+```text
+let text = join parts with ","
 ```
 
 ## inspect
@@ -209,22 +348,26 @@ $values.length
 
 ## foreach
 
-Map a list expression using a scoped iterator.
+Iterate values with a scoped iterator, evaluating an expression or statement block.
 
 ```text
-foreach $NAME in LIST do VALUE [done]
-let results = foreach $NAME in LIST do VALUE done
+foreach NAME in LIST do VALUE [done]
+let results = foreach NAME in LIST do VALUE done
+foreach NAME in LIST do { STATEMENTS }
 ```
 
-- LIST must evaluate to a list (at most 10000 elements); the body is one value expression.
-- The iterator shadows outer names only during the body. A multiline do requires done.
-- Returns a new ordinary list of body results; let captures it silently. Errors report the element index.
+- LIST accepts ordinary lists, query rows, named binding collections and repeated semantic fields (at most 10000 elements).
+- Declare the iterator as a plain name and reference it with $name inside the body; legacy $name declarations remain accepted. Use do {} for an empty statement block, or do {} done for an empty dictionary expression.
+- The iterator shadows outer names only during the body. Multiline value-expression bodies end with done; brace statement blocks end with }.
+- Expression bodies return a new list of results; let captures it silently. Statement blocks run commands with newline or semicolon separators and print only their explicit output. Errors report the element index.
+- Read a matched row with print $m.root.decl_name, or interpolate a field path inside a string with ${m.root.decl_name}.
 - Iterate query rows directly; each row exposes its bound values plus source_match_index and source_file. Iterate $rows.f to visit a named binding from every row.
 - Lists and query collections support .length and indexing; use unique(field), sort(field) or filter(field, expected) before iterating when needed.
 
 ```text
 let files = glob("examples/*.cc")
-foreach $file in $files do "${file.basename}" done
+foreach file in $files do "${file.basename}" done
+foreach m in $rows do { print $m.root.decl_name; }
 ```
 
 ## glob
@@ -242,6 +385,85 @@ let files = glob(QUOTED_PATTERN)
 ```text
 let files = glob("examples/*.cc")
 match varDecl() in $files
+```
+
+## files
+
+Discover and freeze file/profile metadata without parsing translation units.
+
+```text
+let inputs = files "src/"
+let inputs = files "src/**/*.cpp"
+let inputs = files ["src/a.cpp", "src/b.cpp"]
+```
+
+- The result is a FileSet with immutable inputs, compilation profiles and diagnostics.
+- Discovery runs against the serving machine and obeys server metadata limits.
+- Use $inputs.length, $inputs.inputs, or file list discovered in $inputs.
+
+```text
+let inputs = files "src/"
+file list discovered in $inputs
+```
+
+## file
+
+Open, inspect, refresh and close caller-owned file leases.
+
+```text
+file open PATH into $handle
+file list [discovered in $manifest]
+file info $handle
+file close $handle | all
+file refresh $handle into $updated
+```
+
+- FileHandle and ParsedTree values are accepted by match and file close.
+- Closing a file lease preserves independent result cursors and reports remaining pins.
+- Refresh creates a new snapshot handle; existing results stay on their original snapshot.
+
+```text
+file open "src/widget.cpp" into $source
+match functionDecl() in $source
+file info $source
+file close $source
+```
+
+## resource
+
+Show current file, work, cursor, cache and admission accounting.
+
+```text
+resource status
+```
+
+- Counters may overlap when multiple owners pin one shared snapshot.
+- The server reports accounted estimates and configured limits; they are not an RSS ceiling.
+
+```text
+resource status
+```
+
+## batch
+
+Process a frozen FileSet in foreground groups with acknowledged cleanup.
+
+```text
+batch NAME in $manifest size N [jobs J] [memory "768MiB"] [on error stop|continue] do { STATEMENTS }
+batch NAME in $manifest count N [jobs J] [memory "768MiB"] [on error stop|continue] do { STATEMENTS }
+```
+
+- size caps inputs per group; count creates balanced groups. Choose exactly one.
+- jobs defaults to the effective configured pool_size used by direct multi-file matching; jobs J overrides it only for this batch. It caps parallel file work within a group and may exceed the group size. The body runs serially, with $NAME.inputs, .paths, .index and .length.
+- Each group is admitted atomically, then its file/query resources are released before the next group.
+- The default is on error stop. Continue reports failures and still returns a failed run status.
+- Live batch handles/results cannot be stored in collections or retained by outer bindings; save detached data or scalar summaries.
+- Output is emitted as each statement runs and capped at 1,000,000 characters per group. The final JSON report is capped at 4,000 characters and samples at most 8 groups with unknown cleanup.
+- Reports include accepted inputs, completed/failed/unattempted files, skipped/cancelled files, successful save exports, output characters, peak accounted/reserved bytes, remaining external pins and cleanup acknowledgment.
+
+```text
+batch part in $inputs size 20 do { let rows = match functionDecl().bind("f") in $part.inputs; save $rows to "batch-${part.index}.json" as json; }
+batch part in $inputs count 5 jobs 1 on error continue do { print $part.index; }
 ```
 
 ## background
@@ -271,6 +493,7 @@ set [user] compile_commands PATH
 set [user] cache_dir to DIRECTORY
 set [user] files to FILE_LIST
 set [user] output to PATH_OR_STDOUT [mode replace|append]
+set NAME[KEY] = VALUE
 ```
 
 - Default scope: ./.clang_tools.yaml; user scope: ~/.clang_tools.yaml.
@@ -279,6 +502,7 @@ set [user] output to PATH_OR_STDOUT [mode replace|append]
 - cache_dir: quoted directory, default null. files: list of paths/Files, default [].
 - output: quoted/interpolated path, $variable or stdout (default). Files append; mode replace truncates.
 - cache_dir is a persisted console setting; these console operations do not forward it as an RPC option.
+- For local collections, set NAME[KEY] = VALUE assigns a dictionary key or existing list index; see help collections.
 
 ```text
 set extra_args ["-std=c++20"]
@@ -321,7 +545,7 @@ add extra_arg "-std=c++20"
 
 ## save
 
-Persist an evaluated variable as detached data.
+Persist an evaluated variable, binding or field as detached data.
 
 ```text
 save $REFERENCE to PATH [as FORMAT]
@@ -329,8 +553,11 @@ save $REFERENCE to PATH [as FORMAT]
 
 - PATH: quoted/interpolated output file or $variable, relative to the session directory; ~/ uses HOME.
 - FORMAT: yaml, json, proto or csv; inferred from suffix, yaml when no suffix (adds .yaml).
-- YAML/JSON preserve typed values. CSV supports flat primitive/record lists.
+- YAML/JSON write ordinary records, lists and scalar values. CSV supports flat primitive/record lists.
 - proto is binary SavedValue protobuf (api/match/v1/saved_value.proto), with a versioned typed envelope.
+- JSON/YAML export a binding's AST payload without node/binding wrappers, availability, completeness bookkeeping or row provenance; rows group named payloads in bindings and collections preserve row order.
+- Actual AST properties and user dictionary keys are preserved. Protobuf snapshots retain typed values and availability metadata.
+- UTF-8 byte fields become text in JSON/YAML; other bytes use base64: followed by their encoded contents.
 - Exported native rows are detached and cannot be reused as live match targets.
 
 ```text
@@ -339,6 +566,8 @@ save $values to "values"
 save $values to "values.json" as json
 let filename = "$HOME/results.proto"
 save $values to $filename as proto
+save $lst[0].root to "binding.yaml" as yaml
+save $lst[0].root.node.qualified_name to "name.json" as json
 ```
 
 ## read
@@ -354,7 +583,7 @@ let data = read PATH
 - Files are read on the client computer; relative paths use the session directory and ~/ uses HOME.
 - Objects expose fields and string-key indexing; lists support zero-based indexing and foreach. Scalar and null roots are also supported; empty YAML returns null.
 - YAML uses safe loading; recursive aliases are rejected. Errors preserve the previous assignment value.
-- read returns the document as written, including any schema_version/type/value keys. Use load to restore CTK save snapshots.
+- read returns every document key as written. load also recognizes older typed snapshot envelopes.
 
 ```text
 let data = read "config.json"
@@ -376,6 +605,7 @@ load PATH into $NAME
 - PATH: quoted/interpolated existing file or $variable; formats .yaml/.yml, .json, .proto and .csv.
 - Without suffix: probe those extensions and require a unique match.
 - NAME must be a simple variable. Failed loading preserves its prior value.
+- JSON/YAML accept ordinary data and older typed snapshots. Protobuf restores exact typed snapshots.
 
 ```text
 let values = [1, 2, 3]
@@ -1151,6 +1381,7 @@ set user compile_commands PATH
 set user cache_dir to DIRECTORY
 set user files to FILE_LIST
 set user output to PATH_OR_STDOUT [mode replace|append]
+set NAME[KEY] = VALUE
 ```
 
 - Writes ~/.clang_tools.yaml; project overrides still take precedence.
@@ -1159,6 +1390,7 @@ set user output to PATH_OR_STDOUT [mode replace|append]
 - cache_dir: quoted directory, default null. files: list of paths/Files, default [].
 - output: quoted/interpolated path, $variable or stdout (default). Files append; mode replace truncates.
 - cache_dir is a persisted console setting; these console operations do not forward it as an RPC option.
+- For local collections, set NAME[KEY] = VALUE assigns a dictionary key or existing list index; see help collections.
 
 ```text
 set user extra_args ["-std=c++20"]

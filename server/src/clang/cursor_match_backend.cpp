@@ -16,6 +16,13 @@ namespace {
 using namespace clang::ast_matchers;
 using namespace ctk::match::v1;
 
+MatchCode exception_code(const std::exception &error) {
+  const std::string message = error.what();
+  return message.find("estimate exceeds its limit") != std::string::npos
+             ? MatchCode::ResourceExhausted
+             : MatchCode::InvalidArgument;
+}
+
 // Preserve Clang's full MatchFinder traversal for source-spelled queries,
 // whose candidate eligibility depends on contextual traversal state.
 internal::DynTypedMatcher
@@ -181,7 +188,8 @@ public:
                                      {request.compile_arguments().begin(),
                                       request.compile_arguments().end()},
                                      request.working_directory(),
-                                     request.compilation_database()});
+                                     request.compilation_database(),
+                                     request.frozen_profile()});
       if (!snapshot)
         return failure(MatchCode::FailedPrecondition,
                        "native snapshot unavailable");
@@ -197,7 +205,7 @@ public:
           std::make_shared<CapturedBindingState>(std::move(snapshot));
       return result;
     } catch (const std::exception &error) {
-      return failure(MatchCode::InvalidArgument, error.what());
+      return failure(exception_code(error), error.what());
     }
   }
   MatchExecution execute(const MatchRequest &request,
@@ -248,7 +256,8 @@ private:
             {file.file_path(),
              {file.compile_arguments().begin(), file.compile_arguments().end()},
              file.working_directory(),
-             file.compilation_database()});
+             file.compilation_database(),
+             file.frozen_profile()});
       } else if (old) {
         snapshot = old->snapshot();
       }
@@ -319,7 +328,7 @@ private:
         result.rows.clear();
       return result;
     } catch (const std::exception &error) {
-      return failure(MatchCode::InvalidArgument, error.what());
+      return failure(exception_code(error), error.what());
     }
   }
 

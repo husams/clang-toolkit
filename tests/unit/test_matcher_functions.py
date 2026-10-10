@@ -136,10 +136,12 @@ def test_completion_tracks_defined_routines(runtime):
     def choices(source):
         return [choice.text for choice in completer.get_completions(Document(source), None)]
 
-    assert choices("match named") == []
+    root_candidates = choices("match named")
+    value_candidates = choices("let value = named")
+    assert "named(" not in root_candidates
     runtime.execute('let named(name) = functionDecl(hasName($name))')
-    assert choices("match named") == ["named("]
-    assert choices("let value = named") == ["named("]
+    assert set(choices("match named")) == set(root_candidates) | {"named("}
+    assert set(choices("let value = named")) == set(value_candidates) | {"named("}
     assert "named(" in choices("match functionDecl(")
     runtime.execute("let named = 3")
-    assert choices("match named") == []
+    assert choices("match named") == root_candidates

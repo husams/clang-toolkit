@@ -20,7 +20,9 @@ public:
     const auto absolute =
         (path.is_absolute() ? path : directory / path).lexically_normal();
     const auto key = std::make_tuple(absolute.string(), directory.string(),
-                                     file.compile_arguments, file.compilation_database);
+                                     file.compile_arguments,
+                                     file.compilation_database,
+                                     file.compilation_profile_frozen);
     if (auto found = snapshots_.find(key); found != snapshots_.end())
       return found->second;
     auto snapshot = engine_->acquire_snapshot(file);
@@ -47,7 +49,8 @@ public:
 
 private:
   std::shared_ptr<IQueryEngine> engine_;
-  using Key = std::tuple<std::string, std::string, std::vector<std::string>, std::string>;
+  using Key = std::tuple<std::string, std::string, std::vector<std::string>,
+                         std::string, bool>;
   std::map<Key, ctk::cache::SnapshotPtr> snapshots_;
   std::unordered_set<const ctk::cache::SnapshotEntry *> owners_;
   std::uint64_t bytes_ = 0;

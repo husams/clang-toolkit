@@ -1,0 +1,3 @@
+match cxxRecordDecl(
+    unless(isExplicitTemplateSpecialization())
+).bind("class")
