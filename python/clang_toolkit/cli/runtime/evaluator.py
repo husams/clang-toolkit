@@ -85,6 +85,29 @@ class CompletionField:
 _KNOWN_NON_ROOT = frozenset(VALIDATION_NESTED_MATCHERS) - frozenset(ROOT_MATCHERS)
 _PUNCTUATION = {"LPAR", "RPAR", "LSQB", "RSQB", "COMMA", "DOT", "SCOPE"}
 _SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".c++", ".C", ".m", ".mm"}
+_COLLECTION_VALUE_KINDS = frozenset(
+    {"push_command", "delete_command", "set_item_command"}
+)
+_COMMAND_VALUE_KINDS = frozenset(
+    {
+        "match", "background", "print", "inspect", "set_command", "clear_command",
+        "add_arg", "save_command", "load_command", "history_save", "history_clear",
+        "session_label", "session_start", "session_add", "session_match", "session_pause",
+        "session_resume", "session_close", "session_list", "session_attach",
+        "session_close_retained", "server_status", "cache_status", "cache_prune",
+        "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file",
+        "callgraph", "callgraph_file", "help", "help_shortcut", "traverse", "script",
+        "cursor_open", "cursor_continue", "cursor_restart", "cursor_close",
+        "import_command", "file_open", "file_list", "file_info", "file_close",
+        "file_refresh", "resource_status", "batch_statement",
+    }
+)
+
+
+def _simple_reference_name(node: Tree) -> str:
+    if node.data != "reference" or len(node.children) != 2:
+        raise EvaluationError("target must be a simple variable")
+    return str(node.children[1])
 
 
 def _contains_live_native_value(value: Any, seen: set[int] | None = None) -> bool:
@@ -172,6 +195,9 @@ class Runtime:
         self._last_batch_unattempted_file_count = 0
         self._batch_jobs: int | None = None
         self._successful_exports = 0
+        self._value_context_depth = 0
+        self._source_stack: list[str] = []
+        self._exit_requested = False
 
     def request_batch_cancel(self) -> None:
         """Ask a foreground batch runner to stop after cancelling its scope."""
@@ -188,39 +214,16 @@ class Runtime:
             bound.compilation_database = selected
 
     def evaluate(self, source: str) -> Any:
-        """Execute a typed SDK expression or assignment without rendering it."""
+        """Evaluate any command or expression and return its raw value."""
         statement = parser().parse(source).children[0]
         if not isinstance(statement, Tree):
             raise EvaluationError("expected an expression")
-        kind = str(statement.data)
         self._apply_compilation_settings()
-        if kind == "assignment":
-            self._assignment(statement)
-            return self._resolve_name(str(statement.children[1]))
-        if kind == "matcher_definition":
-            self._define_matcher(statement)
-            return self._resolve_name(str(statement.children[1]))
-        if kind == "match":
-            if self._match_block(statement) is not None:
-                from .match_block import execute_match_block
-
-                return execute_match_block(self, statement, source)
-            return self._execute_match(statement, source=source)
-        if kind in {"traverse", "traverse_expression"}:
-            from .traversal import execute_traversal
-
-            return execute_traversal(self, statement)
-        if kind in {"callgraph_file", "call_graph_expression"}:
-            from .call_graph import execute_call_graph
-
-            return execute_call_graph(self, statement)
-        if kind in {"cfg_file", "cfg_file_expression"}:
-            from .control_flow import execute_cfg
-
-            return execute_cfg(self, statement, source or "")
-        if kind == "display":
-            return self._evaluate(statement.children[0])
-        raise EvaluationError("SDK execution requires an expression or assignment")
+        if statement.data in {"quit", "exit"}:
+            raise EvaluationError(
+                "expected an expression or assignment; quit and exit are control-flow commands"
+            )
+        return self._evaluate_statement_once(statement, source, value_context=True)[0]
 
     def execute(self, source: str) -> str | None:
         """Evaluate a parsed command and return output; ``None`` means exit."""
@@ -232,6 +235,207 @@ class Runtime:
         return self._execute_statement(statement, source)
 
     def _execute_statement(self, statement: Tree, source: str) -> str | None:
+        """Execute one command and return its standalone display text."""
+        _, display = self._evaluate_statement_once(
+            statement, source, value_context=False
+        )
+        if str(statement.data) in {"quit", "exit"} or self._exit_requested:
+            self._exit_requested = False
+            return None
+        return display or ""
+
+    def _evaluate_statement_once(
+        self, statement: Tree, source: str, *, value_context: bool
+    ) -> tuple[Any, str | None]:
+        """Run one statement exactly once, separating value from display."""
+        kind = str(statement.data)
+        if kind in {"quit", "exit"}:
+            return None, None
+        self._apply_compilation_settings()
+        self._source_stack.append(source)
+        if value_context:
+            self._value_context_depth += 1
+        try:
+            if kind == "assignment":
+                return self._assignment(statement), None
+            if kind == "matcher_definition":
+                return self._define_matcher(statement), None
+            if kind == "display":
+                expression = statement.children[0]
+                if (
+                    isinstance(expression, Tree)
+                    and expression.data in {
+                        "foreach_expression", "foreach_statement_expression"
+                    }
+                    and self._is_foreach_statement_block(expression)
+                ):
+                    value = self._foreach(
+                        expression, source=source, value_context=value_context
+                    )
+                    if self._is_foreach_statement_block(expression):
+                        display = None if value_context else (value or "")
+                    else:
+                        display = None if value_context else self._emit_output(render(value))
+                    return value, display
+                value = self._evaluate(expression)
+                display = None if value_context else self._emit_output(render(value))
+                return value, display
+            if kind in _COMMAND_VALUE_KINDS | _COLLECTION_VALUE_KINDS:
+                value, display = self._evaluate_command_statement(
+                    statement, source, value_context=value_context
+                )
+                return value, display
+            # These statements are effect-only or retain an existing textual
+            # result. Their dispatcher is already single-execution; output is
+            # suppressed while evaluating into a value.
+            display = self._execute_statement_legacy(statement, source)
+            return None, display
+        finally:
+            if value_context:
+                self._value_context_depth -= 1
+            self._source_stack.pop()
+
+    def _evaluate_command_statement(
+        self, statement: Tree, source: str, *, value_context: bool
+    ) -> tuple[Any, str | None]:
+        """Evaluate a command node once, returning its value and optional display."""
+        kind = str(statement.data)
+        if kind == "batch_statement":
+            from .batch_execution import execute_batch, render_batch_report
+
+            report = execute_batch(self, statement, source, value_context=value_context)
+            if value_context:
+                return report, None
+            if report.get("status") == "failed":
+                error = EvaluationError(f"batch failed: {render_batch_report(report)}")
+                error.report = report
+                raise error
+            display = self._emit_output(render_batch_report(report))
+            return report, display
+        if kind in {"file_open", "file_list", "file_info", "file_close", "file_refresh", "resource_status"}:
+            from .file_commands import execute_file_command, render_file_command
+
+            value = execute_file_command(self, statement)
+            display = None if value_context else self._emit_output(render_file_command(kind, value))
+            return value, display
+        if kind == "match":
+            if self._match_block(statement) is not None:
+                from .match_block import execute_match_block
+
+                output = execute_match_block(self, statement, source)
+                return output or "", None if value_context else output
+            value = self._execute_match(statement, source=source)
+            display = None if value_context else self._emit_output(render(value))
+            return value, display
+        if kind == "traverse":
+            from .graph_options import render_graph
+            from .traversal import execute_traversal
+
+            value = execute_traversal(self, statement)
+            display = None if value_context else self._emit_output(render_graph(value))
+            return value, display
+        if kind == "cfg_file":
+            from .control_flow import execute_cfg
+            from .graph_options import render_graph
+
+            value = execute_cfg(self, statement, source)
+            display = None if value_context else self._emit_output(render_graph(value))
+            return value, display
+        if kind == "callgraph_file":
+            from .call_graph import execute_call_graph
+            from .graph_options import render_graph
+
+            value = execute_call_graph(self, statement)
+            display = None if value_context else self._emit_output(render_graph(value))
+            return value, display
+        if kind == "script":
+            from .scripting import execute_script, render_script_response
+            from .semantic import view
+
+            response = execute_script(self, statement)
+            value = view(response)
+            display = None if value_context else self._emit_output(render_script_response(response))
+            return value, display
+        if kind in {"help", "help_shortcut"}:
+            value = render_help(statement)
+            return value, None if value_context else value
+        if kind == "inspect":
+            inspected = self._evaluate(statement.children[1])
+            value = render_inspection(inspected)
+            return value, None if value_context else self._emit_output(value)
+        if kind == "bindings_list":
+            value = dict(self.bindings)
+            display = self._execute_statement_legacy(statement, source)
+            return value, None if value_context else display
+        if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
+            from .cursors import execute_cursor, render_cursor
+            from .semantic import view
+
+            response = execute_cursor(self, statement)
+            value = view(response) if response is not None else None
+            return value, None if value_context else self._emit_output(render_cursor(response))
+        if kind == "print":
+            value = self._evaluate(statement.children[1])
+            if len(statement.children) > 3 and statement.children[3] is not None:
+                text = render(value)
+                destination = self._output_path(statement.children[3])
+                append = any(
+                    isinstance(item, Token) and item.type == "APPEND"
+                    for item in statement.children
+                )
+                self.output.check_output(text)
+                from .output import write_text
+
+                write_text(destination, text, append=append)
+                return value, None
+            display = None if value_context else self._emit_output(render(value))
+            return value, display
+        if kind == "save_command":
+            value = self._evaluate(statement.children[1])
+            path = self._output_path(statement.children[3])
+            format_name = (
+                str(statement.children[-1])
+                if len(statement.children) > 5 and statement.children[-1] is not None
+                else None
+            )
+            save(value, path, format_name=format_name)
+            self._successful_exports += 1
+            return value, None
+        if kind == "load_command":
+            path = self._output_path(statement.children[1])
+            value = load(path)
+            into = next(
+                (index for index, child in enumerate(statement.children)
+                 if isinstance(child, Token) and child.type == "INTO"),
+                None,
+            )
+            target = statement.children[into + 1] if into is not None else None
+            if target is not None:
+                if not isinstance(target, Tree) or target.data != "reference":
+                    raise EvaluationError("load target must be a simple variable")
+                name = _simple_reference_name(target)
+                scope = self._scopes[-1] if self._scopes else self.bindings
+                scope[name] = value
+            return value, None
+        if kind in {"server_status", "cache_status", "session_list", "cache_prune"}:
+            from .management import execute_management_value
+
+            value, text = execute_management_value(self, statement)
+            return value, None if value_context else self._emit_output(text)
+        if kind in _COLLECTION_VALUE_KINDS:
+            self._collection_command(statement)
+            if kind == "set_item_command":
+                value = self._resolve_name(self._collection_parts(statement.children[1])[0])
+            elif kind == "delete_command":
+                value = self._resolve_name(self._collection_parts(statement.children[1])[0])
+            else:
+                value = self._resolve_collection_ref(statement.children[1])
+            return value, None
+        # Effect-only legacy commands already route all display through the sink.
+        display = self._execute_statement_legacy(statement, source)
+        return (display or None), None if value_context else display
+
+    def _execute_statement_legacy(self, statement: Tree, source: str) -> str | None:
         """Dispatch a validated statement, including statements within a block."""
         kind = str(statement.data)
         self._apply_compilation_settings()
@@ -252,7 +456,7 @@ class Runtime:
         }:
             from .management import execute_management
 
-            return self.output.emit(execute_management(self, statement))
+            return self._emit_output(execute_management(self, statement))
         if kind in {
             "file_open",
             "file_list",
@@ -263,17 +467,19 @@ class Runtime:
         }:
             from .file_commands import execute_file_command
 
-            return self.output.emit(execute_file_command(self, statement))
+            return self._emit_output(execute_file_command(self, statement))
         if kind == "batch_statement":
             from .batch_execution import execute_batch
 
             return execute_batch(self, statement, source)
         if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
-            return self.output.emit(execute_cursor(self, statement))
+            from .cursors import render_cursor
+
+            return self._emit_output(render_cursor(execute_cursor(self, statement)))
         if kind == "traverse":
             from .graph_options import render_graph
 
-            return self.output.emit(render_graph(execute_traversal(self, statement)))
+            return self._emit_output(render_graph(execute_traversal(self, statement)))
         if kind == "session_label":
             self.label = self._string(str(statement.children[2]))
             return ""
@@ -330,7 +536,7 @@ class Runtime:
                 self._evaluate(statement.children[1]),
                 self._evaluate(statement.children[3]),
             )
-            return self.output.emit(render(value))
+            return self._emit_output(render(value))
         if kind == "clear_command":
             self._clear(statement)
             return ""
@@ -375,7 +581,7 @@ class Runtime:
                 from .match_block import execute_match_block
 
                 return execute_match_block(self, statement, source)
-            return self.output.emit(
+            return self._emit_output(
                 render(self._execute_match(statement, source=source))
             )
         if kind == "background":
@@ -438,9 +644,9 @@ class Runtime:
 
                 write_text(destination, text, append=append)
                 return ""
-            return self.output.emit(text)
+            return self._emit_output(text)
         if kind == "inspect":
-            return self.output.emit(
+            return self._emit_output(
                 render_inspection(self._evaluate(statement.children[1]))
             )
         if kind == "display":
@@ -452,12 +658,12 @@ class Runtime:
                 and self._is_foreach_statement_block(expression)
             ):
                 return self._foreach(expression, source=source)
-            return self.output.emit(render(self._evaluate(expression)))
+            return self._emit_output(render(self._evaluate(expression)))
         if kind == "cfg_file":
             from .control_flow import execute_cfg
             from .graph_options import render_graph
 
-            return self.output.emit(render_graph(execute_cfg(self, statement, source)))
+            return self._emit_output(render_graph(execute_cfg(self, statement, source)))
         if kind == "cfg":
             message = (
                 'cfg requires a file: cfg FUNCTION in "file.cc"; see help cfg'
@@ -468,12 +674,12 @@ class Runtime:
         if kind == "script":
             from .scripting import execute_script
 
-            return self.output.emit(execute_script(self, statement))
+            return self._emit_output(execute_script(self, statement))
         if kind == "callgraph_file":
             from .call_graph import execute_call_graph
             from .graph_options import render_graph
 
-            return self.output.emit(render_graph(execute_call_graph(self, statement)))
+            return self._emit_output(render_graph(execute_call_graph(self, statement)))
         if kind == "callgraph":
             message = (
                 'callgraph requires a file: callgraph "file.cc"; see help callgraph'
@@ -693,11 +899,24 @@ class Runtime:
         self._block_owners.clear()
         self.output.close()
 
-    def _assignment(self, statement: Tree) -> None:
+    def _emit_output(self, text: str) -> str:
+        """Route display effects unless a command is being evaluated as a value."""
+        if self._value_context_depth:
+            # Keep the text available to enclosing command results, but do not
+            # publish it through stdout or the configured output sink.
+            return text
+        return self.output.emit(text)
+
+    def _assignment(self, statement: Tree) -> Any:
         name = str(statement.children[1])
-        value = self._evaluate(statement.children[3])
+        self._value_context_depth += 1
+        try:
+            value = self._evaluate(statement.children[3])
+        finally:
+            self._value_context_depth -= 1
         scope = self._scopes[-1] if self._scopes else self.bindings
         scope[name] = value
+        return value
 
     def _bare_parts(self, node: Tree) -> tuple[str, list[tuple[str, Any]]]:
         if (
@@ -834,7 +1053,7 @@ class Runtime:
             raise EvaluationError("split separator cannot be empty")
         return value.split(separator)
 
-    def _define_matcher(self, statement: Tree) -> None:
+    def _define_matcher(self, statement: Tree) -> MatcherFunction:
         name = str(statement.children[1])
         if name in set(ROOT_MATCHERS) | set(NESTED_MATCHERS):
             raise EvaluationError(f"{name} is a built-in matcher name")
@@ -858,7 +1077,9 @@ class Runtime:
         if len(set(parameters)) != len(parameters):
             raise EvaluationError(f"{name} has duplicate parameter names")
         scope = self._scopes[-1] if self._scopes else self.bindings
-        scope[name] = MatcherFunction(name, parameters, statement.children[-1])
+        value = MatcherFunction(name, parameters, statement.children[-1])
+        scope[name] = value
+        return value
 
     def _matcher_function(self, name: str) -> MatcherFunction | None:
         for scope in reversed(self._scopes):
@@ -965,6 +1186,11 @@ class Runtime:
         if not isinstance(node, Tree):
             raise EvaluationError("incomplete expression")
         kind = str(node.data)
+        if kind in _COMMAND_VALUE_KINDS | _COLLECTION_VALUE_KINDS:
+            source = self._source_stack[-1] if self._source_stack else ""
+            return self._evaluate_command_statement(
+                node, source, value_context=True
+            )[0]
         if kind == "true":
             return True
         if kind == "false":
@@ -1800,7 +2026,17 @@ class Runtime:
             for child in node.children
         )
 
-    def _foreach(self, node: Tree, *, source: str = "") -> list[Any] | str | None:
+    def _foreach(
+        self,
+        node: Tree,
+        *,
+        source: str | None = None,
+        value_context: bool | None = None,
+    ) -> list[Any] | str | None:
+        if source is None:
+            source = self._source_stack[-1] if self._source_stack else ""
+        if value_context is None:
+            value_context = self._value_context_depth > 0
         declaration_form = node.data == "foreach_statement_expression"
         iterator = node.children[1]
         if declaration_form:
@@ -1864,18 +2100,26 @@ class Runtime:
             should_exit = False
             try:
                 if statement_block:
+                    last_value: Any = None
                     for statement in statements:
-                        result = self._execute_statement(statement, source)
-                        if result is None:
+                        if str(statement.data) in {"quit", "exit"}:
                             should_exit = True
+                            if not value_context:
+                                self._exit_requested = True
                             break
-                        output_size += len(result.encode("utf-8"))
-                        if output_size > 1_000_000:
-                            raise EvaluationError(
-                                "foreach output exceeds 1000000 bytes"
-                            )
-                        if result:
-                            block_output.append(result)
+                        last_value, output = self._evaluate_statement_once(
+                            statement, source, value_context=value_context
+                        )
+                        if not value_context and output:
+                            output_size += len(output.encode("utf-8"))
+                            if output_size > 1_000_000:
+                                raise EvaluationError(
+                                    "foreach output exceeds 1000000 bytes"
+                                )
+                            block_output.append(output)
+                    if value_context and not should_exit:
+                        output_size += self._output_size_hint(last_value)
+                        results.append(last_value)
                 else:
                     result = self._evaluate(body)
                     output_size += self._output_size_hint(result)
@@ -1890,7 +2134,9 @@ class Runtime:
                 self._scopes.pop()
             if should_exit:
                 return None
-        return "\n".join(block_output) if statement_block else results
+        if statement_block and not value_context:
+            return "\n".join(block_output)
+        return results
 
 
 def _source_file_path(value: Any) -> str:

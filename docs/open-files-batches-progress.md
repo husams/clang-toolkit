@@ -38,3 +38,29 @@ Discovery caps: 10,000 inputs, 16 MiB metadata, 100,000 visited entries. Initial
 Resource scopes default to five-minute TTL, permit shorter positive TTLs, and retain terminal acknowledgment for a bounded five-minute/512-record history. Native global accounting deduplicates shared snapshots; per-scope attribution may overlap. Legacy query-input admission remains a separately reported domain. Admission estimates do not guarantee an RSS ceiling.
 
 The full validation above ran before publication on baseline HEAD `7d3cb87`, preserving the existing console edits. On 2026-10-10 the user authorized committing and pushing all pending changes together, including collections/imports and matcher-catalog support. No shared-server restart was performed. RHEL packaging, background/resumable batches, and ANTLR native-script batch-language parity are deferred.
+
+## Expression extension — 2026-10-10
+
+User-authorized follow-up: evaluate operations as values, return batch status and
+detached final group values, suppress automatic display in consumed expressions,
+and expose standalone `progress on|off` (default on).
+
+| Story | Owner | State | Acceptance |
+| --- | --- | --- | --- |
+| E1 common expression grammar/evaluator and foreach block values | python_resources | complete | operations in let/list/dict/grouped contexts; one evaluation; assigned silence |
+| E2 batch report/results, detachment and progress control | console_batches | complete | final group values survive cleanup; bounded collection; failed reports inspectable |
+| E3 independent expression/batch unit and native BDD coverage | scope_review | complete | 860 units and 11 affected native BDD scenarios; effects, failure/cap/cancellation and cleanup regressions |
+| E4 spec/help/docs and full verification | coordinator | complete | wiki/published spec, 312 native/860 Python/104 BDD tests and real console probes |
+
+The earlier delivery totals describe the published `ed1d55e` baseline.
+
+### Extension verification
+
+- Full native suite: 312/312 passed with private `CTK_STORAGE_ROOT`; log `/tmp/ctk-expressions-native.log`. This extension changes no C++ source or wire contract.
+- Full Python unit suite: 860/860 passed; log `/tmp/ctk-expression-capture-full-units.log`. Covers command/list/dictionary/grouped values, exactly-once effects, final foreach/batch values, typed responses, silent assignments and preserved match-do captured text.
+- Full real-server E2E BDD suite: 104/104 passed; log `/tmp/ctk-expressions-e2e-final.log`. The separately repeated 11 affected native scenarios also passed, including sync/async SDK match-do capture and detached batch persistence after cleanup.
+- Actual TTY console acceptance against an isolated native server with `max_files=1`: two one-input groups returned detached matches of lengths 2 and 1, saved each group as JSON and the combined values as protobuf, and returned `completed`. Assigned `progress on` emitted no body/progress/report output; a standalone `progress off` kept body/final output, while default standalone progress emitted group-started/completed events. File leases and result cursors were zero after the collected match run. Fixture/artifacts: `/tmp/ctk-expression-console-_q1y6k9g/`.
+- Failure/cap/cancellation tests preserve successful earlier values, expose bounded diagnostics/partial cancelled reports, preserve interrupted assignment bindings and acknowledge cleanup before another group. Legacy unscoped acquisitions are rejected recursively before admission.
+- Ruff and diff whitespace checks passed; generated command reference equals live help. The wiki plan/manual/design and published specification have been updated and read back.
+
+Native match copies remain usable for local inspection/export, while native continuation requires a live owner. Aggregate collection limits are 10,000 retained items and 1,000,000 estimated bytes. RHEL packaging, background/resumable batches, legacy ownership migration and native ANTLR batch-language parity remain deferred.

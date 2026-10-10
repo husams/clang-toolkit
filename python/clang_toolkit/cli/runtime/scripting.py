@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from .evaluator import Runtime
 
 
-def execute_script(runtime: Runtime, statement: Tree) -> str:
+def execute_script(runtime: Runtime, statement: Tree) -> Any:
     from .evaluator import EvaluationError
 
     source = runtime._evaluate(statement.children[1])
@@ -38,4 +38,9 @@ def execute_script(runtime: Runtime, statement: Tree) -> str:
         from clang_toolkit.resources import require_complete
 
         require_complete(response)
+    return response
+
+
+def render_script_response(response: Any) -> str:
+    """Preserve the legacy JSON display while callers keep the typed response."""
     return MessageToJson(response, preserving_proto_field_name=True)

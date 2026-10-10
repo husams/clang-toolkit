@@ -1,6 +1,6 @@
 # Console and Python SDK coverage
 
-Audit date: 2026-10-09. Checked the current Python client, Lark evaluator,
+Audit date: 2026-10-10. Checked the current Python client, Lark evaluator,
 match values, console command reference and the wiki's console/reasoning guidance.
 The SDK does **not** expose every console feature as a dedicated Python method.
 The table distinguishes public methods from the expression bridge and terminal UI.
@@ -22,8 +22,9 @@ The table distinguishes public methods from the expression bridge and terminal U
 | Raw cursor open/continue/restart/close | `match_file`, `continue_match`, `restart_match`, `close_match` | Direct sync and async methods; explicit IDs/revisions are the lower-level route. |
 | Server version/status, session list/attach, cache pruning | `server_version`, `server_status`, `list_sessions`, `attach_session`, `prune_caches` | Direct sync and async APIs. |
 | Read JSON/YAML documents | `execute('read ...')` or Python document libraries | Expression bridge; direct document-reading convenience is absent. |
-| Save/load typed console snapshots and YAML/JSON/CSV/protobuf file sinks | Python I/O; console codecs live under `cli.runtime.persistence` | No public SDK codec or command route. Ordinary Python serialization is not the console envelope format. Saved semantic rows cannot restore native handles. |
-| Settings, binding rename/drop, print, batch error handling | Client arguments, Python variables/output/control flow | Programmatic alternatives; `execute` rejects command statements and cannot run a console batch. |
+| Discover/open files and process bounded batches | `discover_files`, `open_file`, resource-scope methods, or `execute('batch ...')` | Dedicated resource APIs plus the expression bridge. A consumed batch returns its status and bounded detached group results silently. |
+| Save/load typed console snapshots and YAML/JSON/CSV/protobuf file sinks | `execute('save ...')` / `execute('load ...')`, or Python I/O | Console codecs remain internal; the bridge accepts these operations and performs explicit writes. Ordinary Python serialization is not the console envelope format. Saved semantic rows cannot restore native handles. |
+| Settings, binding rename/drop, print, batch error handling | `execute(source)`, or client arguments and Python control flow | Operational commands are expression values; effect-only operations return null. The bridge suppresses automatic display, while explicit writes/mutations still occur. `quit`/`exit` remain terminal control flow. |
 | Help, completion, history, highlighting and interactive prompt | Terminal console | UI features; no SDK equivalent is needed for analysis. |
 
 ## Recommended Python route
@@ -60,4 +61,6 @@ Historical wiki checklist: [[pages/planning/clang-toolkit-console-design]],
 
 This is a source-backed capability audit, not a claim that every listed console
 command was replayed. Executed suite and native typed-matcher results are recorded
-in [sdk-agent-progress.md](sdk-agent-progress.md).
+in [sdk-agent-progress.md](sdk-agent-progress.md); the expression extension and
+its limits are recorded in [expression-values.md](expression-values.md) and
+[open-files-batches-progress.md](open-files-batches-progress.md).

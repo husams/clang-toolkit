@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from google.protobuf.json_format import MessageToJson
 from lark import Tree
@@ -15,14 +15,14 @@ if TYPE_CHECKING:
     from .evaluator import Runtime
 
 
-def execute_cursor(runtime: Runtime, statement: Tree) -> str:
+def execute_cursor(runtime: Runtime, statement: Tree) -> Any:
     from .evaluator import EvaluationError
 
     kind = str(statement.data)
     identifier = runtime._string(str(statement.children[2]))
     if kind == "cursor_close":
         runtime.client.close_match(identifier)
-        return ""
+        return None
     matcher_index = 4 if kind == "cursor_continue" else 3
     matcher = runtime._evaluate(statement.children[matcher_index])
     if not isinstance(matcher, MatcherExpr):
@@ -75,4 +75,11 @@ def execute_cursor(runtime: Runtime, statement: Tree) -> str:
         response = runtime.client.continue_match(identifier, bind, query, **options)
     else:
         response = runtime.client.restart_match(identifier, query, **options)
+    return response
+
+
+def render_cursor(response: Any) -> str:
+    """Preserve the legacy JSON display for cursor response messages."""
+    if response is None:
+        return ""
     return MessageToJson(response, preserving_proto_field_name=True)

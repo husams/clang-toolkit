@@ -41,8 +41,8 @@ def discover_files(runtime: Any, node: Tree) -> FileSet:
     )
 
 
-def execute_file_command(runtime: Any, node: Tree) -> str:
-    """Execute one fully parsed file/resource command."""
+def execute_file_command(runtime: Any, node: Tree) -> Any:
+    """Execute a file/resource command and return its typed result."""
     kind = str(node.data)
     if kind == "file_open":
         path = runtime._evaluate(node.children[2])
@@ -68,9 +68,10 @@ def execute_file_command(runtime: Any, node: Tree) -> str:
                 ),
             ),
         )
-        name = _simple_name(runtime, node.children[4])
-        _store_binding(runtime, name, handle)
-        return f"opened {handle.path} as ${name}"
+        target = _optional_target(node)
+        if target is not None:
+            _store_binding(runtime, _simple_name(runtime, target), handle)
+        return handle
     if kind == "file_list":
         discovered = next(
             (child for child in node.children if isinstance(child, Tree)), None
@@ -79,18 +80,16 @@ def execute_file_command(runtime: Any, node: Tree) -> str:
             manifest = runtime._evaluate(discovered)
             if not isinstance(manifest, FileSet):
                 _raise("file list discovered in requires a FileSet")
-            return _bounded_json({"discovered": manifest})
-        return _bounded_json(runtime.client.list_files())
+            return manifest
+        return runtime.client.list_files()
     if kind == "file_info":
-        return _bounded_json(
-            runtime.client.file_info(runtime._evaluate(node.children[2]))
-        )
+        return _semantic_result(runtime.client.file_info(runtime._evaluate(node.children[2])))
     if kind == "file_close":
         target = node.children[2]
         if isinstance(target, Token) and target.type == "ALL":
             result = runtime.client.close_all_files()
-            return _bounded_json(result)
-        return _bounded_json(runtime.client.close_file(runtime._evaluate(target)))
+            return result
+        return runtime.client.close_file(runtime._evaluate(target))
     if kind == "file_refresh":
         previous = runtime._evaluate(node.children[2])
         handle = runtime.client.refresh_file(
@@ -101,11 +100,12 @@ def execute_file_command(runtime: Any, node: Tree) -> str:
                 else {}
             ),
         )
-        name = _simple_name(runtime, node.children[4])
-        _store_binding(runtime, name, handle)
-        return f"refreshed {handle.path} as ${name}"
+        target = _optional_target(node)
+        if target is not None:
+            _store_binding(runtime, _simple_name(runtime, target), handle)
+        return handle
     if kind == "resource_status":
-        return _bounded_json(runtime.client.resource_status())
+        return _semantic_result(runtime.client.resource_status())
     _raise(f"unsupported file command: {kind}")
 
 
@@ -117,6 +117,40 @@ def _simple_name(runtime: Any, reference: Tree) -> str:
     ):
         _raise("target must be a simple variable such as $source")
     return str(reference.children[1])
+
+
+def _optional_target(node: Tree) -> Tree | None:
+    for index, child in enumerate(node.children[:-1]):
+        if isinstance(child, Token) and child.type == "INTO":
+            target = node.children[index + 1]
+            return target if isinstance(target, Tree) else None
+    return None
+
+
+def render_file_command(kind: str, value: Any) -> str:
+    """Keep concise legacy output while the command value remains typed."""
+    from .semantic import MessageView
+
+    if kind == "file_open" and isinstance(value, FileHandle):
+        return f"opened {value.path}"
+    if kind == "file_refresh" and isinstance(value, FileHandle):
+        return f"refreshed {value.path}"
+    if kind == "file_list" and isinstance(value, FileSet):
+        return _bounded_json({"discovered": value})
+    if isinstance(value, MessageView):
+        value = value._message()
+    return _bounded_json(value)
+
+
+def _semantic_result(value: Any) -> Any:
+    from google.protobuf.message import Message
+    from .semantic import MessageView
+
+    if isinstance(value, Message) and not isinstance(value, MessageView):
+        from .semantic import view
+
+        return view(value)
+    return value
 
 
 def _store_binding(runtime: Any, name: str, value: Any) -> None:

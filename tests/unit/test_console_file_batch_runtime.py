@@ -19,6 +19,9 @@ from clang_toolkit.cli.app import _run_batch_with_interrupts
 from clang_toolkit.cli.app import dispatch_result
 from clang_toolkit.cursors import CursorError
 from clang_toolkit.resources import FileHandle, FileSet, InputDescriptor
+from clang_toolkit._generated.match.v1 import match_service_pb2
+from clang_toolkit._value_lifecycle import CursorOwner
+from clang_toolkit.match_values import MatchValue
 
 
 @dataclass
@@ -114,14 +117,11 @@ class _Client:
         return _FakeMatch()
 
 
-class _FakeOwner:
-    def close(self):
-        pass
-
-
-class _FakeMatch:
-    def __init__(self):
-        self._owner = _FakeOwner()
+def _FakeMatch():
+    response = match_service_pb2.MatchResponse()
+    response.results.add().source_match_index = 1
+    owner = CursorOwner(object(), "unit-cursor", 1, lambda _session: None)
+    return MatchValue._from_response(response, owner, source_file="fixture.cc")
 
 
 def _runtime(tmp_path: Path) -> tuple[Runtime, _Client]:
@@ -478,14 +478,14 @@ def test_batch_interrupt_emits_final_report_after_scope_cleanup(tmp_path: Path, 
         (InputDescriptor.from_path("one.cc", working_directory=tmp_path),)
     )
 
-    execute_statement = runtime._execute_statement
+    evaluate_statement = runtime._evaluate_statement_once
 
-    def interrupt(node, source):
+    def interrupt(node, source, *, value_context):
         if node.data == "print":
             raise KeyboardInterrupt
-        return execute_statement(node, source)
+        return evaluate_statement(node, source, value_context=value_context)
 
-    runtime._execute_statement = interrupt
+    runtime._evaluate_statement_once = interrupt
     with pytest.raises(KeyboardInterrupt):
         runtime.execute("batch part in $inputs size 1 do { print $part.index; }")
 
@@ -503,16 +503,17 @@ def test_interrupt_preserves_terminal_failure_beside_in_flight_cancellation(
     runtime.bindings["inputs"] = FileSet(
         (InputDescriptor.from_path("one.cc", working_directory=tmp_path),)
     )
-    execute_statement = runtime._execute_statement
+    evaluate_statement = runtime._evaluate_statement_once
 
-    def fail_one_and_interrupt(node, source):
-        result = execute_statement(node, source)
-        runtime._batch_file_outcomes[("one.cc", "profile")] = "failed"
-        runtime._batch_file_outcomes[("two.cc", "profile")] = "attempting"
-        runtime.request_batch_cancel()
+    def fail_one_and_interrupt(node, source, *, value_context):
+        result = evaluate_statement(node, source, value_context=value_context)
+        if node.data == "print":
+            runtime._batch_file_outcomes[("one.cc", "profile")] = "failed"
+            runtime._batch_file_outcomes[("two.cc", "profile")] = "attempting"
+            runtime.request_batch_cancel()
         return result
 
-    runtime._execute_statement = fail_one_and_interrupt
+    runtime._evaluate_statement_once = fail_one_and_interrupt
     with pytest.raises(BatchInterrupted):
         runtime.execute("batch part in $inputs size 1 do { print $part.index; }")
 
@@ -816,18 +817,18 @@ def test_external_batch_cancel_releases_scope_and_skips_later_groups(
             for index in range(3)
         )
     )
-    execute_statement = runtime._execute_statement
+    evaluate_statement = runtime._evaluate_statement_once
     first = True
 
-    def request_cancel(node, source):
+    def request_cancel(node, source, *, value_context):
         nonlocal first
-        result = execute_statement(node, source)
+        result = evaluate_statement(node, source, value_context=value_context)
         if first and node.data == "print":
             first = False
             runtime.request_batch_cancel()
         return result
 
-    runtime._execute_statement = request_cancel
+    runtime._evaluate_statement_once = request_cancel
     with pytest.raises(BatchInterrupted):
         runtime.execute(
             "batch part in $inputs size 1 do { print $part.index; print $part.index; }"

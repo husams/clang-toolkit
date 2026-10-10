@@ -1,5 +1,9 @@
 # Parse and match expressions
 
+Operations can also be consumed as values in `let`, lists, dictionaries and
+grouped expressions; see [Expression values](expression-values.md) for silent
+evaluation, brace-block collection and batch status/results.
+
 ## Parameterized matchers
 
 ```text

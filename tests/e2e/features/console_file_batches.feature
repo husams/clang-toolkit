@@ -16,3 +16,8 @@ Feature: File inventory and foreground resource batches
     Given the file resource console grammar
     When I parse the supported resource statements
     Then each statement has its expected command node
+
+  Scenario: Assigned native batch results survive acknowledged group cleanup
+    Given an isolated console batch value server with three sources
+    When I collect native match values through an assigned console batch and save them
+    Then the collected values remain readable with no live native resources

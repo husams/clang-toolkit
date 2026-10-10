@@ -173,3 +173,35 @@ def execute_management(runtime: Runtime, statement: Tree) -> str:
     if kind == "session_list":
         return _render_sessions(response)
     return _render_prune(response)
+
+
+def execute_management_value(runtime: Runtime, statement: Tree) -> tuple[Any, str]:
+    """Return control-plane response objects alongside their legacy display."""
+    from .semantic import view
+
+    kind = str(statement.data)
+    if kind == "session_list":
+        response = runtime.client.list_sessions()
+        return view(response), _render_sessions(response)
+    if kind in {"server_status", "cache_status"}:
+        response = runtime.client.server_status()
+        if kind == "cache_status":
+            return view(response.cache), "Cache status\n" + _table(_cache_rows(response.cache))
+        return view(response), _render_status(response)
+    if kind == "cache_prune":
+        selection = next(
+            (str(child) for child in statement.children
+             if isinstance(child, Token) and child.type == "NAME"),
+            "memory",
+        )
+        if selection not in {"memory", "disk", "all"}:
+            from .evaluator import EvaluationError
+
+            raise EvaluationError("cache prune requires memory, disk or all (default memory)")
+        response = runtime.client.prune_caches(
+            memory=selection in {"memory", "all"},
+            disk=selection in {"disk", "all"},
+        )
+        return view(response), _render_prune(response)
+    display = execute_management(runtime, statement)
+    return display or None, display

@@ -122,7 +122,8 @@ _ENTRIES = (
         ("let NAME = VALUE", "let NAME(PARAM, ...) = MATCHER"),
         (
             "NAME: identifier without $. References use $name, fields and zero-based [index].",
-            "VALUE: matcher, literal, list, reference, glob, parse, match, foreach or scoped block. match do is a statement loop and does not produce an assignable collection.",
+            "VALUE: an operation, matcher, literal, list, reference, glob, parse, match, foreach, batch or scoped block. Operational commands also evaluate as values; effect-only operations return null. quit/exit remain console control flow.",
+            "Consumed operations are silent. match do returns its captured display text; foreach and batch brace bodies contribute their final value, while scoped analysis blocks use yield.",
             "Matcher construction is local; parse/match require a server. Failed evaluation preserves the prior binding.",
             'Parameterized matchers use let named(name) = functionDecl(hasName($name)). Parameters are declared without $ and referenced with $ inside the routine. Calls use named("value") and may be nested or followed by .bind("label").',
             "A routine body must return a matcher. Arguments may be strings, numbers, booleans, matcher values or references. Parameters are local to each call; other references and routines use their current values at call time. Argument counts must match, parameter names must be unique, built-in matcher names are reserved, and call depth is limited to 64.",
@@ -300,7 +301,7 @@ _ENTRIES = (
         (
             "LIST accepts ordinary lists, query rows, named binding collections and repeated semantic fields (at most 10000 elements).",
             "Declare the iterator as a plain name and reference it with $name inside the body; legacy $name declarations remain accepted. Use do {} for an empty statement block, or do {} done for an empty dictionary expression.",
-            "The iterator shadows outer names only during the body. Multiline value-expression bodies end with done; brace statement blocks end with }.",
+            "The iterator shadows outer names only during the body. Multiline value-expression bodies end with done; brace blocks end with }. Assigned brace blocks collect the final value of each iteration without automatic display; standalone blocks retain their per-statement output.",
             "Expression bodies return a new list of results; let captures it silently. Statement blocks run commands with newline or semicolon separators and print only their explicit output. Errors report the element index.",
             "Read a matched row with print $m.root.decl_name, or interpolate a field path inside a string with ${m.root.decl_name}.",
             "Iterate query rows directly; each row exposes its bound values plus source_match_index and source_file. Iterate $rows.f to visit a named binding from every row.",
@@ -372,23 +373,28 @@ _ENTRIES = (
     ),
     CommandHelp(
         "batch",
-        "Process a frozen FileSet in foreground groups with acknowledged cleanup.",
+        "Process a frozen FileSet and return status plus detached group values.",
         (
-            'batch NAME in $manifest size N [jobs J] [memory "768MiB"] [on error stop|continue] do { STATEMENTS }',
-            'batch NAME in $manifest count N [jobs J] [memory "768MiB"] [on error stop|continue] do { STATEMENTS }',
+            'batch NAME in $manifest size N [jobs J] [memory "768MiB"] [on error stop|continue] [progress on|off] do { STATEMENTS }',
+            'batch NAME in $manifest count N [jobs J] [memory "768MiB"] [on error stop|continue] [progress on|off] do { STATEMENTS }',
+            'let run = batch NAME in $manifest size N do { STATEMENTS; VALUE; }',
         ),
         (
             "size caps inputs per group; count creates balanced groups. Choose exactly one.",
             "jobs defaults to the effective configured pool_size used by direct multi-file matching; jobs J overrides it only for this batch. It caps parallel file work within a group and may exceed the group size. The body runs serially, with $NAME.inputs, .paths, .index and .length.",
             "Each group is admitted atomically, then its file/query resources are released before the next group.",
             "The default is on error stop. Continue reports failures and still returns a failed run status.",
-            "Live batch handles/results cannot be stored in collections or retained by outer bindings; save detached data or scalar summaries.",
-            "Output is emitted as each statement runs and capped at 1,000,000 characters per group. The final JSON report is capped at 4,000 characters and samples at most 8 groups with unknown cleanup.",
+            "The returned dictionary includes status, results, result_group_indices and results_complete. Each successful group contributes its final evaluated value, copied before cleanup. Match results become detached data; file handles, parsed trees and closures cannot be collected.",
+            "Collected values are bounded across the run to 10,000 retained items and 1,000,000 estimated bytes. Failed, skipped or cancelled manifest groups make results_complete false. Operational failures return a failed report in value context; interrupts raise with a partial cancelled report on the exception's .report after cleanup.",
+            "let and other value contexts suppress automatic body, progress and report output. Explicit writes still occur. Standalone progress defaults to on; progress off suppresses lifecycle events while keeping body output and the final compact report.",
+            "Standalone output is capped at 1,000,000 characters per group. The final status display is capped at 4,000 characters and samples at most 8 groups with unknown cleanup; collected results remain separately bounded and complete or explicitly failed.",
             "Reports include accepted inputs, completed/failed/unattempted files, skipped/cancelled files, successful save exports, output characters, peak accounted/reserved bytes, remaining external pins and cleanup acknowledgment.",
+            "Nested batches, yielding analysis blocks, legacy cursor open/continue/restart, background and session start/add/match/resume operations are rejected before admission; use scoped match/parse/file/analysis operations inside batches.",
         ),
         (
             'batch part in $inputs size 20 do { let rows = match functionDecl().bind("f") in $part.inputs; save $rows to "batch-${part.index}.json" as json; }',
             "batch part in $inputs count 5 jobs 1 on error continue do { print $part.index; }",
+            'let run = batch part in $inputs size 1 do { let rows = match functionDecl().bind("f") in $part.inputs; $rows; }',
         ),
     ),
     CommandHelp(

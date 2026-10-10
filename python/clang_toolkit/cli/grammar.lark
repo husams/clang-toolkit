@@ -4,28 +4,18 @@ batch_separator: BATCH_SEPARATOR+ | SEMICOLON BATCH_SEPARATOR*
 reference_start: reference
 
 ?statement: assignment
-          | collection_command
           | matcher_definition
-          | batch_statement
-          | file_set_expression              -> display
-          | command
-          | reference                    -> display
-          | STRING                       -> display
-          | foreach_expression           -> display
-          | foreach_statement_expression -> display
-          | parse_expression             -> display
-          | read_expression              -> display
-          | analysis_block               -> display
-          | dict_value                   -> display
-          | bare_access                 -> display
-          | join_expression              -> display
-          | pop_expression               -> display
+          | command_expression
+          | collection_command
+          | QUIT                            -> quit
+          | EXIT                            -> exit
+          | display_expression              -> display
 
 assignment: LET NAME EQUAL value_expression
 matcher_definition: LET NAME LPAR [parameters] RPAR EQUAL root_expression
 parameters: NAME (COMMA NAME)*
 
-?command: MATCH root_expression [IN path_value_expression] [DO statement_block] -> match
+?command_expression: MATCH root_expression [IN path_value_expression] [DO statement_block] -> match
         | BACKGROUND root_expression [IN path_value_expression] -> background
         | PRINT value_expression [TO output_path [MODE (REPLACE | APPEND)]] -> print
         | INSPECT reference              -> inspect
@@ -33,8 +23,8 @@ parameters: NAME (COMMA NAME)*
         | SET USER? setting              -> set_command
         | CLEAR USER? NAME               -> clear_command
         | ADD EXTRA_ARG STRING           -> add_arg
-        | SAVE reference TO output_path [AS NAME] -> save_command
-        | LOAD output_path INTO reference -> load_command
+        | SAVE value_expression TO output_path [AS NAME] -> save_command
+        | LOAD output_path [INTO reference] -> load_command
         | HISTORY SAVE FILE_STRING       -> history_save
         | HISTORY CLEAR                  -> history_clear
         | SESSION LABEL STRING           -> session_label
@@ -60,8 +50,6 @@ parameters: NAME (COMMA NAME)*
         | CALLGRAPH path_target_expression call_graph_option* graph_option* -> callgraph_file
         | HELP help_topic?               -> help
         | HELP_SHORT_TOPIC QUESTION      -> help_shortcut
-        | QUIT                           -> quit
-        | EXIT                           -> exit
         | TRAVERSE path_target_expression traverse_option* graph_option* -> traverse
         | SCRIPT target_expression (IN path_target_expression)? -> script
         | CURSOR OPEN FILE_STRING root_expression cursor_option* -> cursor_open
@@ -69,17 +57,17 @@ parameters: NAME (COMMA NAME)*
         | CURSOR RESTART STRING root_expression cursor_option* -> cursor_restart
         | CURSOR CLOSE STRING -> cursor_close
         | IMPORT FILE_STRING -> import_command
-        | FILE OPEN path_value_expression INTO reference -> file_open
+        | FILE OPEN path_value_expression [INTO reference] -> file_open
         | FILE LIST [DISCOVERED IN reference] -> file_list
-        | FILE INFO reference -> file_info
-        | FILE CLOSE (reference | ALL) -> file_close
-        | FILE REFRESH reference INTO reference -> file_refresh
+        | FILE INFO value_expression -> file_info
+        | FILE CLOSE (value_expression | ALL) -> file_close
+        | FILE REFRESH value_expression [INTO reference] -> file_refresh
         | RESOURCE STATUS -> resource_status
+        | batch_statement
 
 ?collection_command: PUSH collection_ref COMMA value_expression -> push_command
                    | PUSH collection_ref WITH value_expression -> push_command
                    | DELETE collection_ref -> delete_command
-                   | SPLIT value_expression BY value_expression -> split_command
 
 help_topic: HELP_WORD+
 
@@ -120,20 +108,39 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                  | list_value
                  | grouped_expression
                  | glob_call
-                 | match_expression
                  | foreach_expression
                  | foreach_statement_expression
                  | parse_expression
                  | read_expression
                  | file_set_expression
                  | analysis_block
-                 | traverse_expression
-                 | call_graph_expression
-                 | cfg_file_expression
                  | dict_value
                  | pop_expression
                  | split_expression
                  | join_expression
+                 | collection_command
+                 | command_expression
+
+// Commands keep their historical top-level node shape; bare values display.
+?display_expression: reference
+                   | bare_access
+                   | STRING
+                   | NUMBER
+                   | TRUE                    -> true
+                   | FALSE                   -> false
+                   | list_value
+                   | grouped_expression
+                   | glob_call
+                   | foreach_expression
+                   | foreach_statement_expression
+                   | parse_expression
+                   | read_expression
+                   | file_set_expression
+                   | analysis_block
+                   | dict_value
+                   | pop_expression
+                   | split_expression
+                   | join_expression
 
 // Distinct string roles tell the editor which arguments accept filesystem paths.
 // They share the same quoting syntax and evaluate to ordinary string values.
@@ -146,18 +153,15 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                       | grouped_expression
                       | glob_call
                       | file_set_expression
-                      | match_expression
                       | foreach_expression
                       | foreach_statement_expression
                       | parse_expression
                       | analysis_block
-                      | traverse_expression
-                      | call_graph_expression
-                      | cfg_file_expression
                       | dict_value
                       | pop_expression
                       | split_expression
                       | join_expression
+                      | command_expression
 path_list_value: LSQB [path_value_expression (COMMA path_value_expression)*] RSQB -> list_value
 file_set_expression: FILES_EXPR path_value_expression -> files_expression
 batch_statement: BATCH NAME IN reference batch_grouping batch_option* DO statement_block
@@ -166,6 +170,7 @@ batch_grouping: SIZE NUMBER -> batch_size
 batch_option: JOBS NUMBER -> batch_jobs
             | MEMORY STRING -> batch_memory
             | ON ERROR_WORD (STOP | CONTINUE) -> batch_error_mode
+            | PROGRESS (ON | OFF) -> batch_progress
 ?path_target_expression: target_matcher
                        | reference
                        | qualified_name
@@ -173,7 +178,6 @@ batch_option: JOBS NUMBER -> batch_jobs
                        | FILE_STRING
                        | NUMBER
 
-match_expression: MATCH root_expression [IN path_value_expression]
 parse_expression: PARSE path_target_expression
 read_expression: READ output_path
 analysis_block: IN BATCH_SEPARATOR* (parse_expression | reference) BATCH_SEPARATOR* LBRACE BATCH_SEPARATOR* (assignment (SEMICOLON | BATCH_SEPARATOR)+)* YIELD yield_expression SEMICOLON? BATCH_SEPARATOR* RBRACE
@@ -185,9 +189,6 @@ foreach_expression: FOREACH reference BATCH_SEPARATOR* IN BATCH_SEPARATOR* value
 foreach_statement_expression: FOREACH NAME BATCH_SEPARATOR* IN BATCH_SEPARATOR* value_expression BATCH_SEPARATOR* DO BATCH_SEPARATOR* (foreach_statement_block | foreach_empty_block | value_expression (DONE | DONE_AFTER_NEWLINE)?)
 foreach_statement_block: LBRACE BATCH_SEPARATOR* statement ((SEMICOLON | BATCH_SEPARATOR)+ statement)* (SEMICOLON | BATCH_SEPARATOR)* RBRACE
 foreach_empty_block: LBRACE BATCH_SEPARATOR+ RBRACE
-traverse_expression: TRAVERSE path_target_expression traverse_option* graph_option* -> traverse_expression
-call_graph_expression: CALLGRAPH path_target_expression call_graph_option* graph_option* -> call_graph_expression
-cfg_file_expression: CFG target_expression IN path_target_expression cfg_option* graph_option* -> cfg_file_expression
 graph_option: PROJECTION NAME -> graph_projection
             | MAIN_FILE (TRUE | FALSE) -> graph_main_file
             | PAYLOAD_DEPTH NUMBER -> graph_payload_depth
@@ -337,6 +338,8 @@ editor_start: editor_token*
              | HELP
              | QUIT
              | EXIT
+             | PROGRESS
+             | OFF
              | TRAVERSE
              | PROJECTION
              | MAIN_FILE
@@ -530,6 +533,8 @@ COUNT.2: /count(?![a-zA-Z0-9_])/
 JOBS.2: /jobs(?![a-zA-Z0-9_])/
 MEMORY.2: /memory(?![a-zA-Z0-9_])/
 ON.2: /on(?![a-zA-Z0-9_])/
+OFF.2: /off(?![a-zA-Z0-9_])/
+PROGRESS.2: /progress(?![a-zA-Z0-9_])/
 ERROR_WORD.2: /error(?![a-zA-Z0-9_])/
 STOP.2: /stop(?![a-zA-Z0-9_])/
 ALL.2: /all(?![a-zA-Z0-9_])/
