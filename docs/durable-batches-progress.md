@@ -11,7 +11,7 @@ validation; all batch edits were preserved and the combined implementation is ch
 | Native language | ANTLR batches and typed collection expressions; scoped ownership; detached final values; list iteration | Verified |
 | Console and SDK | Sync/async lifecycle methods; background/status/cancel/resume/retry; bounded explicit promotion | Verified |
 | Verification | Full suites, restart/failure controls and real repository/console acceptance | Passed |
-| Publication | Authorized commit/push; final remote and clean-main evidence recorded in the wiki and published spec | Ready |
+| Publication | Committed and pushed; matching remote and clean-main evidence recorded in the wiki and published spec | Published |
 
 | Gate | Result |
 | --- | --- |
