@@ -116,7 +116,10 @@ class ResultTrees:
         return True
 
     def progress(self, value: BatchProgress) -> None:
-        entries = [PanelEntry(":batch:" + value.run_id, value.label())]
+        entries = [
+            PanelEntry(":batch:" + value.run_id, value.label()),
+            PanelEntry(":batch-status:" + value.run_id, value.status_label()),
+        ]
         tree = next((tree for tree in self.trees if tree.kind == "batch_progress" and tree.value.run_id == value.run_id), None)
         if tree is not None and value.durable and value.revision < tree.value.revision:
             return

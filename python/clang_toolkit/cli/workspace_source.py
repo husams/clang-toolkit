@@ -9,27 +9,14 @@ from prompt_toolkit.filters import has_focus
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent, merge_key_bindings
 from prompt_toolkit.layout import HSplit, VSplit, Window, Dimension
 from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.layout.processors import Processor, Transformation, TransformationInput
-from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.widgets import Frame, TextArea
-from pygments.lexers import CppLexer
 
 from clang_toolkit.cli.workspace_source_data import SourceSnapshot, SourceTarget
 from clang_toolkit.cli.workspace_state import PanelEntry, compact
 from clang_toolkit.cli.workspace_tree import WorkspaceTree
+from clang_toolkit.cli.workspace_source_render import SourcePresentation, byte_column
 
 PAGE_SIZE = 50
-
-
-class SourceRange(Processor):
-    def __init__(self, target: Callable[[], SourceTarget | None]) -> None:
-        self.target = target
-
-    def apply_transformation(self, ti: TransformationInput) -> Transformation:
-        target = self.target()
-        if target and target.line <= ti.lineno + 1 <= target.end_line:
-            return Transformation([(style + " class:source-range", *rest) for style, *rest in ti.fragments])
-        return Transformation(ti.fragments)
 
 
 class SourceWindow:
@@ -43,11 +30,10 @@ class SourceWindow:
         self.notice = "Loading source…"
         self.page = 0
         self.code = TextArea(
-            read_only=True, lexer=PygmentsLexer(CppLexer), scrollbar=True,
+            read_only=True, scrollbar=True,
             wrap_lines=False, focus_on_click=True, name="workspace-source",
             width=Dimension(min=10, weight=3),
         )
-        self.code.control.input_processors = [*(self.code.control.input_processors or []), SourceRange(lambda: self.target)]
         self.code.window.get_line_prefix = lambda line, wrap: [("class:line-number", f"{line + 1:>5} │ ")]
         self.tree = WorkspaceTree(self.refresh, lambda _: None, self.jump)
         self.tree.toggle = self.activate  # type: ignore[method-assign]
@@ -128,9 +114,16 @@ class SourceWindow:
 
     def jump(self, target: SourceTarget) -> None:
         self.target = target
-        lines = self.code.buffer.document.lines
-        row = min(max(0, target.line - 1), len(lines) - 1)
-        column = len(lines[row].encode("utf-8")[:max(0, target.column - 1)].decode("utf-8", errors="ignore"))
+        if self.snapshot is None:
+            return
+        presentation = SourcePresentation(self.snapshot.text, target)
+        self.code.lexer = presentation
+        self.code.window.get_line_prefix = presentation.gutter
+        self.code.buffer.set_document(presentation.document, bypass_readonly=True)
+        lines = Document(self.snapshot.text).lines
+        original_row = min(max(0, target.line - 1), len(lines) - 1)
+        row = presentation.code_rows[original_row]
+        column = byte_column(lines[original_row], target.column)
         self.code.buffer.cursor_position = self.code.buffer.document.translate_row_col_to_index(row, column)
         self.code.window.vertical_scroll = max(0, row - 3)
         self.notice = f"{target.label or 'Match'} · {target.location} · lines {target.line}–{target.end_line}"
@@ -191,4 +184,4 @@ class SourceWindow:
 
     @staticmethod
     def same_location(first: SourceTarget, second: SourceTarget | None) -> bool:
-        return second is not None and (first.path, first.line, first.column, first.end_line) == (second.path, second.line, second.column, second.end_line)
+        return second is not None and (first.path, first.line, first.column, first.end_line, first.end_column) == (second.path, second.line, second.column, second.end_line, second.end_column)

@@ -27,9 +27,13 @@ class BatchProgress:
         done = min(self.total, max(0, self.done))
         filled = width * done // self.total if self.total else (width if not self.active else 0)
         return (
-            f"Batch {self.run_id} {done}/{self.total} files · {self.state} "
-            f"[{('━' * filled).ljust(width, '─')}] · "
-            f"{self.succeeded} succeeded · {self.failed} failed"
+            f"Batch {self.run_id} {done}/{self.total} files "
+            f"[{('━' * filled).ljust(width, '─')}]"
+        )
+
+    def status_label(self) -> str:
+        return (
+            f"State: {self.state} · {self.succeeded} succeeded · {self.failed} failed"
             + (f" · {self.skipped} skipped" if self.skipped else "")
             + (" · [Cancel]" if self.active else "")
         )

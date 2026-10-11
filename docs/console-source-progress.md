@@ -5,6 +5,7 @@ Implementation branch: `codex/console-source-progress`, in the isolated `console
 ## Progress
 
 - [x] Foreground batches publish immutable file counters and update one bar in place.
+- [x] Progress and done/total appear on the first result row; state, succeeded/failed counts and Cancel appear on the second.
 - [x] The existing status row keeps live counters visible during long body output.
 - [x] Durable batches use frozen input totals and refresh once per second while active.
 - [x] Failed files count as done; cancelled, unknown, skipped and unattempted inputs do not count as successful work.
@@ -15,7 +16,9 @@ Implementation branch: `codex/console-source-progress`, in the isolated `console
 
 - [x] Match, binding, location and range rows link to valid physical AST coordinates.
 - [x] Click a linked label or select it and press **O**; triangle clicks and Enter still expand trees.
-- [x] A separate window overlays the console with numbered C++ on the left and file matches on the right.
+- [x] A full-screen window overlays the console with numbered C++ on the left and file matches on the right.
+- [x] Red gutter brackets mark whole regions; red rules beneath the selected code mark exact columns without replacing C++ syntax colors or adding a line background. Single-line expressions use a gutter arrow.
+- [x] Rules use valid exclusive AST endpoint columns and UTF-8 byte coordinates; tabs expand to four spaces. Older results without exclusive columns mark through the end of the final line.
 - [x] Each named binding navigates to its own range; macro links use expansion coordinates.
 - [x] The outline pages all matches in the file from current bindings and retained result previews, 50 matches per page.
 - [x] **Tab/F6** changes focus, **N/P** navigates matches, **Escape/Close** restores the originating selection and draft.
@@ -29,6 +32,17 @@ Implementation branch: `codex/console-source-progress`, in the isolated `console
 - [x] Full suites: **1,032 Python unit tests**, **116 acceptance cases** in one run, and **336 native tests** pass; the native build also succeeds.
 - [x] Seven workspace/progress modules pass type checking; all changed Python files pass focused lint and the diff passes whitespace checks. The evaluator retains exactly the same 26 type diagnostics as the baseline, verified with a shadow-file comparison.
 
+### Source readability follow-up
+
+- [x] Full-screen bounds at 48- and 100-column terminal widths; close restores the original draft and tree selection.
+- [x] Multi-line ranges retain C++ syntax colors and original line numbers, with red gutter brackets and separate rule rows.
+- [x] UTF-8 byte columns, tab expansion, mid-line expressions and exclusive end-at-next-line boundaries are covered.
+- [x] Real-terminal native checks select `(value + 5) * 3` inside a longer statement and leave its semicolon outside the rule; multi-line function rules and gutter bounds are also verified.
+- [x] Two-row batch progress and the second row's Cancel link are verified, including a real two-file batch.
+- [x] **1,036 Python unit tests** and **336 native tests** pass; updated real-terminal acceptance cases pass.
+- [x] Full acceptance suite: **116 cases passed** in 573.49 seconds. Combined with units and native tests, **1,488 tests passed**; the updated terminal cases were also rerun after the final range changes.
+- [x] Seven changed presentation/script modules pass type checking, focused lint passes, and the diff has no whitespace errors.
+
 Validation evidence is retained under this worktree's ignored `build/source-progress-*.log` files. The native suite used private storage and temporary directories; acceptance tests used isolated servers. The real-terminal acceptance case verifies the unchanged console toolbar, numbered command editor, existing pairing/indentation behavior and source-view syntax colors. Durable file counters are derived from the frozen inputs of completed/failed groups; the server's durable status API does not expose finer per-file outcomes.
 
 Restart the isolated console with:
@@ -37,14 +51,64 @@ Restart the isolated console with:
 /Users/husam/.claude/worktrees/clang-toolkit/console-expandable-trees/scripts/manual_console.sh --ui workspace
 ```
 
-Try:
+Submit each top-level command with **Ctrl+J**. The examples contain multi-line functions and classes; the call and multiplication occur in the middle of a statement.
 
 ```ctk
-let tree = parse "examples/parse_match.cc"
-let rows = match functionDecl(isExpansionInMainFile()).bind("f") in $tree
-print $rows
-let inputs = files "examples/*.cc"
-batch part in $inputs size 1 do { let found = match functionDecl(isExpansionInMainFile()).bind("f") in $part; }
+let tree = parse "examples/source_navigation/calculator.cc"
+let functions = match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in $tree
+print $functions
+let classes = match cxxRecordDecl(isDefinition(), hasName("Calculator")).bind("class") in $tree
+print $classes
+let calls = match callExpr(callee(functionDecl(hasName("scale")))).bind("call") in $tree
+print $calls
+let expressions = match binaryOperator(hasOperatorName("*"), hasAncestor(cxxMethodDecl(hasName("evaluate")))).bind("expr") in $tree
+print $expressions
 ```
 
 Expand a match or binding, then click its underlined label or press **O**. For a running bar, click **Cancel**, or select its row and press **C**. Foreground **Ctrl+C** retains its existing cancellation behavior. Body output remains available; completion leaves one final bar and an expandable batch report. A completed batch can have fewer done files than discovered files when its body deliberately targets only a subset.
+
+The multiplication example selects `scale(bounded, 3) * 2`, leaving the surrounding assignment, `7 +`, and semicolon unmarked. The display looks like this, with red arrows/rules and the usual C++ syntax colors:
+
+```text
+▶    19 │         const int result = 7 + scale(bounded, 3) * 2;
+        │                                ─────────────────────
+```
+
+The Calculator definition spans multiple lines; its first and last marked lines have `┌` and `└` in the gutter, and intermediate code lines have `│`. Rules sit beneath selected code, and navigation still uses original file line numbers.
+
+For a three-file batch:
+
+```ctk
+let inputs = files "examples/source_navigation/*.cc"
+batch part in $inputs size 1 jobs 1 do {
+    let found = match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in $part;
+    print "Group ${part.index}: ${found.length} functions";
+}
+```
+
+For a larger batch, first run this from macOS Terminal before restarting the console:
+
+```sh
+/Users/husam/.claude/worktrees/clang-toolkit/console-expandable-trees/.venv/bin/python /Users/husam/.claude/worktrees/clang-toolkit/console-expandable-trees/scripts/create_source_navigation_examples.py
+```
+
+This creates 24 translation units with standard-library includes and 64 multi-line functions per file under the ignored `build/source-navigation-batch/` directory. It does not modify the three source-navigation fixtures.
+
+```ctk
+let large = files "build/source-navigation-batch/*.cc"
+batch part in $large size 1 jobs 1 do {
+    let found = match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in $part;
+    print "Group ${part.index}: ${found.length} functions";
+}
+```
+
+A fresh private server makes the first run a cold parse. Later runs may use cached ASTs and finish faster; duration depends on the machine.
+
+Expected progress presentation:
+
+```text
+Batch 61a5a9a6a7cc 14/24 files [━━━━━━━━━━━━━━──────────]
+State: running · 14 succeeded · 0 failed · [Cancel]
+```
+
+Live verification found **6 functions, 1 Calculator class, 1 scale call, and 1 evaluate multiplication** in `calculator.cc`; the three-file and 24-file batches both completed with zero failed files. Each generated input produced 70 function definitions with the main-file matcher. Verification logs are `build/source-progress-refinement-*.log`.

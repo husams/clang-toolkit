@@ -26,6 +26,7 @@ from clang_toolkit.cli.workspace import WorkspaceConsole
 from clang_toolkit.cli.workspace_source_data import (
     MAX_SOURCE_BYTES, SourceSnapshot, SourceMatch, SourceTarget, source_snapshot, source_target,
 )
+from clang_toolkit.cli.workspace_source_render import SourcePresentation
 from clang_toolkit.cli.workspace_state import display_snapshot, outline_snapshot
 from clang_toolkit.cli.runtime.semantic import view
 from clang_toolkit.cli.runtime.values import MatchSet
@@ -61,6 +62,46 @@ def test_match_binding_and_location_links_use_own_valid_ast_coordinates(tmp_path
     assert source_target(point) is None
 
 
+def test_source_links_preserve_exclusive_end_columns_for_mid_line_expressions(tmp_path: Path) -> None:
+    binding = results.MatchBinding()
+    binding.range.expansion_begin.CopyFrom(results.MatchSourcePoint(file=str(tmp_path / "expression.cc"), valid=True, line=3, column=24))
+    binding.range.expansion_end_exclusive.CopyFrom(results.MatchSourcePoint(file=str(tmp_path / "expression.cc"), valid=True, line=3, column=37))
+    target = source_target(binding)
+    assert (target.line, target.column, target.end_line, target.end_column) == (3, 24, 3, 37)
+
+
+def test_source_region_keeps_cpp_colors_and_numbers_with_separate_red_rules() -> None:
+    text = "class Calculator {\npublic:\n    int value() const {\n        return 42;\n    }\n};\n"
+    presentation = SourcePresentation(text, SourceTarget("demo.cc", 1, 1, 6, end_column=2))
+    for original in range(6):
+        display_row = presentation.code_rows[original]
+        fragments = presentation.lex_document(presentation.document)(display_row)
+        assert not any("source-range" in style or "bg:" in style for style, _ in fragments)
+        assert str(original + 1) in "".join(text for _, text in presentation.gutter(display_row, 0))
+        assert presentation.lex_document(presentation.document)(display_row + 1)[0][0] == "class:source-marker"
+    assert presentation.rows[0][2] == "┌"
+    assert presentation.rows[presentation.code_rows[5]][2] == "└"
+    assert any("pygments.keyword" in style for style, text in presentation.lex_document(presentation.document)(0) if "class" in text)
+    presentation = SourcePresentation("int f() {\n\n    return 1;\n}\n", SourceTarget("demo.cc", 1, 1, 4, end_column=2))
+    assert presentation.rows[presentation.code_rows[1]][2] == "│"  # Blank lines remain inside the bracket.
+
+
+def test_expression_rule_uses_utf8_byte_columns_tabs_and_exclusive_boundary() -> None:
+    text = '\tconst char *label = "é"; int answer = 7 + twice(3) * 2;'
+    expression = "twice(3) * 2"
+    begin = text.index(expression)
+    start = len(text[:begin].encode("utf-8")) + 1
+    end = start + len(expression)
+    presentation = SourcePresentation(text, SourceTarget("demo.cc", 1, start, 1, end_column=end))
+    rule = presentation.document.lines[1]
+    assert rule == " " * len(text[:begin].expandtabs(4)) + "─" * len(expression)
+    assert presentation.rows[0][2] == "▶"
+    # An exclusive endpoint at the next line's first column does not mark it.
+    presentation = SourcePresentation("int x;\nint y;", SourceTarget("demo.cc", 1, 1, 2, end_column=1))
+    assert len(presentation.rows) == 3
+    assert presentation.rows[-1][2] == " "
+
+
 def test_source_catalog_contains_all_file_matches_and_omits_other_files(tmp_path: Path) -> None:
     path = tmp_path / "demo.cpp"
     path.write_text("int target() {\n  return 1;\n}\n\nint a = target();\nint b = target();\n")
@@ -94,6 +135,7 @@ def test_click_binding_opens_cpp_window_and_outline_navigates_without_changing_d
         ui.results_mouse(MouseEvent(Point(8, row), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()))
         await wait_until(lambda: ui.source.snapshot is not None)
         assert ui.source.visible and ui.app.layout.has_focus(ui.source.code.window)
+        await wait_until(lambda: ui.source.code.window.render_info is not None and ui.source.code.window.render_info.window_height >= 18)
         assert ui.source.target.line == 1 and ui.source.target.end_line == 3
         syntax = ui.source.code.lexer.lex_document(ui.source.code.buffer.document)(0)
         assert any("pygments.keyword" in style for style, text in syntax if "int" in text)
@@ -273,7 +315,7 @@ def test_progress_updates_in_place_and_durable_polling_stops_on_completion(tmp_p
         assert not ui.result_trees.trees
         assert "1000/1000 files" in ui.footer()
         ui.show_batch_progress(BatchProgress("many", 1000, 1000, 1000, state="completed"))
-        await wait_until(lambda: "1000/1000 files · completed" in ui.results.text)
+        await wait_until(lambda: "State: completed" in ui.results.text)
         reads = []
         async def read(run_id):
             reads.append(run_id)
@@ -314,12 +356,12 @@ def test_durable_cancel_and_unavailable_status_keep_console_recoverable(tmp_path
         tree = ui.result_trees.trees[-1]
         ui.results.buffer.cursor_position = tree.start
         pipe.send_text("c")
-        await wait_until(lambda: "2/4 files · cancelled" in ui.results.text)
+        await wait_until(lambda: "State: cancelled" in ui.results.text)
         assert cancelled == ["cancel"] and ui.results.text.count("Batch cancel") == 1
         # An older poll cannot overwrite a revision-checked cancellation.
         ui.show_batch_progress(BatchProgress("cancel", 4, durable=True, revision=1))
         await asyncio.sleep(0.01)
-        assert "2/4 files · cancelled" in ui.results.text
+        assert "2/4 files" in ui.results.text and "State: cancelled" in ui.results.text
         async def fail(_run_id):
             raise OSError("disconnected")
         ui.read_batch_status = fail
@@ -327,4 +369,27 @@ def test_durable_cancel_and_unavailable_status_keep_console_recoverable(tmp_path
         await wait_until(lambda: "status unavailable" in ui.results.text)
         assert "Batch [" not in ui.footer()
         assert not ui.batch_monitors
+    asyncio.run(interact(tmp_path, drive))
+
+
+def test_batch_progress_has_separate_state_row_and_cancel_click(tmp_path: Path) -> None:
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        cancelled = []
+        async def cancel(run_id):
+            cancelled.append(run_id)
+            return BatchProgress(run_id, 24, 3, 2, 1, state="cancelled", durable=True, revision=2)
+        ui.cancel_batch = cancel
+        ui.show_batch_progress(BatchProgress("run", 24, 3, 2, 1, durable=True, revision=1))
+        await wait_until(lambda: "[Cancel]" in ui.results.text)
+        tree = ui.result_trees.trees[-1]
+        rows = tree.text.splitlines()
+        assert len(rows) == 2 and "3/24 files" in rows[0] and "State:" not in rows[0]
+        assert "State: running" in rows[1] and "1 failed" in rows[1]
+        first, _ = ui.results.buffer.document.translate_index_to_position(tree.start)
+        # Only the second row's Cancel label responds; bar clicks do not cancel.
+        ui.results_mouse(MouseEvent(Point(rows[1].index("[Cancel]"), first), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()))
+        assert not cancelled
+        ui.results_mouse(MouseEvent(Point(rows[1].index("[Cancel]"), first + 1), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()))
+        await wait_until(lambda: "State: cancelled" in ui.results.text)
+        assert cancelled == ["run"]
     asyncio.run(interact(tmp_path, drive))

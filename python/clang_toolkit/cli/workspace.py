@@ -363,10 +363,6 @@ class WorkspaceConsole:
                     ),
                 ),
                 Float(
-                    left=1, right=1, top=1, bottom=1,
-                    content=ConditionalContainer(self.source.container, Condition(lambda: self.source.visible)),
-                ),
-                Float(
                     right=0,
                     top=1,
                     width=lambda: min(
@@ -389,6 +385,10 @@ class WorkspaceConsole:
                         Frame(self.menu.window, title="Actions · scroll or use arrows"),
                         Condition(lambda: self.menu_visible),
                     ),
+                ),
+                Float(
+                    left=0, right=0, top=0, bottom=0,
+                    content=ConditionalContainer(self.source.container, Condition(lambda: self.source.visible)),
                 ),
             ],
         )
@@ -435,7 +435,7 @@ class WorkspaceConsole:
                             "tree": "#d8dee9",
                             "tree-selected": "bg:#315d80 #ffffff bold",
                             "source-link": "underline #62b3ff",
-                            "source-range": "bg:#315d80",
+                            "source-marker": "#ff8080",
                             "pygments.keyword": WORKSPACE_SYNTAX["keyword"],
                             "pygments.literal.string": WORKSPACE_SYNTAX["string"],
                             "pygments.literal.number": WORKSPACE_SYNTAX["number"],
@@ -743,7 +743,7 @@ class WorkspaceConsole:
                     self._original_result_mouse(event)
                     self.open_source(item.source)
                     return None
-                if found[0].kind == "batch_progress" and found[0].value.active and event.position.x >= len(found[0].text) - len("[Cancel]"):
+                if found[0].kind == "batch_progress" and found[0].value.active and "[Cancel]" in item.label and event.position.x >= item.label.index("[Cancel]") + 2:
                     self._original_result_mouse(event)
                     self.cancel_progress(found[0].value)
                     return None
@@ -760,6 +760,7 @@ class WorkspaceConsole:
         self.source.visible = True
         self.source.snapshot = None
         self.source.target = None
+        self.source.code.lexer = None
         self.source.code.buffer.set_document(Document(""), bypass_readonly=True)
         self.source.tree.update([])
         self.source.notice = "Loading source…"

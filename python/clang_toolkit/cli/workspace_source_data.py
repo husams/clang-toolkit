@@ -25,6 +25,7 @@ class SourceTarget:
     column: int
     end_line: int
     label: str = ""
+    end_column: int | None = None
 
     @property
     def location(self) -> str:
@@ -67,19 +68,25 @@ def source_target(value: Any, label: str = "") -> SourceTarget | None:
         begin = value.range.expansion_begin
         if not begin.valid or not begin.file or not begin.line:
             begin = value.location
-        end = value.range.expansion_end
+        end = value.range.expansion_end_exclusive
+        exclusive = end.valid and end.file == begin.file and end.line >= begin.line and end.column > 0
+        if not exclusive:
+            end = value.range.expansion_end
         if not begin.valid or not begin.file or not begin.line:
             return None
         end_line = end.line if end.valid and end.file == begin.file and end.line >= begin.line else begin.line
-        return SourceTarget(begin.file, begin.line, max(1, begin.column), end_line, label)
+        return SourceTarget(begin.file, begin.line, max(1, begin.column), end_line, label, end.column if exclusive else None)
     if isinstance(value, pb.MatchSourcePoint):
         if value.valid and value.file and value.line:
             return SourceTarget(value.file, value.line, max(1, value.column), value.line, label)
     if isinstance(value, pb.MatchSourceRange):
-        begin, end = value.expansion_begin, value.expansion_end
+        begin, end = value.expansion_begin, value.expansion_end_exclusive
+        exclusive = end.valid and end.file == begin.file and end.line >= begin.line and end.column > 0
+        if not exclusive:
+            end = value.expansion_end
         if begin.valid and begin.file and begin.line:
             end_line = end.line if end.valid and end.file == begin.file and end.line >= begin.line else begin.line
-            return SourceTarget(begin.file, begin.line, max(1, begin.column), end_line, label)
+            return SourceTarget(begin.file, begin.line, max(1, begin.column), end_line, label, end.column if exclusive else None)
     return None
 
 
