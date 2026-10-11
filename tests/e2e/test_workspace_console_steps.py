@@ -198,6 +198,25 @@ def run_workspace(
         output = read_until("INPUT_COUNT=2")
         assert "workspace_native" in output
         (tmp_path / "workspace-compact.txt").write_text(output)
+        # Ordinary expression and print output share the match outline widget.
+        for command, title, child in (
+            ("$inputs", "List", "[1] = 'two'"),
+            ("print {x: 1, y: 3}", "Dictionary", "y = 3"),
+        ):
+            commands.append(command)
+            submit(command, "▸ " + title)
+            row = next(i for i, line in enumerate(screen.display) if "▸ " + title in line)
+            column = screen.display[row].index("▸") + 1
+            os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
+            # Expansion retains the selected parent; move to the last child
+            # to bring it into this deliberately compact results viewport.
+            read_until("▾ " + title)
+            os.write(master, b"\x1b[B\x1b[B")
+            read_until(child)
+            os.write(master, b"\x1b[D\x1b[D")
+            read_until("▸ " + title, recorded=lambda: not any(child in line for line in screen.display))
+            os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")
+        (tmp_path / "workspace-collection-tree.txt").write_text("\n".join(screen.display))
         # Typed results expand inside the existing results pane.
         commands.append("print $rows")
         submit(commands[-1], "▸ Matches")

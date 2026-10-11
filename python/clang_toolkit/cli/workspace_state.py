@@ -7,6 +7,7 @@ import posixpath
 from pathlib import PurePosixPath
 from collections.abc import Mapping
 from dataclasses import dataclass, field as dataclass_field
+from itertools import islice
 from typing import Any
 from google.protobuf.message import Message
 
@@ -81,6 +82,10 @@ def display_snapshot(
         title = "Sessions"
     elif isinstance(value, MatchValue | MatchSet | NativeMatchCollection | NativeBindingCollection | MatchRow | BindingSelection):
         title = "Matches"
+    elif isinstance(value, list | tuple | RepeatedView):
+        title = "List"
+    elif isinstance(value, dict | MapView | BindingMapView):
+        title = "Dictionary"
     else:
         return None
     return outline_snapshot({title: value}, expanded, pages)
@@ -114,6 +119,7 @@ def outline_snapshot(
                 )
             )
             return
+        mapping = type(value) is dict or isinstance(value, MapView | BindingMapView)
         sequence = isinstance(
             value,
             (
@@ -133,7 +139,7 @@ def outline_snapshot(
             len(value.rows)
             if isinstance(value, MatchSet)
             else len(value)
-            if sequence
+            if sequence or mapping
             else None
         )
         type_name = value.descriptor.name if isinstance(value, MessageView) else type(value).__name__
@@ -168,7 +174,7 @@ def outline_snapshot(
         )
         if reference not in expanded or depth >= MAX_DEPTH:
             return
-        if sequence:
+        if sequence or mapping:
             total = count or 0
             last_page = max(0, (total - 1) // MAX_CHILDREN)
             page = min(last_page, max(0, (pages or {}).get(reference, 0)))
@@ -226,6 +232,10 @@ def outline_snapshot(
                             visit(child_reference, f"[{index}] · {PurePosixPath(path).name}", child, level + 1)
 
                     directory(groups, base or ".", depth + 1)
+            elif mapping:
+                for field in islice(value, start, stop):
+                    key = json.dumps(field, ensure_ascii=False)
+                    visit(f"{reference}[{key}]", field, index_value(value, field), depth + 1)
             else:
                 for index in range(start, stop):
                     if isinstance(value, SessionInventory):

@@ -49,7 +49,7 @@ from .references import (
     is_semantic_view,
     property_value,
 )
-from .semantic import MessageView, field_sources
+from .semantic import BindingMapView, MapView, MessageView, RepeatedView, field_sources
 from .templates import TemplateError, evaluate_string
 from .history import HistoryStore
 from .output import OutputSink
@@ -968,7 +968,8 @@ class Runtime:
         if self._structured_display() and isinstance(
             value,
             (MatchValue, MatchRow, BindingSelection, NativeMatchCollection,
-             NativeBindingCollection, MatchSet, FileSet),
+             NativeBindingCollection, MatchSet, FileSet, list, tuple, dict,
+             MapView, BindingMapView, RepeatedView),
         ):
             return ""
         return render(value)

@@ -63,7 +63,7 @@ class ResultTree:
             if (
                 self.kind != "bindings_list"
                 and item.depth == 0
-                and item.identity in {"$Matches", "$Files", "$Sessions"}
+                and item.identity in {"$Matches", "$Files", "$Sessions", "$List", "$Dictionary"}
             ):
                 label = label.removeprefix("$")
             lines.append(entry_text(replace(item, label=label), self.expanded))

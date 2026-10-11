@@ -6,6 +6,8 @@ import asyncio
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from prompt_toolkit.document import Document
 from prompt_toolkit.input import PipeInput
 
@@ -51,6 +53,104 @@ def select_result(ui: WorkspaceConsole, identity: str) -> None:
         ui.results.buffer.document.translate_row_col_to_index(first + index, 0)
     )
     ui.app.layout.focus(ui.results.window)
+
+
+@pytest.mark.parametrize("prefix", ["", "print "])
+@pytest.mark.parametrize(
+    ("literal", "root", "child"),
+    [("[1,2,3]", "$List", "[2] = 3"), ("{x: 1, y: 3}", "$Dictionary", "y = 3")],
+)
+def test_printed_collections_expand_in_existing_results(
+    tmp_path: Path, prefix: str, literal: str, root: str, child: str,
+) -> None:
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    runtime.capture_display = True
+    runtime.execute(f"let data = {literal}")
+
+    async def execute(source: str) -> DispatchResult:
+        with patch("clang_toolkit.cli.runtime.evaluator.render", side_effect=AssertionError("collection serialized")):
+            return dispatch_result(runtime.client, source, runtime)
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        pipe.send_text(f"{prefix}$data\x0a")
+        await wait_until(lambda: bool(ui.result_trees.trees) and not ui.busy)
+        assert "▸ " + root[1:] in ui.results.text
+        select_result(ui, root)
+        pipe.send_text("\x1b[C")
+        await wait_until(lambda: child in ui.results.text)
+        pipe.send_text("\x1b[D")
+        await wait_until(lambda: child not in ui.results.text)
+        assert ui.panel_kind == "help" and not ui.files_visible
+
+    try:
+        asyncio.run(interact(tmp_path, drive, execute=execute))
+    finally:
+        runtime.close()
+
+
+def test_nested_collections_expand_without_exposing_helpers(tmp_path: Path) -> None:
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    runtime.capture_display = True
+    runtime.execute("let data = {x: [1, {y: 3}], clear: 9}")
+
+    async def execute(source: str) -> DispatchResult:
+        return dispatch_result(runtime.client, source, runtime)
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        pipe.send_text("print $data\x0a")
+        await wait_until(lambda: bool(ui.result_trees.trees) and not ui.busy)
+        for identity, marker in (
+            ("$Dictionary", "clear = 9"),
+            ('$Dictionary["x"]', "[0] = 1"),
+            ('$Dictionary["x"][1]', "y = 3"),
+        ):
+            select_result(ui, identity)
+            pipe.send_text("\x1b[C")
+            await wait_until(lambda: marker in ui.results.text)
+        assert not any(row.identity.endswith((".keys", ".isEmpty")) for row in ui.result_trees.trees[-1].entries)
+        select_result(ui, '$Dictionary["x"][1]')
+        pipe.send_text("\r")
+        await wait_until(lambda: "y = 3" not in ui.results.text)
+
+    try:
+        asyncio.run(interact(tmp_path, drive, execute=execute))
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("value", [[], {}, [1] * 125, {f"key{i}": i for i in range(125)}])
+def test_collection_snapshots_are_paged_and_empty_values_stay_expandable(value: object) -> None:
+    root = "$Dictionary" if isinstance(value, dict) else "$List"
+    first = display_snapshot("print", value, frozenset({root}), {})
+    assert first is not None and first[0].expandable
+    if not value:
+        assert len(first) == 1 and "[0]" in first[0].label
+        return
+    assert len([row for row in first if row.page is None and row.identity != root + ":page" and row.depth == 1]) == 50
+    assert next(row for row in first if row.identity == root + ":next").page == (root, 1)
+    second = display_snapshot("print", value, frozenset({root}), {root: 1})
+    assert second is not None
+    assert "Items 51–100 of 125" in second[1].label
+    assert any(row.identity == root + ":previous" for row in second)
+    assert any(row.label == ("key50 = 50" if isinstance(value, dict) else "[50] = 1") for row in second)
+
+
+@pytest.mark.parametrize("literal", ["[1,2,3]", "{x: 1, y: 3}"])
+def test_collection_file_and_standard_prompt_output_stays_textual(tmp_path: Path, literal: str) -> None:
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    try:
+        ordinary = dispatch_result(runtime.client, f"print {literal}", runtime)
+        assert ordinary.outline_value is None and ordinary.output
+        runtime.capture_display = True
+        redirected = dispatch_result(runtime.client, f'print {literal} to "out.txt"', runtime)
+        assert redirected.success and redirected.outline_value is None
+        assert (tmp_path / "out.txt").read_text().strip() == ordinary.output.strip()
+        dispatch_result(runtime.client, 'set output to "sink.txt"', runtime)
+        configured = dispatch_result(runtime.client, f"print {literal}", runtime)
+        assert configured.success and configured.outline_value is None
+        assert (tmp_path / "sink.txt").read_text().strip() == ordinary.output.strip()
+    finally:
+        runtime.close()
 
 
 def test_match_rows_show_only_named_bindings_and_ast_properties() -> None:

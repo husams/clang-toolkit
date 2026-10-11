@@ -193,3 +193,21 @@ Refinement validation: all 1,001 Python unit tests and all 116 acceptance cases 
 Some terminals report Enter and Ctrl+Enter identically. Enter again executes complete input when the cursor is at its end, including multiline drafts with trailing blank lines. Modified Ctrl+Enter and Ctrl+J execute from any cursor position; Actions → Run command provides a keyboard/mouse alternative in the existing menu. Pairing, indentation, layout, and theme remain unchanged.
 
 Correction validation: all 1,004 Python unit tests, 116 acceptance cases, and 336 native tests pass. Terminal acceptance checks execute both single-line and multiline drafts with ordinary Return; key-dispatch tests cover Ctrl+J, modified Ctrl+Enter, and menu execution from inside a draft. Three edited workspace modules pass type checking; focused lint and whitespace checks pass. Logs are retained under the worktree's ignored `build/tree-return-fix-*.log` files.
+
+## Printed list and dictionary outlines
+
+List and dictionary values now use the same expandable result outline as matches, whether displayed with `print` or a bare expression. Nested containers expand independently; lists show item indexes and dictionaries show their actual keys and values. Both use 50-item pages for large collections. The existing depth and transcript limits still apply. No JSON preview is serialized before expansion, and ordinary prompt output and output-file redirection retain their textual format.
+
+Restart the isolated launcher above, then enter these commands one at a time:
+
+```ctk
+let x = [1,2,3]
+$x
+let y = {x: 1, y: 3}
+print $y
+print {nested: [1, {value: 3}]}
+```
+
+Select the result's List or Dictionary row and use Right to expand, Left to collapse, or Enter to toggle. Select a nested container to expand it separately. The widget uses the existing results pane, tree colors, and navigation; editor behavior and the rest of the layout are unchanged.
+
+Validation: all 1,015 Python unit tests and 336 native tests pass. The full acceptance run passed 115 cases; the workspace case initially checked a child below the compact viewport. After correcting test navigation to scroll to the child, both workspace cases pass, giving passing coverage for all 116 acceptance cases. The two changed outline modules pass type checking. The evaluator retains exactly the same 26 type diagnostics as the prior commit, verified using its previous source as a shadow file. Focused lint and whitespace checks pass. Evidence is retained in the worktree's ignored `build/tree-collections-*.log` files.
