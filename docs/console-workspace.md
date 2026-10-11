@@ -211,3 +211,7 @@ print {nested: [1, {value: 3}]}
 Select the result's List or Dictionary row and use Right to expand, Left to collapse, or Enter to toggle. Select a nested container to expand it separately. The widget uses the existing results pane, tree colors, and navigation; editor behavior and the rest of the layout are unchanged.
 
 Validation: all 1,015 Python unit tests and 336 native tests pass. The full acceptance run passed 115 cases; the workspace case initially checked a child below the compact viewport. After correcting test navigation to scroll to the child, both workspace cases pass, giving passing coverage for all 116 acceptance cases. The two changed outline modules pass type checking. The evaluator retains exactly the same 26 type diagnostics as the prior commit, verified using its previous source as a shadow file. Focused lint and whitespace checks pass. Evidence is retained in the worktree's ignored `build/tree-collections-*.log` files.
+
+## Pull request integration validation
+
+After integrating upstream main at `9831b6a`, a fresh native build succeeds and the complete suites pass: 1,015 Python unit tests, 116 acceptance cases in one run, and 336 native tests. Seven workspace modules pass type checking; all changed Python files pass focused lint and the diff passes whitespace checks. Logs are retained under the worktree's ignored `build/console-pr-*.log` files. The batch progress and source-navigation HTML remains an interactive design mockup; those features are not yet implemented in the console runtime.
