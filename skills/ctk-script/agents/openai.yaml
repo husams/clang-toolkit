@@ -1,0 +1,4 @@
+interface:
+  display_name: "CTK Scripts"
+  short_description: "Write, run, and debug CTK console and server scripts"
+  default_prompt: "Use $ctk-script to write and verify a CTK script for my analysis task."
