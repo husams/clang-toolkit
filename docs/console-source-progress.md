@@ -72,6 +72,15 @@ Validation evidence is retained under this worktree's ignored `build/source-prog
 - [x] Focused checks: 25 passed, including real-terminal rendering, relative titles, persistent markers and source navigation; type checking and focused lint pass.
 - [x] All 1,038 Python unit tests, 116 acceptance cases (502.32 seconds), and 336 native tests pass (**1,490 total**); evidence is retained in `build/source-all-matches-*.log`.
 
+### Source horizontal scrollbar
+
+- [x] The source pane shows a horizontal scrollbar only when a source line exceeds its available width, using the existing scrollbar colors and keeping the gutter fixed.
+- [x] Click the arrows or track, or use **Ctrl+Left/Right** while the code pane has focus; scrolling leaves the source cursor and selected AST range unchanged.
+- [x] Scroll extent uses terminal cell widths, including wide characters; resizing clamps the offset and vertical navigation retains it. Selecting another match resets horizontal scrolling and reveals its location; loading or missing files clear stale scrollbar state.
+- [x] Short source files retain their existing layout; long files use one bottom scrollbar row within the code pane.
+- [x] All 1,040 Python unit tests and 336 native tests pass; type checking and focused lint pass.
+- [x] Focused checks: 27 passed, including real-terminal mouse and keyboard panning. All 116 acceptance cases pass (532.90 seconds), for **1,492 total** passing tests across the full suites; evidence is retained in `build/source-scroll-*.log`.
+
 Restart the isolated console with:
 
 ```sh

@@ -15,6 +15,7 @@ from clang_toolkit.cli.workspace_source_data import SourceSnapshot, SourceTarget
 from clang_toolkit.cli.workspace_state import PanelEntry, compact
 from clang_toolkit.cli.workspace_tree import WorkspaceTree
 from clang_toolkit.cli.workspace_source_render import SourcePresentation, byte_column
+from clang_toolkit.cli.workspace_source_scroll import SourceScrollbar
 
 PAGE_SIZE = 50
 
@@ -34,6 +35,7 @@ class SourceWindow:
             wrap_lines=False, focus_on_click=True, name="workspace-source",
             width=Dimension(min=10, weight=3),
         )
+        self.scrollbar = SourceScrollbar(self.code, invalidate)
         self.code.window.get_line_prefix = lambda line, wrap: [("class:line-number", f"{line + 1:>5} │ ")]
         self.tree = WorkspaceTree(self.refresh, lambda _: None, self.jump)
         self.tree.toggle = self.activate  # type: ignore[method-assign]
@@ -68,13 +70,18 @@ class SourceWindow:
         def activate(event: KeyPressEvent) -> None:
             self.activate()
 
+        @keys.add("c-left", filter=has_focus(self.code.window))
+        @keys.add("c-right", filter=has_focus(self.code.window))
+        def horizontal(event: KeyPressEvent) -> None:
+            self.scrollbar.scroll(-8 if event.key_sequence[0].key == "c-left" else 8)
+
         self.tree.control.key_bindings = merge_key_bindings([self.tree.control.key_bindings or KeyBindings(), keys])
 
         self.container = Frame(
             HSplit([
                 Window(toolbar, height=1, style="class:toolbar"),
                 VSplit([
-                    self.code,
+                    self.scrollbar.container,
                     Frame(self.tree.container, title="Matches in file", width=Dimension(min=20, weight=1)),
                 ]),
                 Window(FormattedTextControl(lambda: compact(self.notice, 4096)), height=1, style="class:toolbar"),
@@ -121,6 +128,7 @@ class SourceWindow:
         self.code.lexer = presentation
         self.code.window.get_line_prefix = presentation.gutter
         self.code.buffer.set_document(presentation.document, bypass_readonly=True)
+        self.scrollbar.reset(presentation.document)
         lines = Document(self.snapshot.text).lines
         original_row = min(max(0, target.line - 1), len(lines) - 1)
         row = presentation.code_rows[original_row]

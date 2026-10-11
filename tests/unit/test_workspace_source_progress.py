@@ -10,7 +10,7 @@ import pytest
 from prompt_toolkit.document import Document
 from prompt_toolkit.input import PipeInput
 from prompt_toolkit.mouse_events import MouseEvent, MouseEventType, MouseButton
-from prompt_toolkit.data_structures import Point
+from prompt_toolkit.data_structures import Point, Size
 
 from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
 from clang_toolkit._generated.match.v1 import match_result_pb2 as results
@@ -212,6 +212,60 @@ def test_keyboard_source_open_and_missing_file_error_are_recoverable(tmp_path: P
         await wait_until(lambda: not ui.source.visible)
         assert ui.app.layout.has_focus(ui.results.window)
     asyncio.run(interact(tmp_path, drive))
+
+
+@pytest.mark.parametrize("columns", [48, 100])
+def test_source_scrollbar_pans_long_lines_keeps_gutter_and_handles_short_cursor_line(tmp_path: Path, columns: int) -> None:
+    path = tmp_path / "long.cpp"
+    text = 'int short_line;\nconst char *text = "' + "é界" * 80 + 'END_OF_LONG_LINE";\n'
+    path.write_text(text)
+    output = SizedOutput(columns=columns)
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        ui.buffer.set_document(Document('print "draft"', 7))
+        ui.open_source(SourceTarget(str(path), 1, 1, 1))
+        await wait_until(lambda: ui.source.snapshot is not None)
+        bar = ui.source.scrollbar
+        await wait_until(lambda: bar.window.render_info is not None)
+        assert bar.maximum_offset > 100
+        original_cursor = ui.source.code.buffer.cursor_position
+        pipe.send_text("\x1b[1;5C")
+        await wait_until(lambda: ui.source.code.window.horizontal_scroll == 8)
+        assert ui.source.code.buffer.cursor_position == original_cursor
+        pipe.send_text("\x1b[B")
+        await wait_until(lambda: ui.source.code.buffer.document.cursor_position_row == 1)
+        assert bar.manual_offset == 8
+        pipe.send_text("\x1b[A")
+        await wait_until(lambda: ui.source.code.buffer.cursor_position == original_cursor)
+        assert bar.manual_offset == 8
+        assert ui.source.code.lexer.gutter(0, 0)[0][1] == "▶"
+        bar.mouse(MouseEvent(Point(bar.gutter_width + bar.viewport_width - 1, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()))
+        await wait_until(lambda: ui.source.code.window.horizontal_scroll == 16)
+        assert ui.app.layout.has_focus(ui.source.code.window)
+        bar.mouse(MouseEvent(Point(bar.gutter_width + bar.viewport_width - 2, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset()))
+        await wait_until(lambda: ui.source.code.window.horizontal_scroll == bar.maximum_offset)
+        assert ui.source.code.buffer.cursor_position == original_cursor
+        old_maximum = bar.maximum_offset
+        output.size = Size(rows=24, columns=columns + 40)
+        ui.app.invalidate()
+        await wait_until(lambda: bar.maximum_offset < old_maximum and ui.source.code.window.horizontal_scroll == bar.maximum_offset)
+        pipe.send_text("\x1b[1;5D")
+        await wait_until(lambda: ui.source.code.window.horizontal_scroll == bar.maximum_offset - 8)
+        ui.source.jump(SourceTarget(str(path), 1, 1, 1))
+        await wait_until(lambda: ui.source.code.window.horizontal_scroll == 0)
+        pipe.send_text("\x1b")
+        await wait_until(lambda: not ui.source.visible)
+        ui.open_source(SourceTarget(str(tmp_path / "missing.cpp"), 1, 1, 1))
+        await wait_until(lambda: "Cannot open source" in ui.source.notice)
+        assert bar.maximum_offset == 0 and bar.manual_offset is None
+        ui.source.show(SourceSnapshot(path, "int fits;\n", ()), SourceTarget(str(path), 1, 1, 1))
+        await wait_until(lambda: bar.maximum_offset == 0 and bar.manual_offset is None)
+        assert bar.code.window.get_line_prefix(0, 0)[0][1] == "▶"
+        pipe.send_text("\x1b")
+        await wait_until(lambda: not ui.source.visible)
+        assert ui.buffer.text == 'print "draft"' and ui.buffer.cursor_position == 7
+
+    asyncio.run(interact(tmp_path, drive, output=output))
 
 
 def test_source_window_keeps_foreground_cancellation_and_quit_keys(tmp_path: Path) -> None:

@@ -37,7 +37,7 @@ def workspace_server(
 ) -> tuple[RunningServer, Path]:
     monkeypatch.setenv("CTK_STORAGE_ROOT", str(tmp_path / "native-storage"))
     source = tmp_path / "sample.cpp"
-    source.write_text("int workspace_native() {\n    const int value = 7;\n    const int result = 6 + (value + 5) * 3;\n    return result;\n}\n")
+    source.write_text("int workspace_native() {\n    const int value = 7;\n    const int result = 6 + (value + 5) * 3;\n    return result;\n}\n// " + "padding_" * 20 + "SOURCE_SCROLL_END\n")
     return _launch_server("unix", tmp_path, request), source
 
 
@@ -267,6 +267,20 @@ def run_workspace(
         assert screen.buffer[row][column].underscore
         assert column - screen.display[row].index("▶") == 4
         assert screen.buffer[row][column].bg != "315d80"
+        # Source panning keeps the line-number gutter fixed, including when
+        # the real cursor is on the short function declaration above.
+        (tmp_path / "workspace-source-scroll.txt").write_text("\n".join(screen.display))
+        bar_row = next(i for i, line in enumerate(screen.display) if "━" in line and "‹" in line and "›" in line and line.index("‹") < 12)
+        bar_left = screen.display[bar_row].index("‹")
+        bar_right = screen.display[bar_row].index("›")
+        os.write(master, b"\x1b[1;5C")
+        read_until("space_native", recorded=lambda: "int workspace_native" not in screen.display[row])
+        assert "▶1│" in screen.display[row]
+        os.write(master, f"\x1b[<0;{bar_right};{bar_row + 1}M\x1b[<0;{bar_right};{bar_row + 1}m".encode())
+        read_until("SOURCE_SCROLL_END")
+        assert "▶1│" in screen.display[row]
+        os.write(master, f"\x1b[<0;{bar_left + 2};{bar_row + 1}M\x1b[<0;{bar_left + 2};{bar_row + 1}m".encode())
+        read_until("int workspace_native")
         (tmp_path / "workspace-source-window.txt").write_text("\n".join(screen.display))
         os.write(master, b"\t\r")
         read_until("f — workspace_native")

@@ -762,6 +762,7 @@ class WorkspaceConsole:
         self.source.target = None
         self.source.code.lexer = None
         self.source.code.buffer.set_document(Document(""), bypass_readonly=True)
+        self.source.scrollbar.reset(self.source.code.buffer.document)
         self.source.tree.update([])
         self.source.notice = "Loading source…"
         self.app.layout.focus(self.source.code.window)
