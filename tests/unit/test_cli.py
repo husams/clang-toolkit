@@ -85,7 +85,7 @@ def test_interactive_command_failure_sets_nonzero_process_status(monkeypatch, tm
     monkeypatch.setattr(app, "Client", lambda *_args, **_kwargs: client)
     monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(app, "create_session", lambda **_kwargs: Prompt())
-    monkeypatch.setattr(sys, "argv", ["ctk"])
+    monkeypatch.setattr(sys, "argv", ["ctk", "--ui", "prompt"])
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
 
     assert asyncio.run(app._run()) == 1
@@ -137,7 +137,7 @@ def test_blank_interactive_submission_returns_to_an_empty_prompt(monkeypatch, tm
     monkeypatch.setattr(app, "Client", lambda *_args, **_kwargs: Mock())
     monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(app, "create_session", lambda **_kwargs: prompt)
-    monkeypatch.setattr(sys, "argv", ["ctk"])
+    monkeypatch.setattr(sys, "argv", ["ctk", "--ui", "prompt"])
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
 
     assert asyncio.run(app._run()) == 0
@@ -216,7 +216,7 @@ def test_interrupt_cancels_input_and_keeps_console_running(monkeypatch, tmp_path
     session.prompt.side_effect = [KeyboardInterrupt, "quit"]
     monkeypatch.setattr(app, "create_session", lambda **_kwargs: session)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    monkeypatch.setattr("sys.argv", ["ctk"])
+    monkeypatch.setattr("sys.argv", ["ctk", "--ui", "prompt"])
     app.main()
     assert session.prompt.call_count == 2
 
@@ -237,7 +237,7 @@ def test_main_preserves_bindings_between_prompt_commands(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "Client", lambda _address: client)
     monkeypatch.setattr(app, "create_session", lambda **_kwargs: session)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    monkeypatch.setattr("sys.argv", ["ctk"])
+    monkeypatch.setattr("sys.argv", ["ctk", "--ui", "prompt"])
     app.main()
     client.match.assert_called_once_with(
         "varDecl(hasType(pointerType()))", files=None,
@@ -344,13 +344,13 @@ def test_background_stream_is_consumed_while_prompt_accepts_next_command(monkeyp
     monkeypatch.setattr(app, "AsyncClient", BackgroundClient)
     monkeypatch.setattr(app, "create_session", lambda **_kwargs: Prompt())
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    monkeypatch.setattr("sys.argv", ["ctk", "--query", "varDecl()", "--background"])
+    monkeypatch.setattr("sys.argv", ["ctk", "--ui", "prompt", "--query", "varDecl()", "--background"])
     app.main()
 
 
 def test_interactive_console_starts_session_by_default_and_keeps_legacy_flag(monkeypatch, tmp_path, capsys):
     import asyncio
-    from clang_toolkit.cli import app
+    from clang_toolkit.cli import app, workspace
 
     class QuerySession:
         def __init__(self):
@@ -393,12 +393,29 @@ def test_interactive_console_starts_session_by_default_and_keeps_legacy_flag(mon
         async def wait_background(self):
             return None
 
+        async def _session_info(self, _identity):
+            raise AssertionError("stub workspace must not renew any leases")
+
     class Prompt:
         async def prompt_async(self, _message):
             await FakeAsyncClient.instances[-1].session.started_reading.wait()
             return "quit"
 
-    def run_console(arguments):
+    workspace_runs = []
+
+    class Workspace:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def run(self):
+            workspace_runs.append(True)
+            await FakeAsyncClient.instances[-1].session.started_reading.wait()
+            return 0
+
+    monkeypatch.setattr(workspace, "WorkspaceConsole", Workspace)
+
+    def run_console(arguments, expect_workspace):
+        workspace_runs.clear()
         FakeAsyncClient.instances.clear()
         monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
         monkeypatch.setattr(app, "create_session", lambda **_kwargs: Prompt())
@@ -406,12 +423,15 @@ def test_interactive_console_starts_session_by_default_and_keeps_legacy_flag(mon
         monkeypatch.setattr("sys.argv", ["ctk", *arguments])
         app.main()
         fake = FakeAsyncClient.instances[-1]
+        assert bool(workspace_runs) == expect_workspace
         assert fake.session_opens == 1
         assert fake.session.closing
         assert "error:" not in capsys.readouterr().out
 
-    run_console([])
-    run_console(["--session"])
+    run_console([], True)
+    run_console(["--session"], True)
+    run_console(["--ui", "workspace"], True)
+    run_console(["--ui", "prompt"], False)
 
 
 def test_foreground_query_does_not_open_interactive_session(monkeypatch, tmp_path):
@@ -504,7 +524,7 @@ def test_paused_session_shutdown_cancels_after_bounded_drain(monkeypatch, tmp_pa
     monkeypatch.setattr(app, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(app, "create_session", lambda **_kwargs: Prompt())
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    monkeypatch.setattr("sys.argv", ["ctk"])
+    monkeypatch.setattr("sys.argv", ["ctk", "--ui", "prompt"])
     for finish_reader in (False, True):
         FakeAsyncClient.finish_reader = finish_reader
         app.main()

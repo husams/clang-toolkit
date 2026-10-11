@@ -60,8 +60,6 @@ def run_workspace(
             server.endpoint,
             "-c",
             str(server.config),
-            "--ui",
-            "workspace",
         ],
         stdin=slave,
         stdout=slave,

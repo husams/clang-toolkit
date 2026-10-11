@@ -101,7 +101,7 @@ Or start the interactive console:
 uv run ctk
 ```
 
-For CTK console with menus, panels, and multiline editing, use `uv run ctk --ui workspace`; see the [console guide](docs/console-workspace.md).
+The default CTK console includes menus, panels, and multiline editing; see the [console guide](docs/console-workspace.md). Use `uv run ctk --ui prompt` for the basic prompt.
 
 Check installed client and server builds, or identify the running server:
 

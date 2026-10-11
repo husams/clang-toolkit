@@ -1,6 +1,6 @@
 # CTK console
 
-The console offers an optional full-screen workspace. It uses the existing prompt_toolkit command buffer, language validation, completion, history, and native analysis client.
+The interactive console opens a full-screen workspace by default. It uses the existing prompt_toolkit command buffer, language validation, completion, history, and native analysis client.
 
 ## Launch
 
@@ -8,7 +8,7 @@ From the repository, launch CTK console with its own temporary native server:
 
 ```bash
 cd /Users/husam/workspace/clang-toolkit
-scripts/manual_console.sh --ui workspace
+scripts/manual_console.sh
 ```
 
 Before launching, run `uv sync --frozen`, `cmake --preset dev`, and `cmake --build --preset dev` first. Exiting the launcher stops its private server and removes its temporary storage.
@@ -16,7 +16,7 @@ Before launching, run `uv sync --frozen`, `cmake --preset dev`, and `cmake --bui
 For an existing server, use the normal connection settings:
 
 ```bash
-uv run ctk --ui workspace --server unix:///tmp/ctk.sock
+uv run ctk --server unix:///tmp/ctk.sock
 ```
 
 ## Controls
@@ -139,8 +139,10 @@ Restart the existing console with the Launch command to load the new code.
 
 ## Limits
 
-The workspace is opt-in; the standard prompt remains the default. A name filter, manual pane resizing, searchable action palette, and dedicated jobs view remain future options. Cancellation uses existing batch resource controls; other commands finish before the application closes. The displayed transcript is bounded to 200,000 characters; use the existing output/save commands for retained results.
+Use `ctk --ui prompt` to select the basic prompt; interactive `ctk` opens the workspace. One-shot queries and script/redirected input keep their existing execution behavior. A name filter, manual pane resizing, searchable action palette, and dedicated jobs view remain future options. Cancellation uses existing batch resource controls; other commands finish before the application closes. The displayed transcript is bounded to 200,000 characters; use the existing output/save commands for retained results.
 
 ## Merge validation — 11 October 2026
 
 After integration with the current main branch, 972 Python unit tests, 116 acceptance scenarios (26 + 26 + 64 private-server cases), and 336 native tests passed. The acceptance suite includes two real-terminal scenarios covering the title, menus, mouse controls, panels, multiline editing, syntax colors, formatted help, and smart pairs during completion. Twelve workspace/highlighting modules passed type checking; focused lint and launcher syntax checks passed.
+
+The default-launch correction was revalidated with the same complete suites: 972 Python unit tests, 116 acceptance scenarios, and 336 native tests. The real-terminal workspace scenario now omits `--ui`, while unit coverage verifies default workspace selection and the explicit basic-prompt option.

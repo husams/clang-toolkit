@@ -323,8 +323,8 @@ async def _run() -> int:
     )
     parser.add_argument("--server", help="override the configured gRPC endpoint")
     parser.add_argument(
-        "--ui", choices=("prompt", "workspace"), default="prompt",
-        help="interactive presentation (workspace enables menus and local files)",
+        "--ui", choices=("prompt", "workspace"),
+        help="interactive presentation (default: workspace; prompt uses the basic console)",
     )
     parser.add_argument("-c", "--cofing", "--config-path", dest="config_path")
     parser.add_argument("--print-config", action="store_true")
@@ -383,6 +383,7 @@ async def _run() -> int:
         batch_source is not None or (args.query is not None and not args.background)
     ):
         parser.error("--ui workspace requires interactive input; use --background with --query")
+    args.ui = args.ui or "workspace"
 
     try:
         network_config = load_network_config(args.config_path)
