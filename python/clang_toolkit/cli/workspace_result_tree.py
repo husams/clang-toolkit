@@ -19,7 +19,7 @@ from prompt_toolkit.widgets import TextArea
 from clang_toolkit.cli.workspace_state import PanelEntry, compact
 from clang_toolkit.cli.workspace_output import MAX_TRANSCRIPT_CHARS
 from clang_toolkit.cli.workspace_transcript import StyledBlock, TranscriptLexer
-from clang_toolkit.cli.workspace_tree import entry_text, navigate_tree
+from clang_toolkit.cli.workspace_tree import entry_fragments, entry_text, navigate_tree
 from clang_toolkit.cli.runtime.progress import BatchProgress
 
 SnapshotReader = Callable[
@@ -72,7 +72,7 @@ class ResultTree:
         return "\n".join(lines)
 
     def styled(self) -> list[StyleAndTextTuples]:
-        return [[("class:tree" + (" class:source-link" if item.source else ""), line)] for item, line in zip(self.entries, self.text.splitlines(), strict=True)]
+        return [entry_fragments(item, line) for item, line in zip(self.entries, self.text.splitlines(), strict=True)]
 
 
 class ResultTrees:

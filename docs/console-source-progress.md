@@ -43,6 +43,14 @@ Implementation branch: `codex/console-source-progress`, in the isolated `console
 - [x] Full acceptance suite: **116 cases passed** in 573.49 seconds. Combined with units and native tests, **1,488 tests passed**; the updated terminal cases were also rerun after the final range changes.
 - [x] Seven changed presentation/script modules pass type checking, focused lint passes, and the diff has no whitespace errors.
 
+### Link underline follow-up
+
+- [x] Match and binding links underline their label text only; indentation, expand arrows, padding and newlines retain the ordinary tree style.
+- [x] Outline padding and selection styles are preserved, so long rows still scroll horizontally.
+- [x] Updated real-terminal checks verify link text is underlined and adjacent indentation/padding is not; both terminal cases pass.
+- [x] All 1,036 unit tests pass; the two changed presentation modules pass type checking and focused lint.
+- [x] All 116 acceptance cases and 336 native tests pass; **1,488 tests passed** across the full suites. Evidence is retained in `build/source-link-text-*.log`.
+
 Validation evidence is retained under this worktree's ignored `build/source-progress-*.log` files. The native suite used private storage and temporary directories; acceptance tests used isolated servers. The real-terminal acceptance case verifies the unchanged console toolbar, numbered command editor, existing pairing/indentation behavior and source-view syntax colors. Durable file counters are derived from the frozen inputs of completed/failed groups; the server's durable status API does not expose finer per-file outcomes.
 
 Restart the isolated console with:

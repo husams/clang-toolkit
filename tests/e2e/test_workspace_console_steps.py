@@ -224,6 +224,12 @@ def run_workspace(
         column = screen.display[row].index("▸") + 1
         os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
         read_until("[0] · MatchRow")
+        link_row = next(i for i, line in enumerate(screen.display) if "[0] · MatchRow" in line)
+        link_column = screen.display[link_row].index("[0] · MatchRow")
+        assert screen.buffer[link_row][link_column].underscore
+        assert not screen.buffer[link_row][link_column - 1].underscore
+        link_end = len(screen.display[link_row].rstrip())
+        assert not screen.buffer[link_row][link_end + 1].underscore
         os.write(master, b"\x1b[C\x1b[C\x1b[C")
         read_until("f - workspace_native")
         os.write(master, b"\x1b[C\x1b[C")
@@ -241,6 +247,10 @@ def run_workspace(
         column = screen.display[row].index("f - workspace_native") + 1
         os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
         read_until("Matches [1]")
+        outline_row = next(i for i, line in enumerate(screen.display) if "[0] sample.cpp:" in line)
+        outline_column = screen.display[outline_row].index("[0] sample.cpp:")
+        assert screen.buffer[outline_row][outline_column].underscore
+        assert not screen.buffer[outline_row][outline_column - 1].underscore
         assert not screen.display[0].startswith(" CTK console | ")
         read_until("int workspace_native")
         assert any("1 │" in line and "int workspace_native" in line for line in screen.display)

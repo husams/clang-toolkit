@@ -24,6 +24,15 @@ def entry_text(item: PanelEntry, expanded: set[str]) -> str:
     return "  " * item.depth + marker + item.label + link
 
 
+def entry_fragments(item: PanelEntry, text: str, selected: bool = False) -> StyleAndTextTuples:
+    style = "class:tree" + (" class:tree-selected" if selected else "")
+    if item.source is None:
+        return [(style, text)]
+    start, end = min(len(text), 2 * item.depth + 2), len(text.rstrip())
+    link_style = "class:tree class:source-link" + (" class:tree-selected" if selected else "")
+    return [(style, text[:start]), (link_style, text[start:end]), (style, text[end:])]
+
+
 def navigate_tree(
     entries: list[PanelEntry], selected: int, expanded: set[str], direction: str
 ) -> tuple[int, bool]:
@@ -253,13 +262,12 @@ class WorkspaceTree:
         # The toolkit constrains scrolling to the cursor's selected line.
         # Pad to the full tree width so selecting a short parent does not
         # prevent panning longer descendants; offsets remain display cells.
-        return [
-            (
-                "class:tree" + (" class:source-link" if self.entries[i].source else "") + (" class:tree-selected" if i == self.selected else ""),
-                text + " " * (width - get_cwidth(text)) + "\n",
-            )
-            for i, text in enumerate(texts)
-        ]
+        fragments: StyleAndTextTuples = []
+        for i, text in enumerate(texts):
+            fragments.extend(entry_fragments(
+                self.entries[i], text + " " * (width - get_cwidth(text)) + "\n", i == self.selected,
+            ))
+        return fragments
 
     def entry_text(self, item: PanelEntry) -> str:
         return entry_text(item, self.expanded)
