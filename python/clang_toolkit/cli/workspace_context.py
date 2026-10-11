@@ -30,8 +30,9 @@ class CommandContext(MarkdownPanel):
         entry = COMMAND_HELP.get(topic)
         if entry is None:
             markdown = (
-                "## Workspace\n\nWrite a command below. **Enter** continues incomplete syntax; "
-                "complete input runs as one command.\n\n"
+                "## Workspace\n\nWrite a command below. **Ctrl+Enter** runs the whole draft; "
+                "**Ctrl+J** also runs it. **Enter** executes complete input at its end; "
+                "otherwise it adds an indented line. **Actions → Run command** also executes.\n\n"
                 "## Panels\n\n- **F3** Local files\n- **F4** Command help\n"
                 "- **F7** Binding outline\n- **F8** Resources\n"
                 "- **F9** Live server status\n\n"
@@ -60,6 +61,7 @@ class CommandContext(MarkdownPanel):
                     "functionDecl(isExpansionInMainFile(), unless(isImplicit()))\n```\n\n"
                     "The outline pages through long lists **50 items at a time**. "
                     "Select **Next page** or **Previous page**, then press **Enter**. "
-                    "**Left/Right** or the horizontal scrollbar reveals long properties; **Enter** expands/collapses a branch."
+                    "**Right** expands/enters a branch; **Left** collapses/goes to its parent. "
+                    "**Ctrl+Left/Right** or the horizontal scrollbar reveals long properties; **Enter** toggles a branch."
                 )
         self.set_markdown(markdown)

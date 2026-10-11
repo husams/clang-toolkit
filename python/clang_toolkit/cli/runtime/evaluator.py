@@ -49,7 +49,7 @@ from .references import (
     is_semantic_view,
     property_value,
 )
-from .semantic import MessageView, field_sources
+from .semantic import BindingMapView, MapView, MessageView, RepeatedView, field_sources
 from .templates import TemplateError, evaluate_string
 from .history import HistoryStore
 from .output import OutputSink
@@ -183,6 +183,9 @@ class Runtime:
         self.label: str | None = None
         self.history = history
         self.bindings: dict[str, Any] = {}
+        # Opt-in presentation metadata; ordinary output and exports stay textual.
+        self.capture_display = False
+        self.display_value: tuple[str, Any] | None = None
         self._scopes: list[dict[str, Any]] = []
         self._matcher_call_depth = 0
         self._default_targets: list[ParsedTree] = []
@@ -230,6 +233,7 @@ class Runtime:
 
     def execute(self, source: str) -> str | None:
         """Evaluate a parsed command and return output; ``None`` means exit."""
+        self.display_value = None
         if self.history is not None:
             self.history.append(source, self.session_id, self.label)
         statement = parser().parse(source).children[0]
@@ -239,9 +243,18 @@ class Runtime:
 
     def _execute_statement(self, statement: Tree, source: str) -> str | None:
         """Execute one command and return its standalone display text."""
-        _, display = self._evaluate_statement_once(
+        value, display = self._evaluate_statement_once(
             statement, source, value_context=False
         )
+        kind = str(statement.data)
+        if (
+            self.capture_display
+            and not self._source_stack
+            and kind in {"match", "display", "print", "bindings_list", "file_list", "session_list"}
+            and display is not None
+            and self.output.destination == "stdout"
+        ):
+            self.display_value = (kind, value)
         if str(statement.data) in {"quit", "exit"} or self._exit_requested:
             self._exit_requested = False
             return None
@@ -281,7 +294,7 @@ class Runtime:
                         display = None if value_context else self._emit_output(render(value))
                     return value, display
                 value = self._evaluate(expression)
-                display = None if value_context else self._emit_output(render(value))
+                display = None if value_context else self._emit_output(self._render_display_value(value))
                 return value, display
             if kind in _COMMAND_VALUE_KINDS | _COLLECTION_VALUE_KINDS:
                 value, display = self._evaluate_command_statement(
@@ -336,7 +349,9 @@ class Runtime:
             from .file_commands import execute_file_command, render_file_command
 
             value = execute_file_command(self, statement)
-            display = None if value_context else self._emit_output(render_file_command(kind, value))
+            display = None if value_context else self._emit_output(
+                "" if kind == "file_list" and self._structured_display() else render_file_command(kind, value)
+            )
             return value, display
         if kind == "match":
             if self._match_block(statement) is not None:
@@ -345,7 +360,7 @@ class Runtime:
                 output = execute_match_block(self, statement, source)
                 return output or "", None if value_context else output
             value = self._execute_match(statement, source=source)
-            display = None if value_context else self._emit_output(render(value))
+            display = None if value_context else self._emit_output(self._render_display_value(value))
             return value, display
         if kind == "traverse":
             from .graph_options import render_graph
@@ -385,7 +400,7 @@ class Runtime:
             return value, None if value_context else self._emit_output(value)
         if kind == "bindings_list":
             value = dict(self.bindings)
-            display = self._execute_statement_legacy(statement, source)
+            display = "" if self._structured_display() else self._execute_statement_legacy(statement, source)
             return value, None if value_context else display
         if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
             from .cursors import execute_cursor, render_cursor
@@ -408,7 +423,7 @@ class Runtime:
 
                 write_text(destination, text, append=append)
                 return value, None
-            display = None if value_context else self._emit_output(render(value))
+            display = None if value_context else self._emit_output(self._render_display_value(value))
             return value, display
         if kind == "save_command":
             value = self._evaluate(statement.children[1])
@@ -937,6 +952,27 @@ class Runtime:
             # publish it through stdout or the configured output sink.
             return text
         return self.output.emit(text)
+
+    def _structured_display(self) -> bool:
+        return (
+            self.capture_display
+            and len(self._source_stack) == 1
+            and not self._scopes
+            and not self._value_context_depth
+            and self.output.destination == "stdout"
+        )
+
+    def _render_display_value(self, value: Any) -> str:
+        # The workspace reads only the expanded page. Do not serialize a JSON
+        # preview first; nested effects and file output retain their text path.
+        if self._structured_display() and isinstance(
+            value,
+            (MatchValue, MatchRow, BindingSelection, NativeMatchCollection,
+             NativeBindingCollection, MatchSet, FileSet, list, tuple, dict,
+             MapView, BindingMapView, RepeatedView),
+        ):
+            return ""
+        return render(value)
 
     def _assignment(self, statement: Tree) -> Any:
         name = str(statement.children[1])

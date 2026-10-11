@@ -107,7 +107,7 @@ def test_multiline_expands_and_submits_as_one_command(tmp_path: Path) -> None:
         )
         assert not seen
         assert ui.editor_height() == 4
-        pipe.send_text("\r]\r")
+        pipe.send_text("\r]\x1b[27;5;13~")
         await wait_until(lambda: "submitted" in ui.results.text)
         assert ui.buffer.text == ""
         assert ui.editor_height() == 1
@@ -206,13 +206,13 @@ def test_busy_command_keeps_next_draft_and_exit_joins_worker(tmp_path: Path) -> 
         return DispatchResult("finished", True)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text('print "first"\r')
+        pipe.send_text('print "first"\x1b[27;5;13~')
         await wait_until(lambda: ui.busy)
         assert "Running" in ui.footer()
         pipe.send_text('print "')
         await wait_until(lambda: ui.buffer.text == 'print ""')
         assert ui.buffer.document.text_after_cursor == '"'
-        pipe.send_text('next"\r')
+        pipe.send_text('next"\x1b[27;5;13~')
         await wait_until(lambda: ui.buffer.text == 'print "next"')
         assert seen == ['print "first"']
         assert ui.buffer.text == 'print "next"'
@@ -237,7 +237,7 @@ def test_runtime_history_is_written_once_and_reverse_search_works(
         return await asyncio.to_thread(dispatch_result, runtime.client, text, runtime)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text(source + "\r")
+        pipe.send_text(source + "\x1b[27;5;13~")
         await wait_until(
             lambda: "Ready" == ui.status and not ui.busy and bool(store.read_commands())
         )
@@ -271,7 +271,7 @@ def test_transcript_is_bounded_and_failure_is_visible(tmp_path: Path) -> None:
         ui.write("x" * (MAX_TRANSCRIPT_CHARS + 10))
         await wait_until(lambda: "trimmed" in ui.results.text)
         assert len(ui.results.text) <= MAX_TRANSCRIPT_CHARS
-        pipe.send_text('print "failed"\r')
+        pipe.send_text('print "failed"\x1b[27;5;13~')
         await wait_until(lambda: "Command failed" == ui.status)
         assert "Command failed" in ui.footer()
 

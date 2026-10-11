@@ -57,6 +57,29 @@ class FileExplorer:
         def open_entry(event: KeyPressEvent) -> None:
             activate()
 
+        @bindings.add("right")
+        def expand(event: KeyPressEvent) -> None:
+            item = self.current
+            if item is None or not item.directory:
+                return
+            if item.path not in self.expanded:
+                activate()
+            elif self.selected + 1 < len(self.entries) and self.entries[self.selected + 1].depth > item.depth:
+                self.move(1)
+
+        @bindings.add("left")
+        def collapse(event: KeyPressEvent) -> None:
+            item = self.current
+            if item is None:
+                return
+            if item.directory and item.path in self.expanded:
+                activate()
+            else:
+                self.selected = next(
+                    (index for index in range(self.selected - 1, -1, -1) if self.entries[index].depth < item.depth),
+                    self.selected,
+                )
+
         @bindings.add("pageup")
         @bindings.add("pagedown")
         def page(event: KeyPressEvent) -> None:
@@ -91,7 +114,9 @@ class FileExplorer:
             was_selected = self.selected == event.position.y
             if event.event_type == MouseEventType.MOUSE_UP:
                 self.selected = event.position.y
-                if was_selected:
+                item = self.current
+                on_arrow = item is not None and item.directory and 2 * item.depth <= event.position.x < 2 * item.depth + 2
+                if was_selected or on_arrow:
                     self.activate()
             elif event.event_type == MouseEventType.MOUSE_DOWN:
                 # Selection is committed on release; a second click activates.
@@ -149,9 +174,9 @@ class FileExplorer:
             return [("class:muted", "No visible files")]
         result: StyleAndTextTuples = []
         for index, item in enumerate(self.entries):
-            icon = "[-]" if item.path in self.expanded else "[+]"
+            icon = "▾" if item.path in self.expanded else "▸"
             if not item.directory:
-                icon = "   "
+                icon = " "
             # Filesystem names must not introduce extra rows/control characters.
             name = "".join(c if c.isprintable() else "?" for c in item.path.name)
             label = "  " * item.depth + icon + " " + name

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from time import monotonic
-from typing import Protocol, TextIO, cast
+from typing import Any, Protocol, TextIO, cast
 
 from prompt_toolkit import Application, PromptSession
 from prompt_toolkit.buffer import Buffer
@@ -66,9 +66,10 @@ from clang_toolkit.cli.workspace_transcript import (
     command_block,
     error_span,
 )
-from clang_toolkit.cli.workspace_markdown import MarkdownPanel, render_markdown
-from clang_toolkit.cli.workspace_editing import editing_bindings
-from clang_toolkit.cli.workspace_state import PanelEntry
+from clang_toolkit.cli.workspace_markdown import MarkdownPanel, output_markdown, render_markdown
+from clang_toolkit.cli.workspace_editing import control_enter_keys, editing_bindings
+from clang_toolkit.cli.workspace_state import PanelEntry, display_snapshot
+from clang_toolkit.cli.workspace_result_tree import ResultTrees, SnapshotReader, TreeSelection
 from clang_toolkit.cli.workspace_tree import WorkspaceTree
 
 
@@ -90,6 +91,7 @@ class WorkspaceConsole:
         outline: Callable[[frozenset[str], dict[str, int]], Awaitable[list[PanelEntry]]]
         | None = None,
         resources: Callable[[], Awaitable[list[PanelEntry]]] | None = None,
+        result_outline: SnapshotReader | None = None,
         input: Input | None = None,
         output: Output | None = None,
     ) -> None:
@@ -162,11 +164,22 @@ class WorkspaceConsole:
         self.results.control = TranscriptControl(
             buffer=self.results.buffer,
             lexer=self.transcript_lexer,
-            input_processors=[CodeRows(lambda: self.wrap_results)],
+            input_processors=[
+                CodeRows(lambda: self.wrap_results),
+                TreeSelection(lambda line: self.app.layout.has_focus(self.results.window) and self.result_trees.at(line) is not None),
+            ],
             focus_on_click=True,
             search_buffer_control=self.search.control,
         )
         self.results.window.content = self.results.control
+        async def local_result_outline(kind: str, value: Any, expanded: frozenset[str], pages: dict[str, int]) -> list[PanelEntry] | None:
+            return await asyncio.to_thread(display_snapshot, kind, value, expanded, pages)
+
+        self.result_trees = ResultTrees(
+            self.results, self.transcript_lexer, self._append,
+            result_outline or local_result_outline, self.result_text_replaced,
+        )
+        self.result_tree_tasks: set[asyncio.Task[None]] = set()
         self._original_result_mouse = self.results.control.mouse_handler
         self.results.control.mouse_handler = self.results_mouse  # type: ignore[method-assign, assignment]
         self.buffer = session.default_buffer
@@ -304,6 +317,7 @@ class WorkspaceConsole:
                 WorkspaceAction(
                     lambda: "Show server status", lambda: self.prepare("server status")
                 ),
+                WorkspaceAction(lambda: "Run command  Ctrl+J", self.run_draft),
                 WorkspaceAction(lambda: "Quit  F10", self.request_exit),
             ],
             self.close_menu,
@@ -418,7 +432,7 @@ class WorkspaceConsole:
             input=input,
             output=output,
         )
-        self.stream = WorkspaceOutput(self.write)
+        self.stream = WorkspaceOutput(self.write_output)
 
     @property
     def narrow(self) -> bool:
@@ -585,7 +599,7 @@ class WorkspaceConsole:
 
     def editor_title(self) -> str:
         lines = self.buffer.document.line_count
-        return f" Command · {lines} line{'s' if lines != 1 else ''} · Enter submits complete input"
+        return f" Command · {lines} line{'s' if lines != 1 else ''} · Ctrl+Enter / Ctrl+J run · Enter completes"
 
     def footer(self) -> str:
         elapsed = (
@@ -682,13 +696,46 @@ class WorkspaceConsole:
             else:
                 self.results.buffer.cursor_down(3)
             return None
+        if event.event_type == MouseEventType.MOUSE_UP:
+            found = self.result_trees.at(event.position.y)
+            if found is not None:
+                _, index = found
+                item = found[0].entries[index]
+                if item.page is not None or (item.expandable and 2 * item.depth <= event.position.x < 2 * item.depth + 2):
+                    self._original_result_mouse(event)
+                    self.navigate_result_tree("enter")
+                    return None
         return self._original_result_mouse(event)
+
+    def result_text_replaced(self, start: int, end: int, length: int) -> None:
+        if self.command_position is not None:
+            if self.command_position >= end:
+                self.command_position += length - (end - start)
+            elif self.command_position >= start:
+                self.command_position = None
+
+    def navigate_result_tree(self, direction: str) -> None:
+        self.follow = False
+        async def navigate() -> None:
+            await self.result_trees.navigate(direction)
+            self.app.invalidate()
+
+        task = self.app.create_background_task(navigate())
+        self.result_tree_tasks.add(task)
+        task.add_done_callback(self.result_tree_tasks.discard)
 
     def write(self, text: str) -> None:
         if self.loop is not None and self.app.is_running:
             self.loop.call_soon_threadsafe(self._append, text)
         else:
             self._append(text)
+
+    def write_output(self, text: str) -> None:
+        markdown = output_markdown(text)
+        if self.loop is not None and self.app.is_running:
+            self.loop.call_soon_threadsafe(self.write_markdown, markdown)
+        else:
+            self.write_markdown(markdown)
 
     def _append(
         self, text: str, styled: list[StyleAndTextTuples] | None = None
@@ -702,6 +749,7 @@ class WorkspaceConsole:
             marker = "[Earlier display output trimmed; use save for full results]\n"
             cut = len(combined) - (MAX_TRANSCRIPT_CHARS - len(marker))
             self.transcript_lexer.trim(cut, removed)
+            self.result_trees.trim(cut, removed)
             if self.command_position is not None:
                 self.command_position = (
                     self.command_position - removed
@@ -731,6 +779,13 @@ class WorkspaceConsole:
         self.command_task = asyncio.create_task(self._execute(buffer.text))
         return False
 
+    def run_draft(self) -> None:
+        self.app.layout.focus(self.editor)
+        if self.busy or self.closing:
+            self.write("A command is running; your next draft is kept.")
+        else:
+            self.buffer.validate_and_handle()
+
     async def _execute(self, source: str) -> None:
         self.last_source = source
         self.command_position = len(self.results.text)
@@ -742,23 +797,26 @@ class WorkspaceConsole:
             self.status = "Ready" if outcome.success else "Command failed"
             if outcome.output is None:
                 self.closing = True
-            elif outcome.output:
+            elif outcome.output or getattr(outcome, "outline_value", None) is not None:
                 output = (
                     self.mark_command_error(source, outcome.output)
                     if not outcome.success
                     else outcome.output
                 )
-                if outcome.success and outcome.markdown is not None:
+                outline_value = getattr(outcome, "outline_value", None)
+                if outcome.success and outline_value is not None and await self.result_trees.show(*outline_value):
+                    pass
+                elif outcome.success and outcome.markdown is not None:
                     self.write_markdown(outcome.markdown)
                 else:
-                    self.write(output)
+                    self.write_markdown(output_markdown(output))
                 if not outcome.success:
                     self.explain_match_error(outcome.output)
         except Exception as exc:  # noqa: BLE001 - background CLI error boundary
             # Command task is the CLI error boundary; keep the draft/UI recoverable.
             self.exit_code = 1
             self.status = "Command failed"
-            self.write(self.mark_command_error(source, f"error: {exc}"))
+            self.write_markdown(output_markdown(self.mark_command_error(source, f"error: {exc}")))
             self.explain_match_error(str(exc))
         finally:
             self.last_elapsed = monotonic() - self.started if self.started else None
@@ -790,6 +848,7 @@ class WorkspaceConsole:
             cursor += len(marked) - len(original)
         text = document.text[:start] + marked + document.text[start + len(original) :]
         self.transcript_lexer.replace(start, start + len(original), len(marked))
+        self.result_trees.shift(start, start + len(original), len(marked))
         self.results.buffer.set_document(Document(text, cursor), bypass_readonly=True)
         # Parser diagnostics already contain a plain duplicate source/caret.
         # Keep the explanation and any suggested repair below the marked block.
@@ -888,6 +947,7 @@ class WorkspaceConsole:
     def clear_results(self) -> None:
         self.command_position = None
         self.transcript_lexer.blocks.clear()
+        self.result_trees.trees.clear()
         self.results.buffer.set_document(Document(""), bypass_readonly=True)
 
     def toggle_wrap(self) -> None:
@@ -918,7 +978,7 @@ class WorkspaceConsole:
             "## Workspace shortcuts\n\n"
             "**F1** Shortcuts · **F2** Actions · **F3** Files · **F4** Help · **F5** Refresh · **F6** Focus\n\n"
             "**F7** Outline · **F8** Resources · **F9** Server · **F10** Quit\n\n"
-            "- **Enter** continues incomplete input, then submits. Paired brackets and quotes keep the cursor inside; new lines indent automatically.\n"
+            "- **Ctrl+Enter** or **Ctrl+J** runs the whole draft. **Enter** runs complete input at its end; otherwise it adds an indented line. **Actions → Run command** also executes. Paired brackets and quotes keep the cursor inside.\n"
             "- **Ctrl+R** searches history or results; **Ctrl+C** clears a draft or requests cancellation.\n"
             "- **Escape** closes the focused panel or menu. Files are local; selecting a file prepares `parse`.\n"
             "- Outline: **Enter** expands/collapses; **Left/Right** pans; **p** prepares `print`. Select Next/Previous page for 50 items.\n"
@@ -1008,6 +1068,19 @@ class WorkspaceConsole:
         def latest_results(event: KeyPressEvent) -> None:
             self.show_latest()
 
+        @bindings.add("enter", filter=has_focus(self.results.buffer) & ~is_searching)
+        @bindings.add("left", filter=has_focus(self.results.buffer) & ~is_searching)
+        @bindings.add("right", filter=has_focus(self.results.buffer) & ~is_searching)
+        def result_branch(event: KeyPressEvent) -> None:
+            key = event.key_sequence[0].key
+            direction = "enter" if key == "c-m" else key
+            if self.result_trees.at(self.results.buffer.document.cursor_position_row) is not None:
+                self.navigate_result_tree(direction)
+            elif direction == "left":
+                self.results.buffer.cursor_left()
+            elif direction == "right":
+                self.results.buffer.cursor_right()
+
         @bindings.add(
             "c-d",
             filter=has_focus(self.buffer) & Condition(lambda: not self.buffer.text),
@@ -1017,6 +1090,12 @@ class WorkspaceConsole:
 
         @bindings.add(
             "enter",
+            filter=has_focus(self.buffer)
+            & Condition(lambda: self.busy or self.closing),
+            eager=True,
+        )
+        @bindings.add(
+            "c-j",
             filter=has_focus(self.buffer)
             & Condition(lambda: self.busy or self.closing),
             eager=True,
@@ -1068,6 +1147,7 @@ class WorkspaceConsole:
         self.loop = asyncio.get_running_loop()
         try:
             with (
+                control_enter_keys(),
                 redirect_stdout(cast(TextIO, self.stream)),
                 redirect_stderr(cast(TextIO, self.stream)),
             ):
@@ -1078,6 +1158,9 @@ class WorkspaceConsole:
                     await asyncio.shield(self.command_task)
                 self.stream.flush()
         finally:
+            for task in tuple(self.result_tree_tasks):
+                task.cancel()
+            await asyncio.gather(*self.result_tree_tasks, return_exceptions=True)
             if self.monitor_task is not None:
                 self.monitor_task.cancel()
                 await asyncio.gather(self.monitor_task, return_exceptions=True)
