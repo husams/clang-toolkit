@@ -1019,14 +1019,15 @@ MatchCode MatchController::describe_file(const std::string &owner,
   for (const auto &[id, lease] : impl_->file_store->files) {
     if (lease->owner != owner || lease->closed.load())
       continue;
-    if ((request.has_lease_id() && id == request.lease_id()) ||
-        (request.has_session_id() &&
+    if ((request.handle_case() == DescribeFileRequest::kLeaseId &&
+         id == request.lease_id()) ||
+        (request.handle_case() == DescribeFileRequest::kSessionId &&
          lease->root_session_id == request.session_id())) {
       response = impl_->file_info(*lease);
       return MatchCode::Ok;
     }
   }
-  if (request.has_session_id()) {
+  if (request.handle_case() == DescribeFileRequest::kSessionId) {
     const auto cursor = impl_->registry->find(owner, request.session_id());
     if (cursor) {
       response = impl_->cursor_info(*cursor);
@@ -1046,8 +1047,9 @@ MatchCode MatchController::close_file(const std::string &owner,
          it != impl_->file_store->files.end();) {
       auto lease = it->second;
       const bool match = lease->owner == owner &&
-          ((request.has_lease_id() && lease->id == request.lease_id()) ||
-           (request.has_session_id() &&
+          ((request.handle_case() == CloseFileRequest::kLeaseId &&
+            lease->id == request.lease_id()) ||
+           (request.handle_case() == CloseFileRequest::kSessionId &&
             lease->root_session_id == request.session_id()));
       if (!match) {
         ++it;
@@ -1062,7 +1064,7 @@ MatchCode MatchController::close_file(const std::string &owner,
       it = impl_->file_store->files.erase(it);
     }
   }
-  if (request.has_session_id()) {
+  if (request.handle_case() == CloseFileRequest::kSessionId) {
     const auto cursor = impl_->registry->find(owner, request.session_id());
     const auto closed = impl_->registry->close(owner, request.session_id());
     if (closed.code != MatchCode::Ok && closing.empty())
@@ -1085,7 +1087,7 @@ MatchCode MatchController::close_file(const std::string &owner,
       }
     }
   }
-  if (closing.empty() && request.has_lease_id()) {
+  if (closing.empty() && request.handle_case() == CloseFileRequest::kLeaseId) {
     std::lock_guard lock(impl_->file_store->mutex);
     const auto closed = impl_->file_store->closed_files.find(request.lease_id());
     if (closed != impl_->file_store->closed_files.end() && closed->second == owner)
@@ -1094,8 +1096,9 @@ MatchCode MatchController::close_file(const std::string &owner,
   const auto remaining = list_files(owner);
   for (const auto &file : remaining.files())
     response.add_remaining()->CopyFrom(file);
-  return closing.empty() && !request.has_session_id() ? MatchCode::NotFound
-                                                      : MatchCode::Ok;
+  return closing.empty() && request.handle_case() != CloseFileRequest::kSessionId
+             ? MatchCode::NotFound
+             : MatchCode::Ok;
 }
 
 MatchCode MatchController::close_all_files(const std::string &owner,
@@ -1143,9 +1146,9 @@ MatchCode MatchController::refresh_file(
     FileInfo &response, std::string &message) {
   FileInfo previous;
   DescribeFileRequest describe;
-  if (request.has_lease_id())
+  if (request.handle_case() == RefreshFileRequest::kLeaseId)
     describe.set_lease_id(request.lease_id());
-  else if (request.has_session_id())
+  else if (request.handle_case() == RefreshFileRequest::kSessionId)
     describe.set_session_id(request.session_id());
   else
     return MatchCode::InvalidArgument;
