@@ -341,7 +341,7 @@ def test_mouse_selects_files_and_wheel_scrolls_listing(tmp_path: Path) -> None:
         assert "file-03.cpp" in ui.buffer.text
         pipe.send_text("\x1b[<65;8;7M\x1b[6~")
         await wait_until(lambda: ui.files.selected > 10)
-        assert ui.files.window.vertical_scroll > 0
+        await wait_until(lambda: ui.files.window.vertical_scroll > 0)
 
     asyncio.run(interact(tmp_path, drive, output=SizedOutput(rows=16)))
 
