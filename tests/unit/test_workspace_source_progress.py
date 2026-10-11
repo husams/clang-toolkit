@@ -70,20 +70,22 @@ def test_source_links_preserve_exclusive_end_columns_for_mid_line_expressions(tm
     assert (target.line, target.column, target.end_line, target.end_column) == (3, 24, 3, 37)
 
 
-def test_source_region_keeps_cpp_colors_and_numbers_with_separate_red_rules() -> None:
+def test_source_region_keeps_cpp_colors_and_numbers_without_extra_rows() -> None:
     text = "class Calculator {\npublic:\n    int value() const {\n        return 42;\n    }\n};\n"
     presentation = SourcePresentation(text, SourceTarget("demo.cc", 1, 1, 6, end_column=2))
+    assert presentation.document.line_count == Document(text).line_count
+    assert presentation.document.text == text
     for original in range(6):
         display_row = presentation.code_rows[original]
         fragments = presentation.lex_document(presentation.document)(display_row)
         assert not any("source-range" in style or "bg:" in style for style, _ in fragments)
         assert str(original + 1) in "".join(text for _, text in presentation.gutter(display_row, 0))
-        assert presentation.lex_document(presentation.document)(display_row + 1)[0][0] == "class:source-marker"
-    assert presentation.rows[0][2] == "┌"
-    assert presentation.rows[presentation.code_rows[5]][2] == "└"
+        gutter = presentation.gutter(display_row, 0)
+        assert gutter[0] == ("class:source-marker", "▶")
+        assert len("".join(text for _, text in gutter)) == 4
     assert any("pygments.keyword" in style for style, text in presentation.lex_document(presentation.document)(0) if "class" in text)
     presentation = SourcePresentation("int f() {\n\n    return 1;\n}\n", SourceTarget("demo.cc", 1, 1, 4, end_column=2))
-    assert presentation.rows[presentation.code_rows[1]][2] == "│"  # Blank lines remain inside the bracket.
+    assert presentation.gutter(1, 0)[0][1] == "▶"  # Blank lines remain inside the region.
 
 
 def test_expression_rule_uses_utf8_byte_columns_tabs_and_exclusive_boundary() -> None:
@@ -93,13 +95,13 @@ def test_expression_rule_uses_utf8_byte_columns_tabs_and_exclusive_boundary() ->
     start = len(text[:begin].encode("utf-8")) + 1
     end = start + len(expression)
     presentation = SourcePresentation(text, SourceTarget("demo.cc", 1, start, 1, end_column=end))
-    rule = presentation.document.lines[1]
-    assert rule == " " * len(text[:begin].expandtabs(4)) + "─" * len(expression)
-    assert presentation.rows[0][2] == "▶"
+    fragments = presentation.lex_document(presentation.document)(0)
+    assert "".join(text for style, text in fragments if " underline" in style) == expression
+    assert presentation.gutter(0, 0)[0][1] == "▶"
     # An exclusive endpoint at the next line's first column does not mark it.
     presentation = SourcePresentation("int x;\nint y;", SourceTarget("demo.cc", 1, 1, 2, end_column=1))
-    assert len(presentation.rows) == 3
-    assert presentation.rows[-1][2] == " "
+    assert presentation.document.line_count == 2
+    assert presentation.gutter(1, 0)[0][1] == " "
 
 
 def test_source_catalog_contains_all_file_matches_and_omits_other_files(tmp_path: Path) -> None:

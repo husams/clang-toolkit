@@ -253,17 +253,18 @@ def run_workspace(
         assert not screen.buffer[outline_row][outline_column - 1].underscore
         assert not screen.display[0].startswith(" CTK console | ")
         read_until("int workspace_native")
-        assert any("1 │" in line and "int workspace_native" in line for line in screen.display)
+        assert any("1│" in line and "int workspace_native" in line for line in screen.display)
         row = next(i for i, line in enumerate(screen.display) if "int workspace_native" in line)
         column = screen.display[row].index("int workspace_native")
         assert screen.buffer[row][column].fg != screen.buffer[row][column + 4].fg
         read_until("const int result")
-        assert any("┌" in line and "1 │" in line for line in screen.display)
-        assert any("└" in line and "5 │" in line for line in screen.display)
-        underline_row = row + 1
-        assert "─" in screen.display[underline_row]
-        marker_column = screen.display[underline_row].index("─")
-        assert screen.buffer[underline_row][marker_column].fg in {"ff8080", "ff8787"}  # truecolor or xterm-256 red
+        for index in range(5):
+            code_line = screen.display[row + index]
+            assert f"▶{index + 1}│" in code_line  # One screen row per original source line.
+            marker_column = code_line.index("▶")
+            assert screen.buffer[row + index][marker_column].fg in {"ff8080", "ff8787"}
+        assert screen.buffer[row][column].underscore
+        assert column - screen.display[row].index("▶") == 4
         assert screen.buffer[row][column].bg != "315d80"
         (tmp_path / "workspace-source-window.txt").write_text("\n".join(screen.display))
         os.write(master, b"\t\r")
@@ -289,11 +290,10 @@ def run_workspace(
         expression = "(value + 5) * 3"
         code_row = next(i for i, line in enumerate(screen.display) if expression in line)
         column = screen.display[code_row].index(expression)
-        assert "▶" in screen.display[code_row] and "3 │" in screen.display[code_row]
-        rule = screen.display[code_row + 1]
-        assert rule.index("─") == column
-        assert rule[column:column + len(expression)] == "─" * len(expression)
-        assert rule[column + len(expression)] == " "  # The semicolon is outside the AST range.
+        assert "▶3│" in screen.display[code_row]
+        assert all(screen.buffer[code_row][column + offset].underscore for offset in range(len(expression)))
+        assert not screen.buffer[code_row][column - 1].underscore
+        assert not screen.buffer[code_row][column + len(expression)].underscore  # The semicolon is outside the AST range.
         (tmp_path / "workspace-source-expression.txt").write_text("\n".join(screen.display))
         os.write(master, b"\x1b")
         read_until("CTK console", recorded=lambda: not any("Matches in file" in line for line in screen.display))
