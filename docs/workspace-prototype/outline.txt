@@ -1,0 +1,28 @@
+ CTK workspace · test_browse_files_and_execute_0 | Actions [F2]  | Help | Outline | Resources | Server                                      
+CTK workspace                                                                              ^┌────────────| Bindings · F7 [×] |─────────────┐
+  1 │ let inputs = [                                                                        │▸ $inputs · list [2]                         ^│
+  2 │ "one",                                                                                │▾ $rows · MatchValue [1]                      │
+  3 │ "two"                                                                                 │  ▾ [0] · MatchRow                            │
+  4 │ ]                                                                                     │    ▾ f - workspace_native · int ()           │
+                                                                                            │        decl_name = 'workspace_native'        │
+  1 │ let tree = parse "/private/var/folders/07/p__xlp357ps_8_fb3yhffmrh0000gn/T/pytest-of- │        decl_type = 'int ()'                  │
+    │ husam/pytest-1020/test_browse_files_and_execute_0/sample.cpp"                         │        qualified_name = 'workspace_native'   │
+                                                                                            │        name = 'f'                            │
+  1 │ let rows = match functionDecl().bind("f") in $tree                                    │      ▸ location · MessageView                │
+                                                                                            │      ▸ range · MessageView                   │
+  1 │ print $rows[0].f.decl_name                                                            │      ▸ return_type · MessageView             │
+                                                                                            │        documentation = ''                    │
+workspace_native                                                                            │      ▸ function_decl · MessageView           │
+  1 │ print "INPUT_COUNT=${inputs.length}"                                                  │      ▸ function · MessageView                │
+                                                                                            │        is_deleted = False                    │
+INPUT_COUNT=2                                                                               │        is_defaulted = False                  │
+                                                                                            │        is_explicitly_defaulted = False       │
+                                                                                            │        is_pure_virtual = False               │
+                                                                                            │        is_trivial = False                    │
+                                                                                            │        is_trivial_for_call = False           │
+                                                                                            │        is_inline_specified = False           │
+                                                                                            │      ▸ declarator · MessageView             v│
+                                                                                           v│‹━━━━━━━━━━━━───────────────────────────────› │
+ Command · 1 line · Enter submits complete input                                            │ Enter expand/collapse · ←/→ scroll  Print [p]│
+   1 │                                                                                     ^└──────────────────────────────────────────────┘
+ Session open | Ready | 0.7s | Input 1:1 | Follow | RSS 153M · Sessions 2                                                                   

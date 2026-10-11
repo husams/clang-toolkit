@@ -1,0 +1,28 @@
+ CTK workspace · test_browse_files_and_execute_0 | Actions [F2]  | Help | Outline | Resources | Serv
+PAIRED                                                                                             ^
+  1 │ let display = memberExpr(member(hasName("first")))                                            
+                                                                                                    
+  1 │ let long_code = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 
+    │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 
+    │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxTA 
+    │ IL"                                                                                           
+                                                                                                    
+  1 │ let a_manifest = files "*.cpp"                                                                
+                                                                                                    
+  1 │ ;et bad = 1                                                                                   
+    │ ^                                                                                             
+                                                                                                    
+syntax error at line 1, column 1: unexpected `;`. Expected a quoted string, `match`, a variable ref 
+erence such as `$name`, a name, or other valid syntax.                                              
+  1 │ print $missing                                                                                
+    │       ^~~~~~~~                                                                                
+                                                                                                    
+error: unknown variable: missing                                                                    
+  1 │ print $a_manifest[0]                                                                          
+    │                   ^                                                                           
+                                                                                                    
+error: value does not support indexing: FileSet at [0] (line 1, column 19)                          
+                                                                                                   v
+ Command · 1 line · Enter submits complete input                                                    
+   1 │                                                                                             ^
+ Session open | Command failed | 0.0s | Input 1:1 | Follow | RSS 154M · Sessions 1                  

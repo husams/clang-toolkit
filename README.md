@@ -101,6 +101,8 @@ Or start the interactive console:
 uv run ctk
 ```
 
+For CTK console with menus, panels, and multiline editing, use `uv run ctk --ui workspace`; see the [console guide](docs/console-workspace.md).
+
 Check installed client and server builds, or identify the running server:
 
 ```sh
@@ -209,6 +211,7 @@ and platform details are recorded in [AGENTS.md](AGENTS.md).
 - [Parse and match expressions](docs/parse-match-expressions.md)
 - [Compilation database discovery and flag lookup](docs/compilation-database.md)
 - [Interactive console](docs/repl.md)
+- [CTK console workspace](docs/console-workspace.md)
 - [Console command reference](docs/console-command-reference.md)
 - [AST traversal](docs/ast-traversal.md)
 - [Control-flow graphs](docs/control-flow.md)

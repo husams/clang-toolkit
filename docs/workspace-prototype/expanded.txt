@@ -1,0 +1,28 @@
+ CTK workspace · test_browse_files_and_execute_0 | Actions [F2]  | Help | Outline | Resources | Serv
+┌──────| Local files |───────┐                                  ┌────| Command help · F4 [×] |─────┐
+│/private/var/folders/07/p__x│/private/var/folders/07/p__xlp357p│let                              ^│
+│[+] home                   ^│sam/pytest-1020/test_browse_files_│                                  │
+│[+] native-storage          │  1 │ session close "727490bd-3866│Bind a typed expression without   │
+│[+] work                    │                                  │printing it.                      │
+│    sample.cpp              │  1 │ let zpages = [0, 1, 2, 3, 4,│                                  │
+│    server.yaml             │    │  15, 16, 17, 18, 19, 20, 21,│Usage                             │
+│                            │    │ , 31, 32, 33, 34, 35, 36, 37│                                  │
+│                            │    │ 6, 47, 48, 49, 50, 51, 52, 5│                                  │
+│                            │    │ 62, 63, 64, 65, 66, 67, 68, │ let NAME = VALUE                 │
+│                            │    │  78, 79, 80, 81, 82, 83, 84,│ let NAME(PARAM, ...) = MATCHER   │
+│                            │    │ , 94, 95, 96, 97, 98, 99, 10│                                  │
+│                            │    │ 7, 108, 109, 110, 111, 112, │                                  │
+│                            │    │ 120, 121, 122, 123, 124]    │Examples                          │
+│                            │                                  │                                  │
+│                            │  1 │ let zwide = "xxxxxxxxxxxxxxx│                                  │
+│                            │    │ xxxxxxxxxxxxxxxxxxxxxxxxxxxx│ let predicate =                  │
+│                            │    │ xxxxxxxxxxxxxxxxxxxxxxxxxxxx│ hasName("main")                  │
+│                            │    │ xxxxTAIL"                   │                                  │
+│                            │                                  │                                  │
+│                            │                                  │                                  │
+│                            │ Command · 4 lines · Enter submits│ let named(name) =               v│
+│                            │   1 │ let inputs = [             │ Scroll · F6 focus · × close      │
+│                           v│   2 │ "one",                     └──────────────────────────────────┘
+│Enter opens · F5 refresh · F│   3 │ "two"                                                          
+└────────────────────────────┘   4 │ ]                                                             v
+ Session open | Ready | 0.0s | Input 4:2 | Follow | RSS 153M · Sessions 2                           

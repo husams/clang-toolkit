@@ -1,0 +1,28 @@
+ CTK workspace · test_browse_files_and_execute_0 | Actions [F2]  | Help | Outline | Resources | Serv
+                                                               ^┌────| Command help · F4 [×] |─────┐
+  1 │ let zwide = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │let                              ^│
+    │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │                                  │
+    │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │Bind a typed expression without   │
+    │ xxxxxxxxxxxxxxxxxxxxxxTAIL"                               │printing it.                      │
+                                                                │                                  │
+                                                                │Usage                             │
+                                                                │                                  │
+                                                                │                                  │
+                                                                │ let NAME = VALUE                 │
+                                                                │ let NAME(PARAM, ...) = MATCHER   │
+                                                                │                                  │
+                                                               v│                                  │
+ Command · 26 lines · Enter submits complete input              │Examples                          │
+  15 │ 13,                                                     ^│                                  │
+  16 │ 14,                                                      │                                  │
+  17 │ 15,                                                      │ let predicate =                  │
+  18 │ 16,                                                      │ hasName("main")                  │
+  19 │ 17,                                                      │                                  │
+  20 │ 18,                                                      │                                  │
+  21 │ 19,                                                      │                                  │
+  22 │ 20,                                                      │ let named(name) =                │
+  23 │ 21,                                                      │ functionDecl(hasName($name))     │
+  24 │ 22 ,      language keyword                               │                                 v│
+  25 │ 23 ]      language keyword                               │ Scroll · F6 focus · × close      │
+  26 │ 24                                                      v└──────────────────────────────────┘
+ Session open | Draft cleared | 0.0s | Input 26:3 | Follow | RSS 154M · Sessions 1                  

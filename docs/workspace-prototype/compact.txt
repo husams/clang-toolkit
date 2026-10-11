@@ -1,0 +1,28 @@
+ CTK workspace · test_browse_files_and_execute_0 | Actions [F2]  | Help | Outline | Resources | Serv
+CTK workspace                                                  ^┌────| Command help · F4 [×] |─────┐
+  1 │ let inputs = [                                            │print                            ^│
+  2 │ "one",                                                    │                                  │
+  3 │ "two"                                                     │Render a value through the        │
+  4 │ ]                                                         │configured output destination.    │
+                                                                │                                  │
+  1 │ let tree = parse "/private/var/folders/07/p__xlp357ps_8_f │Usage                             │
+    │ b3yhffmrh0000gn/T/pytest-of-husam/pytest-1020/test_browse │                                  │
+    │ _files_and_execute_0/sample.cpp"                          │                                  │
+                                                                │ print VALUE [to PATH [mode       │
+  1 │ let rows = match functionDecl().bind("f") in $tree        │ replace|append]]                 │
+                                                                │ $reference                       │
+  1 │ print $rows[0].f.decl_name                                │ QUOTED_STRING                    │
+                                                                │                                  │
+workspace_native                                                │                                  │
+  1 │ print "INPUT_COUNT=${inputs.length}"                      │Examples                          │
+                                                                │                                  │
+INPUT_COUNT=2                                                   │                                  │
+                                                                │ let values = [1, 2, 3]           │
+                                                                │                                  │
+                                                                │                                  │
+                                                                │                                  │
+                                                                │ print $values                    │
+                                                               v│                                 v│
+ Command · 1 line · Enter submits complete input                │ Scroll · F6 focus · × close      │
+   1 │                                                         ^└──────────────────────────────────┘
+ Session open | Ready | 0.7s | Input 1:1 | Follow | RSS 134M · Sessions 0                           

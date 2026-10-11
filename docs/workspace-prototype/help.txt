@@ -1,0 +1,28 @@
+ CTK workspace · test_browse_files_and_execute_0 | Actions [F2]  | Help | Outline | Resources | Serv
+                                                                                                   ^
+                                                                                                    
+ parse PATH                                                                                         
+                                                                                                    
+                                                                                                    
+                                                                                                    
+ let tree = parse PATH                                                                              
+                                                                                                    
+                                                                                                    
+Arguments, options and defaults                                                                     
+                                                                                                    
+ • PATH: quoted file path or a reference to a path/File; relative to the session directory.         
+ • Automatically loads compile_commands.json; extra_args append compiler overrides.                 
+ • Select a database with ctk --compile-commands PATH or set compile_commands PATH.                 
+ • Use the result with match ... in $tree or a scoped in $tree block.                               
+                                                                                                    
+Examples                                                                                            
+                                                                                                    
+                                                                                                    
+ parse "examples/parse_match.cc"                                                                    
+ let tree = parse "examples/parse_match.cc"                                                         
+                                                                                                    
+                                                                                                    
+                                                                                                   v
+ Command · 1 line · Enter submits complete input                                                    
+   1 │                                                                                             ^
+ Session open | Ready | 0.0s | Input 1:1 | Follow | RSS 154M · Sessions 1                           

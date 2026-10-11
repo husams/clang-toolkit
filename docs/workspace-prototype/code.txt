@@ -1,0 +1,28 @@
+ CTK workspace · test_browse_files_and_execute_0 | Actions [F2]  | Help | Outline | Resources | Serv
+                                                                                                   ^
+Examples                                                                                            
+                                                                                                    
+                                                                                                    
+ parse "examples/parse_match.cc"                                                                    
+ let tree = parse "examples/parse_match.cc"                                                         
+                                                                                                    
+                                                                                                    
+  1 │ let smart = [                                                                                 
+  2 │     1,                                                                                        
+  3 │     2                                                                                         
+  4 │ ]                                                                                             
+                                                                                                    
+  1 │ print "PAIRED"                                                                                
+                                                                                                    
+PAIRED                                                                                              
+  1 │ let display = memberExpr(member(hasName("first")))                                            
+                                                                                                    
+  1 │ let long_code = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 
+    │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 
+    │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxTA 
+    │ IL"                                                                                           
+                                                                                                    
+                                                                                                   v
+ Command · 1 line · Enter submits complete input                                                    
+   1 │                                                                                             ^
+ Session open | Ready | 0.0s | Input 1:1 | Follow | RSS 154M · Sessions 1                           
