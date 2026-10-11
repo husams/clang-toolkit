@@ -198,6 +198,21 @@ def run_workspace(
         output = read_until("INPUT_COUNT=2")
         assert "workspace_native" in output
         (tmp_path / "workspace-compact.txt").write_text(output)
+        # Typed results expand inside the existing results pane.
+        commands.append("print $rows")
+        submit(commands[-1], "▸ Matches")
+        row = next(i for i, line in enumerate(screen.display) if "▸ Matches" in line)
+        column = screen.display[row].index("▸") + 1
+        os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
+        read_until("[0] · MatchRow")
+        os.write(master, b"\x1b[C\x1b[C")
+        read_until("f - workspace_native")
+        os.write(master, b"\x1b[C\x1b[C")
+        read_until("decl_name = 'workspace_native'")
+        (tmp_path / "workspace-match-tree.txt").write_text("\n".join(screen.display))
+        os.write(master, b"\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D")
+        read_until("▸ Matches", recorded=lambda: not any("decl_name =" in line for line in screen.display))
+        os.write(master, b"\x1b[1;5F\x1b[17~")  # Resume following; F6 returns to input.
         # Read live server data and expand actual retained bindings in a wide
         # terminal. Every panel shares the existing draft and command runtime.
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 140, 0, 0))
@@ -234,6 +249,10 @@ def run_workspace(
         (tmp_path / "workspace-outline.txt").write_text("\n".join(screen.display))
         os.write(master, b"\x1b[19~")  # F8 resource inventory.
         read_until("Retained sessions")
+        os.write(master, b"\x1b[H\x1b[C")
+        read_until("sample.cpp")
+        os.write(master, b"\x1b[F\x1b[C")
+        read_until("rows ·")
         assert "sample.cpp" in "\n".join(screen.display)
         # Choose a retained cursor; a prepares an attachment for user review.
         cursor_row = next(
@@ -528,8 +547,10 @@ def run_workspace(
         os.write(master, b"\x1b[H")
         read_until("$a_manifest · FileSet [1]")
         os.write(master, b"\x1b[H\r")
-        read_until("[0] · /")
-        os.write(master, b"\x1b[C" * ((len(str(source)) + 12 - 44 + 7) // 8))
+        read_until(str(source.parent)[:25])
+        os.write(master, b"\x1b[C\x1b[C")
+        read_until("[0] · sample.cpp")
+        os.write(master, b"\x1b[1;5C" * ((len(str(source)) + 25 - 44 + 7) // 8))
         read_until(
             "sample.cpp",
             recorded=lambda: any("sample.cpp" in line[92:] for line in screen.display),

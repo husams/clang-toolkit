@@ -17,6 +17,34 @@ from prompt_toolkit.utils import get_cwidth
 from clang_toolkit.cli.workspace_state import PanelEntry
 
 
+def entry_text(item: PanelEntry, expanded: set[str]) -> str:
+    marker = ("▾ " if item.identity in expanded else "▸ ") if item.expandable else "  "
+    return "  " * item.depth + marker + item.label
+
+
+def navigate_tree(
+    entries: list[PanelEntry], selected: int, expanded: set[str], direction: str
+) -> tuple[int, bool]:
+    """Arrow navigation shared by the outline and trees within results."""
+    if not entries:
+        return selected, False
+    current = entries[selected]
+    if direction == "right":
+        if current.expandable and current.identity not in expanded:
+            expanded.add(current.identity)
+            return selected, True
+        if selected + 1 < len(entries) and entries[selected + 1].depth > current.depth:
+            return selected + 1, False
+    else:
+        if current.expandable and current.identity in expanded:
+            expanded.remove(current.identity)
+            return selected, True
+        for index in range(selected - 1, -1, -1):
+            if entries[index].depth < current.depth:
+                return index, False
+    return selected, False
+
+
 class WorkspaceTree:
     def __init__(
         self, refresh: Callable[[], None], prepare: Callable[[str], None]
@@ -48,26 +76,19 @@ class WorkspaceTree:
 
         @bindings.add("enter")
         def expand(event: KeyPressEvent) -> None:
-            current = self.current
-            if current is None:
-                return
-            if current.page is not None:
-                reference, page = current.page
-                self.pages[reference] = page
+            self.toggle()
+
+        @bindings.add("left")
+        @bindings.add("right")
+        def branch(event: KeyPressEvent) -> None:
+            self.selected, changed = navigate_tree(
+                self.entries, self.selected, self.expanded, event.key_sequence[0].key
+            )
+            if changed:
                 self.refresh()
-                return
-            if not current.expandable:
-                return
-            if current.identity in self.expanded:
-                self.expanded.discard(current.identity)
-            else:
-                self.expanded.add(current.identity)
-            self.refresh()
 
         @bindings.add("c-left")
         @bindings.add("c-right")
-        @bindings.add("left")
-        @bindings.add("right")
         def horizontal(event: KeyPressEvent) -> None:
             self.scroll_horizontal(-8 if event.key_sequence[0].key in {"left", "c-left"} else 8)
 
@@ -179,6 +200,22 @@ class WorkspaceTree:
             if source:
                 self.prepare(source)
 
+    def toggle(self) -> None:
+        current = self.current
+        if current is None:
+            return
+        if current.page is not None:
+            reference, page = current.page
+            self.pages[reference] = page
+        elif current.expandable:
+            if current.identity in self.expanded:
+                self.expanded.remove(current.identity)
+            else:
+                self.expanded.add(current.identity)
+        else:
+            return
+        self.refresh()
+
     def mouse(self, event: MouseEvent) -> None:
         get_app().layout.focus(self.window)
         if event.event_type in {MouseEventType.SCROLL_UP, MouseEventType.SCROLL_DOWN}:
@@ -186,21 +223,15 @@ class WorkspaceTree:
         elif 0 <= event.position.y < len(self.entries):
             previous = self.selected
             self.selected = event.position.y
+            current = self.current
             if (
                 event.event_type == MouseEventType.MOUSE_UP
-                and previous == self.selected
+                and (
+                    previous == self.selected
+                    or (current is not None and 2 * current.depth <= event.position.x < 2 * current.depth + 2)
+                )
             ):
-                current = self.current
-                if current is not None and current.page is not None:
-                    reference, page = current.page
-                    self.pages[reference] = page
-                    self.refresh()
-                elif current is not None and current.expandable:
-                    if current.identity in self.expanded:
-                        self.expanded.remove(current.identity)
-                    else:
-                        self.expanded.add(current.identity)
-                    self.refresh()
+                self.toggle()
 
     def fragments(self) -> StyleAndTextTuples:
         if not self.entries:
@@ -219,14 +250,4 @@ class WorkspaceTree:
         ]
 
     def entry_text(self, item: PanelEntry) -> str:
-        return (
-            "  " * item.depth
-            + (
-                "▾ "
-                if item.identity in self.expanded
-                else "▸ "
-                if item.expandable
-                else "  "
-            )
-            + item.label
-        )
+        return entry_text(item, self.expanded)

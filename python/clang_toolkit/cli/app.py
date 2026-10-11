@@ -46,6 +46,7 @@ class DispatchResult:
     output: str | None
     success: bool
     markdown: str | None = None
+    outline_value: tuple[str, Any] | None = None
 
 
 class _SessionCompletionTracker:
@@ -149,7 +150,9 @@ def dispatch_result(
                 runtime.history.append(line, runtime.session_id, runtime.label)
             return DispatchResult(render_help(statement), True, render_help_markdown(statement))
         runtime = runtime or Runtime(client)
-        return DispatchResult(runtime.execute(line), True)
+        output = runtime.execute(line)
+        outline_value, runtime.display_value = runtime.display_value, None
+        return DispatchResult(output, True, outline_value=outline_value)
     except UnexpectedInput as exc:
         if runtime is not None and runtime.history is not None:
             try:
@@ -669,6 +672,7 @@ async def _run() -> int:
                     from clang_toolkit.cli.workspace_leases import WorkspaceLeases
 
                     runtime_lock = asyncio.Lock()
+                    runtime.capture_display = True
                     leases = WorkspaceLeases(client, async_client._session_info)
 
                     async def execute_workspace(source: str) -> DispatchResult:
@@ -700,7 +704,18 @@ async def _run() -> int:
                             index = 1
                             while f"attached{index}" in runtime.bindings:
                                 index += 1
-                            return resource_snapshot(files, sessions, f"attached{index}")
+                            return resource_snapshot(files, sessions, f"attached{index}", frozenset(workspace.resources.expanded))
+
+                    async def read_result_outline(kind: str, value: Any, expanded: frozenset[str], pages: dict[str, int]) -> list[PanelEntry] | None:
+                        from clang_toolkit.cli.workspace_state import display_snapshot
+
+                        async with runtime_lock:
+                            worker = asyncio.create_task(asyncio.to_thread(display_snapshot, kind, value, expanded, pages))
+                            try:
+                                return await asyncio.shield(worker)
+                            except asyncio.CancelledError:
+                                await worker
+                                raise
 
                     async def cancel_workspace() -> str:
                         scope = runtime._active_resource_scope
@@ -714,6 +729,7 @@ async def _run() -> int:
                         session, runtime.cwd, execute_workspace, cancel=cancel_workspace,
                         server_status=workspace_server_status,
                         outline=read_outline, resources=read_resources,
+                        result_outline=read_result_outline,
                     )
                     exit_code = await workspace.run()
                     try:

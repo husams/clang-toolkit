@@ -60,6 +60,7 @@ class CommandContext(MarkdownPanel):
                     "functionDecl(isExpansionInMainFile(), unless(isImplicit()))\n```\n\n"
                     "The outline pages through long lists **50 items at a time**. "
                     "Select **Next page** or **Previous page**, then press **Enter**. "
-                    "**Left/Right** or the horizontal scrollbar reveals long properties; **Enter** expands/collapses a branch."
+                    "**Right** expands/enters a branch; **Left** collapses/goes to its parent. "
+                    "**Ctrl+Left/Right** or the horizontal scrollbar reveals long properties; **Enter** toggles a branch."
                 )
         self.set_markdown(markdown)

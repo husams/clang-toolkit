@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from time import monotonic
-from typing import Protocol, TextIO, cast
+from typing import Any, Protocol, TextIO, cast
 
 from prompt_toolkit import Application, PromptSession
 from prompt_toolkit.buffer import Buffer
@@ -68,7 +68,8 @@ from clang_toolkit.cli.workspace_transcript import (
 )
 from clang_toolkit.cli.workspace_markdown import MarkdownPanel, render_markdown
 from clang_toolkit.cli.workspace_editing import editing_bindings
-from clang_toolkit.cli.workspace_state import PanelEntry
+from clang_toolkit.cli.workspace_state import PanelEntry, display_snapshot
+from clang_toolkit.cli.workspace_result_tree import ResultTrees, SnapshotReader, TreeSelection
 from clang_toolkit.cli.workspace_tree import WorkspaceTree
 
 
@@ -90,6 +91,7 @@ class WorkspaceConsole:
         outline: Callable[[frozenset[str], dict[str, int]], Awaitable[list[PanelEntry]]]
         | None = None,
         resources: Callable[[], Awaitable[list[PanelEntry]]] | None = None,
+        result_outline: SnapshotReader | None = None,
         input: Input | None = None,
         output: Output | None = None,
     ) -> None:
@@ -162,11 +164,22 @@ class WorkspaceConsole:
         self.results.control = TranscriptControl(
             buffer=self.results.buffer,
             lexer=self.transcript_lexer,
-            input_processors=[CodeRows(lambda: self.wrap_results)],
+            input_processors=[
+                CodeRows(lambda: self.wrap_results),
+                TreeSelection(lambda line: self.app.layout.has_focus(self.results.window) and self.result_trees.at(line) is not None),
+            ],
             focus_on_click=True,
             search_buffer_control=self.search.control,
         )
         self.results.window.content = self.results.control
+        async def local_result_outline(kind: str, value: Any, expanded: frozenset[str], pages: dict[str, int]) -> list[PanelEntry] | None:
+            return await asyncio.to_thread(display_snapshot, kind, value, expanded, pages)
+
+        self.result_trees = ResultTrees(
+            self.results, self.transcript_lexer, self._append,
+            result_outline or local_result_outline, self.result_text_replaced,
+        )
+        self.result_tree_tasks: set[asyncio.Task[None]] = set()
         self._original_result_mouse = self.results.control.mouse_handler
         self.results.control.mouse_handler = self.results_mouse  # type: ignore[method-assign, assignment]
         self.buffer = session.default_buffer
@@ -682,7 +695,33 @@ class WorkspaceConsole:
             else:
                 self.results.buffer.cursor_down(3)
             return None
+        if event.event_type == MouseEventType.MOUSE_UP:
+            found = self.result_trees.at(event.position.y)
+            if found is not None:
+                _, index = found
+                item = found[0].entries[index]
+                if item.page is not None or (item.expandable and 2 * item.depth <= event.position.x < 2 * item.depth + 2):
+                    self._original_result_mouse(event)
+                    self.navigate_result_tree("enter")
+                    return None
         return self._original_result_mouse(event)
+
+    def result_text_replaced(self, start: int, end: int, length: int) -> None:
+        if self.command_position is not None:
+            if self.command_position >= end:
+                self.command_position += length - (end - start)
+            elif self.command_position >= start:
+                self.command_position = None
+
+    def navigate_result_tree(self, direction: str) -> None:
+        self.follow = False
+        async def navigate() -> None:
+            await self.result_trees.navigate(direction)
+            self.app.invalidate()
+
+        task = self.app.create_background_task(navigate())
+        self.result_tree_tasks.add(task)
+        task.add_done_callback(self.result_tree_tasks.discard)
 
     def write(self, text: str) -> None:
         if self.loop is not None and self.app.is_running:
@@ -702,6 +741,7 @@ class WorkspaceConsole:
             marker = "[Earlier display output trimmed; use save for full results]\n"
             cut = len(combined) - (MAX_TRANSCRIPT_CHARS - len(marker))
             self.transcript_lexer.trim(cut, removed)
+            self.result_trees.trim(cut, removed)
             if self.command_position is not None:
                 self.command_position = (
                     self.command_position - removed
@@ -742,13 +782,16 @@ class WorkspaceConsole:
             self.status = "Ready" if outcome.success else "Command failed"
             if outcome.output is None:
                 self.closing = True
-            elif outcome.output:
+            elif outcome.output or getattr(outcome, "outline_value", None) is not None:
                 output = (
                     self.mark_command_error(source, outcome.output)
                     if not outcome.success
                     else outcome.output
                 )
-                if outcome.success and outcome.markdown is not None:
+                outline_value = getattr(outcome, "outline_value", None)
+                if outcome.success and outline_value is not None and await self.result_trees.show(*outline_value):
+                    pass
+                elif outcome.success and outcome.markdown is not None:
                     self.write_markdown(outcome.markdown)
                 else:
                     self.write(output)
@@ -790,6 +833,7 @@ class WorkspaceConsole:
             cursor += len(marked) - len(original)
         text = document.text[:start] + marked + document.text[start + len(original) :]
         self.transcript_lexer.replace(start, start + len(original), len(marked))
+        self.result_trees.shift(start, start + len(original), len(marked))
         self.results.buffer.set_document(Document(text, cursor), bypass_readonly=True)
         # Parser diagnostics already contain a plain duplicate source/caret.
         # Keep the explanation and any suggested repair below the marked block.
@@ -888,6 +932,7 @@ class WorkspaceConsole:
     def clear_results(self) -> None:
         self.command_position = None
         self.transcript_lexer.blocks.clear()
+        self.result_trees.trees.clear()
         self.results.buffer.set_document(Document(""), bypass_readonly=True)
 
     def toggle_wrap(self) -> None:
@@ -1008,6 +1053,19 @@ class WorkspaceConsole:
         def latest_results(event: KeyPressEvent) -> None:
             self.show_latest()
 
+        @bindings.add("enter", filter=has_focus(self.results.buffer) & ~is_searching)
+        @bindings.add("left", filter=has_focus(self.results.buffer) & ~is_searching)
+        @bindings.add("right", filter=has_focus(self.results.buffer) & ~is_searching)
+        def result_branch(event: KeyPressEvent) -> None:
+            key = event.key_sequence[0].key
+            direction = "enter" if key == "c-m" else key
+            if self.result_trees.at(self.results.buffer.document.cursor_position_row) is not None:
+                self.navigate_result_tree(direction)
+            elif direction == "left":
+                self.results.buffer.cursor_left()
+            elif direction == "right":
+                self.results.buffer.cursor_right()
+
         @bindings.add(
             "c-d",
             filter=has_focus(self.buffer) & Condition(lambda: not self.buffer.text),
@@ -1078,6 +1136,9 @@ class WorkspaceConsole:
                     await asyncio.shield(self.command_task)
                 self.stream.flush()
         finally:
+            for task in tuple(self.result_tree_tasks):
+                task.cancel()
+            await asyncio.gather(*self.result_tree_tasks, return_exceptions=True)
             if self.monitor_task is not None:
                 self.monitor_task.cancel()
                 await asyncio.gather(self.monitor_task, return_exceptions=True)

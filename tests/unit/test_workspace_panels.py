@@ -81,18 +81,18 @@ def test_outline_scrolls_long_properties_and_pages_without_losing_selection(
         )
         assert any("Page 1/3" in item.label for item in ui.outline.entries)
         assert any(len(item.label) > 250 for item in ui.outline.entries)
-        # Right scrolls content without expanding/collapsing the branch.
-        pipe.send_text("\x1b[C")
+        # Ctrl+Right pans; plain arrows navigate branches.
+        pipe.send_text("\x1b[1;5C")
         await wait_until(lambda: ui.outline.horizontal_offset == 8)
         await wait_until(lambda: ui.outline.window.horizontal_scroll == 8)
         assert ui.outline.expanded == {"$rows"}
-        pipe.send_text("\x1b[C" * 10)
+        pipe.send_text("\x1b[1;5C" * 10)
         await wait_until(lambda: ui.outline.horizontal_offset == 88)
         await wait_until(lambda: ui.outline.window.horizontal_scroll == 88)
         assert ui.outline.current.identity == "$rows"
-        pipe.send_text("\x1b[D" * 10)
+        pipe.send_text("\x1b[1;5D" * 10)
         await wait_until(lambda: ui.outline.horizontal_offset == 8)
-        pipe.send_text("\x1b[D")
+        pipe.send_text("\x1b[1;5D")
         await wait_until(lambda: ui.outline.horizontal_offset == 0)
         assert ui.outline.expanded == {"$rows"}
         pipe.send_text("\x1b[F\r")  # End selects Next page, Enter loads it.
@@ -247,13 +247,13 @@ def test_fileset_outline_lists_paths_directly_with_lazy_pages() -> None:
     from clang_toolkit.resources import FileSet, InputDescriptor
 
     manifest = FileSet(tuple(InputDescriptor(f'/src/{index}.cpp') for index in range(125)))
-    entries = outline_snapshot({'files': manifest}, frozenset({'$files'}), {'$files': 1})
+    entries = outline_snapshot({'files': manifest}, frozenset({'$files', '$files:dir:/src'}), {'$files': 1})
     assert entries[0].label == '$files · FileSet [125]'
     assert any('Page 2/3' in item.label for item in entries)
     files = [item for item in entries if item.identity.startswith('$files.inputs[')]
     assert len(files) == 50
-    assert files[0].label == '[50] · /src/50.cpp'
-    assert files[-1].label == '[99] · /src/99.cpp'
+    assert files[0].label == '[50] · 50.cpp · /src/50.cpp'
+    assert files[-1].label == '[99] · 99.cpp · /src/99.cpp'
     assert dict(files[0].commands)['p'] == 'print $files.inputs[50]'
     assert not any(item.identity == '$files.inputs' for item in entries)
 

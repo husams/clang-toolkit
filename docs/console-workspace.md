@@ -41,7 +41,8 @@ uv run ctk --server unix:///tmp/ctk.sock
 | Click a file / click again | Select it, then expand its folder or prepare its `parse` command |
 | Wheel / Page Up/Down | Scroll the focused file list, action menu, or results |
 | Ctrl+End in results | Jump to the latest output and resume following |
-| Left/Right in outline / horizontal track | Pan long properties without collapsing the tree |
+| Right / Left in trees | Expand or enter a branch / collapse or select its parent |
+| Ctrl+Left/Right in outline / horizontal track | Pan long properties |
 | Enter on Next/Previous page in outline | Load the selected 50-item page with absolute indexes |
 
 Use Fn with function keys if your keyboard reserves them for system controls.
@@ -81,9 +82,11 @@ Folders load on demand in a worker thread. Hidden files, build folders, and depe
 
 ## Bindings and resources
 
-F7 lists local `let` bindings. Enter toggles expansion of selected lists, match rows, bindings, and readable node properties. Left/Right pans horizontally; Ctrl+Left/Right remains available. Selection and expansion work with the mouse. The outline loads only expanded branches and is bounded to 300 visible rows and eight levels. Long lists load only the selected page of 50 children. Select Next page or Previous page and press Enter, or click the selected pager row, to reach later items without expanding the entire collection. A horizontal scrollbar beneath the tree has clickable arrows and a track; Left/Right also scrolls long property values. FileSet branches list the matched paths directly, paging in groups of 50; expanding one path reveals its frozen compilation details. Binding rows show the qualified declaration name (or declaration name when available) and declaration type, with `(unnamed)` as the fallback. `p` prepares `print` for the selected reference, including the existing `$files.inputs[index]` path for file entries. No RPC or mutable operation runs during rendering, and local property reads finish before Runtime cleanup.
+F7 lists local `let` bindings. Enter toggles expansion of selected lists, match rows, bindings, and readable node properties. Right expands a branch or enters its first child; Left collapses it or selects its parent. Click a triangle to toggle a branch in one click; clicking another part of a row selects it. Ctrl+Left/Right and the horizontal scrollbar pan long property values. The outline loads only expanded branches and is bounded to 300 visible rows and eight levels. Long lists load only the selected page of 50 children. Select Next page or Previous page and press Enter, or click the pager row, to reach later items without expanding the entire collection. FileSet pages group inputs under expandable directory branches; expanding one file reveals its frozen compilation details. Duplicate paths with different compilation profiles retain their own absolute indexes. Binding rows show the qualified declaration name (or declaration name when available) and declaration type, with `(unnamed)` as the fallback. `p` prepares `print` for the selected reference, including the existing `$files.inputs[index]` path for file entries. No RPC or mutable operation runs during rendering, and local property reads finish before Runtime cleanup.
 
-F8 lists server-owned open-file leases and retained analysis sessions. Select a row with arrows or the mouse; `a` prepares attachment of the selected session into a free `$attachedN` binding, and `c` prepares closure of the selected lease or cursor. The buttons beneath the inventory perform the same preparation. The command appears in the editor for review and runs when you press Enter there. Existing drafts are preserved. Listings are bounded to 100 files and 100 sessions.
+Standalone matches, `print` of match values or FileSets, `file list`, and `bindings` also display expandable trees within the existing results pane. Focus results with F6 or click a row, then use the same arrows or Enter. Match rows expand into named bindings and their readable properties. File listings group the selected page under directories. Source blocks, formatted help, the editor, pane placement, and theme remain unchanged. Tree previews are searchable and bounded; their property labels show up to 512 characters, while F7 retains longer labels. The most recent 20 tree previews remain interactive; earlier previews retain their displayed text. Print a value again to inspect it anew. Basic prompt output and file exports keep their textual format.
+
+F8 groups server-owned open-file leases and retained analysis sessions under expandable roots. Expand a file or session to reveal its details. Select a row with arrows or the mouse; `a` prepares attachment of the selected session into a free `$attachedN` binding, and `c` prepares closure of the selected lease or cursor. The buttons beneath the inventory perform the same preparation. The command appears in the editor for review and runs when you press Enter there. Existing drafts are preserved. Listings are bounded to 100 files and 100 sessions.
 
 The underlying language already supports these controls:
 
@@ -146,3 +149,16 @@ Use `ctk --ui prompt` to select the basic prompt; interactive `ctk` opens the wo
 After integration with the current main branch, 972 Python unit tests, 116 acceptance scenarios (26 + 26 + 64 private-server cases), and 336 native tests passed. The acceptance suite includes two real-terminal scenarios covering the title, menus, mouse controls, panels, multiline editing, syntax colors, formatted help, and smart pairs during completion. Twelve workspace/highlighting modules passed type checking; focused lint and launcher syntax checks passed.
 
 The default-launch correction was revalidated with the same complete suites: 972 Python unit tests, 116 acceptance scenarios, and 336 native tests. The real-terminal workspace scenario now omits `--ui`, while unit coverage verifies default workspace selection and the explicit basic-prompt option.
+
+## Isolated tree preview — 11 October 2026
+
+The expandable-tree changes are isolated on `codex/console-expandable-trees`. Launch this checkout to try them:
+
+```bash
+cd /Users/husam/.claude/worktrees/clang-toolkit/console-expandable-trees
+scripts/manual_console.sh --ui workspace
+```
+
+Use `print $rows`, `file list`, `file list discovered in $files`, or `bindings` to display a tree in results. Select a branch, then press Right to expand, Left to collapse, or Enter to toggle. F3 and F7 use the same branch navigation. F8 exposes collapsible file/session roots and details. Ctrl+Left/Right still pans long values in F7/F8. Layout, colors, smart pairs, and automatic indentation are preserved.
+
+Validation: 985 Python unit tests and all 336 freshly built native tests pass. The combined acceptance run passed 115 cases, including both real-terminal workspace cases; automatic query-session startup timed out once at 30 seconds alongside gRPC fork/event-loop warnings. That case passed on two isolated reruns, including one with the original interpreter and configuration, giving passing coverage for all 116 scenarios. Six workspace modules pass type checking; focused lint, launcher syntax, and whitespace checks pass. Evidence remains in this worktree's ignored `build/tree-*.log` files. All edits in this change are confined to the isolated worktree.
