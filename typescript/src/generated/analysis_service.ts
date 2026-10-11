@@ -2,6 +2,11 @@ import type * as grpc from '@grpc/grpc-js';
 import type { EnumTypeDefinition, MessageTypeDefinition } from '@grpc/proto-loader';
 
 import type { AnalysisServiceClient as _ctk_analysis_v1_AnalysisServiceClient, AnalysisServiceDefinition as _ctk_analysis_v1_AnalysisServiceDefinition } from './ctk/analysis/v1/AnalysisService.js';
+import type { BatchControlRequest as _ctk_analysis_v1_BatchControlRequest, BatchControlRequest__Output as _ctk_analysis_v1_BatchControlRequest__Output } from './ctk/analysis/v1/BatchControlRequest.js';
+import type { BatchExport as _ctk_analysis_v1_BatchExport, BatchExport__Output as _ctk_analysis_v1_BatchExport__Output } from './ctk/analysis/v1/BatchExport.js';
+import type { BatchGroup as _ctk_analysis_v1_BatchGroup, BatchGroup__Output as _ctk_analysis_v1_BatchGroup__Output } from './ctk/analysis/v1/BatchGroup.js';
+import type { BatchRun as _ctk_analysis_v1_BatchRun, BatchRun__Output as _ctk_analysis_v1_BatchRun__Output } from './ctk/analysis/v1/BatchRun.js';
+import type { BatchRunRequest as _ctk_analysis_v1_BatchRunRequest, BatchRunRequest__Output as _ctk_analysis_v1_BatchRunRequest__Output } from './ctk/analysis/v1/BatchRunRequest.js';
 import type { CallGraphEdge as _ctk_analysis_v1_CallGraphEdge, CallGraphEdge__Output as _ctk_analysis_v1_CallGraphEdge__Output } from './ctk/analysis/v1/CallGraphEdge.js';
 import type { CallGraphNode as _ctk_analysis_v1_CallGraphNode, CallGraphNode__Output as _ctk_analysis_v1_CallGraphNode__Output } from './ctk/analysis/v1/CallGraphNode.js';
 import type { CallGraphRequest as _ctk_analysis_v1_CallGraphRequest, CallGraphRequest__Output as _ctk_analysis_v1_CallGraphRequest__Output } from './ctk/analysis/v1/CallGraphRequest.js';
@@ -23,12 +28,15 @@ import type { CfgScopeEvent as _ctk_analysis_v1_CfgScopeEvent, CfgScopeEvent__Ou
 import type { CfgStatement as _ctk_analysis_v1_CfgStatement, CfgStatement__Output as _ctk_analysis_v1_CfgStatement__Output } from './ctk/analysis/v1/CfgStatement.js';
 import type { ScriptCompilationProfile as _ctk_analysis_v1_ScriptCompilationProfile, ScriptCompilationProfile__Output as _ctk_analysis_v1_ScriptCompilationProfile__Output } from './ctk/analysis/v1/ScriptCompilationProfile.js';
 import type { ScriptEmission as _ctk_analysis_v1_ScriptEmission, ScriptEmission__Output as _ctk_analysis_v1_ScriptEmission__Output } from './ctk/analysis/v1/ScriptEmission.js';
+import type { ScriptList as _ctk_analysis_v1_ScriptList, ScriptList__Output as _ctk_analysis_v1_ScriptList__Output } from './ctk/analysis/v1/ScriptList.js';
 import type { ScriptMatchRows as _ctk_analysis_v1_ScriptMatchRows, ScriptMatchRows__Output as _ctk_analysis_v1_ScriptMatchRows__Output } from './ctk/analysis/v1/ScriptMatchRows.js';
+import type { ScriptObject as _ctk_analysis_v1_ScriptObject, ScriptObject__Output as _ctk_analysis_v1_ScriptObject__Output } from './ctk/analysis/v1/ScriptObject.js';
 import type { ScriptRequest as _ctk_analysis_v1_ScriptRequest, ScriptRequest__Output as _ctk_analysis_v1_ScriptRequest__Output } from './ctk/analysis/v1/ScriptRequest.js';
 import type { ScriptResponse as _ctk_analysis_v1_ScriptResponse, ScriptResponse__Output as _ctk_analysis_v1_ScriptResponse__Output } from './ctk/analysis/v1/ScriptResponse.js';
 import type { ScriptScalar as _ctk_analysis_v1_ScriptScalar, ScriptScalar__Output as _ctk_analysis_v1_ScriptScalar__Output } from './ctk/analysis/v1/ScriptScalar.js';
 import type { ScriptTree as _ctk_analysis_v1_ScriptTree, ScriptTree__Output as _ctk_analysis_v1_ScriptTree__Output } from './ctk/analysis/v1/ScriptTree.js';
 import type { ScriptValue as _ctk_analysis_v1_ScriptValue, ScriptValue__Output as _ctk_analysis_v1_ScriptValue__Output } from './ctk/analysis/v1/ScriptValue.js';
+import type { StartBatchRequest as _ctk_analysis_v1_StartBatchRequest, StartBatchRequest__Output as _ctk_analysis_v1_StartBatchRequest__Output } from './ctk/analysis/v1/StartBatchRequest.js';
 import type { TraversalNode as _ctk_analysis_v1_TraversalNode, TraversalNode__Output as _ctk_analysis_v1_TraversalNode__Output } from './ctk/analysis/v1/TraversalNode.js';
 import type { TraverseRequest as _ctk_analysis_v1_TraverseRequest, TraverseRequest__Output as _ctk_analysis_v1_TraverseRequest__Output } from './ctk/analysis/v1/TraverseRequest.js';
 import type { TraverseResponse as _ctk_analysis_v1_TraverseResponse, TraverseResponse__Output as _ctk_analysis_v1_TraverseResponse__Output } from './ctk/analysis/v1/TraverseResponse.js';
@@ -437,6 +445,11 @@ export interface ProtoGrpcType {
     analysis: {
       v1: {
         AnalysisService: SubtypeConstructor<typeof grpc.Client, _ctk_analysis_v1_AnalysisServiceClient> & { service: _ctk_analysis_v1_AnalysisServiceDefinition }
+        BatchControlRequest: MessageTypeDefinition<_ctk_analysis_v1_BatchControlRequest, _ctk_analysis_v1_BatchControlRequest__Output>
+        BatchExport: MessageTypeDefinition<_ctk_analysis_v1_BatchExport, _ctk_analysis_v1_BatchExport__Output>
+        BatchGroup: MessageTypeDefinition<_ctk_analysis_v1_BatchGroup, _ctk_analysis_v1_BatchGroup__Output>
+        BatchRun: MessageTypeDefinition<_ctk_analysis_v1_BatchRun, _ctk_analysis_v1_BatchRun__Output>
+        BatchRunRequest: MessageTypeDefinition<_ctk_analysis_v1_BatchRunRequest, _ctk_analysis_v1_BatchRunRequest__Output>
         CallGraphEdge: MessageTypeDefinition<_ctk_analysis_v1_CallGraphEdge, _ctk_analysis_v1_CallGraphEdge__Output>
         CallGraphNode: MessageTypeDefinition<_ctk_analysis_v1_CallGraphNode, _ctk_analysis_v1_CallGraphNode__Output>
         CallGraphRequest: MessageTypeDefinition<_ctk_analysis_v1_CallGraphRequest, _ctk_analysis_v1_CallGraphRequest__Output>
@@ -458,12 +471,15 @@ export interface ProtoGrpcType {
         CfgStatement: MessageTypeDefinition<_ctk_analysis_v1_CfgStatement, _ctk_analysis_v1_CfgStatement__Output>
         ScriptCompilationProfile: MessageTypeDefinition<_ctk_analysis_v1_ScriptCompilationProfile, _ctk_analysis_v1_ScriptCompilationProfile__Output>
         ScriptEmission: MessageTypeDefinition<_ctk_analysis_v1_ScriptEmission, _ctk_analysis_v1_ScriptEmission__Output>
+        ScriptList: MessageTypeDefinition<_ctk_analysis_v1_ScriptList, _ctk_analysis_v1_ScriptList__Output>
         ScriptMatchRows: MessageTypeDefinition<_ctk_analysis_v1_ScriptMatchRows, _ctk_analysis_v1_ScriptMatchRows__Output>
+        ScriptObject: MessageTypeDefinition<_ctk_analysis_v1_ScriptObject, _ctk_analysis_v1_ScriptObject__Output>
         ScriptRequest: MessageTypeDefinition<_ctk_analysis_v1_ScriptRequest, _ctk_analysis_v1_ScriptRequest__Output>
         ScriptResponse: MessageTypeDefinition<_ctk_analysis_v1_ScriptResponse, _ctk_analysis_v1_ScriptResponse__Output>
         ScriptScalar: MessageTypeDefinition<_ctk_analysis_v1_ScriptScalar, _ctk_analysis_v1_ScriptScalar__Output>
         ScriptTree: MessageTypeDefinition<_ctk_analysis_v1_ScriptTree, _ctk_analysis_v1_ScriptTree__Output>
         ScriptValue: MessageTypeDefinition<_ctk_analysis_v1_ScriptValue, _ctk_analysis_v1_ScriptValue__Output>
+        StartBatchRequest: MessageTypeDefinition<_ctk_analysis_v1_StartBatchRequest, _ctk_analysis_v1_StartBatchRequest__Output>
         TraversalNode: MessageTypeDefinition<_ctk_analysis_v1_TraversalNode, _ctk_analysis_v1_TraversalNode__Output>
         TraverseRequest: MessageTypeDefinition<_ctk_analysis_v1_TraverseRequest, _ctk_analysis_v1_TraverseRequest__Output>
         TraverseResponse: MessageTypeDefinition<_ctk_analysis_v1_TraverseResponse, _ctk_analysis_v1_TraverseResponse__Output>

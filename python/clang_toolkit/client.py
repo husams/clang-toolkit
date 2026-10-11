@@ -29,6 +29,8 @@ from clang_toolkit._generated.match.v1 import match_result_pb2
 from clang_toolkit._generated.match.v1 import match_stream_pb2
 from clang_toolkit._generated.match.v1 import resources_pb2
 from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2
+from clang_toolkit._generated.analysis.v1 import batch_pb2
+from clang_toolkit.batches import BatchRun, batch_run, start_batch_request
 from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.traversal import traversal_request
 from clang_toolkit.control_flow import CfgOptions, cfg_request
@@ -920,6 +922,95 @@ class AsyncClient:
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
 
+    async def start_batch(
+        self,
+        inputs: FileSet | Sequence[InputDescriptor],
+        body_source: str,
+        *,
+        group_variable: str = "part",
+        size: int | None = None,
+        count: int | None = None,
+        jobs: int | None = None,
+        memory_bytes: int | None = None,
+        continue_on_error: bool = False,
+        request_id: str | None = None,
+    ) -> BatchRun:
+        """Start or recover an idempotent server-owned durable batch."""
+        request = start_batch_request(
+            inputs,
+            body_source,
+            group_variable=group_variable,
+            size=size,
+            count=count,
+            jobs=jobs,
+            memory_bytes=memory_bytes,
+            continue_on_error=continue_on_error,
+            request_id=request_id,
+        )
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        try:
+            result = await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StartBatch(
+                self._compilation_request(request), timeout=self.config.rpc_timeout
+            )
+            return batch_run(result)
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+
+    async def batch_status(self, run: BatchRun | str) -> BatchRun:
+        """Fetch current durable status after a disconnect or client restart."""
+        request = batch_pb2.BatchRunRequest(
+            run_id=run.run_id if isinstance(run, BatchRun) else run
+        )
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        try:
+            result = await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).BatchStatus(
+                request, timeout=self.config.rpc_timeout
+            )
+            return batch_run(result)
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+
+    async def _control_batch(
+        self, method: str, run: BatchRun | str, expected_revision: int | None
+    ) -> BatchRun:
+        if isinstance(run, BatchRun):
+            run_id = run.run_id
+            revision = run.revision if expected_revision is None else expected_revision
+        else:
+            run_id = run
+            if expected_revision is None:
+                raise ValueError("expected_revision is required when a run id is used")
+            revision = expected_revision
+        request = batch_pb2.BatchControlRequest(
+            run_id=run_id, expected_revision=revision
+        )
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        try:
+            result = await getattr(
+                analysis_service_pb2_grpc.AnalysisServiceStub(self._channel), method
+            )(request, timeout=self.config.rpc_timeout)
+            return batch_run(result)
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+
+    async def cancel_batch(
+        self, run: BatchRun | str, *, expected_revision: int | None = None
+    ) -> BatchRun:
+        return await self._control_batch("CancelBatch", run, expected_revision)
+
+    async def resume_batch(
+        self, run: BatchRun | str, *, expected_revision: int | None = None
+    ) -> BatchRun:
+        return await self._control_batch("ResumeBatch", run, expected_revision)
+
+    async def retry_batch(
+        self, run: BatchRun | str, *, expected_revision: int | None = None
+    ) -> BatchRun:
+        return await self._control_batch("RetryBatch", run, expected_revision)
+
     async def callgraph(self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, *,
                         working_directory: str | Path | None = None,
                         compile_arguments: Sequence[str] = (), visit_implicit_code: bool | None = None,
@@ -1776,6 +1867,39 @@ class Client:
         return self._cursor_call("run_script", source, path=path,
             working_directory=working_directory, compile_arguments=compile_arguments,
             max_steps=max_steps, profile=profile, scope=scope)
+
+    def start_batch(
+        self,
+        inputs: FileSet | Sequence[InputDescriptor],
+        body_source: str,
+        **kwargs: Any,
+    ) -> BatchRun:
+        """Start an idempotent server-owned durable batch."""
+        return self._cursor_call("start_batch", inputs, body_source, **kwargs)
+
+    def batch_status(self, run: BatchRun | str) -> BatchRun:
+        return self._cursor_call("batch_status", run)
+
+    def cancel_batch(
+        self, run: BatchRun | str, *, expected_revision: int | None = None
+    ) -> BatchRun:
+        return self._cursor_call(
+            "cancel_batch", run, expected_revision=expected_revision
+        )
+
+    def resume_batch(
+        self, run: BatchRun | str, *, expected_revision: int | None = None
+    ) -> BatchRun:
+        return self._cursor_call(
+            "resume_batch", run, expected_revision=expected_revision
+        )
+
+    def retry_batch(
+        self, run: BatchRun | str, *, expected_revision: int | None = None
+    ) -> BatchRun:
+        return self._cursor_call(
+            "retry_batch", run, expected_revision=expected_revision
+        )
 
     def callgraph(
                   self,

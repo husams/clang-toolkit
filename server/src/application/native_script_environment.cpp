@@ -1,11 +1,14 @@
 #include "native_script_environment.hpp"
 #include "ctk/clang/file_discovery.hpp"
+#include "ctk/platform/durable_file.hpp"
 #include "ctk/script/error.hpp"
 #include "file_target_validation.hpp"
 #include "pinned_query_engine.hpp"
+#include "resource_scope_guard.hpp"
 #include "script_options.hpp"
 #include <algorithm>
 #include <filesystem>
+#include <google/protobuf/util/json_util.h>
 #include <numeric>
 namespace ctk::application::detail {
 using Code = ctk::clang_layer::MatchCode;
@@ -32,18 +35,17 @@ void matcher_options(ctk::match::v1::MatchRequest &request,
                   "unknown or invalid matcher option: " + key);
   }
 }
-void validate_binding_scope(
-    const ctk::script::Value &rows,
-    const ctk::match::v1::BindingMatchTarget &target) {
+void validate_binding_scope(const ctk::script::Value &rows,
+                            const ctk::match::v1::BindingMatchTarget &target) {
   if (!rows.wire || !rows.wire->has_matches() || !rows.native_rows ||
       rows.wire->matches().rows_size() !=
           static_cast<int>(rows.native_rows->size()))
     throw Error(Code::InvalidArgument,
                 "continuation requires native matched rows");
-  const auto scope = target.scope() ==
-                             ctk::match::v1::BINDING_MATCH_SCOPE_UNSPECIFIED
-                         ? ctk::match::v1::BINDING_MATCH_SCOPE_SUBTREE
-                         : target.scope();
+  const auto scope =
+      target.scope() == ctk::match::v1::BINDING_MATCH_SCOPE_UNSPECIFIED
+          ? ctk::match::v1::BINDING_MATCH_SCOPE_SUBTREE
+          : target.scope();
   bool selected = false;
   for (int i = 0; i < rows.wire->matches().rows_size(); ++i) {
     if (target.has_match_index() &&
@@ -60,21 +62,22 @@ void validate_binding_scope(
       throw Error(Code::FailedPrecondition,
                   "binding does not support requested scope");
   }
-  if (!selected && !(rows.wire->matches().rows_size() == 0 &&
-                     !target.has_match_index()))
+  if (!selected &&
+      !(rows.wire->matches().rows_size() == 0 && !target.has_match_index()))
     throw Error(Code::NotFound, "binding or row unavailable");
 }
 } // namespace
 NativeScriptEnvironment::NativeScriptEnvironment(
     const ctk::analysis::v1::ScriptRequest &request, CursorSettings settings,
     std::shared_ptr<ctk::clang_layer::IQueryEngine> engine,
-    ctk::clang_layer::IMatchBackend::Checkpoint checkpoint)
-    : request_(request), settings_(settings),
-      checkpoint_(std::move(checkpoint)) {
+    ctk::clang_layer::IMatchBackend::Checkpoint checkpoint, std::string owner)
+    : request_(request), settings_(settings), engine_(std::move(engine)),
+      owner_(std::move(owner)), checkpoint_(std::move(checkpoint)) {
 #ifdef CTK_WITH_CLANG
-  pinned_ = std::make_shared<PinnedQueryEngine>(
-      engine ? std::move(engine) : ctk::clang_layer::make_query_engine(),
-      settings.max_memory_bytes);
+  if (!engine_)
+    engine_ = ctk::clang_layer::make_query_engine();
+  pinned_ =
+      std::make_shared<PinnedQueryEngine>(engine_, settings.max_memory_bytes);
   matches_ = ctk::clang_layer::make_match_backend(pinned_);
   traversal_ = ctk::clang_layer::make_traversal_backend(pinned_);
   cfg_ = ctk::clang_layer::make_cfg_backend(pinned_);
@@ -93,8 +96,7 @@ NativeScriptEnvironment::file_target(const std::string &path) const {
     *file.mutable_compile_arguments() = request_.profile().compile_arguments();
     file.set_frozen_profile(request_.profile().frozen());
     if (request_.profile().frozen() &&
-        (!request_.has_file() ||
-         path == request_.file().file_path()))
+        (!request_.has_file() || path == request_.file().file_path()))
       file.set_expected_profile_id(request_.profile().expected_profile_id());
   }
   file.set_file_path(path);
@@ -123,8 +125,7 @@ NativeScriptEnvironment::file_target(const std::string &path) const {
     frozen.set_compilation_database(
         resolved.descriptor.profile().compilation_database());
     frozen.set_frozen_profile(true);
-    frozen.set_expected_profile_id(
-        resolved.descriptor.profile().profile_id());
+    frozen.set_expected_profile_id(resolved.descriptor.profile().profile_id());
     for (const auto &argument :
          resolved.descriptor.profile().compile_arguments())
       frozen.add_compile_arguments(argument);
@@ -147,7 +148,8 @@ void NativeScriptEnvironment::acquire_file(
   pinned_->acquire_snapshot(
       {file.file_path(),
        {file.compile_arguments().begin(), file.compile_arguments().end()},
-       file.working_directory(), file.compilation_database(),
+       file.working_directory(),
+       file.compilation_database(),
        file.frozen_profile()});
   if (!checkpoint_())
     throw Error(Code::Cancelled, "script cancelled");
@@ -172,6 +174,250 @@ NativeScriptEnvironment::parse_file(const std::string &path) {
   // native target carries an absolute path paired with its frozen profile.
   wire->mutable_tree()->mutable_file()->set_file_path(path);
   return {wire, std::move(result.state), {}};
+}
+ctk::script::Value NativeScriptEnvironment::files(const std::string &pattern) {
+  ctk::match::v1::DiscoverFilesRequest request;
+  request.add_paths(pattern);
+  if (request_.has_profile()) {
+    auto *profile = request.mutable_profile();
+    profile->set_working_directory(request_.profile().working_directory());
+    profile->set_compilation_database(
+        request_.profile().compilation_database());
+    *profile->mutable_compile_arguments() =
+        request_.profile().compile_arguments();
+  } else if (request_.has_file()) {
+    auto *profile = request.mutable_profile();
+    profile->set_working_directory(request_.file().working_directory());
+    profile->set_compilation_database(request_.file().compilation_database());
+    *profile->mutable_compile_arguments() = request_.file().compile_arguments();
+  }
+  auto discovered = ctk::clang_layer::discover_file_descriptors(
+      request, [this] { return checkpoint_(); });
+  if (discovered.inputs_size() == 0 && discovered.diagnostics_size())
+    throw Error(Code::InvalidArgument, discovered.diagnostics(0));
+  auto wire = std::make_shared<ctk::analysis::v1::ScriptValue>();
+  *wire->mutable_files() = std::move(discovered);
+  return {wire, {}, {}};
+}
+ctk::script::Value
+NativeScriptEnvironment::save(const std::string &path,
+                              const ctk::script::Value &value,
+                              const std::string &format) {
+  if (!value.wire || path.empty())
+    throw Error(Code::InvalidArgument, "save requires a value and path");
+  std::string bytes;
+  if (format == "json") {
+    auto status =
+        google::protobuf::util::MessageToJsonString(*value.wire, &bytes);
+    if (!status.ok())
+      throw Error(Code::Internal, "script JSON export failed");
+  } else if (format == "proto") {
+    if (!value.wire->SerializeToString(&bytes))
+      throw Error(Code::Internal, "script protobuf export failed");
+  } else {
+    throw Error(Code::InvalidArgument, "save format must be json or proto");
+  }
+  try {
+    ctk::platform::durable_atomic_write(path, bytes);
+  } catch (const std::exception &error) {
+    throw Error(Code::Internal,
+                std::string("script export failed: ") + error.what());
+  }
+  return {};
+}
+void NativeScriptEnvironment::begin_batch_group(const ctk::script::Value &group,
+                                                std::size_t, std::size_t jobs,
+                                                std::uint64_t memory_bytes) {
+  if (!group.wire || !group.wire->has_object())
+    throw Error(Code::InvalidArgument, "batch group value is invalid");
+  const auto input_field = group.wire->object().fields().find("inputs");
+  if (input_field == group.wire->object().fields().end() ||
+      !input_field->second.has_files())
+    throw Error(Code::InvalidArgument, "batch group has no typed inputs");
+  if (jobs && jobs > std::max<std::size_t>(settings_.workers, 1))
+    throw Error(Code::ResourceExhausted,
+                "batch jobs exceed the configured pool size");
+  const auto parent_id = request_.resource_scope_id();
+  bool created = false;
+  std::string scope_id = parent_id;
+  std::set<std::string> child_inputs;
+  std::vector<ctk::match::v1::InputDescriptor> source_inputs;
+  source_inputs.reserve(
+      static_cast<std::size_t>(input_field->second.files().inputs_size()));
+  for (const auto &input : input_field->second.files().inputs()) {
+    source_inputs.push_back(input);
+    child_inputs.insert(ctk::application::input_identity(input));
+  }
+  auto effective_memory = memory_bytes;
+  if (!memory_limit_stack_.empty()) {
+    const auto inherited = memory_limit_stack_.back();
+    if (memory_bytes && memory_bytes > inherited)
+      throw Error(Code::ResourceExhausted,
+                  "nested batch memory exceeds its parent batch");
+    effective_memory = memory_bytes ? memory_bytes : inherited;
+  } else if (!effective_memory) {
+    effective_memory = settings_.max_memory_bytes;
+  }
+  if (settings_.resources) {
+    if (!parent_id.empty()) {
+      ctk::match::v1::ResourceScopeInfo parent;
+      const auto code =
+          settings_.resources->describe_scope(owner_, parent_id, parent);
+      if (code != Code::Ok)
+        throw Error(code, "parent batch resource scope is unavailable");
+      if (jobs && jobs > parent.jobs())
+        throw Error(Code::ResourceExhausted,
+                    "nested batch jobs exceed the parent scope");
+      if (memory_bytes && memory_bytes > parent.memory_limit_bytes())
+        throw Error(Code::ResourceExhausted,
+                    "nested batch memory exceeds the parent scope");
+      std::set<std::string> admitted;
+      if (!active_input_stack_.empty())
+        admitted = active_input_stack_.back();
+      for (const auto &pin : settings_.resources->input_pins(owner_))
+        if (pin.resource_scope_id == parent_id)
+          admitted.insert(ctk::application::input_identity(pin.input));
+      for (const auto &[name, initial] : request_.initial_values()) {
+        (void)name;
+        if (initial.has_files()) {
+          for (const auto &input : initial.files().inputs()) {
+            const auto identity = ctk::application::input_identity(input);
+            if (settings_.resources->scope_contains_input(owner_, parent_id,
+                                                          identity))
+              admitted.insert(identity);
+          }
+        } else if (initial.has_object()) {
+          for (const auto &[field_name, field] : initial.object().fields()) {
+            (void)field_name;
+            if (field.has_files()) {
+              for (const auto &input : field.files().inputs()) {
+                const auto identity = ctk::application::input_identity(input);
+                if (settings_.resources->scope_contains_input(owner_, parent_id,
+                                                              identity))
+                  admitted.insert(identity);
+              }
+            }
+          }
+        }
+      }
+      for (const auto &identity : child_inputs)
+        if (!admitted.contains(identity))
+          throw Error(Code::FailedPrecondition,
+                      "nested batch input/profile is outside its parent scope");
+      effective_memory =
+          memory_bytes ? memory_bytes : parent.memory_limit_bytes();
+    } else {
+      ctk::match::v1::OpenResourceScopeRequest request;
+      request.set_transient(true);
+      request.set_jobs(static_cast<std::uint32_t>(
+          jobs ? jobs : std::max<std::size_t>(settings_.workers, 1)));
+      if (memory_bytes)
+        request.set_memory_bytes(memory_bytes);
+      std::vector<ResourceInputReservation> reservations;
+      for (const auto &input : input_field->second.files().inputs()) {
+        *request.add_inputs() = input;
+        reservations.push_back({ctk::application::input_identity(input),
+                                input.estimated_parse_bytes()});
+      }
+      ctk::match::v1::ResourceScopeInfo opened;
+      std::string message;
+      auto code = settings_.resources->open_scope(owner_, request, reservations,
+                                                  opened, message);
+      if (code != Code::Ok)
+        throw Error(code, message);
+      scope_id = opened.resource_scope_id();
+      created = true;
+      effective_memory = opened.memory_limit_bytes();
+    }
+  }
+  auto work = std::make_unique<ResourceManager::WorkLease>();
+  if (settings_.resources && parent_id.empty()) {
+    std::string message;
+    const auto code =
+        settings_.resources->begin_work(owner_, scope_id, *work, message);
+    if (code != Code::Ok) {
+      if (created) {
+        ctk::match::v1::ResourceScopeInfo ignored;
+        const auto cleanup =
+            settings_.resources->release_scope(owner_, scope_id, ignored);
+        if (cleanup != Code::Ok || !ignored.cleanup_acknowledged())
+          throw Error(cleanup == Code::Ok ? Code::Internal : cleanup,
+                      "batch scope cleanup after work admission failed");
+      }
+      throw Error(code, message);
+    }
+  }
+  scope_stack_.push_back(parent_id);
+  work_stack_.push_back(std::move(work));
+  opened_scope_stack_.push_back(created);
+  active_input_stack_.push_back(std::move(child_inputs));
+  memory_limit_stack_.push_back(effective_memory ? effective_memory
+                                                 : settings_.max_memory_bytes);
+  checkpoint_stack_.push_back(checkpoint_);
+  const auto previous_checkpoint = checkpoint_;
+  auto *active_work = work_stack_.back().get();
+  checkpoint_ = [active_work, previous_checkpoint] {
+    return previous_checkpoint() &&
+           (!*active_work || active_work->checkpoint());
+  };
+  snapshot_scope_stack_.push_back(detail::make_snapshot_scope_ptr(
+      settings_.resources, owner_, scope_id, work_stack_.back()->token(),
+      source_inputs));
+  request_.set_resource_scope_id(scope_id);
+  backend_stack_.push_back({std::move(pinned_), std::move(matches_),
+                            std::move(traversal_), std::move(cfg_),
+                            std::move(calls_)});
+  const auto maximum = memory_limit_stack_.back();
+  pinned_ = std::make_shared<PinnedQueryEngine>(engine_, maximum);
+  matches_ = ctk::clang_layer::make_match_backend(pinned_);
+  traversal_ = ctk::clang_layer::make_traversal_backend(pinned_);
+  cfg_ = ctk::clang_layer::make_cfg_backend(pinned_);
+  calls_ = ctk::clang_layer::make_call_graph_backend(pinned_);
+}
+void NativeScriptEnvironment::end_batch_group(bool) {
+  if (work_stack_.empty())
+    return;
+  pinned_.reset();
+  matches_.reset();
+  traversal_.reset();
+  cfg_.reset();
+  calls_.reset();
+  work_stack_.back().reset();
+  snapshot_scope_stack_.back().reset();
+  checkpoint_ = checkpoint_stack_.back();
+  checkpoint_stack_.pop_back();
+  const auto parent_id = scope_stack_.back();
+  const bool created = opened_scope_stack_.back();
+  const auto completed_id = request_.resource_scope_id();
+  request_.set_resource_scope_id(parent_id);
+  if (created && settings_.resources) {
+    ctk::match::v1::ResourceScopeInfo released;
+    const auto code =
+        settings_.resources->release_scope(owner_, completed_id, released);
+    if (code != Code::Ok || !released.cleanup_acknowledged()) {
+      scope_stack_.pop_back();
+      work_stack_.pop_back();
+      snapshot_scope_stack_.pop_back();
+      opened_scope_stack_.pop_back();
+      active_input_stack_.pop_back();
+      memory_limit_stack_.pop_back();
+      throw Error(code == Code::Ok ? Code::Internal : code,
+                  "batch resource cleanup was not acknowledged");
+    }
+  }
+  scope_stack_.pop_back();
+  work_stack_.pop_back();
+  snapshot_scope_stack_.pop_back();
+  opened_scope_stack_.pop_back();
+  active_input_stack_.pop_back();
+  memory_limit_stack_.pop_back();
+  auto state = std::move(backend_stack_.back());
+  backend_stack_.pop_back();
+  pinned_ = std::move(state.pinned);
+  matches_ = std::move(state.matches);
+  traversal_ = std::move(state.traversal);
+  cfg_ = std::move(state.cfg);
+  calls_ = std::move(state.calls);
 }
 ctk::script::Value
 NativeScriptEnvironment::match(const std::string &query,
@@ -199,6 +445,67 @@ ctk::script::Value NativeScriptEnvironment::match(
       throw Error(Code::InvalidArgument,
                   "file match target cannot select a binding");
     *request.mutable_file() = file_target(script_text(*target));
+  } else if (target->wire->has_files() || target->wire->has_list()) {
+    if (!binding.empty())
+      throw Error(Code::InvalidArgument,
+                  "file manifest matches cannot select native bindings");
+    auto aggregate_wire = std::make_shared<ctk::analysis::v1::ScriptValue>();
+    auto *rows = aggregate_wire->mutable_matches();
+    std::vector<ctk::match::v1::FileMatchTarget> files;
+    if (target->wire->has_files()) {
+      const auto &inputs = target->wire->files().inputs();
+      files.reserve(inputs.size());
+      for (const auto &input : inputs) {
+        ctk::match::v1::FileMatchTarget file;
+        if (input.has_profile()) {
+          file.set_file_path(input.file_path());
+          file.set_working_directory(input.profile().working_directory());
+          file.set_compilation_database(input.profile().compilation_database());
+          *file.mutable_compile_arguments() =
+              input.profile().compile_arguments();
+          file.set_frozen_profile(input.profile().frozen());
+          file.set_expected_profile_id(input.profile().profile_id());
+          if (file.working_directory().empty())
+            file.set_working_directory(
+                std::filesystem::current_path().string());
+          const auto invalid = invalid_file_target(file);
+          if (!invalid.empty())
+            throw Error(Code::InvalidArgument, invalid);
+        } else {
+          file = file_target(input.file_path());
+        }
+        files.push_back(std::move(file));
+      }
+    } else {
+      const auto &paths = target->wire->list().values();
+      files.reserve(paths.size());
+      for (const auto &path : paths) {
+        if (!path.has_scalar() || path.scalar().value_case() !=
+                                      ctk::analysis::v1::ScriptScalar::kText)
+          throw Error(Code::InvalidArgument,
+                      "file path manifests must contain text paths");
+        files.push_back(file_target(path.scalar().text()));
+      }
+    }
+    for (const auto &file : files) {
+      if (!checkpoint_())
+        throw Error(Code::Cancelled, "script cancelled");
+      ctk::match::v1::MatchRequest current;
+      current.set_query(query);
+      current.set_preserve_source(true);
+      *current.mutable_file() = file;
+      matcher_options(current, "match", options);
+      auto result = execute_match(current, {});
+      for (const auto &row : result.wire->matches().rows()) {
+        *rows->add_rows() = row;
+        if (aggregate_wire->SpaceUsedLong() > settings_.results.max_bytes)
+          throw Error(Code::ResourceExhausted,
+                      "multi-file script result byte limit exceeded");
+      }
+      if (files.size() == 1)
+        return result;
+    }
+    return {aggregate_wire, {}, {}};
   } else if (binding.empty()) {
     if (!target->wire->has_tree() || !target->bindings)
       throw Error(Code::InvalidArgument,

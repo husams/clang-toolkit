@@ -393,7 +393,11 @@ _ENTRIES = (
         (
             'batch NAME in $manifest size N [jobs J] [memory "768MiB"] [on error stop|continue] [progress on|off] do { STATEMENTS }',
             'batch NAME in $manifest count N [jobs J] [memory "768MiB"] [on error stop|continue] [progress on|off] do { STATEMENTS }',
-            'let run = batch NAME in $manifest size N do { STATEMENTS; VALUE; }',
+            "let run = batch NAME in $manifest size N do { STATEMENTS; VALUE; }",
+            'background batch NAME in $manifest size N [request "stable-key"] do { NATIVE STATEMENTS }',
+            'durable batch NAME in $manifest count N [jobs J] [memory "768MiB"] [on error continue] do { NATIVE STATEMENTS }',
+            "batch status|cancel|resume|retry $run_or_id",
+            "batch promote $run",
         ),
         (
             "size caps inputs per group; count creates balanced groups. Choose exactly one.",
@@ -406,11 +410,16 @@ _ENTRIES = (
             "Standalone output is capped at 1,000,000 characters per group. The final status display is capped at 4,000 characters and samples at most 8 groups with unknown cleanup; collected results remain separately bounded and complete or explicitly failed.",
             "Reports include accepted inputs, completed/failed/unattempted files, skipped/cancelled files, successful save exports, output characters, peak accounted/reserved bytes, remaining external pins and cleanup acknowledgment.",
             "Nested batches, yielding analysis blocks, legacy cursor open/continue/restart, background and session start/add/match/resume operations are rejected before admission; use scoped match/parse/file/analysis operations inside batches.",
+            'Durable/background batches run a native server-side body against frozen inputs. Use request "stable-key" when retrying a StartBatch call after losing its response; status reports carry revisions, and cancel/resume/retry use the revision from the last report.',
+            "batch promote copies the completed detached ScriptResponse values into the local console. These values remain inspectable after reconnect and do not retain native AST resources.",
         ),
         (
             'batch part in $inputs size 20 do { let rows = match functionDecl().bind("f") in $part.inputs; save $rows to "batch-${part.index}.json" as json; }',
             "batch part in $inputs count 5 jobs 1 on error continue do { print $part.index; }",
             'let run = batch part in $inputs size 1 do { let rows = match functionDecl().bind("f") in $part.inputs; $rows; }',
+            'background batch part in $inputs size 20 request "functions-v1" do { let rows = match functionDecl().bind("f") in $part.inputs; save $rows to "batch-${part.index}.json" as json; $rows; }',
+            "let run = batch status $run",
+            "let results = batch promote $run",
         ),
     ),
     CommandHelp(

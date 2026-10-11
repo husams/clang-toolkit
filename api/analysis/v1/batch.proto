@@ -1,0 +1,49 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "match/v1/resources.proto";
+import "analysis/v1/script_response.proto";
+
+// Durable runs execute native ANTLR bodies, with a fresh admitted scope per
+// group. Paths and exports are on the serving machine. Start is idempotent by
+// caller and request_id; changing the payload for that key is an error.
+message StartBatchRequest {
+  string request_id = 1;
+  repeated ctk.match.v1.InputDescriptor inputs = 2;
+  string body_source = 3;
+  string group_variable = 4;
+  oneof partition { uint32 size = 5; uint32 count = 6; }
+  optional uint32 jobs = 7;
+  optional uint64 memory_bytes = 8;
+  bool continue_on_error = 9;
+}
+message BatchRunRequest { string run_id = 1; }
+// Mutations require the current monotonic run revision. Resume executes only
+// pending groups; retry resets failed/cancelled groups only after validation.
+// Unknown groups or export outcomes require explicit reconciliation.
+message BatchControlRequest { string run_id = 1; uint64 expected_revision = 2; }
+message BatchExport {
+  string path = 1;
+  string digest = 2;
+  string state = 3; // intent, committed, unknown
+}
+message BatchGroup {
+  uint32 index = 1;
+  repeated ctk.match.v1.InputDescriptor inputs = 2;
+  repeated string source_revisions = 3;
+  string state = 4; // pending, running, completed, failed, cancelled, unknown
+  string message = 5;
+  string resource_scope_id = 6;
+  bool cleanup_acknowledged = 7;
+  ScriptResponse result = 8; // Detached, bounded values, no native retention.
+  repeated BatchExport exports = 9;
+}
+message BatchRun {
+  string run_id = 1;
+  uint64 revision = 2;
+  string state = 3; // queued, running, completed, failed, cancelled, interrupted
+  repeated BatchGroup groups = 4;
+  bool results_complete = 5;
+  uint64 peak_accounted_bytes = 6;
+  uint64 peak_reserved_bytes = 7;
+  StartBatchRequest manifest = 8;
+}

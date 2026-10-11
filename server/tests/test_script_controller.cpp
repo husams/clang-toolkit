@@ -202,6 +202,18 @@ TEST_F(ScriptNative, ParsesTreesAndMatchesNativeBindingExpressions) {
   EXPECT_EQ(result.response.emissions(4).value().scalar().integer(), 1);
   EXPECT_EQ(result.response.emissions(5).value().matches().rows_size(), 2);
 }
+TEST_F(ScriptNative, MatchesTypedPathListsFromFileManifests) {
+  ScriptController controller;
+  request.set_source(R"script(
+    let manifest = files "fixture.cc";
+    let rows = match functionDecl().bind("f") in $manifest.paths;
+    emit count(rows);
+  )script");
+  const auto result = controller.run(request, [] { return true; });
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  ASSERT_EQ(result.response.emissions_size(), 1);
+  EXPECT_EQ(result.response.emissions(0).value().scalar().integer(), 2);
+}
 TEST_F(ScriptNative, YieldsNativeBindingsBeyondLexicalScope) {
   ScriptController controller;
   request.set_source(R"script(
@@ -222,6 +234,52 @@ TEST_F(ScriptNative, YieldsNativeBindingsBeyondLexicalScope) {
   EXPECT_EQ(result.response.emissions(0).value().matches().rows_size(), 1);
   EXPECT_EQ(result.response.emissions(1).value().scalar().integer(), 7);
   EXPECT_EQ(result.response.emissions(2).value().matches().rows_size(), 1);
+}
+TEST_F(ScriptNative,
+       NestedNativeBatchesReuseLaneAndRejectForeignFrozenIdentity) {
+  const auto source_path =
+      std::filesystem::absolute(directory.path() / "fixture.cc").string();
+  CursorSettings settings;
+  settings.resources =
+      std::make_shared<ResourceManager>(ResourceManagerSettings{});
+  ScriptController controller(settings);
+  request.set_source(R"script(
+    let source = files "fixture.cc";
+    let outer = batch parent in $source size 1 jobs 1 do {
+      let nested = batch child in $parent.inputs size 1 jobs 1 do {
+        count($child.inputs);
+      };
+      $nested.status;
+    };
+    emit $outer.results[0];
+  )script");
+  auto result = controller.run(request, [] { return true; });
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  ASSERT_EQ(result.response.emissions_size(), 1);
+  EXPECT_EQ(result.response.emissions(0).value().scalar().text(), "completed");
+
+  ctk::analysis::v1::ScriptValue outside;
+  auto *input = outside.mutable_files()->add_inputs();
+  input->set_file_path(source_path);
+  auto *profile = input->mutable_profile();
+  profile->set_profile_id("different-frozen-profile");
+  profile->set_frozen(true);
+  profile->set_working_directory(directory.path().string());
+  (*request.mutable_initial_values())["outside"] = outside;
+  request.set_source(R"script(
+    let source = files "fixture.cc";
+    let outer = batch parent in $source size 1 jobs 1 do {
+      let nested = batch child in $outside size 1 jobs 1 do {
+        count($child.inputs);
+      };
+      $nested;
+    };
+    emit $outer.results[0].status;
+  )script");
+  result = controller.run(request, [] { return true; });
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  ASSERT_EQ(result.response.emissions_size(), 1);
+  EXPECT_EQ(result.response.emissions(0).value().scalar().text(), "failed");
 }
 TEST_F(ScriptNative, ScopedLegacyMatchOptionsUseBlockTreeAndRestoreDefault) {
   std::ofstream(directory.path() / "second.cc") << "int second(){return 9;}";
@@ -284,8 +342,7 @@ TEST_F(ScriptNative, ExplicitParseUsesProfileWithoutDefaultFile) {
       << "#ifndef SCRIPT_PROFILE_FLAG\n#error missing profile flag\n#endif\n"
          "int selected(){return 1;}\n";
   request.clear_file();
-  request.mutable_profile()->set_working_directory(
-      profile_directory.string());
+  request.mutable_profile()->set_working_directory(profile_directory.string());
   request.mutable_profile()->add_compile_arguments("-DSCRIPT_PROFILE_FLAG");
   request.set_source(R"script(
     let tree = parse "profile.cc";

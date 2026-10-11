@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
 #include <grpcpp/security/server_credentials.h>
 #include <grpcpp/server_builder.h>
 #include <limits>
@@ -69,6 +71,23 @@ application::CursorSettings cursor_settings(
                                         static_cast<std::size_t>(*configured));
   return result;
 }
+application::BatchRegistryLimits batch_limits(const config::Settings &settings) {
+  application::BatchRegistryLimits result;
+  result.max_jobs = static_cast<std::uint32_t>(settings.pool_size);
+  return result;
+}
+std::filesystem::path storage_root() {
+  if (const auto *configured = std::getenv("CTK_STORAGE_ROOT");
+      configured && *configured)
+    return configured;
+  if (const auto *cache_home = std::getenv("XDG_CACHE_HOME");
+      cache_home && *cache_home)
+    return std::filesystem::path(cache_home) / "clang-toolkit" / "storage";
+  if (const auto *user_home = std::getenv("HOME"); user_home && *user_home)
+    return std::filesystem::path(user_home) / ".cache" / "clang-toolkit" /
+           "storage";
+  return std::filesystem::temp_directory_path() / "clang-toolkit-storage";
+}
 } // namespace
 
 GrpcServerHost::GrpcServerHost(config::Settings settings,
@@ -93,7 +112,8 @@ GrpcServerHost::GrpcServerHost(config::Settings settings,
       calls_(cursor_settings(settings_, resources_), calls_backend(native_engine_),
              operations_),
       scripts_(cursor_settings(settings_, resources_), native_engine_, operations_),
-      analysis_service_(traversals_, cfg_, calls_, scripts_) {}
+      batches_(scripts_, resources_, storage_root(), batch_limits(settings_)),
+      analysis_service_(traversals_, cfg_, calls_, scripts_, batches_) {}
 GrpcServerHost::~GrpcServerHost() {
   if (server_)
     shutdown();
@@ -130,6 +150,7 @@ void GrpcServerHost::shutdown() {
                       std::chrono::milliseconds(*settings_.shutdown_grace_ms));
   else
     server_->Shutdown();
+  batches_.shutdown();
   server_->Wait();
   server_.reset();
   lease_.reset();

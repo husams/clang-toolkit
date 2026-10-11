@@ -10,7 +10,13 @@ import "analysis/v1/call_graph_request.proto";
 import "analysis/v1/call_graph_response.proto";
 import "analysis/v1/script_request.proto";
 import "analysis/v1/script_response.proto";
+import "analysis/v1/batch.proto";
 service AnalysisService {
+  rpc StartBatch(StartBatchRequest) returns (BatchRun);
+  rpc BatchStatus(BatchRunRequest) returns (BatchRun);
+  rpc CancelBatch(BatchControlRequest) returns (BatchRun);
+  rpc ResumeBatch(BatchControlRequest) returns (BatchRun);
+  rpc RetryBatch(BatchControlRequest) returns (BatchRun);
   rpc RunScript(ScriptRequest) returns (ScriptResponse);
   // Owned semantic values from a standalone native AST visitor. On node/byte
   // limits or cancellation, no partial response is returned.

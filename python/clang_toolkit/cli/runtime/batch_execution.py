@@ -460,16 +460,27 @@ def _validate_body(body: Tree) -> None:
         "session_add",
         "session_match",
         "session_resume",
+        "durable_batch",
+        "batch_status",
+        "batch_cancel",
+        "batch_resume",
+        "batch_retry",
+        "batch_promote",
     }
     for child in body.iter_subtrees_topdown():
-        if child.data in {"analysis_block", "batch_statement"}:
+        if child.data == "analysis_block":
+            # Analysis blocks already bind their operations to the group's
+            # active scope. Their yielded value is detached before that scope
+            # is released by _run_group.
+            continue
+        if child.data in {"batch_statement", "durable_batch"}:
             raise EvaluationError(
-                "yielding analysis blocks and nested batches are not supported inside batch bodies"
+                "nested batches are not supported inside foreground batches because group scopes cannot be shared"
             )
         if child.data in unscoped_native_work:
             raise EvaluationError(
-                "legacy cursor, background, and query-session work is not scoped for batches; "
-                "use match or parse operations inside the batch instead"
+                "durable runs, legacy cursors, background queries, and query-session work cannot escape a foreground group scope; "
+                "use scoped match, parse, file, or analysis operations instead"
             )
 
 

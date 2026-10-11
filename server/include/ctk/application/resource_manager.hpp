@@ -14,6 +14,10 @@
 
 namespace ctk::application {
 
+// Stable identity used by scopes, leases, and native script lookups for one
+// frozen input descriptor.
+std::string input_identity(const ctk::match::v1::InputDescriptor &input);
+
 struct ResourceManagerSettings {
   std::uint64_t max_inputs{100};
   std::uint64_t max_memory_bytes{2147483648ULL};
@@ -77,6 +81,9 @@ public:
                                          std::string &message);
   bool scope_transient(const std::string &owner,
                        const std::string &scope_id) const;
+  bool scope_contains_input(const std::string &owner,
+                            const std::string &scope_id,
+                            const std::string &input_identity) const;
   ctk::clang_layer::MatchCode describe_scope(
       const std::string &owner, const std::string &scope_id,
       ctk::match::v1::ResourceScopeInfo &response);

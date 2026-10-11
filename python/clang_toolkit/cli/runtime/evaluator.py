@@ -100,7 +100,9 @@ _COMMAND_VALUE_KINDS = frozenset(
         "callgraph", "callgraph_file", "help", "help_shortcut", "traverse", "script",
         "cursor_open", "cursor_continue", "cursor_restart", "cursor_close",
         "import_command", "file_open", "file_list", "file_info", "file_close",
-        "file_refresh", "resource_status", "batch_statement",
+        "file_refresh", "resource_status", "batch_statement", "durable_batch",
+        "batch_status", "batch_cancel", "batch_resume", "batch_retry",
+        "batch_promote",
     }
 )
 
@@ -313,6 +315,23 @@ class Runtime:
                 raise error
             display = self._emit_output(render_batch_report(report))
             return report, display
+        if kind in {
+            "durable_batch",
+            "batch_status",
+            "batch_cancel",
+            "batch_resume",
+            "batch_retry",
+            "batch_promote",
+        }:
+            from .durable_batch_commands import (
+                execute_durable_batch_command,
+                render_durable_batch,
+            )
+
+            value = execute_durable_batch_command(self, statement, source)
+            return value, None if value_context else self._emit_output(
+                render_durable_batch(value)
+            )
         if kind in {"file_open", "file_list", "file_info", "file_close", "file_refresh", "resource_status"}:
             from .file_commands import execute_file_command, render_file_command
 
@@ -473,6 +492,17 @@ class Runtime:
             from .batch_execution import execute_batch
 
             return execute_batch(self, statement, source)
+        if kind in {
+            "durable_batch",
+            "batch_status",
+            "batch_cancel",
+            "batch_resume",
+            "batch_retry",
+            "batch_promote",
+        }:
+            from .durable_batch_commands import execute_durable_batch_command
+
+            return execute_durable_batch_command(self, statement, source)
         if kind in {"cursor_open", "cursor_continue", "cursor_restart", "cursor_close"}:
             from .cursors import render_cursor
 

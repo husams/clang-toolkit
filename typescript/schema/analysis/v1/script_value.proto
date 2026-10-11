@@ -7,6 +7,7 @@ import "analysis/v1/traverse_response.proto";
 import "analysis/v1/cfg_response.proto";
 import "analysis/v1/call_graph_response.proto";
 import "analysis/v1/script_tree.proto";
+import "match/v1/resources.proto";
 message ScriptValue {
   oneof value {
     ScriptScalar scalar = 1;
@@ -15,5 +16,10 @@ message ScriptValue {
     CfgResponse cfg = 4;
     CallGraphResponse call_graph = 5;
     ScriptTree tree = 6;
+    ScriptList list = 7;
+    ScriptObject object = 8;
+    ctk.match.v1.DiscoverFilesResponse files = 9;
   }
 }
+message ScriptList { repeated ScriptValue values = 1; }
+message ScriptObject { map<string, ScriptValue> fields = 1; }

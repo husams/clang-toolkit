@@ -2,6 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
+from . import batch_pb2 as analysis_dot_v1_dot_batch__pb2
 from . import call_graph_request_pb2 as analysis_dot_v1_dot_call__graph__request__pb2
 from . import call_graph_response_pb2 as analysis_dot_v1_dot_call__graph__response__pb2
 from . import cfg_request_pb2 as analysis_dot_v1_dot_cfg__request__pb2
@@ -40,6 +41,31 @@ class AnalysisServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.StartBatch = channel.unary_unary(
+                '/ctk.analysis.v1.AnalysisService/StartBatch',
+                request_serializer=analysis_dot_v1_dot_batch__pb2.StartBatchRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+                _registered_method=True)
+        self.BatchStatus = channel.unary_unary(
+                '/ctk.analysis.v1.AnalysisService/BatchStatus',
+                request_serializer=analysis_dot_v1_dot_batch__pb2.BatchRunRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+                _registered_method=True)
+        self.CancelBatch = channel.unary_unary(
+                '/ctk.analysis.v1.AnalysisService/CancelBatch',
+                request_serializer=analysis_dot_v1_dot_batch__pb2.BatchControlRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+                _registered_method=True)
+        self.ResumeBatch = channel.unary_unary(
+                '/ctk.analysis.v1.AnalysisService/ResumeBatch',
+                request_serializer=analysis_dot_v1_dot_batch__pb2.BatchControlRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+                _registered_method=True)
+        self.RetryBatch = channel.unary_unary(
+                '/ctk.analysis.v1.AnalysisService/RetryBatch',
+                request_serializer=analysis_dot_v1_dot_batch__pb2.BatchControlRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+                _registered_method=True)
         self.RunScript = channel.unary_unary(
                 '/ctk.analysis.v1.AnalysisService/RunScript',
                 request_serializer=analysis_dot_v1_dot_script__request__pb2.ScriptRequest.SerializeToString,
@@ -64,6 +90,36 @@ class AnalysisServiceStub:
 
 class AnalysisServiceServicer:
     """Missing associated documentation comment in .proto file."""
+
+    def StartBatch(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def BatchStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CancelBatch(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResumeBatch(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RetryBatch(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def RunScript(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -94,6 +150,31 @@ class AnalysisServiceServicer:
 
 def add_AnalysisServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'StartBatch': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartBatch,
+                    request_deserializer=analysis_dot_v1_dot_batch__pb2.StartBatchRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_batch__pb2.BatchRun.SerializeToString,
+            ),
+            'BatchStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.BatchStatus,
+                    request_deserializer=analysis_dot_v1_dot_batch__pb2.BatchRunRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_batch__pb2.BatchRun.SerializeToString,
+            ),
+            'CancelBatch': grpc.unary_unary_rpc_method_handler(
+                    servicer.CancelBatch,
+                    request_deserializer=analysis_dot_v1_dot_batch__pb2.BatchControlRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_batch__pb2.BatchRun.SerializeToString,
+            ),
+            'ResumeBatch': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResumeBatch,
+                    request_deserializer=analysis_dot_v1_dot_batch__pb2.BatchControlRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_batch__pb2.BatchRun.SerializeToString,
+            ),
+            'RetryBatch': grpc.unary_unary_rpc_method_handler(
+                    servicer.RetryBatch,
+                    request_deserializer=analysis_dot_v1_dot_batch__pb2.BatchControlRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_batch__pb2.BatchRun.SerializeToString,
+            ),
             'RunScript': grpc.unary_unary_rpc_method_handler(
                     servicer.RunScript,
                     request_deserializer=analysis_dot_v1_dot_script__request__pb2.ScriptRequest.FromString,
@@ -124,6 +205,141 @@ def add_AnalysisServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class AnalysisService:
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def StartBatch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/StartBatch',
+            analysis_dot_v1_dot_batch__pb2.StartBatchRequest.SerializeToString,
+            analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def BatchStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/BatchStatus',
+            analysis_dot_v1_dot_batch__pb2.BatchRunRequest.SerializeToString,
+            analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CancelBatch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/CancelBatch',
+            analysis_dot_v1_dot_batch__pb2.BatchControlRequest.SerializeToString,
+            analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResumeBatch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/ResumeBatch',
+            analysis_dot_v1_dot_batch__pb2.BatchControlRequest.SerializeToString,
+            analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RetryBatch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/RetryBatch',
+            analysis_dot_v1_dot_batch__pb2.BatchControlRequest.SerializeToString,
+            analysis_dot_v1_dot_batch__pb2.BatchRun.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def RunScript(request,
