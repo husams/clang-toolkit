@@ -165,6 +165,12 @@ helper with the bundled SDK project by default. Set `CTK_SDK_PROJECT` to overrid
 that project with an installed uv environment; the skill does not inspect its path
 or configuration. Operators can prepare an installation with `scripts/setup.sh`.
 
+The [CTK scripting agent skill](skills/ctk-script/SKILL.md) guides agents through
+console scripts, direct binding fields, retained continuation, and file batches.
+It distinguishes console commands from native server scripts and supports
+console-only work without reading target source or using the Python API.
+See its [independent console validation](docs/validation/ctk-script-skill.md).
+
 For Node.js 22 or later, see the [TypeScript SDK](typescript/README.md).
 
 ## Development
