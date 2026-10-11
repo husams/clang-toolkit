@@ -205,7 +205,10 @@ def editing_bindings(buffer: Buffer, enabled: Filter) -> KeyBindings:
 
     @bindings.add("enter", filter=enabled, eager=True)
     def enter(event: KeyPressEvent) -> None:
-        smart_newline(buffer)
+        if input_state(buffer.text).needs_more or buffer.cursor_position != len(buffer.text):
+            smart_newline(buffer)
+        else:
+            buffer.validate_and_handle()
 
     @bindings.add("c-j", filter=enabled, eager=True)
     def execute(event: KeyPressEvent) -> None:

@@ -37,13 +37,45 @@ def test_control_enter_runs_whole_draft_from_middle(
     assert seen == [source]
 
 
-def test_enter_keeps_complete_draft_for_multiline_editing(tmp_path: Path) -> None:
+@pytest.mark.parametrize("source", ['print "single"', "let values = [\n    1,\n    2\n]\n\n"])
+def test_ordinary_return_executes_complete_drafts_in_legacy_terminals(tmp_path: Path, source: str) -> None:
+    seen: list[str] = []
+
+    async def execute(text: str) -> DispatchResult:
+        seen.append(text)
+        return DispatchResult("executed", True)
+
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        ui.buffer.document = Document('    print "first"', 17)
+        ui.buffer.document = Document(source, len(source))
+        # Legacy terminals send the same carriage return for Ctrl+Enter.
         pipe.send_text("\r")
-        await wait_until(lambda: ui.buffer.text.endswith("\n    "))
-        assert ui.buffer.text == '    print "first"\n    '
+        await wait_until(lambda: not ui.busy and "executed" in ui.results.text)
+        assert not ui.buffer.text
+
+    asyncio.run(interact(tmp_path, drive, execute=execute))
+    assert seen == [source]
+
+
+def test_enter_inside_complete_draft_preserves_multiline_editing(tmp_path: Path) -> None:
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        ui.buffer.document = Document("let values = []", 14)
+        pipe.send_text("\r")
+        await wait_until(lambda: ui.buffer.text == "let values = [\n    \n]")
+        assert ui.buffer.document.current_line_before_cursor == "    "
         assert not ui.busy and "OK" not in ui.results.text
+
+    asyncio.run(interact(tmp_path, drive))
+
+
+def test_actions_runs_whole_draft_from_middle(tmp_path: Path) -> None:
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        ui.buffer.document = Document("print 7", 3)
+        pipe.send_text("\x1bOQ")
+        await wait_until(lambda: ui.menu_visible)
+        ui.menu.selected = next(i for i, action in enumerate(ui.menu.actions) if action.label().startswith("Run command"))
+        pipe.send_text("\r")
+        await wait_until(lambda: not ui.busy and "OK print 7" in ui.results.text)
+        assert not ui.menu_visible and not ui.buffer.text
 
     asyncio.run(interact(tmp_path, drive))
 

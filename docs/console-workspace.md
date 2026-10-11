@@ -34,7 +34,7 @@ uv run ctk --server unix:///tmp/ctk.sock
 | Up / Down / Enter in files | Select entries; expand/collapse folders; prepare a file's `parse` command |
 | Escape | Close completion/menu, the focused right panel, or file explorer; return to input |
 | Ctrl+Enter in input | Execute the entire single-line or multiline draft from any cursor position |
-| Enter in input | Add a line with the existing automatic indentation |
+| Enter in input | Run complete input at its end; otherwise add an indented line |
 | Ctrl+J in input | Execute when the terminal cannot distinguish Ctrl+Enter |
 | Ctrl+R | Search command history, or results when results have focus |
 | Ctrl+C | Clear a draft; request cancellation for a supported active batch |
@@ -168,7 +168,7 @@ Validation: 985 Python unit tests and all 336 freshly built native tests pass. T
 
 ## Tree and command-output refinements
 
-**Ctrl+Enter** now executes the whole draft, including a multiline draft with the cursor in the middle. **Enter** adds a line using the existing indentation rules. The workspace recognizes both modifyOtherKeys and CSI-u modified Return sequences; **Ctrl+J** provides the same execution action for terminals that send ordinary Return for Ctrl+Enter.
+**Ctrl+Enter** now executes the whole draft, including a multiline draft with the cursor in the middle. **Enter** executes complete input at its end; inside a draft or incomplete syntax it adds a line using the existing indentation rules. The workspace recognizes both modifyOtherKeys and CSI-u modified Return sequences; **Ctrl+J** provides the same execution action for terminals that send ordinary Return for Ctrl+Enter. **Actions → Run command** also executes the whole draft without relying on modified-key reporting.
 
 Match rows show only named bindings. Each binding expands into its readable AST properties, without row transport metadata or synthetic collection helpers. `session list` is an expandable session inventory, and remaining command results are rendered as literal Markdown code blocks (JSON is indented). Existing layout and theme remain unchanged.
 
@@ -186,3 +186,10 @@ server status
 ```
 
 Refinement validation: all 1,001 Python unit tests and all 116 acceptance cases pass, including the real-terminal checks for Ctrl+Enter, session expansion, Markdown output, pairing, indentation, and the existing layout/theme. All 336 native tests pass on a complete rerun after one temporary-directory cleanup race. Six workspace modules pass type checking; focused lint and whitespace checks pass. Logs are retained under this worktree's ignored `build/tree-refinements-*.log` files.
+
+
+## Return-key compatibility correction
+
+Some terminals report Enter and Ctrl+Enter identically. Enter again executes complete input when the cursor is at its end, including multiline drafts with trailing blank lines. Modified Ctrl+Enter and Ctrl+J execute from any cursor position; Actions → Run command provides a keyboard/mouse alternative in the existing menu. Pairing, indentation, layout, and theme remain unchanged.
+
+Correction validation: all 1,004 Python unit tests, 116 acceptance cases, and 336 native tests pass. Terminal acceptance checks execute both single-line and multiline drafts with ordinary Return; key-dispatch tests cover Ctrl+J, modified Ctrl+Enter, and menu execution from inside a draft. Three edited workspace modules pass type checking; focused lint and whitespace checks pass. Logs are retained under the worktree's ignored `build/tree-return-fix-*.log` files.

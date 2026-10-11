@@ -125,11 +125,11 @@ def run_workspace(
     def redraw() -> None:
         os.write(master, b"\x0c")
 
-    def submit(source_text: str, expected: str, *, success: bool = True) -> None:
+    def submit(source_text: str, expected: str, *, success: bool = True, execute_sequence: str = "\x1b[27;5;13~") -> None:
         before = len(
             HistoryStore(tmp_path / "state/clang_tools/history.jsonl").read_commands()
         )
-        os.write(master, ("\x1b[200~" + source_text + "\x1b[201~\x1b[27;5;13~").encode())
+        os.write(master, ("\x1b[200~" + source_text + "\x1b[201~" + execute_sequence).encode())
         # Wait for completion; recording occurs before native execution.
         redraw()
         read_until(
@@ -177,7 +177,7 @@ def run_workspace(
         source_session = None
         initial_expiry = None
         for index, (command, marker) in enumerate(zip(commands, expected, strict=True)):
-            submit(command, marker)
+            submit(command, marker, execute_sequence="\r" if index in {0, 3} else "\x1b[27;5;13~")
             if index == 1:
                 with Client(server.endpoint) as observer:
                     info = next(

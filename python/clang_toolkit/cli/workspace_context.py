@@ -31,7 +31,8 @@ class CommandContext(MarkdownPanel):
         if entry is None:
             markdown = (
                 "## Workspace\n\nWrite a command below. **Ctrl+Enter** runs the whole draft; "
-                "**Enter** adds an indented line. **Ctrl+J** also runs it.\n\n"
+                "**Ctrl+J** also runs it. **Enter** executes complete input at its end; "
+                "otherwise it adds an indented line. **Actions → Run command** also executes.\n\n"
                 "## Panels\n\n- **F3** Local files\n- **F4** Command help\n"
                 "- **F7** Binding outline\n- **F8** Resources\n"
                 "- **F9** Live server status\n\n"

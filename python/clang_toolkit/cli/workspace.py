@@ -317,6 +317,7 @@ class WorkspaceConsole:
                 WorkspaceAction(
                     lambda: "Show server status", lambda: self.prepare("server status")
                 ),
+                WorkspaceAction(lambda: "Run command  Ctrl+J", self.run_draft),
                 WorkspaceAction(lambda: "Quit  F10", self.request_exit),
             ],
             self.close_menu,
@@ -598,7 +599,7 @@ class WorkspaceConsole:
 
     def editor_title(self) -> str:
         lines = self.buffer.document.line_count
-        return f" Command · {lines} line{'s' if lines != 1 else ''} · Ctrl+Enter runs · Enter adds a line"
+        return f" Command · {lines} line{'s' if lines != 1 else ''} · Ctrl+Enter / Ctrl+J run · Enter completes"
 
     def footer(self) -> str:
         elapsed = (
@@ -777,6 +778,13 @@ class WorkspaceConsole:
         self.started = monotonic()
         self.command_task = asyncio.create_task(self._execute(buffer.text))
         return False
+
+    def run_draft(self) -> None:
+        self.app.layout.focus(self.editor)
+        if self.busy or self.closing:
+            self.write("A command is running; your next draft is kept.")
+        else:
+            self.buffer.validate_and_handle()
 
     async def _execute(self, source: str) -> None:
         self.last_source = source
@@ -970,7 +978,7 @@ class WorkspaceConsole:
             "## Workspace shortcuts\n\n"
             "**F1** Shortcuts · **F2** Actions · **F3** Files · **F4** Help · **F5** Refresh · **F6** Focus\n\n"
             "**F7** Outline · **F8** Resources · **F9** Server · **F10** Quit\n\n"
-            "- **Ctrl+Enter** runs the whole draft from any line. **Enter** adds an indented line. **Ctrl+J** also runs it. Paired brackets and quotes keep the cursor inside.\n"
+            "- **Ctrl+Enter** or **Ctrl+J** runs the whole draft. **Enter** runs complete input at its end; otherwise it adds an indented line. **Actions → Run command** also executes. Paired brackets and quotes keep the cursor inside.\n"
             "- **Ctrl+R** searches history or results; **Ctrl+C** clears a draft or requests cancellation.\n"
             "- **Escape** closes the focused panel or menu. Files are local; selecting a file prepares `parse`.\n"
             "- Outline: **Enter** expands/collapses; **Left/Right** pans; **p** prepares `print`. Select Next/Previous page for 50 items.\n"
