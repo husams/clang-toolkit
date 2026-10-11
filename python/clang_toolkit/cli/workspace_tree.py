@@ -15,11 +15,13 @@ from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 from prompt_toolkit.utils import get_cwidth
 
 from clang_toolkit.cli.workspace_state import PanelEntry
+from clang_toolkit.cli.workspace_source_data import SourceTarget
 
 
 def entry_text(item: PanelEntry, expanded: set[str]) -> str:
     marker = ("▾ " if item.identity in expanded else "▸ ") if item.expandable else "  "
-    return "  " * item.depth + marker + item.label
+    link = f" ↗ {item.source.location}" if item.source else ""
+    return "  " * item.depth + marker + item.label + link
 
 
 def navigate_tree(
@@ -47,10 +49,12 @@ def navigate_tree(
 
 class WorkspaceTree:
     def __init__(
-        self, refresh: Callable[[], None], prepare: Callable[[str], None]
+        self, refresh: Callable[[], None], prepare: Callable[[str], None],
+        open_source: Callable[[SourceTarget], None] | None = None,
     ) -> None:
         self.refresh = refresh
         self.prepare = prepare
+        self.open_source = open_source
         self.entries: list[PanelEntry] = []
         self.selected = 0
         self.expanded: set[str] = set()
@@ -77,6 +81,11 @@ class WorkspaceTree:
         @bindings.add("enter")
         def expand(event: KeyPressEvent) -> None:
             self.toggle()
+
+        @bindings.add("o")
+        def open_link(event: KeyPressEvent) -> None:
+            if self.current and self.current.source and self.open_source:
+                self.open_source(self.current.source)
 
         @bindings.add("left")
         @bindings.add("right")
@@ -224,6 +233,9 @@ class WorkspaceTree:
             previous = self.selected
             self.selected = event.position.y
             current = self.current
+            if event.event_type == MouseEventType.MOUSE_UP and current and current.source and self.open_source and event.position.x >= 2 * current.depth + 2:
+                self.open_source(current.source)
+                return
             if (
                 event.event_type == MouseEventType.MOUSE_UP
                 and (
@@ -243,7 +255,7 @@ class WorkspaceTree:
         # prevent panning longer descendants; offsets remain display cells.
         return [
             (
-                "class:tree-selected" if i == self.selected else "class:tree",
+                "class:tree" + (" class:source-link" if self.entries[i].source else "") + (" class:tree-selected" if i == self.selected else ""),
                 text + " " * (width - get_cwidth(text)) + "\n",
             )
             for i, text in enumerate(texts)

@@ -215,3 +215,7 @@ Validation: all 1,015 Python unit tests and 336 native tests pass. The full acce
 ## Pull request integration validation
 
 After integrating upstream main at `9831b6a`, a fresh native build succeeds and the complete suites pass: 1,015 Python unit tests, 116 acceptance cases in one run, and 336 native tests. Seven workspace modules pass type checking; all changed Python files pass focused lint and the diff passes whitespace checks. Logs are retained under the worktree's ignored `build/console-pr-*.log` files. The batch progress and source-navigation HTML remains an interactive design mockup; those features are not yet implemented in the console runtime.
+
+## Batch progress and source navigation implementation
+
+The subsequent `codex/console-source-progress` worktree change implements the mockup's progress bars and clickable match/binding links in the runtime. Source opens in a separate window with numbered, highlighted C++ and a paged match outline, keeping the console's existing layout and dark palette. See [controls, examples and validation](console-source-progress.md). All 1,032 Python unit tests, 116 acceptance cases and 336 native tests pass.

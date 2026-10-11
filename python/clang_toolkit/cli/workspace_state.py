@@ -28,6 +28,7 @@ from clang_toolkit.match_values import (
     NativeMatchCollection,
 )
 from clang_toolkit.resources import FileSet, InputDescriptor
+from clang_toolkit.cli.workspace_source_data import SourceTarget, source_target, binding_label
 
 MAX_OUTLINE_ROWS = 300
 MAX_CHILDREN = 50
@@ -42,6 +43,7 @@ class PanelEntry:
     expandable: bool = False
     commands: tuple[tuple[str, str], ...] = ()
     page: tuple[str, int] | None = None
+    source: SourceTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +111,7 @@ def outline_snapshot(
             return
         if isinstance(value, Message):
             value = view(value)
+        semantic_row = value._message() if isinstance(value, MessageView) and value.descriptor.full_name == "ctk.match.v1.MatchResult" else None
         if value is None or isinstance(value, (str, bool, int, float)):
             rows.append(
                 PanelEntry(
@@ -167,9 +170,12 @@ def outline_snapshot(
             label = f"{name} - {declaration or '(unnamed)'}"
             if declaration_type:
                 label += f" · {declaration_type}"
+        elif isinstance(value, MessageView) and value.descriptor.full_name == "ctk.match.v1.MatchBinding":
+            label = binding_label(name, value._message())
         rows.append(
             PanelEntry(
-                reference, compact(label, 4096), depth, depth < MAX_DEPTH, (("p", f"print {reference}"),)
+                reference, compact(label, 4096), depth, depth < MAX_DEPTH, (("p", f"print {reference}"),),
+                source=source_target(value, name),
             )
         )
         if reference not in expanded or depth >= MAX_DEPTH:
@@ -262,6 +268,8 @@ def outline_snapshot(
             names = tuple(property_value(value, "keys"))
         elif isinstance(value, MatchRow):
             names = tuple(sorted(value.bindings))
+        elif semantic_row is not None:
+            names = tuple(sorted(semantic_row.bindings))
         elif isinstance(value, MapView | BindingMapView) or type(value) is dict:
             names = tuple(value)
         elif isinstance(value, MessageView):
@@ -326,9 +334,13 @@ def outline_snapshot(
                 key = ".value" + key
             if isinstance(value, MatchRow) and field in {"bindings", "source_file", "source_match_index"}:
                 key = f".bindings[{json.dumps(field, ensure_ascii=False)}]"
+            if semantic_row is not None:
+                key = f".bindings[{json.dumps(field, ensure_ascii=False)}]"
             try:
                 if isinstance(value, MatchRow):
                     child = value.binding(field)
+                elif semantic_row is not None:
+                    child = view(semantic_row.bindings[field])
                 elif ast_field:
                     child = property_value(semantic, field)
                 elif isinstance(value, MapView | BindingMapView) or type(value) is dict:

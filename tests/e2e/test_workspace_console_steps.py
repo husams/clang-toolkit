@@ -233,6 +233,24 @@ def run_workspace(
             for line in screen.display
         )
         (tmp_path / "workspace-match-tree.txt").write_text("\n".join(screen.display))
+        # A binding link opens a separate C++ source window, preserving the
+        # existing console panes and returning to the same tree on close.
+        os.write(master, b"\x1b[D")
+        read_until("f - workspace_native")
+        row = next(i for i, line in enumerate(screen.display) if "f - workspace_native" in line)
+        column = screen.display[row].index("f - workspace_native") + 1
+        os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
+        read_until("Matches [1]")
+        read_until("int workspace_native")
+        assert any("1 │" in line and "int workspace_native" in line for line in screen.display)
+        row = next(i for i, line in enumerate(screen.display) if "int workspace_native" in line)
+        column = screen.display[row].index("int workspace_native")
+        assert screen.buffer[row][column].fg != screen.buffer[row][column + 4].fg
+        (tmp_path / "workspace-source-window.txt").write_text("\n".join(screen.display))
+        os.write(master, b"\t\r")
+        read_until("f — workspace_native")
+        os.write(master, b"\x1b")
+        read_until("f - workspace_native", recorded=lambda: not any("Matches in file" in line for line in screen.display))
         os.write(master, b"\x1b[D" * 6)
         read_until("▸ Matches", recorded=lambda: not any("decl_name =" in line for line in screen.display))
         os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")  # Resume following; cycle through help to input.
@@ -254,6 +272,16 @@ def run_workspace(
         column = screen.display[row].index("Resident memory")
         assert screen.buffer[row][column].bg != "default"
         (tmp_path / "workspace-command-output.txt").write_text("\n".join(screen.display))
+        # Foreground progress is a single updated bar, backed by native work.
+        commands.append(f'let batch_inputs = files ["{source}"]')
+        submit(commands[-1], "Ready")
+        commands.append('batch part in $batch_inputs size 1 do { match functionDecl() in $part; }')
+        submit(commands[-1], "1/1 files · completed")
+        assert sum("Batch " in line and "1/1 files" in line for line in screen.display) == 1
+        assert not any("group 1 started:" in line for line in screen.display)
+        (tmp_path / "workspace-batch-progress.txt").write_text("\n".join(screen.display))
+        commands.append('binding drop $batch_inputs')
+        submit(commands[-1], "Ready")
         # Read live server data and expand actual retained bindings in a wide
         # terminal. Every panel shares the existing draft and command runtime.
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 140, 0, 0))

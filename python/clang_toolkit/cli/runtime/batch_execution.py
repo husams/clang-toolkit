@@ -18,6 +18,7 @@ from clang_toolkit.resources import FileBatch, FileSet, partition_inputs
 from .evaluator import EvaluationError
 from .resource_errors import is_known_scope_admission_rejection
 from .values import MatchSet
+from .progress import BatchProgress
 
 _MEMORY_UNITS = {"b": 1, "kib": 1024, "mib": 1024**2, "gib": 1024**3}
 _MAX_REPORT_CHARS = 4_000
@@ -148,7 +149,23 @@ def execute_batch(
         "result_items": 0,
         "results_complete": True,
     }
-    progress_enabled = bool(settings["progress"]) and not value_context
+    interactive = runtime.batch_progress is not None and runtime.output.destination == "stdout"
+    progress_enabled = bool(settings["progress"]) and (not value_context or interactive)
+    def publish(state: str = "running", *, live: bool = False) -> None:
+        if not interactive or not progress_enabled:
+            return
+        completed, failed = report["completed_files"], report["failed_files"]
+        if live:
+            with runtime._batch_outcome_lock:
+                outcomes = tuple(runtime._batch_file_outcomes.values())
+            completed += outcomes.count("completed")
+            failed += outcomes.count("failed")
+        runtime.batch_progress(BatchProgress(
+            run_id, len(manifest), completed + failed, completed, failed, state,
+            skipped=report["skipped_files"] + report["unattempted_files"],
+        ))
+
+    publish()
     if progress_enabled:
         _emit(runtime, f"batch {run_id} started: {len(manifest)} inputs, jobs {jobs}")
     processed_groups = 0
@@ -165,6 +182,7 @@ def execute_batch(
             )
             report["status"] = "cancelled"
             report["results_complete"] = False
+            publish("cancelled")
             if progress_enabled:
                 _emit(runtime, _short_json(report))
             interruption = BatchInterrupted("batch interrupted before the next group")
@@ -176,6 +194,7 @@ def execute_batch(
                 f"batch {run_id} group {batch.index} started: {batch.length} inputs",
             )
         try:
+            runtime._batch_file_progress = lambda: publish(live=True)
             result_budget = [report["result_items"], report["results_bytes"]]
             detached_result = _run_group(
                 runtime,
@@ -199,6 +218,7 @@ def execute_batch(
             report["result_items"] = result_budget[0]
             processed_groups += 1
             processed_inputs += batch.length
+            publish()
             if progress_enabled:
                 _emit(runtime, f"batch {run_id} group {batch.index} completed")
         except KeyboardInterrupt as error:
@@ -220,6 +240,7 @@ def execute_batch(
             report["status"] = "cancelled"
             report["results_complete"] = False
             error.report = report
+            publish("cancelled")
             raise
         except BatchInterrupted as error:
             processed_groups += 1
@@ -239,6 +260,7 @@ def execute_batch(
             report["status"] = "cancelled"
             report["results_complete"] = False
             error.report = report
+            publish("cancelled")
             raise
         except Exception as error:
             if runtime._batch_cancel_requested.is_set():
@@ -261,6 +283,7 @@ def execute_batch(
                 report["status"] = "cancelled"
                 report["results_complete"] = False
                 interruption.report = report
+                publish("cancelled")
                 raise interruption from error
             report["failed_groups"] += 1
             report["results_complete"] = False
@@ -268,6 +291,7 @@ def execute_batch(
             _record_file_outcomes(report, runtime)
             processed_groups += 1
             processed_inputs += batch.length
+            publish()
             if progress_enabled:
                 _emit(
                     runtime,
@@ -285,6 +309,8 @@ def execute_batch(
                     processed_inputs=processed_inputs,
                 )
                 break
+        finally:
+            runtime._batch_file_progress = None
     report["status"] = (
         "failed"
         if report["failed_groups"] or not report["cleanup_acknowledged"]
@@ -292,6 +318,7 @@ def execute_batch(
     )
     if report["failed_groups"] or report["skipped_groups"]:
         report["results_complete"] = False
+    publish(report["status"])
     return report
 
 
@@ -907,6 +934,8 @@ def _record_skipped(
 
 
 def _emit(runtime: Any, text: str) -> None:
+    if runtime.batch_progress is not None and runtime.output.destination == "stdout":
+        return
     output = runtime.output.emit(text)
     if output:
         print(output, flush=True)

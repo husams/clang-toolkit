@@ -186,6 +186,9 @@ class Runtime:
         # Opt-in presentation metadata; ordinary output and exports stay textual.
         self.capture_display = False
         self.display_value: tuple[str, Any] | None = None
+        from .progress import BatchProgress
+        self.batch_progress: Callable[[BatchProgress], None] | None = None
+        self._batch_file_progress: Callable[[], None] | None = None
         self._scopes: list[dict[str, Any]] = []
         self._matcher_call_depth = 0
         self._default_targets: list[ParsedTree] = []
@@ -250,7 +253,7 @@ class Runtime:
         if (
             self.capture_display
             and not self._source_stack
-            and kind in {"match", "display", "print", "bindings_list", "file_list", "session_list"}
+            and kind in {"match", "display", "print", "bindings_list", "file_list", "session_list", "batch_statement"}
             and display is not None
             and self.output.destination == "stdout"
         ):
@@ -323,10 +326,12 @@ class Runtime:
             if value_context:
                 return report, None
             if report.get("status") == "failed":
-                error = EvaluationError(f"batch failed: {render_batch_report(report)}")
+                detail = "; ".join(item["message"] for item in report["group_errors_sample"]) if self.batch_progress and self.output.destination == "stdout" else render_batch_report(report)
+                error = EvaluationError(f"batch failed: {detail}")
                 error.report = report
                 raise error
-            display = self._emit_output(render_batch_report(report))
+            display = self._render_display_value(report) if self.batch_progress and self.capture_display and self.output.destination == "stdout" else render_batch_report(report)
+            display = self._emit_output(display)
             return report, display
         if kind in {
             "durable_batch",
@@ -1997,6 +2002,8 @@ class Runtime:
             return
         with self._batch_outcome_lock:
             self._batch_file_outcomes[key] = outcome
+        if self._batch_file_progress is not None:
+            self._batch_file_progress()
 
     def _match_files(
         self,

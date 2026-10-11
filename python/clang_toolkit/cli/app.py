@@ -677,6 +677,7 @@ async def _run() -> int:
 
                     async def execute_workspace(source: str) -> DispatchResult:
                         async with runtime_lock:
+                            runtime.clear_batch_cancel()
                             await leases.refresh(force=True)
                             return await asyncio.to_thread(
                                 dispatch_result, client, source, runtime
@@ -718,19 +719,45 @@ async def _run() -> int:
                                 raise
 
                     async def cancel_workspace() -> str:
+                        runtime.request_batch_cancel()
                         scope = runtime._active_resource_scope
                         if scope is None:
+                            if any(not progress.durable and progress.active for progress in workspace.progress_states.values()):
+                                return "Batch cancellation requested; waiting for cleanup."
                             return "This operation has no cancellation control; waiting for completion."
-                        runtime.request_batch_cancel()
                         await async_client.cancel_resource_scope(scope.resource_scope_id)
                         return "Batch cancellation acknowledged; waiting for cleanup."
+
+                    async def read_source(target, values):
+                        from clang_toolkit.cli.workspace_source_data import source_snapshot
+                        async with runtime_lock:
+                            worker = asyncio.create_task(asyncio.to_thread(source_snapshot, target, (*runtime.bindings.values(), *values), runtime.cwd))
+                            try:
+                                return await asyncio.shield(worker)
+                            except asyncio.CancelledError:
+                                await worker
+                                raise
+
+                    async def read_batch_status(run_id):
+                        from clang_toolkit.cli.runtime.progress import durable_progress
+                        return durable_progress(await async_client.batch_status(run_id))
+
+                    async def cancel_batch(run_id):
+                        from clang_toolkit.cli.runtime.progress import durable_progress
+                        run = await async_client.batch_status(run_id)
+                        if not durable_progress(run).active:
+                            return durable_progress(run)
+                        return durable_progress(await async_client.cancel_batch(run))
 
                     workspace = WorkspaceConsole(
                         session, runtime.cwd, execute_workspace, cancel=cancel_workspace,
                         server_status=workspace_server_status,
                         outline=read_outline, resources=read_resources,
                         result_outline=read_result_outline,
+                        source_reader=read_source, batch_status=read_batch_status,
+                        batch_cancel=cancel_batch,
                     )
+                    runtime.batch_progress = workspace.show_batch_progress
                     exit_code = await workspace.run()
                     try:
                         await async_client.wait_background()
