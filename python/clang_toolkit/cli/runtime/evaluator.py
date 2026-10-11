@@ -250,7 +250,7 @@ class Runtime:
         if (
             self.capture_display
             and not self._source_stack
-            and kind in {"match", "display", "print", "bindings_list", "file_list"}
+            and kind in {"match", "display", "print", "bindings_list", "file_list", "session_list"}
             and display is not None
             and self.output.destination == "stdout"
         ):

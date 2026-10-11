@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import re
+
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -75,7 +78,26 @@ class CtkCodeBlock(CodeBlock):
                 padding=0 if self.lexer_name == "ctk-numbered" else 1,
             )
         else:
-            yield from super().__rich_console__(console, options)
+            yield Syntax(
+                str(self.text).rstrip(), self.lexer_name or "text",
+                theme=CtkSyntaxTheme(), background_color="#182a38",
+                word_wrap=True, padding=1,
+            )
+
+
+def output_markdown(output: str) -> str:
+    """Format literal command results without interpreting their text as markup."""
+    language = "text"
+    try:
+        value = json.loads(output)
+    except (ValueError, RecursionError):
+        pass
+    else:
+        if isinstance(value, (dict, list)):
+            output = json.dumps(value, ensure_ascii=False, indent=2)
+            language = "json"
+    fence = "`" * max(3, 1 + max((len(match[0]) for match in re.finditer(r"`+", output)), default=0))
+    return f"{fence}{language}\n{output}\n{fence}"
 
 
 class WorkspaceMarkdown(Markdown):

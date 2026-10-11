@@ -30,8 +30,8 @@ class CommandContext(MarkdownPanel):
         entry = COMMAND_HELP.get(topic)
         if entry is None:
             markdown = (
-                "## Workspace\n\nWrite a command below. **Enter** continues incomplete syntax; "
-                "complete input runs as one command.\n\n"
+                "## Workspace\n\nWrite a command below. **Ctrl+Enter** runs the whole draft; "
+                "**Enter** adds an indented line. **Ctrl+J** also runs it.\n\n"
                 "## Panels\n\n- **F3** Local files\n- **F4** Command help\n"
                 "- **F7** Binding outline\n- **F8** Resources\n"
                 "- **F9** Live server status\n\n"

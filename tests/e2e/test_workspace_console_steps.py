@@ -129,7 +129,7 @@ def run_workspace(
         before = len(
             HistoryStore(tmp_path / "state/clang_tools/history.jsonl").read_commands()
         )
-        os.write(master, ("\x1b[200~" + source_text + "\x1b[201~\r").encode())
+        os.write(master, ("\x1b[200~" + source_text + "\x1b[201~\x1b[27;5;13~").encode())
         # Wait for completion; recording occurs before native execution.
         redraw()
         read_until(
@@ -205,14 +205,36 @@ def run_workspace(
         column = screen.display[row].index("▸") + 1
         os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
         read_until("[0] · MatchRow")
-        os.write(master, b"\x1b[C\x1b[C")
+        os.write(master, b"\x1b[C\x1b[C\x1b[C")
         read_until("f - workspace_native")
         os.write(master, b"\x1b[C\x1b[C")
         read_until("decl_name = 'workspace_native'")
+        assert not any(
+            "source_match_index =" in line or "BindingMapView" in line
+            for line in screen.display
+        )
         (tmp_path / "workspace-match-tree.txt").write_text("\n".join(screen.display))
-        os.write(master, b"\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D")
+        os.write(master, b"\x1b[D" * 6)
         read_until("▸ Matches", recorded=lambda: not any("decl_name =" in line for line in screen.display))
-        os.write(master, b"\x1b[1;5F\x1b[17~")  # Resume following; F6 returns to input.
+        os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")  # Resume following; cycle through help to input.
+        commands.append("session list")
+        submit(commands[-1], "▸ Sessions")
+        row = next(i for i, line in enumerate(screen.display) if "▸ Sessions" in line)
+        column = screen.display[row].index("▸") + 1
+        os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
+        read_until("sample.cpp")
+        os.write(master, b"\x1b[C" * 3)
+        read_until("session_id =")
+        os.write(master, b"\x1b[B" * 3)
+        read_until("row_count =")
+        (tmp_path / "workspace-session-tree.txt").write_text("\n".join(screen.display))
+        os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")
+        commands.append("server status")
+        submit(commands[-1], "Resident memory")
+        row = next(i for i, line in enumerate(screen.display) if "Resident memory" in line)
+        column = screen.display[row].index("Resident memory")
+        assert screen.buffer[row][column].bg != "default"
+        (tmp_path / "workspace-command-output.txt").write_text("\n".join(screen.display))
         # Read live server data and expand actual retained bindings in a wide
         # terminal. Every panel shares the existing draft and command runtime.
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 140, 0, 0))
@@ -275,7 +297,7 @@ def run_workspace(
             ).group()
         )
         # Close the panel to keep the submitted command unwrapped for history.
-        os.write(master, b"\x1b[19~\r")
+        os.write(master, b"\x1b[19~\x1b[27;5;13~")
         read_until(
             "Ready",
             ready=True,
@@ -302,7 +324,7 @@ def run_workspace(
         read_until("│ session close")
         close_line = next(line for line in screen.display if "│ session close" in line)
         commands.append(re.search(r'session close "[0-9a-f-]+"', close_line).group())
-        os.write(master, b"\x1b[19~\r")
+        os.write(master, b"\x1b[19~\x1b[27;5;13~")
         read_until(
             "Ready",
             ready=True,
@@ -420,7 +442,7 @@ def run_workspace(
         assert "    2" in smart_frame
         (tmp_path / "workspace-editing.txt").write_text(smart_frame)
         commands.append("let smart = [\n    1,\n    2\n]")
-        os.write(master, b"\r]\r")
+        os.write(master, b"\r]\x1b[27;5;13~")
         redraw()
         read_until(
             "Ready",
@@ -436,7 +458,7 @@ def run_workspace(
         read_until('print ""')
         assert screen.buffer[screen.cursor.y][screen.cursor.x].data == '"'
         commands.append('print "PAIRED"')
-        os.write(master, b'PAIRED"\r')
+        os.write(master, b'PAIRED"\x1b[27;5;13~')
         read_until(
             "PAIRED",
             ready=True,
@@ -463,7 +485,7 @@ def run_workspace(
         )
         (tmp_path / "workspace-smart-pairs.txt").write_text(pair_frame)
         commands.append(prefix[:-5] + "isImplicit()" + suffix)
-        os.write(master, b")\x1b[B\x1b[B\x05\r")
+        os.write(master, b")\x1b[B\x1b[B\x05\x1b[27;5;13~")
         read_until(
             "Ready",
             ready=True,
@@ -484,7 +506,7 @@ def run_workspace(
             read_until(prefix + "(" + quote + quote + "))")
             assert screen.buffer[screen.cursor.y][screen.cursor.x].data == quote
             commands.append(prefix + "(" + quote + "paired" + quote + "))")
-            os.write(master, ("paired" + quote + "))\r").encode())
+            os.write(master, ("paired" + quote + "))\x1b[27;5;13~").encode())
             read_until(
                 "Ready",
                 ready=True,

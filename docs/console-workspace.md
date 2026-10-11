@@ -33,7 +33,9 @@ uv run ctk --server unix:///tmp/ctk.sock
 | F6 / Shift+F6 | Move between input, results, visible files, and the active right panel |
 | Up / Down / Enter in files | Select entries; expand/collapse folders; prepare a file's `parse` command |
 | Escape | Close completion/menu, the focused right panel, or file explorer; return to input |
-| Enter in input | Continue incomplete syntax; submit a complete command |
+| Ctrl+Enter in input | Execute the entire single-line or multiline draft from any cursor position |
+| Enter in input | Add a line with the existing automatic indentation |
+| Ctrl+J in input | Execute when the terminal cannot distinguish Ctrl+Enter |
 | Ctrl+R | Search command history, or results when results have focus |
 | Ctrl+C | Clear a draft; request cancellation for a supported active batch |
 | F1 | Show shortcuts in the results pane |
@@ -86,7 +88,7 @@ F7 lists local `let` bindings. Enter toggles expansion of selected lists, match 
 
 Standalone matches, `print` of match values or FileSets, `file list`, and `bindings` also display expandable trees within the existing results pane. Focus results with F6 or click a row, then use the same arrows or Enter. Match rows expand into named bindings and their readable properties. File listings group the selected page under directories. Source blocks, formatted help, the editor, pane placement, and theme remain unchanged. Tree previews are searchable and bounded; their property labels show up to 512 characters, while F7 retains longer labels. The most recent 20 tree previews remain interactive; earlier previews retain their displayed text. Print a value again to inspect it anew. Basic prompt output and file exports keep their textual format.
 
-F8 groups server-owned open-file leases and retained analysis sessions under expandable roots. Expand a file or session to reveal its details. Select a row with arrows or the mouse; `a` prepares attachment of the selected session into a free `$attachedN` binding, and `c` prepares closure of the selected lease or cursor. The buttons beneath the inventory perform the same preparation. The command appears in the editor for review and runs when you press Enter there. Existing drafts are preserved. Listings are bounded to 100 files and 100 sessions.
+F8 groups server-owned open-file leases and retained analysis sessions under expandable roots. Expand a file or session to reveal its details. Select a row with arrows or the mouse; `a` prepares attachment of the selected session into a free `$attachedN` binding, and `c` prepares closure of the selected lease or cursor. The buttons beneath the inventory perform the same preparation. The command appears in the editor for review and runs when you press Ctrl+Enter there. Existing drafts are preserved. Listings are bounded to 100 files and 100 sessions.
 
 The underlying language already supports these controls:
 
@@ -162,3 +164,25 @@ scripts/manual_console.sh --ui workspace
 Use `print $rows`, `file list`, `file list discovered in $files`, or `bindings` to display a tree in results. Select a branch, then press Right to expand, Left to collapse, or Enter to toggle. F3 and F7 use the same branch navigation. F8 exposes collapsible file/session roots and details. Ctrl+Left/Right still pans long values in F7/F8. Layout, colors, smart pairs, and automatic indentation are preserved.
 
 Validation: 985 Python unit tests and all 336 freshly built native tests pass. The combined acceptance run passed 115 cases, including both real-terminal workspace cases; automatic query-session startup timed out once at 30 seconds alongside gRPC fork/event-loop warnings. That case passed on two isolated reruns, including one with the original interpreter and configuration, giving passing coverage for all 116 scenarios. Six workspace modules pass type checking; focused lint, launcher syntax, and whitespace checks pass. Evidence remains in this worktree's ignored `build/tree-*.log` files. All edits in this change are confined to the isolated worktree.
+
+
+## Tree and command-output refinements
+
+**Ctrl+Enter** now executes the whole draft, including a multiline draft with the cursor in the middle. **Enter** adds a line using the existing indentation rules. The workspace recognizes both modifyOtherKeys and CSI-u modified Return sequences; **Ctrl+J** provides the same execution action for terminals that send ordinary Return for Ctrl+Enter.
+
+Match rows show only named bindings. Each binding expands into its readable AST properties, without row transport metadata or synthetic collection helpers. `session list` is an expandable session inventory, and remaining command results are rendered as literal Markdown code blocks (JSON is indented). Existing layout and theme remain unchanged.
+
+Restart the isolated launcher above to load these refinements. Enter the following commands one at a time, using **Ctrl+Enter** to execute each:
+
+```ctk
+let tree = parse "examples/parse_match.cc"
+let rows = match functionDecl(isExpansionInMainFile()).bind("f") in $tree
+print $rows
+let files = files "examples/*.cc"
+file list discovered in $files
+bindings
+session list
+server status
+```
+
+Refinement validation: all 1,001 Python unit tests and all 116 acceptance cases pass, including the real-terminal checks for Ctrl+Enter, session expansion, Markdown output, pairing, indentation, and the existing layout/theme. All 336 native tests pass on a complete rerun after one temporary-directory cleanup race. Six workspace modules pass type checking; focused lint and whitespace checks pass. Logs are retained under this worktree's ignored `build/tree-refinements-*.log` files.

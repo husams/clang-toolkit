@@ -66,8 +66,8 @@ from clang_toolkit.cli.workspace_transcript import (
     command_block,
     error_span,
 )
-from clang_toolkit.cli.workspace_markdown import MarkdownPanel, render_markdown
-from clang_toolkit.cli.workspace_editing import editing_bindings
+from clang_toolkit.cli.workspace_markdown import MarkdownPanel, output_markdown, render_markdown
+from clang_toolkit.cli.workspace_editing import control_enter_keys, editing_bindings
 from clang_toolkit.cli.workspace_state import PanelEntry, display_snapshot
 from clang_toolkit.cli.workspace_result_tree import ResultTrees, SnapshotReader, TreeSelection
 from clang_toolkit.cli.workspace_tree import WorkspaceTree
@@ -431,7 +431,7 @@ class WorkspaceConsole:
             input=input,
             output=output,
         )
-        self.stream = WorkspaceOutput(self.write)
+        self.stream = WorkspaceOutput(self.write_output)
 
     @property
     def narrow(self) -> bool:
@@ -598,7 +598,7 @@ class WorkspaceConsole:
 
     def editor_title(self) -> str:
         lines = self.buffer.document.line_count
-        return f" Command · {lines} line{'s' if lines != 1 else ''} · Enter submits complete input"
+        return f" Command · {lines} line{'s' if lines != 1 else ''} · Ctrl+Enter runs · Enter adds a line"
 
     def footer(self) -> str:
         elapsed = (
@@ -729,6 +729,13 @@ class WorkspaceConsole:
         else:
             self._append(text)
 
+    def write_output(self, text: str) -> None:
+        markdown = output_markdown(text)
+        if self.loop is not None and self.app.is_running:
+            self.loop.call_soon_threadsafe(self.write_markdown, markdown)
+        else:
+            self.write_markdown(markdown)
+
     def _append(
         self, text: str, styled: list[StyleAndTextTuples] | None = None
     ) -> None:
@@ -794,14 +801,14 @@ class WorkspaceConsole:
                 elif outcome.success and outcome.markdown is not None:
                     self.write_markdown(outcome.markdown)
                 else:
-                    self.write(output)
+                    self.write_markdown(output_markdown(output))
                 if not outcome.success:
                     self.explain_match_error(outcome.output)
         except Exception as exc:  # noqa: BLE001 - background CLI error boundary
             # Command task is the CLI error boundary; keep the draft/UI recoverable.
             self.exit_code = 1
             self.status = "Command failed"
-            self.write(self.mark_command_error(source, f"error: {exc}"))
+            self.write_markdown(output_markdown(self.mark_command_error(source, f"error: {exc}")))
             self.explain_match_error(str(exc))
         finally:
             self.last_elapsed = monotonic() - self.started if self.started else None
@@ -963,7 +970,7 @@ class WorkspaceConsole:
             "## Workspace shortcuts\n\n"
             "**F1** Shortcuts · **F2** Actions · **F3** Files · **F4** Help · **F5** Refresh · **F6** Focus\n\n"
             "**F7** Outline · **F8** Resources · **F9** Server · **F10** Quit\n\n"
-            "- **Enter** continues incomplete input, then submits. Paired brackets and quotes keep the cursor inside; new lines indent automatically.\n"
+            "- **Ctrl+Enter** runs the whole draft from any line. **Enter** adds an indented line. **Ctrl+J** also runs it. Paired brackets and quotes keep the cursor inside.\n"
             "- **Ctrl+R** searches history or results; **Ctrl+C** clears a draft or requests cancellation.\n"
             "- **Escape** closes the focused panel or menu. Files are local; selecting a file prepares `parse`.\n"
             "- Outline: **Enter** expands/collapses; **Left/Right** pans; **p** prepares `print`. Select Next/Previous page for 50 items.\n"
@@ -1079,6 +1086,12 @@ class WorkspaceConsole:
             & Condition(lambda: self.busy or self.closing),
             eager=True,
         )
+        @bindings.add(
+            "c-j",
+            filter=has_focus(self.buffer)
+            & Condition(lambda: self.busy or self.closing),
+            eager=True,
+        )
         def busy_enter(event: KeyPressEvent) -> None:
             self.write("A command is running; your next draft is kept.")
 
@@ -1126,6 +1139,7 @@ class WorkspaceConsole:
         self.loop = asyncio.get_running_loop()
         try:
             with (
+                control_enter_keys(),
                 redirect_stdout(cast(TextIO, self.stream)),
                 redirect_stderr(cast(TextIO, self.stream)),
             ):

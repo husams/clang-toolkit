@@ -15,7 +15,9 @@ from clang_toolkit.cli.runtime.references import (
     index_value,
     property_value,
 )
-from clang_toolkit.cli.runtime.semantic import RepeatedView, view
+from clang_toolkit.cli.runtime.semantic import (
+    BindingMapView, MapView, MessageView, RepeatedView, field_sources, view,
+)
 from clang_toolkit.cli.runtime.values import MatchSet
 from clang_toolkit.match_values import (
     BindingSelection,
@@ -49,6 +51,14 @@ class FileInventory:
         return len(self.files)
 
 
+@dataclass(frozen=True)
+class SessionInventory:
+    sessions: RepeatedView
+
+    def __len__(self) -> int:
+        return len(self.sessions)
+
+
 @dataclass
 class _FileBranch:
     folders: dict[str, _FileBranch] = dataclass_field(default_factory=dict)
@@ -63,8 +73,12 @@ def display_snapshot(
         return outline_snapshot(value, expanded, pages)
     if kind == "file_list" and isinstance(value, tuple):
         value = FileInventory(value)
+    if kind == "session_list" and isinstance(value, MessageView):
+        value = SessionInventory(property_value(value, "sessions"))
     if isinstance(value, FileSet | FileInventory):
         title = "Files"
+    elif isinstance(value, SessionInventory):
+        title = "Sessions"
     elif isinstance(value, MatchValue | MatchSet | NativeMatchCollection | NativeBindingCollection | MatchRow | BindingSelection):
         title = "Matches"
     else:
@@ -112,6 +126,7 @@ def outline_snapshot(
                 MatchSet,
                 FileSet,
                 FileInventory,
+                SessionInventory,
             ),
         )
         count = (
@@ -121,13 +136,18 @@ def outline_snapshot(
             if sequence
             else None
         )
-        label = f"{name} · {type(value).__name__}" + (
+        type_name = value.descriptor.name if isinstance(value, MessageView) else type(value).__name__
+        label = f"{name} · {type_name}" + (
             f" [{count}]" if count is not None else ""
         )
         if isinstance(value, InputDescriptor):
             label = f"{name} · {value.path}"
         elif isinstance(value, FileInventory):
             label = f"{name} · open files [{count}]"
+        elif isinstance(value, SessionInventory):
+            label = f"{name} [{count}]"
+        elif isinstance(value, RepeatedView):
+            label = f"{name} [{count}]"
         elif isinstance(value, BindingSelection):
             def detail(field: str) -> str | None:
                 try:
@@ -208,12 +228,16 @@ def outline_snapshot(
                     directory(groups, base or ".", depth + 1)
             else:
                 for index in range(start, stop):
-                    child = (
-                        value[index]
-                        if isinstance(value, tuple)
-                        else index_value(value, index)
-                    )
-                    visit(f"{reference}[{index}]", f"[{index}]", child, depth + 1)
+                    if isinstance(value, SessionInventory):
+                        child = index_value(value.sessions, index)
+                    elif isinstance(value, tuple):
+                        child = value[index]
+                    else:
+                        child = index_value(value, index)
+                    name = f"[{index}]"
+                    if isinstance(value, SessionInventory):
+                        name += f" · {property_value(child, 'session_id')} · {PurePosixPath(property_value(child, 'file_path')).name}"
+                    visit(f"{reference}[{index}]", name, child, depth + 1)
             if page < last_page:
                 rows.append(
                     PanelEntry(
@@ -224,13 +248,17 @@ def outline_snapshot(
                     )
                 )
             return
-        names = (
-            tuple(property_value(value, "keys"))
-            if isinstance(value, BindingSelection)
-            else tuple(value)
-            if type(value) is dict
-            else field_names(value)
-        )
+        if isinstance(value, BindingSelection):
+            names = tuple(property_value(value, "keys"))
+        elif isinstance(value, MatchRow):
+            names = tuple(sorted(value.bindings))
+        elif isinstance(value, MapView | BindingMapView) or type(value) is dict:
+            names = tuple(value)
+        elif isinstance(value, MessageView):
+            ast_fields = field_sources(value)
+            names = tuple(name for name in field_names(value) if name in ast_fields)
+        else:
+            names = field_names(value)
         if isinstance(value, BindingSelection):
             preferred = (
                 "decl_name",
@@ -246,6 +274,13 @@ def outline_snapshot(
             )
             names = tuple(name for name in preferred if name in names) + tuple(
                 name for name in names if name not in preferred
+            )
+        semantic = view(value.value) if isinstance(value, BindingSelection) else None
+        ast_names = field_sources(semantic) if semantic is not None else {}
+        if semantic is not None:
+            names = tuple(
+                name for name in names
+                if name not in {"parameter_name", "record_name", "type_name"} or name in ast_names
             )
         for field in names[:MAX_CHILDREN]:
             # Collection methods are actions, not properties. Dictionary keys
@@ -267,19 +302,29 @@ def outline_snapshot(
                 "set",
                 "delete",
                 "hasKey",
-            } and not (type(value) is dict and field in value):
+            } and not (type(value) is dict or isinstance(value, BindingSelection | MatchRow | MapView | BindingMapView | MessageView)):
                 continue
             key = (
                 f"[{json.dumps(field, ensure_ascii=False)}]"
-                if type(value) is dict
+                if isinstance(value, MapView | BindingMapView) or type(value) is dict
                 else f".{field}"
             )
+            # Selector properties such as name/value belong to the Python
+            # carrier too. Use its semantic projection for real AST fields.
+            ast_field = semantic is not None and field in ast_names
+            if ast_field and field in {"name", "value", "scope", "source_file"}:
+                key = ".value" + key
+            if isinstance(value, MatchRow) and field in {"bindings", "source_file", "source_match_index"}:
+                key = f".bindings[{json.dumps(field, ensure_ascii=False)}]"
             try:
-                child = (
-                    index_value(value, field)
-                    if type(value) is dict
-                    else property_value(value, field)
-                )
+                if isinstance(value, MatchRow):
+                    child = value.binding(field)
+                elif ast_field:
+                    child = property_value(semantic, field)
+                elif isinstance(value, MapView | BindingMapView) or type(value) is dict:
+                    child = index_value(value, field)
+                else:
+                    child = property_value(value, field)
             except (ValueError, TypeError, KeyError, IndexError) as exc:
                 rows.append(
                     PanelEntry(

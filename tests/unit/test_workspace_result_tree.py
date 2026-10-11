@@ -35,6 +35,7 @@ def matches(count: int = 1) -> MatchValue:
         row = results.MatchResult()
         decl = row.bindings["f"].node.function_decl.function.declarator.value
         decl.named.qualified_name = f"demo::run{index}"
+        decl.named.name.identifier = f"run{index}"
         decl.type.description.spelling = "void ()"
         store.append(row.SerializeToString(), binding_names=row.bindings)
     return MatchValue._from_store(
@@ -52,6 +53,84 @@ def select_result(ui: WorkspaceConsole, identity: str) -> None:
     ui.app.layout.focus(ui.results.window)
 
 
+def test_match_rows_show_only_named_bindings_and_ast_properties() -> None:
+    value = matches()
+    try:
+        rows = outline_snapshot(
+            {"rows": value}, frozenset({"$rows", "$rows[0]", "$rows[0].f", "$rows[0].f.value.name"}),
+        )
+        assert {row.identity for row in rows if row.depth == 2} == {"$rows[0].f"}
+        assert any(row.label == "qualified_name = 'demo::run0'" for row in rows)
+        name = next(row for row in rows if row.identity == "$rows[0].f.value.name.identifier")
+        assert name.label == "identifier = 'run0'"
+        assert dict(name.commands)["p"] == "print $rows[0].f.value.name.identifier"
+        assert not any(row.label == "name = 'f'" for row in rows)
+        assert not any(row.identity.endswith((".parameter_name", ".record_name", ".type_name")) for row in rows)
+        assert not any(
+            row.identity.endswith((".bindings", ".source_match_index", ".source_file", ".keys", ".isEmpty", ".scope"))
+            for row in rows
+        )
+    finally:
+        value.close()
+
+
+def test_real_binding_names_that_overlap_helpers_remain_visible() -> None:
+    row = results.MatchResult()
+    for name in ("bindings", "source_file", "source_match_index", "clear"):
+        row.bindings[name].node.function_decl.function.declarator.value.named.qualified_name = f"demo::{name}"
+    store = RowStore()
+    store.append(row.SerializeToString(), binding_names=row.bindings)
+    value = MatchValue._from_store(store, CursorOwner(Mock(spec=Client), "names", 1, lambda _: None))
+    try:
+        rows = outline_snapshot({"rows": value}, frozenset({"$rows", "$rows[0]"}))
+        bindings = [row for row in rows if row.depth == 2]
+        assert len(bindings) == 4
+        assert all(" - demo::" in row.label for row in bindings)
+        reserved = next(row for row in bindings if row.label.startswith("bindings -"))
+        assert dict(reserved.commands)["p"] == 'print $rows[0].bindings["bindings"]'
+    finally:
+        value.close()
+
+
+def test_session_list_captures_inventory_once_and_expands_in_results(tmp_path: Path) -> None:
+    client = Mock(spec=Client)
+    response = pb.ListSessionsResponse()
+    response.sessions.add(session_id="session-1", file_path="/src/example.cpp", row_count=3)
+    client.list_sessions.return_value = response
+    runtime = Runtime(client, cwd=tmp_path, environment={})
+    runtime.capture_display = True
+
+    async def execute(source: str) -> DispatchResult:
+        return dispatch_result(client, source, runtime)
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        pipe.send_text("session list\x1b[13;5u")
+        await wait_until(lambda: bool(ui.result_trees.trees) and not ui.busy)
+        assert "▸ Sessions" in ui.results.text
+        select_result(ui, "$Sessions")
+        pipe.send_text("\x1b[C")
+        await wait_until(lambda: "session-1 · example.cpp" in ui.results.text)
+        select_result(ui, "$Sessions[0]")
+        pipe.send_text("\x1b[C")
+        await wait_until(lambda: "row_count = 3" in ui.results.text)
+        assert "session_id = 'session-1'" in ui.results.text
+        assert not any(row.identity.endswith(".keys") for row in ui.result_trees.trees[-1].entries)
+
+    try:
+        asyncio.run(interact(tmp_path, drive, execute=execute))
+        client.list_sessions.assert_called_once()
+    finally:
+        runtime.close()
+
+
+def test_empty_session_list_has_expandable_zero_count() -> None:
+    from clang_toolkit.cli.runtime.semantic import view
+
+    rows = display_snapshot("session_list", view(pb.ListSessionsResponse()), frozenset({"$Sessions"}), {})
+    assert rows is not None and len(rows) == 1
+    assert rows[0].label == "$Sessions [0]"
+
+
 def test_matches_expand_in_results_and_keep_commands_help_and_draft(
     tmp_path: Path,
 ) -> None:
@@ -63,7 +142,7 @@ def test_matches_expand_in_results_and_keep_commands_help_and_draft(
         return DispatchResult("after result", True)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text("print $rows\r")
+        pipe.send_text("print $rows\x1b[27;5;13~")
         await wait_until(lambda: bool(ui.result_trees.trees) and not ui.busy)
         assert "legacy JSON" not in ui.results.text
         before = ui.results.text
@@ -272,7 +351,7 @@ def test_bindings_command_displays_live_branches_in_results(tmp_path: Path) -> N
         return await asyncio.to_thread(dispatch_result, runtime.client, source, runtime)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text("bindings\r")
+        pipe.send_text("bindings\x1b[27;5;13~")
         await wait_until(lambda: bool(ui.result_trees.trees) and not ui.busy)
         select_result(ui, "$config")
         pipe.send_text("\r")

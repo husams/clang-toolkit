@@ -2,17 +2,38 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completion, get_common_complete_suffix
 from prompt_toolkit.filters import Filter
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
 
 from clang_toolkit.cli.input_state import input_state
 from clang_toolkit.cli.language import lex
 
 PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
 INDENT = " " * 4
+
+
+@contextmanager
+def control_enter_keys() -> Iterator[None]:
+    """Distinguish modified Return for this workspace; restore prompt defaults."""
+    sequences = ("\x1b[27;5;13~", "\x1b[27;6;13~", "\x1b[13;5u", "\x1b[13;6u")
+    previous = {sequence: ANSI_SEQUENCES.get(sequence) for sequence in sequences}
+    try:
+        for sequence in sequences:
+            ANSI_SEQUENCES[sequence] = Keys.ControlJ
+        yield
+    finally:
+        for sequence, key in previous.items():
+            if key is None:
+                ANSI_SEQUENCES.pop(sequence, None)
+            else:
+                ANSI_SEQUENCES[sequence] = key
 
 
 def literal_context(prefix: str) -> tuple[bool, bool]:
@@ -184,12 +205,11 @@ def editing_bindings(buffer: Buffer, enabled: Filter) -> KeyBindings:
 
     @bindings.add("enter", filter=enabled, eager=True)
     def enter(event: KeyPressEvent) -> None:
-        if input_state(buffer.text).needs_more or buffer.cursor_position != len(
-            buffer.text
-        ):
-            smart_newline(buffer)
-        else:
-            buffer.validate_and_handle()
+        smart_newline(buffer)
+
+    @bindings.add("c-j", filter=enabled, eager=True)
+    def execute(event: KeyPressEvent) -> None:
+        buffer.validate_and_handle()
 
     def typed(event: KeyPressEvent) -> None:
         insert_pair(buffer, event.data)
