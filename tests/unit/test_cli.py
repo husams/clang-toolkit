@@ -407,6 +407,9 @@ def test_interactive_console_starts_session_by_default_and_keeps_legacy_flag(mon
         def __init__(self, *_args, **_kwargs):
             pass
 
+        def show_batch_progress(self, _progress):
+            pass
+
         async def run(self):
             workspace_runs.append(True)
             await FakeAsyncClient.instances[-1].session.started_reading.wait()

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from prompt_toolkit.document import Document
+from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.layout.processors import (
     Processor,
     Transformation,
@@ -18,7 +19,8 @@ from prompt_toolkit.widgets import TextArea
 from clang_toolkit.cli.workspace_state import PanelEntry, compact
 from clang_toolkit.cli.workspace_output import MAX_TRANSCRIPT_CHARS
 from clang_toolkit.cli.workspace_transcript import StyledBlock, TranscriptLexer
-from clang_toolkit.cli.workspace_tree import entry_text, navigate_tree
+from clang_toolkit.cli.workspace_tree import entry_fragments, entry_text, navigate_tree
+from clang_toolkit.cli.runtime.progress import BatchProgress
 
 SnapshotReader = Callable[
     [str, Any, frozenset[str], dict[str, int]], Awaitable[list[PanelEntry] | None]
@@ -69,6 +71,9 @@ class ResultTree:
             lines.append(entry_text(replace(item, label=label), self.expanded))
         return "\n".join(lines)
 
+    def styled(self) -> list[StyleAndTextTuples]:
+        return [entry_fragments(item, line) for item, line in zip(self.entries, self.text.splitlines(), strict=True)]
+
 
 class ResultTrees:
     def __init__(
@@ -107,11 +112,36 @@ class ResultTrees:
         if entries is None:
             return False
         entries = entries or [PanelEntry(":empty", "No bindings")]
+        self.add(kind, value, entries)
+        return True
+
+    def progress(self, value: BatchProgress) -> None:
+        entries = [
+            PanelEntry(":batch:" + value.run_id, value.label()),
+            PanelEntry(":batch-status:" + value.run_id, value.status_label()),
+        ]
+        tree = next((tree for tree in self.trees if tree.kind == "batch_progress" and tree.value.run_id == value.run_id), None)
+        if tree is not None and value.durable and value.revision < tree.value.revision:
+            return
+        if tree is None:
+            self.add("batch_progress", value, entries)
+        elif not value.active and tree.start + len(tree.text) + 1 < len(self.results.text):
+            # Put the final counters after any body output without leaving a
+            # second progress log or hiding completion above a long transcript.
+            tree.entries = []
+            self.replace(tree)
+            self.trees.remove(tree)
+            self.add("batch_progress", value, entries)
+        else:
+            tree.value, tree.entries = value, entries
+            self.replace(tree)
+
+    def add(self, kind: str, value: Any, entries: list[PanelEntry]) -> None:
         # Older previews remain searchable, without retaining unbounded values.
         if len(self.trees) >= MAX_RESULT_TREES:
             oldest = self.trees[0]
             oldest.entries = [
-                replace(item, expandable=False, page=None) for item in oldest.entries
+                replace(item, expandable=False, page=None, source=None) for item in oldest.entries
             ]
             oldest.entries[0] = replace(
                 oldest.entries[0],
@@ -122,10 +152,7 @@ class ResultTrees:
         tree = ResultTree(kind, value, len(self.results.text), entries)
         tree.text = tree.render()
         self.trees.append(tree)
-        self.append(
-            tree.text, [[("class:tree", line)] for line in tree.text.splitlines()]
-        )
-        return True
+        self.append(tree.text, tree.styled())
 
     def at(self, line: int) -> tuple[ResultTree, int] | None:
         document = self.results.buffer.document
@@ -206,7 +233,7 @@ class ResultTrees:
             StyledBlock(
                 start,
                 tree.text,
-                [[("class:tree", line)] for line in tree.text.splitlines()],
+                tree.styled(),
             )
         )
         for other in self.trees:

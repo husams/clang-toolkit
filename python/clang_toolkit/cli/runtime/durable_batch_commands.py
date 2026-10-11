@@ -14,6 +14,14 @@ from .evaluator import EvaluationError
 
 
 def execute_durable_batch_command(runtime: Any, node: Tree, source: str) -> Any:
+    value = _execute(runtime, node, source)
+    if isinstance(value, BatchRun) and runtime.batch_progress is not None and runtime.output.destination == "stdout":
+        from .progress import durable_progress
+        runtime.batch_progress(durable_progress(value))
+    return value
+
+
+def _execute(runtime: Any, node: Tree, source: str) -> Any:
     kind = str(node.data)
     if kind == "durable_batch":
         # durable/background token, batch, group name, in, manifest, grouping, options, body

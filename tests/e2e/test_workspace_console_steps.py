@@ -37,7 +37,7 @@ def workspace_server(
 ) -> tuple[RunningServer, Path]:
     monkeypatch.setenv("CTK_STORAGE_ROOT", str(tmp_path / "native-storage"))
     source = tmp_path / "sample.cpp"
-    source.write_text("int workspace_native() { return 42; }\n")
+    source.write_text("int workspace_native() {\n    const int value = 7;\n    const int result = 6 + (value + 5) * 3;\n    return result;\n}\n// " + "padding_" * 20 + "SOURCE_SCROLL_END\n")
     return _launch_server("unix", tmp_path, request), source
 
 
@@ -224,6 +224,12 @@ def run_workspace(
         column = screen.display[row].index("▸") + 1
         os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
         read_until("[0] · MatchRow")
+        link_row = next(i for i, line in enumerate(screen.display) if "[0] · MatchRow" in line)
+        link_column = screen.display[link_row].index("[0] · MatchRow")
+        assert screen.buffer[link_row][link_column].underscore
+        assert not screen.buffer[link_row][link_column - 1].underscore
+        link_end = len(screen.display[link_row].rstrip())
+        assert not screen.buffer[link_row][link_end + 1].underscore
         os.write(master, b"\x1b[C\x1b[C\x1b[C")
         read_until("f - workspace_native")
         os.write(master, b"\x1b[C\x1b[C")
@@ -233,9 +239,85 @@ def run_workspace(
             for line in screen.display
         )
         (tmp_path / "workspace-match-tree.txt").write_text("\n".join(screen.display))
+        # A binding link opens a separate C++ source window, preserving the
+        # existing console panes and returning to the same tree on close.
+        os.write(master, b"\x1b[D")
+        read_until("f - workspace_native")
+        row = next(i for i, line in enumerate(screen.display) if "f - workspace_native" in line)
+        column = screen.display[row].index("f - workspace_native") + 1
+        os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
+        read_until("Matches [1]")
+        outline_row = next(i for i, line in enumerate(screen.display) if "[0] sample.cpp:" in line)
+        outline_column = screen.display[outline_row].index("[0] sample.cpp:")
+        assert screen.buffer[outline_row][outline_column].underscore
+        assert not screen.buffer[outline_row][outline_column - 1].underscore
+        assert not screen.display[0].startswith(" CTK console | ")
+        assert "sample.cpp" in screen.display[0] and str(tmp_path) not in screen.display[0]
+        read_until("int workspace_native")
+        assert any("1│" in line and "int workspace_native" in line for line in screen.display)
+        row = next(i for i, line in enumerate(screen.display) if "int workspace_native" in line)
+        column = screen.display[row].index("int workspace_native")
+        assert screen.buffer[row][column].fg != screen.buffer[row][column + 4].fg
+        read_until("const int result")
+        for index in range(5):
+            code_line = screen.display[row + index]
+            assert f"▶{index + 1}│" in code_line  # One screen row per original source line.
+            marker_column = code_line.index("▶")
+            assert screen.buffer[row + index][marker_column].fg in {"ff8080", "ff8787"}
+        assert screen.buffer[row][column].underscore
+        assert column - screen.display[row].index("▶") == 4
+        assert screen.buffer[row][column].bg != "315d80"
+        # Source panning keeps the line-number gutter fixed, including when
+        # the real cursor is on the short function declaration above.
+        (tmp_path / "workspace-source-scroll.txt").write_text("\n".join(screen.display))
+        bar_row = next(i for i, line in enumerate(screen.display) if "━" in line and "‹" in line and "›" in line and line.index("‹") < 12)
+        bar_left = screen.display[bar_row].index("‹")
+        bar_right = screen.display[bar_row].index("›")
+        os.write(master, b"\x1b[1;5C")
+        read_until("space_native", recorded=lambda: "int workspace_native" not in screen.display[row])
+        assert "▶1│" in screen.display[row]
+        os.write(master, f"\x1b[<0;{bar_right};{bar_row + 1}M\x1b[<0;{bar_right};{bar_row + 1}m".encode())
+        read_until("SOURCE_SCROLL_END")
+        assert "▶1│" in screen.display[row]
+        os.write(master, f"\x1b[<0;{bar_left + 2};{bar_row + 1}M\x1b[<0;{bar_left + 2};{bar_row + 1}m".encode())
+        read_until("int workspace_native")
+        (tmp_path / "workspace-source-window.txt").write_text("\n".join(screen.display))
+        os.write(master, b"\t\r")
+        read_until("f — workspace_native")
+        os.write(master, b"\x1b")
+        read_until("f - workspace_native", recorded=lambda: not any("Matches in file" in line for line in screen.display))
         os.write(master, b"\x1b[D" * 6)
         read_until("▸ Matches", recorded=lambda: not any("decl_name =" in line for line in screen.display))
         os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")  # Resume following; cycle through help to input.
+        # A real AST expression selects only the middle of its statement.
+        commands.append('let expressions = match binaryOperator(hasOperatorName("*"), isExpansionInMainFile()).bind("expr") in $tree')
+        submit(commands[-1], "Ready")
+        commands.append('print $expressions')
+        submit(commands[-1], "▸ Matches")
+        row = max(i for i, line in enumerate(screen.display) if "▸ Matches" in line)
+        column = screen.display[row].index("▸") + 1
+        os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
+        read_until("sample.cpp:3:")
+        row = next(i for i, line in enumerate(screen.display) if "[0] · MatchRow" in line and "sample.cpp:3:" in line)
+        column = screen.display[row].index("[0] · MatchRow") + 1
+        os.write(master, f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
+        read_until("lines 3–3")
+        expression = "(value + 5) * 3"
+        code_row = next(i for i, line in enumerate(screen.display) if expression in line)
+        column = screen.display[code_row].index(expression)
+        assert "▶3│" in screen.display[code_row]
+        assert all(screen.buffer[code_row][column + offset].underscore for offset in range(len(expression)))
+        # The retained function match still marks its whole region while the
+        # selected expression has the filled arrow on its own line.
+        assert screen.buffer[code_row][column + len(expression)].underscore
+        function_row = next(i for i, line in enumerate(screen.display) if "int workspace_native" in line)
+        assert "▷1│" in screen.display[function_row]
+        (tmp_path / "workspace-source-expression.txt").write_text("\n".join(screen.display))
+        os.write(master, b"\x1b")
+        read_until("CTK console", recorded=lambda: not any("Matches in file" in line for line in screen.display))
+        os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")
+        commands.append('binding drop $expressions')
+        submit(commands[-1], "Ready")
         commands.append("session list")
         submit(commands[-1], "▸ Sessions")
         row = next(i for i, line in enumerate(screen.display) if "▸ Sessions" in line)
@@ -254,6 +336,21 @@ def run_workspace(
         column = screen.display[row].index("Resident memory")
         assert screen.buffer[row][column].bg != "default"
         (tmp_path / "workspace-command-output.txt").write_text("\n".join(screen.display))
+        # Foreground progress is a single updated bar, backed by native work.
+        second_source = tmp_path / "second.cc"
+        second_source.write_text("int second() {\n    return 2;\n}\n")
+        commands.append(f'let batch_inputs = files ["{source}", "{second_source}"]')
+        submit(commands[-1], "Ready")
+        commands.append('batch part in $batch_inputs size 1 do { match functionDecl() in $part; }')
+        submit(commands[-1], "State: completed")
+        progress_row = next(i for i, line in enumerate(screen.display) if "2/2 files" in line and "Batch " in line)
+        assert "State:" not in screen.display[progress_row]
+        assert "State: completed" in screen.display[progress_row + 1]
+        assert sum("Batch " in line and "2/2 files" in line for line in screen.display) == 1
+        assert not any("group 1 started:" in line for line in screen.display)
+        (tmp_path / "workspace-batch-progress.txt").write_text("\n".join(screen.display))
+        commands.append('binding drop $batch_inputs')
+        submit(commands[-1], "Ready")
         # Read live server data and expand actual retained bindings in a wide
         # terminal. Every panel shares the existing draft and command runtime.
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 140, 0, 0))
