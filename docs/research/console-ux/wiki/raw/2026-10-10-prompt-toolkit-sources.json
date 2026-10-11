@@ -1,0 +1,34 @@
+{
+  "backend": "official-direct-fetch",
+  "context7_available": false,
+  "sources": [
+    {
+      "file": "2026-10-10-prompt-toolkit-prompts.md",
+      "url": "https://python-prompt-toolkit.readthedocs.io/en/3.0.52/pages/asking_for_input.html",
+      "version": "3.0.52",
+      "sha256": "77b5a5694945dd2dda8833d5ee98e2d7fd5b8728c5fed18b409694de1f1b0149",
+      "bytes": 29650
+    },
+    {
+      "file": "2026-10-10-prompt-toolkit-layout.md",
+      "url": "https://python-prompt-toolkit.readthedocs.io/en/3.0.52/pages/full_screen_apps.html",
+      "version": "3.0.52",
+      "sha256": "75107f98cddfd8a2b62a129fe30cecc05d7562dacc2e1d61f3c5a0819412ee61",
+      "bytes": 13657
+    },
+    {
+      "file": "2026-10-10-prompt-toolkit-asyncio.md",
+      "url": "https://python-prompt-toolkit.readthedocs.io/en/3.0.52/pages/advanced_topics/asyncio.html",
+      "version": "3.0.52",
+      "sha256": "9554cfb91ceab4e54215833d68c212105b55dc907176d4bf615a28a1f933738e",
+      "bytes": 2392
+    },
+    {
+      "file": "2026-10-10-prompt-toolkit-reference.md",
+      "url": "https://python-prompt-toolkit.readthedocs.io/en/3.0.52/pages/reference.html",
+      "version": "3.0.52",
+      "sha256": "f29523d009abf20719d0584bf90b3b0356c6e8c8807934c4bf37abf4666ab01a",
+      "bytes": 203763
+    }
+  ]
+}

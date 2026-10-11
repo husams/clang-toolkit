@@ -1,0 +1,36 @@
+--- a/index.md
++++ b/index.md
+@@ -41,6 +41,8 @@
+ - [[pages/code/document-ingest-endpoint]] — standalone `doc-ingest` Go service (`doc-ingest.senussi.me`): POST /v1/documents/ingest feeds an uploaded PDF/image inline to the ADK calendar_agent via session+/run_sse to create calendar event(s); `dry_run` extracts only; `cal-doc` CLI; companion calendar-agent timezone fix (deterministic to_utc, no +1h BST drift). Deployed via ArgoCD app `agentic-doc-ingest` (image v0.1.0); live dry_run verified 2026-06-08. (sources: 1)
+ 
+ ## Research
++
++- [[pages/research/clang-toolkit-console-experience]] — prompt_toolkit status bar, menu and collapsible explorer options, workspace proposal and five verified widget feasibility checks. (sources: 8)
+ 
+ - [[pages/research/clang-toolkit-console-implementation-gaps-2026-10-09]] — Source-backed pre-implementation diagnoses with a verified implementation follow-up covering lambda roots, traversal parity, provenance, availability, batch and graph values. (sources: 8)
+ - [[pages/research/clang-toolkit-console-independent-review-2026-10-09]] — Historical independent counterexamples, followed by implemented fixes and verified console/SDK/repository probes; current plan records remaining boundaries. (sources: 11)
+@@ -775,3 +777,12 @@
+ - raw/2026-10-09-ctk-rhel-storage-lock-linux-dev-verification.md — Rocky 9.8 full-suite ownership-lock reproduction and recovery on linux-dev (ingested 2026-10-09).
+ 
+ - raw/2026-10-09-ctk-rhel-cache-isolation-fix-verification.md — cache-isolation patch and full RHEL build-script output under a held inherited ownership lock (ingested 2026-10-09).
++
++- raw/2026-10-10-ctk-console-ui-baseline.md — console experience source snapshot or feasibility evidence (ingested 2026-10-10).
++- raw/2026-10-10-ctk-console-wiki-context.md — console experience source snapshot or feasibility evidence (ingested 2026-10-10).
++- raw/2026-10-10-prompt-toolkit-api-probe.md — console experience source snapshot or feasibility evidence (ingested 2026-10-10).
++- raw/2026-10-10-prompt-toolkit-asyncio.md — console experience source snapshot or feasibility evidence (ingested 2026-10-10).
++- raw/2026-10-10-prompt-toolkit-layout-probe.md — console experience source snapshot or feasibility evidence (ingested 2026-10-10).
++- raw/2026-10-10-prompt-toolkit-layout.md — console experience source snapshot or feasibility evidence (ingested 2026-10-10).
++- raw/2026-10-10-prompt-toolkit-prompts.md — console experience source snapshot or feasibility evidence (ingested 2026-10-10).
++- raw/2026-10-10-prompt-toolkit-reference.md — console experience source snapshot or feasibility evidence (ingested 2026-10-10).
+--- a/log.md
++++ b/log.md
+@@ -3339,3 +3339,9 @@
+ Verified prior changes were already committed on clean local/remote main 2fbcec2 before implementing the user-authorized flatten($run.results). One-level flattening preserves order and row objects, skips empty groups, rejects noncollection children by index, caps output at 10,000 items and does not mutate or requery inputs; join remains string joining.
+ Passed 878 full Python unit tests and 105 full real-server BDD tests, plus seven focused native batch scenarios. Actual native results print collected function names and survive protobuf save/reload after cleanup, with zero native counters. Updated help/reference, [[pages/planning/clang-toolkit-open-files-and-batches]], [[pages/manuals/clang-toolkit-console-resource-management]], index.md and published spec.
+ Committed and pushed all nine feature files as 565d3cd360af4044c5287029b01fbeb3352903c9; local/origin/live remote main match and the project worktree is clean. Native source and wire contract are unchanged; the previous 312/312 native suite applies to the same native implementation.
++
++## [2026-10-10] ingest | Clang Toolkit console experience proposal
++
++Collected four versioned official prompt_toolkit sources, baseline and wiki context snapshots, and two public API feasibility records. Created pages/research/clang-toolkit-console-experience.md and an editable cloud Page. Recommended a footer first and an optional workspace with menus and a closable explorer. Five isolated widget checks passed.
++
++This wiki bundle is prepared in the clang-toolkit Git worktree; canonical wiki files are untouched because the user requires all work to stay in a Git worktree.
