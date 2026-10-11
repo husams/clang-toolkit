@@ -115,6 +115,40 @@ def test_source_catalog_contains_all_file_matches_and_omits_other_files(tmp_path
     assert snapshot.matches[0].target.line == 5
     assert next(link for link in snapshot.matches[0].bindings if link.label == "callee").end_line == 3
     assert snapshot.text == path.read_text()
+    assert snapshot.display_path == "demo.cpp"
+
+
+def test_all_match_ranges_keep_gaps_and_selected_marker_without_extra_rows() -> None:
+    text = "int first = a + b;\n\nint second = c + d;\nint untouched;\n"
+    selected = SourceTarget("demo.cc", 1, 13, 1, end_column=14)
+    other = SourceTarget("demo.cc", 1, 17, 1, end_column=18)
+    region = SourceTarget("demo.cc", 2, 1, 3, end_column=20)
+    nested = SourceTarget("demo.cc", 3, 14, 3, end_column=15)
+    presentation = SourcePresentation(text, selected, (other, region, nested, region, selected))
+    assert presentation.document.text == text
+    assert [presentation.gutter(row, 0)[0][1] for row in range(4)] == ["▶", "▷", "▷", " "]
+    lexer = presentation.lex_document(presentation.document)
+    assert "".join(value for style, value in lexer(0) if " underline" in style) == "ab"
+    assert "".join(value for style, value in lexer(2) if " underline" in style) == "int second = c + d;"
+    assert presentation.spans[2] == [(0, 19)]
+    moved = SourcePresentation(text, nested, (selected, other, region))
+    assert moved.gutter(0, 0)[0][1] == "▷" and moved.gutter(2, 0)[0][1] == "▶"
+    assert moved.spans == presentation.spans
+
+
+def test_source_header_uses_relative_paths_only_beneath_current_directory(tmp_path: Path) -> None:
+    cwd = tmp_path / "project"
+    child = cwd / "src" / "demo.cc"
+    child.parent.mkdir(parents=True)
+    child.write_text("int value;\n")
+    snapshot = source_snapshot(SourceTarget(str(child), 1, 1, 1), (), cwd)
+    assert snapshot.path == child and snapshot.display_path == "src/demo.cc"
+    relative = source_snapshot(SourceTarget("src/demo.cc", 1, 1, 1), (), cwd)
+    assert relative.display_path == snapshot.display_path
+    sibling = tmp_path / "project-other.cc"
+    sibling.write_text("int outside;\n")
+    outside = source_snapshot(SourceTarget(str(sibling), 1, 1, 1), (), cwd)
+    assert outside.display_path == str(sibling)
 
 
 @pytest.mark.parametrize("columns", [48, 100])
@@ -139,6 +173,8 @@ def test_click_binding_opens_cpp_window_and_outline_navigates_without_changing_d
         assert ui.source.visible and ui.app.layout.has_focus(ui.source.code.window)
         await wait_until(lambda: ui.source.code.window.render_info is not None and ui.source.code.window.render_info.window_height >= 18)
         assert ui.source.target.line == 1 and ui.source.target.end_line == 3
+        assert ui.source.snapshot.display_path == "demo.cpp"
+        assert ui.source.code.lexer.gutter(5, 0)[0][1] == "▷"  # Unclicked matches remain marked.
         syntax = ui.source.code.lexer.lex_document(ui.source.code.buffer.document)(0)
         assert any("pygments.keyword" in style for style, text in syntax if "int" in text)
         pipe.send_text("\t")
@@ -146,6 +182,8 @@ def test_click_binding_opens_cpp_window_and_outline_navigates_without_changing_d
         ui.source.tree.selected = 1
         pipe.send_text("\r")
         await wait_until(lambda: ui.source.target.line == 5)
+        assert ui.source.code.lexer.gutter(0, 0)[0][1] == "▷"  # Binding range remains marked.
+        assert ui.source.code.lexer.gutter(4, 0)[0][1] == "▶"
         assert len(ui.source.tree.entries) == 5  # count, two matches, two named bindings
         pipe.send_text("n")
         await wait_until(lambda: ui.source.target.line == 6)
@@ -205,6 +243,7 @@ def test_source_outline_pages_all_matches_and_next_previous_cross_pages(tmp_path
         ui.source.show(SourceSnapshot(tmp_path / "demo.cpp", "int value;\n" * 125, links), links[49].target)
         ui.source.next_match(1)
         assert ui.source.target.line == 51 and ui.source.page == 1
+        assert ui.source.code.lexer.gutter(124, 0)[0][1] == "▷"  # Off-page matches are also marked.
         assert "Matches [125]" in ui.source.tree.entries[0].label
         ui.source.next_match(-1)
         assert ui.source.target.line == 50 and ui.source.page == 0

@@ -46,6 +46,7 @@ class SourceSnapshot:
     text: str
     matches: tuple[SourceMatch, ...]
     notice: str = ""
+    display_path: str = ""
 
 
 def source_target(value: Any, label: str = "") -> SourceTarget | None:
@@ -174,4 +175,8 @@ def source_snapshot(target: SourceTarget, values: Iterable[Any], cwd: Path) -> S
         except Exception:  # noqa: BLE001 - one expired preview must not block source viewing
             unavailable += 1
     notice = f"{unavailable} result preview(s) unavailable; print fresh results to include them" if unavailable else ""
-    return SourceSnapshot(path, text, tuple(matches), notice)
+    try:
+        display_path = str(path.relative_to(cwd.resolve()))
+    except ValueError:
+        display_path = str(path)
+    return SourceSnapshot(path, text, tuple(matches), notice, display_path)

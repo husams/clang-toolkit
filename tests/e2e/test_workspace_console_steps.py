@@ -252,6 +252,7 @@ def run_workspace(
         assert screen.buffer[outline_row][outline_column].underscore
         assert not screen.buffer[outline_row][outline_column - 1].underscore
         assert not screen.display[0].startswith(" CTK console | ")
+        assert "sample.cpp" in screen.display[0] and str(tmp_path) not in screen.display[0]
         read_until("int workspace_native")
         assert any("1│" in line and "int workspace_native" in line for line in screen.display)
         row = next(i for i, line in enumerate(screen.display) if "int workspace_native" in line)
@@ -292,8 +293,11 @@ def run_workspace(
         column = screen.display[code_row].index(expression)
         assert "▶3│" in screen.display[code_row]
         assert all(screen.buffer[code_row][column + offset].underscore for offset in range(len(expression)))
-        assert not screen.buffer[code_row][column - 1].underscore
-        assert not screen.buffer[code_row][column + len(expression)].underscore  # The semicolon is outside the AST range.
+        # The retained function match still marks its whole region while the
+        # selected expression has the filled arrow on its own line.
+        assert screen.buffer[code_row][column + len(expression)].underscore
+        function_row = next(i for i, line in enumerate(screen.display) if "int workspace_native" in line)
+        assert "▷1│" in screen.display[function_row]
         (tmp_path / "workspace-source-expression.txt").write_text("\n".join(screen.display))
         os.write(master, b"\x1b")
         read_until("CTK console", recorded=lambda: not any("Matches in file" in line for line in screen.display))

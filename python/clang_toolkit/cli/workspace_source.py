@@ -79,7 +79,7 @@ class SourceWindow:
                 ]),
                 Window(FormattedTextControl(lambda: compact(self.notice, 4096)), height=1, style="class:toolbar"),
             ], key_bindings=keys),
-            title=lambda: compact(str(self.snapshot.path) if self.snapshot else "Source code", 4096),
+            title=lambda: compact((self.snapshot.display_path or str(self.snapshot.path)) if self.snapshot else "Source code", 4096),
             style="class:code",
         )
 
@@ -116,7 +116,8 @@ class SourceWindow:
         self.target = target
         if self.snapshot is None:
             return
-        presentation = SourcePresentation(self.snapshot.text, target)
+        links = (link for match in self.snapshot.matches for link in (match.target, *match.bindings))
+        presentation = SourcePresentation(self.snapshot.text, target, links)
         self.code.lexer = presentation
         self.code.window.get_line_prefix = presentation.gutter
         self.code.buffer.set_document(presentation.document, bypass_readonly=True)

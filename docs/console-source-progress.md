@@ -17,7 +17,7 @@ Implementation branch: `codex/console-source-progress`, in the isolated `console
 - [x] Match, binding, location and range rows link to valid physical AST coordinates.
 - [x] Click a linked label or select it and press **O**; triangle clicks and Enter still expand trees.
 - [x] A full-screen window overlays the console with numbered C++ on the left and file matches on the right.
-- [x] Each selected source line has one red `▶` marker in a compact line-number gutter; matched text is underlined inline, retaining C++ syntax colors and normal line spacing.
+- [x] All available matches and binding ranges in the file remain marked and underlined inline, retaining C++ syntax colors and normal line spacing. The compact gutter uses red `▶` for selected lines and `▷` for other matched lines.
 - [x] Underlines use valid exclusive AST endpoint columns and UTF-8 byte coordinates; tabs expand to four spaces. Older results without exclusive columns mark through the end of the final line.
 - [x] Each named binding navigates to its own range; macro links use expansion coordinates.
 - [x] The outline pages all matches in the file from current bindings and retained result previews, 50 matches per page.
@@ -63,6 +63,15 @@ Validation evidence is retained under this worktree's ignored `build/source-prog
 - [x] Exact expression bounds still exclude adjacent operators and semicolons.
 - [x] Updated source/terminal checks: 23 passed; all 1,036 unit tests, 116 acceptance cases, and 336 native tests pass (**1,488 total**). Type checking, focused lint and whitespace checks pass; evidence is retained in `build/source-compact-*.log`.
 
+### All file matches and relative paths
+
+- [x] Every available match and named binding range remains marked, including collapsed and off-page outline entries; navigation changes the selected arrow without clearing other ranges.
+- [x] Overlapping, nested and duplicate ranges merge into one underline; gaps between separate expressions remain unmarked unless another match covers them.
+- [x] Selected lines use `▶`; other matched lines use `▷`, with the existing red marker color, gutter width, syntax colors and one row per source line.
+- [x] The source window title shows paths relative to the current directory for files beneath it; outside files keep their absolute paths. File loading continues to use the original absolute path.
+- [x] Focused checks: 25 passed, including real-terminal rendering, relative titles, persistent markers and source navigation; type checking and focused lint pass.
+- [x] All 1,038 Python unit tests, 116 acceptance cases (502.32 seconds), and 336 native tests pass (**1,490 total**); evidence is retained in `build/source-all-matches-*.log`.
+
 Restart the isolated console with:
 
 ```sh
@@ -85,13 +94,13 @@ print $expressions
 
 Expand a match or binding, then click its underlined label or press **O**. For a running bar, click **Cancel**, or select its row and press **C**. Foreground **Ctrl+C** retains its existing cancellation behavior. Body output remains available; completion leaves one final bar and an expandable batch report. A completed batch can have fewer done files than discovered files when its body deliberately targets only a subset.
 
-The multiplication example selects `scale(bounded, 3) * 2`, leaving the surrounding assignment, `7 +`, and semicolon unmarked. This text is underlined inline with its original syntax colors and a red marker in the gutter:
+The multiplication example selects `scale(bounded, 3) * 2`. Its exact text is underlined inline with its original syntax colors and a red marker in the gutter; if a function or class match also covers that statement, that larger range remains underlined too:
 
 ```text
 ▶19│         const int result = 7 + scale(bounded, 3) * 2;
 ```
 
-The Calculator definition spans multiple lines, each marked with the same `▶` arrow. Navigation uses original file line numbers, with one screen row per source line.
+The selected Calculator definition spans multiple lines, each marked with the same `▶` arrow; other available matches use `▷`. Navigation uses original file line numbers, with one screen row per source line.
 
 For a three-file batch:
 
