@@ -37,7 +37,9 @@ std::optional<fs::path> discover(const FileInput &input, const fs::path &source,
   for (auto start : {working, source.parent_path()}) {
     for (auto directory = start; !directory.empty();) {
       for (const auto *suffix :
-           {"compile_commands.json", "build/compile_commands.json"}) {
+           {"compile_commands.json", "build/compile_commands.json",
+            "build/dev/compile_commands.json",
+            "build/release/compile_commands.json"}) {
         auto candidate = directory / suffix;
         if (fs::is_regular_file(candidate))
           return fs::weakly_canonical(candidate);

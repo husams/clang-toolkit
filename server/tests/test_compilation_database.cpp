@@ -85,6 +85,31 @@ TEST(CompilationDatabase,
   EXPECT_EQ(match_count(make_query_engine(), input, "selected"), 1);
 }
 
+TEST(CompilationDatabase, DiscoversCMakePresetDatabaseFromSourceDirectory) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-preset"};
+  std::filesystem::create_directories(project.path() / "build/dev/include");
+  std::filesystem::create_directory(project.path() / "src");
+  std::ofstream(project.path() / "build/dev/include/profile.hpp")
+      << "#define PROFILE_VALUE 29\n";
+  std::ofstream(project.path() / "src/file.cc")
+      << "#include <profile.hpp>\nstatic_assert(PROFILE_VALUE == 29);\n"
+         "int preset_profile(){return PROFILE_VALUE;}";
+  write_database(
+      project.path() / "build/dev/compile_commands.json",
+      project.path() / "build/dev", "../../src/file.cc",
+      {"clang++", "-std=c++20", "-Iinclude", "-c", "../../src/file.cc"});
+  FileInput input{"file.cc", {}, (project.path() / "src").string()};
+  const auto resolved = resolve_compilation_command(input);
+  EXPECT_EQ(resolved.compilation_database,
+            std::filesystem::weakly_canonical(project.path() /
+                                              "build/dev/compile_commands.json")
+                .string());
+  EXPECT_EQ(match_count(make_query_engine(), input, "preset_profile"), 1);
+  // Explicit selection still takes precedence over the discovered preset.
+  input.compilation_database = "missing.json";
+  EXPECT_THROW(resolve_compilation_command(input), std::invalid_argument);
+}
+
 TEST(CompilationDatabase, InputSeparatorDoesNotCreateExtraCompilerJobs) {
   ctk::platform::TemporaryDirectory project{"ctk-compdb-input-separator"};
   std::ofstream(project.path() / "optional")
