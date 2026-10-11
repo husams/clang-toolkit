@@ -22,7 +22,11 @@ KEYWORDS = {
     "QUIT",
     "EXIT",
     "TRAVERSE",
-    "OPTION", "FUNCTIONS", "BLOCKS", "ELEMENTS", "EDGES",
+    "OPTION",
+    "FUNCTIONS",
+    "BLOCKS",
+    "ELEMENTS",
+    "EDGES",
     "DEPTH",
     "NODES",
     "IMPLICIT",
@@ -52,8 +56,17 @@ KEYWORDS = {
     "USER",
     "HISTORY",
     "SESSION",
-    "LIST", "ATTACH", "SERVER", "STATUS", "CACHE", "PRUNE", "BINDINGS", "BINDING",
-    "DROP", "RENAME", "APPEND",
+    "LIST",
+    "ATTACH",
+    "SERVER",
+    "STATUS",
+    "CACHE",
+    "PRUNE",
+    "BINDINGS",
+    "BINDING",
+    "DROP",
+    "RENAME",
+    "APPEND",
     "CURSOR",
     "OPEN",
     "CONTINUE",
@@ -68,6 +81,7 @@ KEYWORDS = {
 }
 TOKEN_STYLES = {
     **{kind: "keyword" for kind in KEYWORDS},
+    "FILES_EXPR": "keyword",
     "ROOT_MATCHER_NAME": "matcher",
     "MATCHER_NAME": "matcher",
     "STRING": "string",
@@ -86,7 +100,17 @@ TOKEN_STYLES = {
     "EQUAL": "operator",
     **{
         kind: "punctuation"
-        for kind in ("LPAR", "RPAR", "LSQB", "RSQB", "LBRACE", "RBRACE", "COMMA", "DOT", "SEMICOLON")
+        for kind in (
+            "LPAR",
+            "RPAR",
+            "LSQB",
+            "RSQB",
+            "LBRACE",
+            "RBRACE",
+            "COMMA",
+            "DOT",
+            "SEMICOLON",
+        )
     },
 }
 STYLE = Style.from_dict(
@@ -106,9 +130,67 @@ STYLE = Style.from_dict(
 )
 
 
-def highlight(text: str) -> StyleAndTextTuples:
+# Workspace-only syntax palette; chrome and the standard prompt keep their styles.
+WORKSPACE_SYNTAX = {
+    "keyword": "bold #ff7896",
+    "matcher": "#b8a1ef",
+    "matcher-root": "#82adff",
+    "matcher-predicate": "#a3d36b",
+    "reference": "#79c6bc",
+    "variable": "#79c6bc",
+    "string": "#e6c47d",
+    "number": "#f1a875",
+    "value": "#ffd580",
+    "boolean": "italic #f1a875",
+    "operator": "bold #c7d5ee",
+    "punctuation": "#90a4b4",
+    "comment": "italic #748999",
+    "bind": "#b8a1ef",
+}
+
+
+def matcher_style(name: str, *, root: bool) -> str:
+    """Differentiate node matchers, predicates and traversal/combinator calls."""
+    traversal = {
+        "hasDeclaration",
+        "hasType",
+        "hasObjectExpression",
+        "hasReceiverType",
+        "hasReturnType",
+        "hasArgument",
+        "hasAnyArgument",
+        "hasDescendant",
+        "hasAncestor",
+        "hasParent",
+        "has",
+        "to",
+        "member",
+        "callee",
+        "forEach",
+        "forEachDescendant",
+        "forEachAncestor",
+        "forEachArgumentWithParam",
+    }
+    if name in traversal or name in {
+        "anyOf",
+        "allOf",
+        "eachOf",
+        "unless",
+        "optionally",
+    }:
+        return "matcher"
+    if name.startswith(("has", "is", "matches", "equals", "contains")):
+        return "matcher-predicate"
+    if root or name.endswith(("Decl", "Expr", "Stmt", "Type", "TypeLoc")):
+        return "matcher-root"
+    return "matcher"
+
+
+def highlight(
+    text: str, *, semantic_matchers: bool = False, batch: bool = False
+) -> StyleAndTextTuples:
     """Preserve every character while assigning styles from grammar tokens."""
-    tokens = lex(text)
+    tokens = lex(text, batch=batch)
     next_types = [""] * len(tokens)
     next_type = ""
     for index in range(len(tokens) - 1, -1, -1):
@@ -134,6 +216,13 @@ def highlight(text: str) -> StyleAndTextTuples:
                 style = "matcher"
             else:
                 style = "value"
+        if semantic_matchers:
+            if style == "matcher":
+                style = matcher_style(str(token), root=kind == "ROOT_MATCHER_NAME")
+            elif kind in {"TRUE", "FALSE"}:
+                style = "boolean"
+            elif kind == "COMMENT":
+                style = "comment"
         fragments.append((f"class:{style}" if style else "", str(token)))
         if kind != "WS":
             previous = kind
@@ -141,10 +230,16 @@ def highlight(text: str) -> StyleAndTextTuples:
 
 
 class ReplLexer(Lexer):
+    def __init__(self, *, semantic_matchers: bool = False) -> None:
+        self.semantic_matchers = semantic_matchers
+
     def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
         # Lex once for the whole document so strings/references retain context.
         lines: list[StyleAndTextTuples] = [[]]
-        for style, text in highlight(document.text):
+        for fragment in highlight(
+            document.text, semantic_matchers=self.semantic_matchers
+        ):
+            style, text = fragment[0], fragment[1]
             for index, part in enumerate(text.split("\n")):
                 if index:
                     lines.append([])

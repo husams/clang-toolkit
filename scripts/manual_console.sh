@@ -67,4 +67,4 @@ printf '  quit\n\nBoth requests should return 7. Exiting stops the private serve
 
 cd "$repo_root"
 "$python_binary" -m clang_toolkit.cli.app \
-  --server "$endpoint" -c "$config"
+  --server "$endpoint" -c "$config" "$@"

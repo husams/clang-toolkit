@@ -1,0 +1,615 @@
+"""Real terminal and native server acceptance for the workspace entry point."""
+
+from __future__ import annotations
+
+import errno
+import fcntl
+import os
+import pty
+import re
+import select
+import signal
+import struct
+import subprocess
+import sys
+import termios
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+import pyte
+import pytest
+from clang_toolkit.cli.runtime.history import HistoryStore
+from clang_toolkit.client import Client
+from pytest_bdd import given, scenarios, then, when
+
+from tests.e2e.test_network_steps import RunningServer, _launch_server
+
+pytestmark = pytest.mark.e2e
+scenarios("workspace_console.feature")
+
+
+@given(
+    "an isolated workspace server and a C++ input", target_fixture="workspace_server"
+)
+def workspace_server(
+    tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> tuple[RunningServer, Path]:
+    monkeypatch.setenv("CTK_STORAGE_ROOT", str(tmp_path / "native-storage"))
+    source = tmp_path / "sample.cpp"
+    source.write_text("int workspace_native() { return 42; }\n")
+    return _launch_server("unix", tmp_path, request), source
+
+
+@when(
+    "I use the real workspace menu and file panel then submit multiline analysis",
+    target_fixture="workspace_run",
+)
+def run_workspace(
+    workspace_server: tuple[RunningServer, Path], tmp_path: Path
+) -> tuple[int, str, list[str], list[str]]:
+    server, source = workspace_server
+    master, slave = pty.openpty()
+    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 100, 0, 0))
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "clang_toolkit.cli.app",
+            "--server",
+            server.endpoint,
+            "-c",
+            str(server.config),
+            "--ui",
+            "workspace",
+        ],
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        cwd=tmp_path,
+        env=dict(
+            os.environ,
+            TERM="xterm-256color",
+            NO_COLOR="1",
+            XDG_STATE_HOME=str(tmp_path / "state"),
+        ),
+        close_fds=True,
+    )
+    os.close(slave)
+    screen = pyte.Screen(100, 28)
+    stream = pyte.ByteStream(screen)
+    commands = [
+        'let inputs = [\n"one",\n"two"\n]',
+        f'let tree = parse "{source}"',
+        'let rows = match functionDecl().bind("f") in $tree',
+        "print $rows[0].f.decl_name",
+        'print "INPUT_COUNT=${inputs.length}"',
+    ]
+
+    def read_until(
+        expected: str,
+        timeout: float = 15,
+        ready: bool = False,
+        recorded: Callable[[], bool] | None = None,
+    ) -> str:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if select.select([master], [], [], 0.05)[0]:
+                try:
+                    payload = os.read(master, 65_536)
+                except OSError as exc:
+                    if exc.errno != errno.EIO:
+                        raise
+                    break
+                if not payload:
+                    break
+                text = payload.decode("utf-8", errors="replace")
+                stream.feed(payload)
+                # Respond to terminal cursor-position requests.
+                if "\x1b[6n" in text:
+                    os.write(master, b"\x1b[1;1R")
+            else:
+                # A renderer frame can span several PTY reads. Observe it after
+                # writes settle, rather than returning in the middle of a redraw.
+                visible = "\n".join(screen.display)
+                if (
+                    expected in visible
+                    and (not ready or "Ready" in screen.display[-1])
+                    and (recorded is None or recorded())
+                ):
+                    return visible
+            if process.poll() is not None:
+                break
+        raise AssertionError(
+            f"workspace did not show {expected!r}:\n" + "\n".join(screen.display)
+        )
+
+    def redraw() -> None:
+        os.write(master, b"\x0c")
+
+    def submit(source_text: str, expected: str, *, success: bool = True) -> None:
+        before = len(
+            HistoryStore(tmp_path / "state/clang_tools/history.jsonl").read_commands()
+        )
+        os.write(master, ("\x1b[200~" + source_text + "\x1b[201~\r").encode())
+        # Wait for completion; recording occurs before native execution.
+        redraw()
+        read_until(
+            expected,
+            ready=success,
+            recorded=lambda: (
+                len(
+                    HistoryStore(
+                        tmp_path / "state/clang_tools/history.jsonl"
+                    ).read_commands()
+                )
+                > before
+            ),
+        )
+
+    try:
+        read_until("Session open")
+        assert screen.display[0].startswith(" CTK console | ")
+        # Exercise the menu at a size that requires scrolling, with real SGR
+        # mouse input rather than invoking its handlers directly.
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 14, 100, 0, 0))
+        screen.resize(lines=14, columns=100)
+        os.kill(process.pid, signal.SIGWINCH)
+        os.write(master, b"\x1bOQ")  # F2 Menu
+        read_until("Browse local files")
+        os.write(master, b"\x1b[<65;10;5M")
+        read_until("> Pause following results")
+        os.write(master, b"\x1b[F")
+        read_until("> Quit  F10")
+        os.write(master, b"\x1b[H")
+        read_until("> Browse local files")
+        os.write(master, b"\r")
+        read_until("Local files")
+        os.write(master, b"\x1bOR")  # F3 Close files
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 100, 0, 0))
+        screen.resize(lines=28, columns=100)
+        os.kill(process.pid, signal.SIGWINCH)
+        expected = [
+            "let inputs",
+            "let tree",
+            "let rows",
+            "workspace_native",
+            "INPUT_COUNT=2",
+        ]
+        source_session = None
+        initial_expiry = None
+        for index, (command, marker) in enumerate(zip(commands, expected, strict=True)):
+            submit(command, marker)
+            if index == 1:
+                with Client(server.endpoint) as observer:
+                    info = next(
+                        item
+                        for item in observer.list_sessions().sessions
+                        if item.row_count == 0
+                    )
+                    source_session = info.session_id
+                    initial_expiry = (info.expires_at.seconds, info.expires_at.nanos)
+        with Client(server.endpoint) as observer:
+            info = next(
+                item
+                for item in observer.list_sessions().sessions
+                if item.session_id == source_session
+            )
+            assert (info.expires_at.seconds, info.expires_at.nanos) > initial_expiry
+        redraw()
+        output = read_until("INPUT_COUNT=2")
+        assert "workspace_native" in output
+        (tmp_path / "workspace-compact.txt").write_text(output)
+        # Read live server data and expand actual retained bindings in a wide
+        # terminal. Every panel shares the existing draft and command runtime.
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 140, 0, 0))
+        screen.resize(lines=28, columns=140)
+        os.kill(process.pid, signal.SIGWINCH)
+        os.write(master, b"\x1b[20~")  # F9 live server status.
+        read_until("Resident memory")
+        assert "RSS" in screen.display[-1]
+        # Click the actual title's close button through SGR mouse input.
+        title = next(i for i, line in enumerate(screen.display) if "[×]" in line)
+        column = screen.display[title].index("×") + 1
+        os.write(
+            master,
+            f"\x1b[<0;{column};{title + 1}M\x1b[<0;{column};{title + 1}m".encode(),
+        )
+        read_until(
+            "Command · 1 line",
+            recorded=lambda: not any("[×]" in line for line in screen.display),
+        )
+        os.write(master, b"\x1b[18~")  # F7 binding outline.
+        read_until("$rows · MatchValue")
+        # Replace a focused help Window while Actions remembers it, then close.
+        os.write(master, b"\x1bOS\x1bOQ")
+        read_until("Browse local files")
+        os.write(master, b"\x1b[18~\x1bOQ")
+        read_until("$rows · MatchValue")
+        assert "does not appear in the layout" not in "\n".join(screen.display)
+        os.write(master, b"\x1b[B\r")  # Expand rows.
+        read_until("[0] · MatchRow")
+        os.write(master, b"\x1b[B\r")  # Expand first row.
+        read_until("f - workspace_native")
+        os.write(master, b"\x1b[B\r")  # Expand readable node properties.
+        read_until("decl_name = 'workspace_native'")
+        (tmp_path / "workspace-outline.txt").write_text("\n".join(screen.display))
+        os.write(master, b"\x1b[19~")  # F8 resource inventory.
+        read_until("Retained sessions")
+        assert "sample.cpp" in "\n".join(screen.display)
+        # Choose a retained cursor; a prepares an attachment for user review.
+        cursor_row = next(
+            i
+            for i, line in enumerate(screen.display)
+            if re.search(r"[0-9a-f-]{12} · \d+ rows", line)
+        )
+        os.write(
+            master,
+            f"\x1b[<0;100;{cursor_row + 1}M\x1b[<0;100;{cursor_row + 1}ma".encode(),
+        )
+        read_until("session attach")
+        attach_command = next(
+            line for line in screen.display if "│ session attach" in line
+        )
+        assert "into $attached1" in attach_command
+        commands.append(
+            re.search(
+                r'session attach "[0-9a-f-]+" into \$attached1', attach_command
+            ).group()
+        )
+        # Close the panel to keep the submitted command unwrapped for history.
+        os.write(master, b"\x1b[19~\r")
+        read_until(
+            "Ready",
+            ready=True,
+            recorded=lambda: len(
+                HistoryStore(
+                    tmp_path / "state/clang_tools/history.jsonl"
+                ).read_commands()
+            )
+            == len(commands),
+        )
+        commands.append("print $attached1.path")
+        submit(commands[-1], "sample.cpp")
+        os.write(master, b"\x1b[19~")
+        read_until("Retained sessions")
+        cursor_row = next(
+            i
+            for i, line in enumerate(screen.display)
+            if re.search(r"[0-9a-f-]{12} · \d+ rows", line)
+        )
+        os.write(
+            master,
+            f"\x1b[<0;100;{cursor_row + 1}M\x1b[<0;100;{cursor_row + 1}mc".encode(),
+        )
+        read_until("│ session close")
+        close_line = next(line for line in screen.display if "│ session close" in line)
+        commands.append(re.search(r'session close "[0-9a-f-]+"', close_line).group())
+        os.write(master, b"\x1b[19~\r")
+        read_until(
+            "Ready",
+            ready=True,
+            recorded=lambda: len(
+                HistoryStore(
+                    tmp_path / "state/clang_tools/history.jsonl"
+                ).read_commands()
+            )
+            == len(commands),
+        )
+        # Long local lists page lazily; long properties scroll using the mouse.
+        commands.extend(
+            [
+                "let zpages = [" + ", ".join(map(str, range(125))) + "]",
+                'let zwide = "' + "x" * 180 + 'TAIL"',
+            ]
+        )
+        for command in commands[-2:]:
+            submit(command, "Ready")
+        os.write(master, b"\x1b[18~")
+        read_until("Bindings")
+        os.write(master, b"\x1b[F")
+        read_until("$zwide")
+        bar_row = next(
+            i for i, line in enumerate(screen.display) if "‹" in line and "━" in line
+        )
+        bar_column = screen.display[bar_row].rindex("›")
+        os.write(
+            master,
+            f"\x1b[<0;{bar_column};{bar_row + 1}M\x1b[<0;{bar_column};{bar_row + 1}m".encode(),
+        )
+        read_until(
+            "TAIL", recorded=lambda: any("TAIL" in line[92:] for line in screen.display)
+        )
+        bar_column = screen.display[bar_row].index("‹") + 1
+        os.write(
+            master,
+            f"\x1b[<0;{bar_column};{bar_row + 1}M\x1b[<0;{bar_column};{bar_row + 1}m".encode(),
+        )
+        os.write(master, b"\x1b[1;5D" * 40 + b"\x1b[F\x1b[A\r")
+        read_until("Items 1–50")
+        os.write(master, b"\x1b[F\x1b[A\r")
+        read_until("[99] = 99")
+        os.write(master, b"\x1b[F\x1b[A\r")
+        read_until("[124] = 124")
+        (tmp_path / "workspace-pages.txt").write_text("\n".join(screen.display))
+        os.write(master, b"\x1bOS")  # F4 shows help again.
+        read_until("Command help")
+        os.write(master, b"\x1b[17~")  # F6 help -> command.
+        # Resize to the original dimensions for multiline expansion checks.
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 100, 0, 0))
+        screen.resize(lines=28, columns=100)
+        os.kill(process.pid, signal.SIGWINCH)
+        os.write(master, ("\x1b[200~" + commands[0] + "\x1b[201~").encode())
+        read_until("Command · 4 lines")
+        expanded = read_until("   4 │ ]")
+        assert "...>" not in expanded
+        assert any(
+            cell.fg != "default"
+            for line in screen.buffer.values()
+            for cell in line.values()
+        )
+        keyword_row = next(
+            i for i, line in enumerate(screen.display) if "│ let inputs" in line
+        )
+        keyword_column = screen.display[keyword_row].index("let inputs")
+        assert screen.buffer[keyword_row][keyword_column].fg != "default"
+        os.write(master, b"\x1bOR")
+        expanded = read_until("Local files")
+        (tmp_path / "workspace-expanded.txt").write_text(expanded)
+        os.write(master, b"\x1bOR\x03")
+        read_until("Draft cleared")
+        long_draft = "let inputs = [\n" + ",\n".join(str(i) for i in range(25))
+        os.write(master, ("\x1b[200~" + long_draft + "\x1b[201~").encode())
+        read_until("Command · 26 lines")
+        capped = read_until("  26 │ 24")
+        assert "  26 │ 24" in capped
+        (tmp_path / "workspace-capped.txt").write_text(capped)
+        os.write(master, b"\x03\x1bOS")  # Clear draft; close help for full-width code.
+        read_until("Draft cleared")
+        commands.append("help parse")
+        submit(commands[-1], "examples/parse_match.cc")
+        help_frame = "\n".join(screen.display)
+        assert "Examples" in help_frame
+        assert (
+            "```" not in help_frame
+            and "###" not in help_frame
+            and "Usage:" not in help_frame
+        )
+        example_row = next(
+            i
+            for i, line in enumerate(screen.display)
+            if 'let tree = parse "examples/' in line
+        )
+        example_line = screen.display[example_row]
+        assert (
+            len(
+                {
+                    screen.buffer[example_row][example_line.index(token)].fg
+                    for token in ("let", "tree", "parse", '"examples/')
+                }
+            )
+            == 3
+        )
+        assert screen.buffer[example_row][example_line.index("let")].bg != "default"
+        (tmp_path / "workspace-help.txt").write_text(help_frame)
+        # Exercise real typing, not bracketed paste: pairs keep the cursor inside.
+        os.write(master, b"let smart = [")
+        read_until("let smart = []")
+        assert screen.buffer[screen.cursor.y][screen.cursor.x].data == "]"
+        os.write(master, b"\x7f")
+        read_until("let smart = ")
+        os.write(master, b"[\r1,\r2")
+        smart_frame = read_until("Command · 4 lines")
+        assert "    2" in smart_frame
+        (tmp_path / "workspace-editing.txt").write_text(smart_frame)
+        commands.append("let smart = [\n    1,\n    2\n]")
+        os.write(master, b"\r]\r")
+        redraw()
+        read_until(
+            "Ready",
+            ready=True,
+            recorded=lambda: len(
+                HistoryStore(
+                    tmp_path / "state/clang_tools/history.jsonl"
+                ).read_commands()
+            )
+            == len(commands),
+        )
+        os.write(master, b'print "')
+        read_until('print ""')
+        assert screen.buffer[screen.cursor.y][screen.cursor.x].data == '"'
+        commands.append('print "PAIRED"')
+        os.write(master, b'PAIRED"\r')
+        read_until(
+            "PAIRED",
+            ready=True,
+            recorded=lambda: len(
+                HistoryStore(
+                    tmp_path / "state/clang_tools/history.jsonl"
+                ).read_commands()
+            )
+            == len(commands),
+        )
+        # A selected nested matcher gets its own closer before both outer ones.
+        prefix = "let paired = functionDecl(\n    unless(\n        isImp"
+        suffix = "\n    )\n)"
+        os.write(master, ("\x1b[200~" + prefix + suffix + "\x1b[201~").encode())
+        read_until("isImp")
+        os.write(master, b"\x1b[A\x1b[A\x05\t")
+        pair_frame = read_until("isImplicit()")
+        assert screen.buffer[screen.cursor.y][screen.cursor.x].data == ")"
+        assert any(line.lstrip().startswith("4 │     )") for line in screen.display), (
+            pair_frame
+        )
+        assert any(line.lstrip().startswith("5 │ )") for line in screen.display), (
+            pair_frame
+        )
+        (tmp_path / "workspace-smart-pairs.txt").write_text(pair_frame)
+        commands.append(prefix[:-5] + "isImplicit()" + suffix)
+        os.write(master, b")\x1b[B\x1b[B\x05\r")
+        read_until(
+            "Ready",
+            ready=True,
+            recorded=lambda: len(
+                HistoryStore(
+                    tmp_path / "state/clang_tools/history.jsonl"
+                ).read_commands()
+            )
+            == len(commands),
+        )
+        # Typed parentheses and either quote also insert before an outer closer.
+        for name, quote in [("paired_double", '"'), ("paired_single", "'")]:
+            prefix = f"let {name} = functionDecl(hasName"
+            os.write(master, ("\x1b[200~" + prefix + ")\x1b[201~\x1b[D(").encode())
+            read_until(prefix + "())")
+            assert screen.buffer[screen.cursor.y][screen.cursor.x].data == ")"
+            os.write(master, quote.encode())
+            read_until(prefix + "(" + quote + quote + "))")
+            assert screen.buffer[screen.cursor.y][screen.cursor.x].data == quote
+            commands.append(prefix + "(" + quote + "paired" + quote + "))")
+            os.write(master, ("paired" + quote + "))\r").encode())
+            read_until(
+                "Ready",
+                ready=True,
+                recorded=lambda: len(
+                    HistoryStore(
+                        tmp_path / "state/clang_tools/history.jsonl"
+                    ).read_commands()
+                )
+                == len(commands),
+            )
+        semantic_code = 'let display = memberExpr(member(hasName("first")))'
+        commands.append(semantic_code)
+        submit(semantic_code, semantic_code)
+        code_row = next(
+            i for i, line in enumerate(screen.display) if semantic_code in line
+        )
+        line = screen.display[code_row]
+        colors = {
+            screen.buffer[code_row][line.index(token)].fg
+            for token in (
+                "let",
+                "display",
+                "=",
+                "memberExpr",
+                "member(",
+                "hasName",
+                '"first"',
+                "(",
+            )
+        }
+        assert len(colors) == 8
+        background = screen.buffer[code_row][line.index("let")].bg
+        assert background != "default"
+        assert screen.buffer[code_row][98].bg == background
+        assert "CTK command" not in "\n".join(screen.display)
+        commands.append('let long_code = "' + "x" * 260 + 'TAIL"')
+        submit(commands[-1], "Ready")
+        start_row = next(
+            i for i, line in enumerate(screen.display) if "let long_code = " in line
+        )
+        tail_row = max(
+            i for i, line in enumerate(screen.display) if line.rstrip().endswith('IL"')
+        )
+        rebuilt = "".join(
+            line.split("│ ", 1)[1].rstrip()
+            for line in screen.display[start_row : tail_row + 1]
+        )
+        assert rebuilt == commands[-1]
+        assert "│ " in screen.display[tail_row]
+        assert screen.buffer[tail_row][98].bg == background
+        (tmp_path / "workspace-code.txt").write_text("\n".join(screen.display))
+        commands.append('let a_manifest = files "*.cpp"')
+        submit(commands[-1], "Ready")
+        # File paths are immediate children, with useful declaration titles.
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 140, 0, 0))
+        screen.resize(lines=28, columns=140)
+        os.kill(process.pid, signal.SIGWINCH)
+        os.write(master, b"\x1b[18~")
+        read_until("Bindings")
+        os.write(master, b"\x1b[H")
+        read_until("$a_manifest · FileSet [1]")
+        os.write(master, b"\x1b[H\r")
+        read_until("[0] · /")
+        os.write(master, b"\x1b[C" * ((len(str(source)) + 12 - 44 + 7) // 8))
+        read_until(
+            "sample.cpp",
+            recorded=lambda: any("sample.cpp" in line[92:] for line in screen.display),
+        )
+        (tmp_path / "workspace-fileset.txt").write_text("\n".join(screen.display))
+        os.write(master, b"\x1b[18~")
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 100, 0, 0))
+        screen.resize(lines=28, columns=100)
+        os.kill(process.pid, signal.SIGWINCH)
+        for failed, explanation, marked_token in [
+            (";et bad = 1", "syntax error at line 1, column 1", ";"),
+            ("print $missing", "error: unknown variable: missing", "$missing"),
+            ("print $a_manifest[0]", "value does not support indexing", "0"),
+        ]:
+            commands.append(failed)
+            submit(failed, explanation, success=False)
+            read_until(
+                "Command failed",
+                recorded=lambda: any("^" in line for line in screen.display),
+            )
+            row = next(
+                i for i, line in enumerate(screen.display) if "│ " + failed in line
+            )
+            col = screen.display[row].index(marked_token)
+            assert screen.buffer[row][col].underscore
+            assert screen.display[row + 1].index("^") == col
+            (tmp_path / "workspace-errors.txt").write_text("\n".join(screen.display))
+        commands.append('print "RECOVERED"')
+        submit(commands[-1], "RECOVERED")
+        os.write(master, b"\x1b[21~")
+        # Drain terminal writes while the application restores its screen on exit.
+        deadline = time.monotonic() + 10
+        while process.poll() is None and time.monotonic() < deadline:
+            if select.select([master], [], [], 0.05)[0]:
+                try:
+                    os.read(master, 65_536)
+                except OSError as exc:
+                    if exc.errno != errno.EIO:
+                        raise
+        code = process.wait(timeout=10)
+        return (
+            code,
+            output,
+            HistoryStore(tmp_path / "state/clang_tools/history.jsonl").read_commands(),
+            commands,
+        )
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        os.close(master)
+
+
+@then("the workspace shows native results and records each command once")
+def verify_workspace(workspace_run: tuple[int, str, list[str], list[str]]) -> None:
+    code, output, history, commands = workspace_run
+    assert code == 1, output  # Deliberate failed commands are reflected on exit.
+    assert history == commands
+    assert "Command failed" not in output
+
+
+@when("I request the workspace with a piped script", target_fixture="piped_workspace")
+def request_piped_workspace() -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--ui", "workspace"],
+        input='print "piped"\n',
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+
+
+@then("the command explains that the workspace requires interactive input")
+def verify_piped_workspace(piped_workspace: subprocess.CompletedProcess[str]) -> None:
+    assert piped_workspace.returncode == 2
+    assert "requires interactive input" in piped_workspace.stderr

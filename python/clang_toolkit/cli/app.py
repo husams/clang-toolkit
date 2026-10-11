@@ -16,7 +16,7 @@ from typing import Any
 from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.language import lex, parser as command_parser
-from clang_toolkit.cli.help import COMMANDS, render_help
+from clang_toolkit.cli.help import COMMANDS, render_help, render_help_markdown
 from clang_toolkit.cli.syntax_diagnostics import (
     syntax_diagnostic,
     unknown_command_diagnostic,
@@ -45,6 +45,7 @@ _BATCH_RUNNER_CANCEL_TIMEOUT = 30.0
 class DispatchResult:
     output: str | None
     success: bool
+    markdown: str | None = None
 
 
 class _SessionCompletionTracker:
@@ -146,7 +147,7 @@ def dispatch_result(
         if statement.data in {"help", "help_shortcut"}:
             if runtime is not None and runtime.history is not None:
                 runtime.history.append(line, runtime.session_id, runtime.label)
-            return DispatchResult(render_help(statement), True)
+            return DispatchResult(render_help(statement), True, render_help_markdown(statement))
         runtime = runtime or Runtime(client)
         return DispatchResult(runtime.execute(line), True)
     except UnexpectedInput as exc:
@@ -321,6 +322,10 @@ async def _run() -> int:
         "--compile-commands", help="server-side compile_commands.json file or directory"
     )
     parser.add_argument("--server", help="override the configured gRPC endpoint")
+    parser.add_argument(
+        "--ui", choices=("prompt", "workspace"), default="prompt",
+        help="interactive presentation (workspace enables menus and local files)",
+    )
     parser.add_argument("-c", "--cofing", "--config-path", dest="config_path")
     parser.add_argument("--print-config", action="store_true")
     parser.add_argument("--query", help="run one query expression")
@@ -374,6 +379,10 @@ async def _run() -> int:
         )
     if batch_source is not None and args.query is not None:
         parser.error("batch input cannot be combined with --query")
+    if args.ui == "workspace" and (
+        batch_source is not None or (args.query is not None and not args.background)
+    ):
+        parser.error("--ui workspace requires interactive input; use --background with --query")
 
     try:
         network_config = load_network_config(args.config_path)
@@ -622,12 +631,23 @@ async def _run() -> int:
                 query_session = await async_client.query_session()
                 client.bind_query_session(query_session)
 
+                workspace = None
+
+                def display_event(event):
+                    text = _format_event(event)
+                    if workspace is not None:
+                        workspace.write(text)
+                    else:
+                        print(text)
+
                 async def print_session_events():
                     try:
                         async for event in query_session.events():
-                            print(_format_event(event))
+                            display_event(event)
                     except QueryError as exc:
                         if not query_session.closing:
+                            if workspace is not None:
+                                workspace.connection = "Disconnected"
                             print(f"error: {exc}")
                     except Exception as exc:
                         if not query_session.closing:
@@ -638,10 +658,68 @@ async def _run() -> int:
                     async_client.start_background_query(
                         args.query,
                         args.file,
-                        on_event=lambda event: print(_format_event(event)),
+                        on_event=display_event,
                         on_error=lambda error: print(f"error: {error}"),
                     )
                     print("background query started; enter REPL commands while it runs")
+                if args.ui == "workspace":
+                    from clang_toolkit.cli.workspace import WorkspaceConsole
+                    from clang_toolkit.cli.workspace_state import PanelEntry, outline_snapshot, resource_snapshot
+                    from clang_toolkit.cli.workspace_leases import WorkspaceLeases
+
+                    runtime_lock = asyncio.Lock()
+                    leases = WorkspaceLeases(client, async_client._session_info)
+
+                    async def execute_workspace(source: str) -> DispatchResult:
+                        async with runtime_lock:
+                            await leases.refresh(force=True)
+                            return await asyncio.to_thread(
+                                dispatch_result, client, source, runtime
+                            )
+
+                    async def workspace_server_status():
+                        if not runtime_lock.locked():
+                            async with runtime_lock:
+                                await leases.refresh()
+                        return await async_client.server_status()
+
+                    async def read_outline(expanded: frozenset[str], pages: dict[str, int]) -> list[PanelEntry]:
+                        async with runtime_lock:
+                            worker = asyncio.create_task(asyncio.to_thread(outline_snapshot, runtime.bindings, expanded, pages))
+                            try:
+                                return await asyncio.shield(worker)
+                            except asyncio.CancelledError:
+                                # Join local property reads before Runtime closes.
+                                await worker
+                                raise
+
+                    async def read_resources() -> list[PanelEntry]:
+                        files, sessions = await asyncio.gather(async_client.list_files(), async_client.list_sessions())
+                        async with runtime_lock:
+                            index = 1
+                            while f"attached{index}" in runtime.bindings:
+                                index += 1
+                            return resource_snapshot(files, sessions, f"attached{index}")
+
+                    async def cancel_workspace() -> str:
+                        scope = runtime._active_resource_scope
+                        if scope is None:
+                            return "This operation has no cancellation control; waiting for completion."
+                        runtime.request_batch_cancel()
+                        await async_client.cancel_resource_scope(scope.resource_scope_id)
+                        return "Batch cancellation acknowledged; waiting for cleanup."
+
+                    workspace = WorkspaceConsole(
+                        session, runtime.cwd, execute_workspace, cancel=cancel_workspace,
+                        server_status=workspace_server_status,
+                        outline=read_outline, resources=read_resources,
+                    )
+                    exit_code = await workspace.run()
+                    try:
+                        await async_client.wait_background()
+                    except QueryError:
+                        exit_code = 1
+                    return exit_code
                 while True:
                     try:
                         line = await _prompt(session, "ctk> ")

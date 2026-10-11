@@ -106,7 +106,10 @@ class ReplCompleter(Completer):
                         continue
                     topic = topic[len(prefix) + 1 :]
                 if topic.startswith(context.partial):
-                    yield Completion(topic, start_position=-len(context.partial))
+                    yield Completion(
+                        topic, start_position=-len(context.partial),
+                        display_meta=COMMAND_HELP[(prefix + " " + topic).strip()].purpose,
+                    )
             return
         current_references = (
             self._references() if callable(self._references) else self._references
@@ -130,5 +133,9 @@ class ReplCompleter(Completer):
                 item.text,
                 start_position=item.start_position,
                 display=item.display,
-                display_meta=item.display_meta,
+                display_meta=item.display_meta or (
+                    COMMAND_HELP[item.display].purpose
+                    if item.display in COMMAND_HELP else
+                    "AST matcher" if item.display.endswith("(") else "language keyword"
+                ),
             )

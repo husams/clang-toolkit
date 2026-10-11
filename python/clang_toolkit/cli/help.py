@@ -1031,8 +1031,8 @@ COMMAND_HELP["set user"] = replace(
 COMMANDS = tuple(entry.topic for entry in _ENTRIES if " " not in entry.topic)
 
 
-def render_help(statement: Tree) -> str:
-    """Render a help statement already recognized by the shared Lark parser."""
+def help_topic(statement: Tree) -> str:
+    """Resolve the topic from a help statement recognized by Lark."""
     if statement.data == "help_shortcut":
         topic = " ".join(str(statement.children[0]).split())
     else:
@@ -1042,6 +1042,40 @@ def render_help(statement: Tree) -> str:
         topic = (
             " ".join(map(str, topic_tree.children)) if topic_tree is not None else ""
         )
+    return topic
+
+
+def render_help_markdown(statement: Tree) -> str:
+    """Structured presentation for the workspace; plain console help is unchanged."""
+    topic = help_topic(statement)
+    if not topic:
+        return (
+            "## Command reference\n\n"
+            + "\n".join(
+                f"- **{name}** — {COMMAND_HELP[name].purpose}" for name in COMMANDS
+            )
+            + "\n\nUse `help COMMAND` or `COMMAND?` for usage and examples."
+        )
+    entry = COMMAND_HELP.get(topic)
+    if entry is None:
+        return render_help(statement)
+    return "\n\n".join(
+        (
+            f"## {entry.topic}",
+            entry.purpose,
+            "### Usage",
+            "\n\n".join(f"```ctk\n{usage}\n```" for usage in entry.usage),
+            "### Arguments, options and defaults",
+            "\n".join(f"- {argument}" for argument in entry.arguments),
+            "### Examples",
+            "```ctk\n" + "\n".join(entry.examples) + "\n```",
+        )
+    )
+
+
+def render_help(statement: Tree) -> str:
+    """Render a help statement already recognized by the shared Lark parser."""
+    topic = help_topic(statement)
     if not topic:
         lines = ["Commands and expression forms (help is available without a server):"]
         lines.extend(f"  {name:12} {COMMAND_HELP[name].purpose}" for name in COMMANDS)

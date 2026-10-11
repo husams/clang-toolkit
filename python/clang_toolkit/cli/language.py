@@ -125,7 +125,7 @@ def _editor_tokens_for_done_after_newline(token: Token) -> list[Token]:
     ]
 
 
-def lex(text: str) -> list[Token]:
+def lex(text: str, *, batch: bool = False) -> list[Token]:
     """Tokenize all input, retaining whitespace and representing bad chars.
 
     The editor lexer guarantees full coverage, while the command parser's
@@ -146,7 +146,7 @@ def lex(text: str) -> list[Token]:
             token = Token.new_borrow_pos("WS", str(token), token)
         editor_tokens.append(token)
     contextual_tokens: list[Token] = []
-    interactive = parser().parse_interactive(text)
+    interactive = (batch_parser() if batch else parser()).parse_interactive(text)
     try:
         contextual_tokens.extend(interactive.iter_parse())
     except UnexpectedInput:

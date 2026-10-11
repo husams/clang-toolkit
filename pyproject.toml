@@ -9,6 +9,7 @@ dependencies = [
     "pyyaml>=6",
     "grpcio>=1.84",
     "protobuf>=7.35",
+    "rich>=13.9",
 ]
 
 [project.scripts]
@@ -17,6 +18,7 @@ ctk = "clang_toolkit.cli.app:main"
 [dependency-groups]
 dev = [
     "grpcio-tools>=1.84",
+    "pyte>=0.8,<0.9",
     "pytest>=8",
     "pytest-bdd>=7",
 ]
