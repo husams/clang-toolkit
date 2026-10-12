@@ -51,6 +51,8 @@ parameters: NAME (COMMA NAME)*
         | HELP help_topic?               -> help
         | HELP_SHORT_TOPIC QUESTION      -> help_shortcut
         | TRAVERSE path_target_expression traverse_option* graph_option* -> traverse
+        | PEEK NAME [root_expression] IN reference navigation_option* -> peek
+        | STEP NAME [root_expression] [AT NUMBER] IN reference navigation_option* -> step
         | SCRIPT target_expression (IN path_target_expression)? -> script
         | CURSOR OPEN FILE_STRING root_expression cursor_option* -> cursor_open
         | CURSOR CONTINUE STRING STRING root_expression cursor_option* -> cursor_continue
@@ -89,6 +91,8 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                | NODES NUMBER -> traverse_nodes
                | IMPLICIT (TRUE | FALSE) -> traverse_implicit
                | INSTANTIATIONS (TRUE | FALSE) -> traverse_instantiations
+
+navigation_option: NODES NUMBER -> navigation_nodes
 
 ?setting: TRAVERSAL NAME                 -> traversal_setting
         | EXTRA_ARGS list_value          -> args_setting
@@ -479,6 +483,9 @@ HELP.2: /help(?![a-zA-Z0-9_])/
 QUIT.2: /quit(?![a-zA-Z0-9_])/
 EXIT.2: /exit(?![a-zA-Z0-9_])/
 TRAVERSE.2: /traverse(?![a-zA-Z0-9_])/
+PEEK.2: /peek(?![a-zA-Z0-9_])/
+STEP.2: /step(?![a-zA-Z0-9_])/
+AT.2: /at(?![a-zA-Z0-9_])/
 PROJECTION.2: /projection(?![a-zA-Z0-9_])/
 MAIN_FILE.2: /main-file(?![a-zA-Z0-9_])/
 PAYLOAD_DEPTH.2: /payload-depth(?![a-zA-Z0-9_])/

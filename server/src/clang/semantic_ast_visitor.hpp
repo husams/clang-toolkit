@@ -7,11 +7,14 @@ namespace ctk::clang_layer {
 class SemanticAstVisitor final
     : public clang::RecursiveASTVisitor<SemanticAstVisitor> {
 public:
+  using NativeSink = std::function<MatchCode(
+      const clang::DynTypedNode &, std::size_t, std::string &)>;
   SemanticAstVisitor(clang::ASTContext &context,
                      const ctk::analysis::v1::TraverseRequest &request,
                      const IMatchBackend::Checkpoint &checkpoint,
                      const TraversalLimits &limits, TraversalResult &result,
-                     const ITraversalBackend::NodeSink &sink = {});
+                     const ITraversalBackend::NodeSink &sink = {},
+                     const NativeSink &native_sink = {});
   using Base = clang::RecursiveASTVisitor<SemanticAstVisitor>;
   using NativeNNS = decltype(std::declval<clang::NestedNameSpecifierLoc>()
                                  .getNestedNameSpecifier());
@@ -45,6 +48,7 @@ private:
   std::vector<std::uint64_t> parents_;
   std::size_t bytes_{};
   ITraversalBackend::NodeSink sink_;
+  NativeSink native_sink_;
   bool explicit_root_{};
 };
 } // namespace ctk::clang_layer

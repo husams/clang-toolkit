@@ -1,0 +1,16 @@
+let tree = parse "examples/bound_node_navigation.cc"
+let records = match cxxRecordDecl(hasName("Box"), isDefinition()).bind("record") in $tree
+let box = $records[0].record
+let methods = peek children cxxMethodDecl() in $box
+print $methods.length
+let method = step children cxxMethodDecl(hasName("run")) in $box
+let body = step children compoundStmt() in $method
+peek children in $body
+let statement = step children returnStmt() in $body
+let literal = step children integerLiteral() in $statement
+traverse $literal depth 0
+let back = step parents compoundStmt() in $statement
+let enclosing = step parents cxxMethodDecl() in $back
+print $enclosing.decl_name
+let again = match integerLiteral().bind("n") in $method
+print $again.length

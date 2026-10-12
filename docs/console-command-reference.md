@@ -9,6 +9,45 @@ use the checked-in `examples/parse_match.cc` fixture. Run them from the reposito
 root with a native server for analysis operations. Use returned cursor IDs in
 place of `CURSOR_ID`; the console opens its query session automatically.
 
+## peek
+
+Inspect immediate native neighbours of a bound node.
+
+```text
+peek children|parents [MATCHER] in TARGET [nodes NUMBER]
+```
+
+- TARGET is a retained binding, such as $rows[0].f.
+- Filters test each neighbour itself; children never searches grandchildren.
+- Standalone output streams rows; assignment retains an independent collection.
+- Rows expose .target and explicit matcher bindings. No current command is needed.
+- nodes counts examined candidates before filtering: default 10000, range 1..100000.
+- Native visitor children include implicit and type-location edges.
+- Parents preserve shared Decl/Stmt occurrences; auxiliary children retain their exact navigation parent.
+
+```text
+let methods = peek children cxxMethodDecl() in $rows[0].record
+peek parents in $calls[0].call
+```
+
+## step
+
+Return a selected neighbour as a new retained node reference.
+
+```text
+step children|parents [MATCHER] [at INDEX] in TARGET [nodes NUMBER]
+```
+
+- Without at, exactly one candidate is required; zero and ambiguity are errors.
+- INDEX is zero-based after filtering. The starting reference remains reusable.
+- Supports continued match, traverse, peek and step. No mutable current state.
+- Bare auxiliary bindings without native parent lookup fail explicitly; children selected by navigation retain their parent.
+
+```text
+let body = step children compoundStmt() in $functions[0].f
+let parent = step parents in $body
+```
+
 ## help
 
 Explain console syntax locally; no server is required.

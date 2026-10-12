@@ -29,6 +29,29 @@ class CommandHelp:
 
 _ENTRIES = (
     CommandHelp(
+        "peek", "Inspect immediate native neighbours of a bound node.",
+        ("peek children|parents [MATCHER] in TARGET [nodes NUMBER]",),
+        ("TARGET is a retained binding, such as $rows[0].f.",
+         "Filters test each neighbour itself; children never searches grandchildren.",
+         "Standalone output streams rows; assignment retains an independent collection.",
+         "Rows expose .target and explicit matcher bindings. No current command is needed.",
+         "nodes counts examined candidates before filtering: default 10000, range 1..100000.",
+         "Native visitor children include implicit and type-location edges.",
+         "Parents preserve shared Decl/Stmt occurrences; auxiliary children retain their exact navigation parent."),
+        ('let methods = peek children cxxMethodDecl() in $rows[0].record',
+         'peek parents in $calls[0].call'),
+    ),
+    CommandHelp(
+        "step", "Return a selected neighbour as a new retained node reference.",
+        ("step children|parents [MATCHER] [at INDEX] in TARGET [nodes NUMBER]",),
+        ("Without at, exactly one candidate is required; zero and ambiguity are errors.",
+         "INDEX is zero-based after filtering. The starting reference remains reusable.",
+         "Supports continued match, traverse, peek and step. No mutable current state.",
+         "Bare auxiliary bindings without native parent lookup fail explicitly; children selected by navigation retain their parent."),
+        ('let body = step children compoundStmt() in $functions[0].f',
+         'let parent = step parents in $body'),
+    ),
+    CommandHelp(
         "help",
         "Explain console syntax locally; no server is required.",
         ("help [command [subcommand]]", "command [subcommand]?"),

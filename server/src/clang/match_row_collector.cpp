@@ -10,6 +10,13 @@ RowCollector::RowCollector(MatchExecution &result, CapturedBindingState &state,
     : result_(result), state_(state), checkpoint_(checkpoint), limits_(limits),
       sink_(sink) {}
 void RowCollector::run(const MatchFinder::MatchResult &found) {
+  CapturedBindingState::Row nodes;
+  for (const auto &[name, node] : found.Nodes.getMap())
+    nodes.emplace(name, node);
+  emit(nodes, *found.Context);
+}
+void RowCollector::emit(const CapturedBindingState::Row &nodes,
+                        clang::ASTContext &ast) {
   if (result_.code != MatchCode::Ok || !checkpoint_())
     return;
   if (state_.rows.size() >= limits_.max_rows) {
@@ -23,9 +30,22 @@ void RowCollector::run(const MatchFinder::MatchResult &found) {
   CapturedBindingState::Row native;
   if (source_row)
     row.set_source_match_index(*source_row);
-  for (const auto &[name, node] : found.Nodes.getMap()) {
+  if (target_node) {
+    const auto named = nodes.find("target");
+    if (named != nodes.end() && !(named->second == *target_node)) {
+      result_.code = MatchCode::InvalidArgument;
+      result_.message =
+          "target is reserved for the navigation candidate; "
+          "use another name for a nested matcher binding";
+      return;
+    }
+  }
+  auto values = nodes;
+  if (target_node)
+    values.insert_or_assign("target", *target_node);
+  for (const auto &[name, node] : values) {
     serialization::SerializationContext context{
-        *found.Context, serialization::ProjectionPolicy::Shallow};
+        ast, serialization::ProjectionPolicy::Shallow};
     auto &value = (*row.mutable_bindings())[name];
     const bool serialized =
         serialization::NodeSerializerDispatcher::serialize(node, value,
@@ -73,5 +93,6 @@ void RowCollector::run(const MatchFinder::MatchResult &found) {
     result_.rows.push_back(std::move(row));
   }
   state_.append(std::move(native));
+  state_.navigation_parents.push_back(target_parent);
 }
 } // namespace ctk::clang_layer

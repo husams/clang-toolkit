@@ -98,6 +98,7 @@ _COMMAND_VALUE_KINDS = frozenset(
         "session_close_retained", "server_status", "cache_status", "cache_prune",
         "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file",
         "callgraph", "callgraph_file", "help", "help_shortcut", "traverse", "script",
+        "peek", "step",
         "cursor_open", "cursor_continue", "cursor_restart", "cursor_close",
         "import_command", "file_open", "file_list", "file_info", "file_close",
         "file_refresh", "resource_status", "batch_statement", "durable_batch",
@@ -380,6 +381,15 @@ class Runtime:
             value = execute_traversal(self, statement)
             display = None if value_context else self._emit_output(render_graph(value))
             return value, display
+        if kind in {"peek", "step"}:
+            from .navigation import execute_navigation
+
+            value = execute_navigation(self, statement)
+            if value_context:
+                return value, None
+            display = (f"{len(value)} neighbours" if kind == "peek"
+                       else self._render_display_value(value))
+            return value, self._emit_output(display)
         if kind == "cfg_file":
             from .control_flow import execute_cfg
             from .graph_options import render_graph

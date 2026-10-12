@@ -10,9 +10,10 @@ SemanticAstVisitor::SemanticAstVisitor(
     clang::ASTContext &context,
     const ctk::analysis::v1::TraverseRequest &request,
     const IMatchBackend::Checkpoint &checkpoint, const TraversalLimits &limits,
-    TraversalResult &result, const ITraversalBackend::NodeSink &sink)
+    TraversalResult &result, const ITraversalBackend::NodeSink &sink,
+    const NativeSink &native_sink)
     : context_(context), request_(request), checkpoint_(checkpoint),
-      limits_(limits), result_(result), sink_(sink) {}
+      limits_(limits), result_(result), sink_(sink), native_sink_(native_sink) {}
 bool SemanticAstVisitor::shouldVisitImplicitCode() const {
   return request_.visit_implicit_code();
 }
@@ -40,6 +41,13 @@ bool SemanticAstVisitor::enter(const clang::DynTypedNode &node, bool leaf) {
     return false;
   }
   ctk::analysis::v1::TraversalNode record;
+  if (native_sink_) {
+    result_.code = native_sink_(node, parents_.size(), result_.message);
+    if (result_.code != MatchCode::Ok)
+      return false;
+    parents_.push_back(result_.node_count++);
+    return true;
+  }
   record.set_index(result_.node_count);
   record.set_native_kind(node.getNodeKind().asStringRef().str());
   record.set_leaf(leaf);

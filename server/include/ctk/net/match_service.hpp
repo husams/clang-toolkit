@@ -17,6 +17,9 @@ public:
   grpc::Status
   StreamMatch(grpc::ServerContext *, const ctk::match::v1::MatchRequest *,
               grpc::ServerWriter<ctk::match::v1::MatchStreamEvent> *) override;
+  grpc::Status
+  StreamNavigate(grpc::ServerContext *, const ctk::match::v1::MatchRequest *,
+                 grpc::ServerWriter<ctk::match::v1::MatchStreamEvent> *) override;
   grpc::Status CloseSession(grpc::ServerContext *,
                             const ctk::match::v1::CloseSessionRequest *,
                             ctk::match::v1::CloseSessionResponse *) override;

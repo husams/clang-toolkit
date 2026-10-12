@@ -565,7 +565,9 @@ class AsyncClient:
         row_count = 0
         succeeded = False
         try:
-            call = stub.StreamMatch(
+            stream_method = (getattr(stub, "StreamNavigate")
+                             if request.navigation_axis else stub.StreamMatch)
+            call = stream_method(
                 self._compilation_request(request), timeout=self.config.rpc_timeout
             )
             async for event in call:
@@ -574,6 +576,9 @@ class AsyncClient:
                     if completed is not None:
                         raise CursorError(grpc.StatusCode.DATA_LOSS,
                                           "match stream delivered a row after completion")
+                    if request.navigation_axis and "target" not in event.row.bindings:
+                        raise CursorError(grpc.StatusCode.DATA_LOSS,
+                                          "navigation stream row is missing its target")
                     row_bytes = event.row.SerializeToString()
                     store.append(row_bytes, binding_names=event.row.bindings)
                     row_count += 1
@@ -827,6 +832,57 @@ class AsyncClient:
             )
         finally:
             self._end_value_operation()
+
+    async def peek(self, target: BindingSelection, *, axis: str = "children",
+                   query: MatcherInput | None = None, max_nodes: int = 10000,
+                   on_row: AsyncMatchRowCallback | None = None,
+                   scope: ResourceScope[AsyncClient] | str | None = None
+                   ) -> MatchValue[AsyncClient]:
+        """Stream direct neighbours into an independent retained collection."""
+        return await self._peek_with_lease(target, axis=axis, query=query,
+            max_nodes=max_nodes, on_row=on_row, scope=scope, lease=None)
+
+    async def _peek_with_lease(self, target: BindingSelection, *,
+                              axis: str = "children",
+                              query: MatcherInput | None = None,
+                              max_nodes: int = 10000,
+                              on_row: AsyncMatchRowCallback | None = None,
+                              scope: ResourceScope[AsyncClient] | str | None = None,
+                              lease: OperationLease | None = None
+                              ) -> MatchValue[AsyncClient]:
+        self._begin_value_operation(lease)
+        try:
+            request = _navigation_request(self, target, axis, query, max_nodes, scope)
+            completion, store = await self._stream_cursor_match(
+                request, on_row=on_row, source_session_id=target._owner.session_id)
+            return MatchValue._from_store(store, self._own_value(completion),
+                                          source_file=target.source_file)
+        finally:
+            self._end_value_operation()
+
+    async def step(self, target: BindingSelection, *, axis: str = "children",
+                   query: MatcherInput | None = None, at: int | None = None,
+                   max_nodes: int = 10000,
+                   scope: ResourceScope[AsyncClient] | str | None = None
+                   ) -> BindingSelection[AsyncClient]:
+        """Select one direct neighbour; reject absent or ambiguous selections."""
+        return await self._step_with_lease(target, axis=axis, query=query,
+            at=at, max_nodes=max_nodes, scope=scope)
+
+    async def _step_with_lease(self, target: BindingSelection, *,
+                              axis: str = "children",
+                              query: MatcherInput | None = None,
+                              at: int | None = None, max_nodes: int = 10000,
+                              scope: ResourceScope[AsyncClient] | str | None = None,
+                              lease: OperationLease | None = None
+                              ) -> BindingSelection[AsyncClient]:
+        rows = await self._peek_with_lease(target, axis=axis, query=query,
+            max_nodes=max_nodes, scope=scope, lease=lease)
+        try:
+            return _navigation_selection(rows, at)
+        except BaseException:
+            await rows.aclose()
+            raise
 
     async def execute(
         self, source: str, *, working_directory: str | Path | None = None,
@@ -1595,6 +1651,37 @@ class Client:
             source_file=_absolute_source_file(target, working_directory),
         )
 
+    def peek(self, target: BindingSelection, *, axis: str = "children",
+             query: MatcherInput | None = None, max_nodes: int = 10000,
+             on_row: MatchRowCallback | None = None,
+             scope: ResourceScope[Client] | str | None = None
+             ) -> MatchValue[Client]:
+        """Inspect direct neighbours without changing the starting reference."""
+        request = _navigation_request(self, target, axis, query, max_nodes, scope)
+        callback = None
+        if on_row is not None:
+            async def callback(row: match_result_pb2.MatchResult) -> None:
+                await _invoke_sync_callback(on_row, row)
+        completion, store = self._cursor_call(
+            "_stream_cursor_match", request, on_row=callback,
+            source_session_id=target._owner.session_id)
+        return MatchValue._from_store(store, self._own_value(completion),
+                                      source_file=target.source_file)
+
+    def step(self, target: BindingSelection, *, axis: str = "children",
+             query: MatcherInput | None = None, at: int | None = None,
+             max_nodes: int = 10000,
+             scope: ResourceScope[Client] | str | None = None
+             ) -> BindingSelection[Client]:
+        """Return a selected neighbour as a reusable native reference."""
+        rows = self.peek(target, axis=axis, query=query,
+                         max_nodes=max_nodes, scope=scope)
+        try:
+            return _navigation_selection(rows, at)
+        except BaseException:
+            rows.close()
+            raise
+
     def close(self) -> None:
         """Release every high-level retained value owned by this client."""
         errors: list[BaseException] = []
@@ -2076,6 +2163,27 @@ class _AsyncExpressionAdapter:
             traversal_mode=traversal_mode, on_row=callback if on_row is not None else None,
             lease=self.lease, scope=self.scope)
 
+    def peek(self, target: BindingSelection, *, on_row: MatchRowCallback | None = None,
+             **kwargs: Any) -> MatchValue[AsyncClient]:
+        async def callback(row: match_result_pb2.MatchResult) -> None:
+            assert on_row is not None
+            task = asyncio.current_task()
+            assert task is not None
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_row, row)
+            finally:
+                self._row_callbacks.discard(task)
+        kwargs.setdefault("scope", self.scope)
+        return self._call("_peek_with_lease", target, **kwargs,
+                          on_row=callback if on_row else None,
+                          lease=self.lease)
+
+    def step(self, target: BindingSelection, **kwargs: Any) -> BindingSelection[AsyncClient]:
+        kwargs.setdefault("scope", self.scope)
+        return self._call("_step_with_lease", target, **kwargs,
+                          lease=self.lease)
+
     def stream_traverse(self, target: MatchTarget | Path, *, on_node: Callable[..., None],
                         **kwargs: Any) -> traverse_stream_pb2.TraverseCompleted:
         async def callback(node: Any) -> None:
@@ -2125,6 +2233,40 @@ def _traversal_value_request(client: Client | AsyncClient, target: MatchTarget |
     getattr(request, kind).CopyFrom(getattr(selected, kind))
     request.resource_scope_id = selected.resource_scope_id
     return request
+
+
+def _navigation_request(client: Client | AsyncClient, target: BindingSelection,
+                        axis: str, query: MatcherInput | None, max_nodes: int,
+                        scope: ResourceScope[Any] | str | None) -> match_service_pb2.MatchRequest:
+    if not isinstance(target, BindingSelection):
+        raise MatchValueError("navigation requires a retained native binding")
+    axes = {"children": match_service_pb2.NAVIGATION_AXIS_CHILDREN,
+            "parents": match_service_pb2.NAVIGATION_AXIS_PARENTS}
+    if axis not in axes:
+        raise ValueError("navigation axis must be children or parents")
+    if type(max_nodes) is not int or not 1 <= max_nodes <= 100000:
+        raise ValueError("navigation max_nodes must be 1..100000")
+    request = _value_request(client, query if query is not None else "decl()",
+                             target, scope=scope)
+    if query is None:
+        request.ClearField("query")
+    request.navigation_axis = axes[axis]
+    request.navigation_max_nodes = max_nodes
+    return request
+
+
+def _navigation_selection(rows: MatchValue, at: int | None) -> BindingSelection:
+    if at is not None and (type(at) is not int or at < 0):
+        raise MatchValueError("navigation index must be a zero-based integer")
+    if not len(rows):
+        raise MatchValueError("navigation found no candidates")
+    if at is None and len(rows) != 1:
+        raise MatchValueError(
+            f"navigation is ambiguous: {len(rows)} candidates; use at INDEX")
+    index = 0 if at is None else at
+    if index >= len(rows):
+        raise MatchValueError("navigation index is outside the candidate list")
+    return rows[index].binding("target")
 
 
 def _value_request(

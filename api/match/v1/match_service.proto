@@ -49,6 +49,12 @@ service MatchService {
   // Match remains available for legacy unary consumers.
   rpc StreamMatch(MatchRequest) returns (stream MatchStreamEvent);
 
+  // Direct native neighbours of a retained binding. Creates an independent
+  // result; rows bind "target" to the candidate and preserve explicit binds.
+  // Empty query selects every kind; otherwise test each candidate itself.
+  // Provisional rows require completion and terminal OK, as for StreamMatch.
+  rpc StreamNavigate(MatchRequest) returns (stream MatchStreamEvent);
+
   // Close uses the same caller ownership as Match and is serialized with it.
   // It affects only a session belonging to that caller. A malformed session ID
   // is INVALID_ARGUMENT; a well-formed unavailable session is an idempotent OK.
@@ -70,6 +76,12 @@ enum MatchTraversalMode {
   MATCH_TRAVERSAL_MODE_AS_IS = 1;
   // Clang's TK_IgnoreUnlessSpelledInSource traversal policy.
   MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE = 2;
+}
+
+enum NavigationAxis {
+  NAVIGATION_AXIS_UNSPECIFIED = 0;
+  NAVIGATION_AXIS_CHILDREN = 1;
+  NAVIGATION_AXIS_PARENTS = 2;
 }
 
 message MatchRequest {
@@ -98,6 +110,12 @@ message MatchRequest {
   bool preserve_source = 6;
   // Scope registers provisional ownership before any result ID is published.
   string resource_scope_id = 8;
+  // Requires a binding and preserve_source=true. An empty query is allowed
+  // only for navigation. No implicit current node or mutable movement state.
+  NavigationAxis navigation_axis = 9;
+  // Examined neighbours before filtering. Default 10000; range 1..100000.
+  // Exhaustion is an error, never a successful empty/partial result.
+  optional uint64 navigation_max_nodes = 10;
 }
 
 message FileMatchTarget {

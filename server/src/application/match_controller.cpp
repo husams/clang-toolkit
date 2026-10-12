@@ -32,7 +32,17 @@ std::string invalid_request(const ParseRequest &request) {
   return detail::invalid_file_target(file);
 }
 std::string invalid_request(const MatchRequest &request) {
-  if (request.query().empty())
+  const bool navigation =
+      request.navigation_axis() != NAVIGATION_AXIS_UNSPECIFIED;
+  if (!NavigationAxis_IsValid(request.navigation_axis()))
+    return "invalid navigation axis";
+  if (navigation && (!request.has_binding() || !request.preserve_source()))
+    return "navigation requires a binding and preserve_source";
+  if (request.has_navigation_max_nodes() &&
+      (!navigation || request.navigation_max_nodes() == 0 ||
+       request.navigation_max_nodes() > 100000))
+    return "navigation nodes must be 1..100000 and require an axis";
+  if (request.query().empty() && !navigation)
     return "query must not be empty";
   if (!MatchTraversalMode_IsValid(request.traversal_mode()))
     return "invalid traversal mode";
@@ -428,7 +438,8 @@ struct MatchController::Impl {
             continue;
           selected = true;
           const auto &scopes = found->second.supported_scopes();
-          if (std::find(scopes.begin(), scopes.end(), scope) == scopes.end())
+          if (request.navigation_axis() == NAVIGATION_AXIS_UNSPECIFIED &&
+              std::find(scopes.begin(), scopes.end(), scope) == scopes.end())
             return failure(MatchCode::FailedPrecondition,
                            "binding does not support requested scope");
         }

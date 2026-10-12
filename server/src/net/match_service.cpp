@@ -56,6 +56,15 @@ grpc::Status MatchServiceAdapter::StreamMatch(
       });
   return match_status(reply.code, reply.message, *context);
 }
+grpc::Status MatchServiceAdapter::StreamNavigate(
+    grpc::ServerContext *context, const ctk::match::v1::MatchRequest *request,
+    grpc::ServerWriter<ctk::match::v1::MatchStreamEvent> *writer) {
+  if (request->navigation_axis() ==
+      ctk::match::v1::NAVIGATION_AXIS_UNSPECIFIED)
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                        "navigation axis is required");
+  return StreamMatch(context, request, writer);
+}
 grpc::Status MatchServiceAdapter::CloseSession(
     grpc::ServerContext *context,
     const ctk::match::v1::CloseSessionRequest *request,

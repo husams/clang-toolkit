@@ -73,12 +73,143 @@ protected:
   MatchReply run(const MatchRequest &request, std::string owner = "owner") {
     return controller->match(owner, request, [] { return true; });
   }
+  MatchRequest navigation(const MatchResponse &old, std::string bind,
+                          NavigationAxis axis, std::string query = "") {
+    auto request = binding(old, std::move(bind), std::move(query));
+    request.set_navigation_axis(axis);
+    request.set_preserve_source(true);
+    request.mutable_binding()->set_match_index(0);
+    return request;
+  }
   MatchReply stream(const MatchRequest &request,
                     const MatchController::StreamSink &sink,
                     std::string owner = "owner") {
     return controller->stream_match(owner, request, [] { return true; }, sink);
   }
 };
+
+TEST_F(MatchCursors, NavigationFiltersImmediateChildrenAndKeepsSource) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  const auto before = source.response;
+  const auto absent = run(navigation(before, "f", NAVIGATION_AXIS_CHILDREN,
+                                      "callExpr()"));
+  ASSERT_EQ(absent.code, MatchCode::Ok) << absent.message;
+  EXPECT_EQ(absent.response.results_size(), 0);
+  const auto body = run(navigation(before, "f", NAVIGATION_AXIS_CHILDREN,
+                                    "compoundStmt().bind(\"body\")"));
+  ASSERT_EQ(body.code, MatchCode::Ok) << body.message;
+  ASSERT_EQ(body.response.results_size(), 1);
+  EXPECT_TRUE(body.response.results(0).bindings().at("target")
+                  .node().has_compound_stmt());
+  EXPECT_TRUE(body.response.results(0).bindings().contains("body"));
+  const auto direct = run(navigation(body.response, "target",
+                                      NAVIGATION_AXIS_CHILDREN, "callExpr()"));
+  ASSERT_EQ(direct.code, MatchCode::Ok) << direct.message;
+  EXPECT_EQ(direct.response.results_size(), 1);
+  const auto all = run(navigation(body.response, "target",
+                                   NAVIGATION_AXIS_CHILDREN));
+  ASSERT_EQ(all.code, MatchCode::Ok) << all.message;
+  EXPECT_EQ(all.response.results_size(), 3);
+  const auto up = run(navigation(body.response, "target",
+                                  NAVIGATION_AXIS_PARENTS, "functionDecl()"));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  ASSERT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").symbol_identity(),
+            before.results(0).bindings().at("f").symbol_identity());
+  // Source guard and results still work after every independent operation.
+  const auto again = fork(binding(before, "f", "callExpr()"));
+  ASSERT_EQ(again.code, MatchCode::Ok) << again.message;
+  EXPECT_EQ(again.response.results_size(), 2);
+}
+
+TEST_F(MatchCursors, NavigationPeeksTypeChildrenAndReturnsThroughTheirEdge) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  const auto types = run(navigation(source.response, "f",
+                                     NAVIGATION_AXIS_CHILDREN, "typeLoc()"));
+  ASSERT_EQ(types.code, MatchCode::Ok) << types.message;
+  ASSERT_EQ(types.response.results_size(), 1);
+  const auto up = run(navigation(types.response, "target",
+                                  NAVIGATION_AXIS_PARENTS));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  ASSERT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").symbol_identity(),
+            source.response.results(0).bindings().at("f").symbol_identity());
+}
+
+TEST_F(MatchCursors, NavigationNestedBindingsCannotRedirectTarget) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  const auto invalid = run(navigation(
+      source.response, "f", NAVIGATION_AXIS_CHILDREN,
+      "compoundStmt(hasDescendant(integerLiteral().bind(\"target\")))"));
+  EXPECT_EQ(invalid.code, MatchCode::InvalidArgument);
+  const auto valid = run(navigation(
+      source.response, "f", NAVIGATION_AXIS_CHILDREN,
+      "compoundStmt(hasDescendant(integerLiteral().bind(\"nested\")))"));
+  ASSERT_EQ(valid.code, MatchCode::Ok) << valid.message;
+  ASSERT_EQ(valid.response.results_size(), 1);
+  EXPECT_TRUE(valid.response.results(0).bindings().at("target")
+                  .node().has_compound_stmt());
+  EXPECT_TRUE(valid.response.results(0).bindings().at("nested")
+                  .node().has_integer_literal());
+}
+
+TEST_F(MatchCursors, NavigationStreamLimitsCancellationAndMissingOwnership) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto request = navigation(source.response, "f", NAVIGATION_AXIS_CHILDREN);
+  std::vector<MatchStreamEvent> events;
+  request.set_navigation_max_nodes(1);
+  const auto limited = stream(request,
+      [&](const MatchStreamEvent &event, std::string &) {
+        events.push_back(event);
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(limited.code, MatchCode::ResourceExhausted);
+  ASSERT_EQ(events.size(), 1U);
+  EXPECT_TRUE(events[0].has_row());
+  request.clear_navigation_max_nodes();
+  const auto cancelled = stream(request,
+      [](const MatchStreamEvent &, std::string &) {
+        return MatchCode::Cancelled;
+      });
+  EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
+  EXPECT_EQ(run(request, "other-owner").code, MatchCode::NotFound);
+  request.mutable_binding()->set_expected_result_revision(
+      source.response.result_revision() + 1);
+  EXPECT_EQ(run(request).code, MatchCode::Aborted);
+  request.mutable_binding()->set_expected_result_revision(
+      source.response.result_revision());
+  const auto retry = run(request);
+  ASSERT_EQ(retry.code, MatchCode::Ok) << retry.message;
+  EXPECT_EQ(retry.response.results_size(), 2);
+  request.set_preserve_source(false);
+  EXPECT_EQ(run(request).code, MatchCode::InvalidArgument);
+  request.set_preserve_source(true);
+  request.set_navigation_axis(static_cast<NavigationAxis>(99));
+  EXPECT_EQ(run(request).code, MatchCode::InvalidArgument);
+}
+
+TEST_F(MatchCursors, NavigationEmptySelectionAndRootParentsAreEmpty) {
+  const auto empty = run(file("functionDecl(hasName(\"missing\")).bind(\"f\")"));
+  ASSERT_EQ(empty.code, MatchCode::Ok) << empty.message;
+  auto request = navigation(empty.response, "f", NAVIGATION_AXIS_CHILDREN);
+  request.mutable_binding()->clear_match_index();
+  const auto no_roots = run(request);
+  ASSERT_EQ(no_roots.code, MatchCode::Ok) << no_roots.message;
+  EXPECT_EQ(no_roots.response.results_size(), 0);
+  const auto tu = run(file("translationUnitDecl().bind(\"tu\")"));
+  ASSERT_EQ(tu.code, MatchCode::Ok) << tu.message;
+  const auto parents = run(navigation(tu.response, "tu", NAVIGATION_AXIS_PARENTS));
+  ASSERT_EQ(parents.code, MatchCode::Ok) << parents.message;
+  EXPECT_EQ(parents.response.results_size(), 0);
+}
 
 TEST_F(MatchCursors, StreamEmitsFullRowsThenCommitsThinContinuationState) {
   std::vector<MatchStreamEvent> events;
