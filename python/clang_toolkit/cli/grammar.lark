@@ -192,7 +192,7 @@ durable_batch_option: JOBS NUMBER -> batch_jobs
                        | NUMBER
 
 parse_expression: PARSE path_target_expression
-read_expression: READ output_path
+read_expression: READ output_path [AS NAME]
 analysis_block: IN BATCH_SEPARATOR* (parse_expression | reference) BATCH_SEPARATOR* LBRACE BATCH_SEPARATOR* (assignment (SEMICOLON | BATCH_SEPARATOR)+)* YIELD yield_expression SEMICOLON? BATCH_SEPARATOR* RBRACE
 statement_block: LBRACE BATCH_SEPARATOR* (statement (SEMICOLON | BATCH_SEPARATOR)+)* statement? RBRACE
 ?yield_expression: value_expression

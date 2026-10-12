@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from unittest.mock import Mock
 
 import pytest
@@ -59,7 +61,12 @@ def test_read_does_not_decode_persistence_envelope(tmp_path):
     ("bad.yaml", "key: [", "cannot read"),
     ("unsafe.yaml", "!!python/object/apply:os.system ['exit 1']", "cannot read"),
     ("cycle.yaml", "&cycle [*cycle]", "recursive YAML aliases"),
-    ("bad.txt", "{}", ".json, .yaml or .yml"),
+    ("bad.proto", "{}", "read requires"),
+    ("bad.csv", 'name\n"unterminated', "cannot read"),
+    ("duplicate.csv", "name,name\na,b\n", "duplicate or empty columns"),
+    ("empty-header.csv", "name,\na,b\n", "duplicate or empty columns"),
+    ("short.csv", "name,count\na\n", "wrong number of columns"),
+    ("long.csv", "name\na,b\n", "wrong number of columns"),
 ])
 def test_read_failure_preserves_binding(tmp_path, name, content, message):
     (tmp_path / name).write_text(content)
@@ -80,3 +87,102 @@ def test_yaml_shared_aliases_and_empty_document(tmp_path):
     assert read_document(path) == {"first": [1, 2], "second": [1, 2]}
     path.write_text("")
     assert read_document(path) is None
+
+
+@pytest.mark.parametrize("content, expected", [
+    ("", []), ("\n", [""]), ("a\n\n", ["a", ""]),
+    ("  café  \n\n\tمرحبا\t", ["  café  ", "", "\tمرحبا\t"]),
+    (" a \r\n\r\n b \r", [" a ", "", " b "]),
+])
+@pytest.mark.parametrize("suffix", ["txt", "text", "TXT"])
+def test_read_text_preserves_spaces_and_blank_lines(tmp_path, content, expected, suffix):
+    path = tmp_path / f"lines.{suffix}"
+    path.write_bytes(content.encode("utf-8"))
+    assert read_document(path) == expected
+    assert path.read_bytes() == content.encode("utf-8")
+
+
+def test_read_text_lines_and_trim_in_console(tmp_path):
+    path = tmp_path / "names.txt"
+    path.write_text("  λ  \n\n\tمرحبا\t\n", encoding="utf-8")
+    client = Mock(spec=Client)
+    runtime = Runtime(client, cwd=tmp_path, environment={"HOME": str(tmp_path)})
+    try:
+        runtime.execute('let lines = read "~/names.txt"')
+        assert runtime.execute("print $lines.length") == "3"
+        runtime.execute("let names = foreach line in $lines do $line.strip() done")
+        assert runtime.bindings["names"] == ["λ", "", "مرحبا"]
+        assert runtime.bindings["lines"] == ["  λ  ", "", "\tمرحبا\t"]
+        runtime.execute('let files = glob("*.txt")')
+        runtime.execute("let copy = read $files[0]")
+        assert runtime.bindings["copy"] == runtime.bindings["lines"]
+    finally:
+        runtime.close()
+    client.match.assert_not_called()
+
+
+@pytest.mark.parametrize("content, expected", [
+    ("", []), ("name,count\n", []),
+    ('name,count\n"a,b",002\n"say ""hi""",true\n',
+     [{"name": "a,b", "count": "002"}, {"name": 'say "hi"', "count": "true"}]),
+    ('\ufeffname,note\r\nλ,"first\r\nsecond"\r\n\r\nمرحبا,\r\n',
+     [{"name": "λ", "note": "first\r\nsecond"}, {"name": "مرحبا", "note": ""}]),
+    ("value:int,enabled:bool\n002,true\n",
+     [{"value:int": "002", "enabled:bool": "true"}]),
+])
+def test_read_csv_preserves_ordinary_headers_and_string_cells(tmp_path, content, expected):
+    path = tmp_path / "rows.csv"
+    path.write_bytes(content.encode("utf-8"))
+    assert read_document(path) == expected
+    assert path.read_bytes() == content.encode("utf-8")
+
+
+def test_csv_fields_and_foreach_in_console(tmp_path):
+    (tmp_path / "rows.csv").write_text('name,count\n" λ ",002\nمرحبا,3\n', encoding="utf-8")
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    try:
+        runtime.execute('let rows = read "rows.csv"')
+        assert runtime.execute("print $rows[0].count") == "002"
+        assert runtime.execute("print $rows[0].name.strip()") == "λ"
+        runtime.execute("let names = foreach row in $rows do $row.name.strip() done")
+        assert runtime.bindings["names"] == ["λ", "مرحبا"]
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("name, content, kind, expected", [
+    ("build.log", " x \n", "text", [" x "]),
+    ("data", "name\nλ\n", "csv", [{"name": "λ"}]),
+    ("config", '{"enabled": true}', "json", {"enabled": True}),
+    ("config", "enabled: true\n", "yaml", {"enabled": True}),
+])
+def test_read_explicit_format(tmp_path, name, content, kind, expected):
+    (tmp_path / name).write_text(content, encoding="utf-8")
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    try:
+        runtime.execute(f'let data = read "{name}" as {kind}')
+        assert runtime.bindings["data"] == expected
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("suffix", ["txt", "csv"])
+def test_read_invalid_utf8_preserves_binding(tmp_path, suffix):
+    (tmp_path / f"bad.{suffix}").write_bytes(b"\xff")
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    try:
+        runtime.execute('let data = "previous"')
+        assert "cannot read" in dispatch(runtime.client, f'let data = read "bad.{suffix}"', runtime)
+        assert runtime.bindings["data"] == "previous"
+    finally:
+        runtime.close()
+
+
+def test_read_invalid_format_preserves_binding(tmp_path):
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    try:
+        runtime.execute('let data = "previous"')
+        assert "read requires" in dispatch(runtime.client, 'let data = read "file" as proto', runtime)
+        assert runtime.bindings["data"] == "previous"
+    finally:
+        runtime.close()

@@ -1,4 +1,9 @@
 Feature: Console collections and local libraries
+  Scenario: Read text lines and CSV rows with whitespace trimming
+    Given a private server and a collection library fixture
+    When I read text and CSV files through the CLI
+    Then the console preserves lines and CSV strings and trims requested whitespace
+
   Scenario: Manipulate dictionaries and lists through a console batch
     Given a private server and a collection library fixture
     When I run the collection operations through the CLI
