@@ -61,6 +61,8 @@ class Context:
         cancel_hook: Callable[[], bool] | None = None,
         cancel: Callable[[], bool] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        host_evaluator: Callable[[Context, Any], Any] | None = None,
+        statement_observer: Callable[[Context, Any, Any], None] | None = None,
     ) -> None:
         if max_steps < 0 or max_items < 0:
             raise ValueError("execution limits must be nonnegative")
@@ -69,7 +71,10 @@ class Context:
         self.max_steps = max_steps
         self.max_items = max_items
         self.cancel_hook = cancel_hook or cancel or cancel_check
+        self.host_evaluator = host_evaluator
+        self.statement_observer = statement_observer
         self.output: list[Any] = []
+        self.consume_depth = 0
         self.steps = 0
         self.step_count = 0
         self.current_location: tuple[int | None, int | None] = (None, None)
@@ -456,6 +461,26 @@ def _resolve_target(ctx: Context, target: Any, operator: str) -> tuple[Callable[
     raise _error(ctx, target, "assignment requires a mutable list or dictionary")
 
 
+def host_value(ctx: Context, node: Any) -> Any:
+    """Execute a validated CTK operation without interpreting script control flow."""
+    if ctx.host_evaluator is None:
+        raise _error(ctx, node, "no CTK host evaluator is configured")
+    return ctx.host_evaluator(ctx, node)
+
+
+def observe_statement(ctx: Context, node: Any, value: Any) -> None:
+    if ctx.statement_observer is not None:
+        ctx.statement_observer(ctx, node, value)
+
+
+def consumed_value(ctx: Context, thunk: Callable[[], Any]) -> Any:
+    ctx.consume_depth += 1
+    try:
+        return thunk()
+    finally:
+        ctx.consume_depth -= 1
+
+
 def eval_expr(ctx: Context, node: Any) -> Any:
     """Evaluate one expression node; shared by both execution engines."""
     ctx.tick(node)
@@ -500,6 +525,10 @@ def eval_expr(ctx: Context, node: Any) -> Any:
             raise _error(ctx, node, f"property {name!r} is unavailable on {type(value).__name__}: {error}") from error
     if kind == "index":
         return index_value(eval_expr(ctx, _expr(node, 0, "base")), eval_expr(ctx, _expr(node, 1, "key")), ctx, node)
+    if kind == "consume":
+        return consumed_value(ctx, lambda: eval_expr(ctx, child_values(node)[0]))
+    if kind == "host":
+        return host_value(ctx, node)
     if kind == "call":
         name = _name(node)
         function = ctx.functions.get(name)
@@ -562,6 +591,11 @@ def eval_assign(ctx: Context, node: Any) -> Any:
 
 def eval_statement(ctx: Context, node: Any) -> Any:
     kind = _kind(node)
+    if kind == "observe":
+        statement = child_values(node)[0]
+        value = eval_statement(ctx, statement)
+        observe_statement(ctx, statement, value)
+        return value
     if kind == "let":
         ctx.tick(node)
         name = _name(node)
@@ -577,7 +611,7 @@ def eval_statement(ctx: Context, node: Any) -> Any:
         return eval_foreach(ctx, node)
     if kind == "block":
         return eval_block(ctx, node)
-    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "unary"}:
+    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "unary", "host"}:
         return eval_expr(ctx, node)
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 

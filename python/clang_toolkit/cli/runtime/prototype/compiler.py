@@ -9,7 +9,7 @@ from typing import Any, Callable
 from .semantics import (
     Context, ExecutionLimitError, Node, PrototypeError, _as_bool, _binary,
     _ensure_dict_capacity, _ensure_insertable, _error, _finite, _int, _kind, _name, _unary, child, children,
-    child_values, index_value, iterable_value, property_value,
+    child_values, consumed_value, host_value, index_value, iterable_value, observe_statement, property_value,
 )
 
 
@@ -255,6 +255,10 @@ class _Lowerer:
             expr = self.call("_get", context, nref, self.lambda0(self.emit_expr(child(node, "base", 0))), ast.Constant(str(getattr(node, "value", None))))
         elif kind == "index":
             expr = self.call("_index", context, nref, self.lambda0(self.emit_expr(child(node, "base", 0))), self.lambda0(self.emit_expr(child(node, "key", 1))))
+        elif kind == "consume":
+            expr = self.call("_consume", context, self.lambda0(self.emit_expr(child_values(node)[0])))
+        elif kind == "host":
+            expr = self.call("_host", context, nref)
         elif kind == "call":
             args = [self.emit_expr(x) for x in child_values(node)]
             expr = self.call("_call", context, nref, ast.Constant(_name(node)), self.lambda0(ast.List(args, ast.Load())))
@@ -335,6 +339,9 @@ class _Lowerer:
     def emit_stmt(self, node: Any) -> list[ast.stmt]:
         kind = _kind(node)
         context, nref = ast.Name("context", ast.Load()), self.node_ref(node)
+        if kind == "observe":
+            statement = child_values(node)[0]
+            return [*self.emit_stmt(statement), ast.Expr(self.call("_observe", context, self.node_ref(statement), ast.Name("last", ast.Load())))]
         if kind == "foreach":
             return self.emit_foreach(node)
         if kind == "block":
@@ -371,6 +378,7 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
     namespace: dict[str, Any] = {
         "__builtins__": {}, "nodes": lowerer.nodes, "values": lowerer.values,
         "_tick": _tick, "_value": _value, "_literal": _literal,
+        "_host": host_value, "_observe": observe_statement, "_consume": consumed_value,
         "_lookup": _lookup, "_define": _define, "_make_list": _make_list,
         "_make_dict": _make_dict, "_get": _get, "_index": _index, "_iterable": _iterable,
         "_logical": _logical, "_binary": _binary, "_unary": _unary,

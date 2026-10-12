@@ -26,3 +26,17 @@ Passed 1,187 complete Python unit tests (66 prototype cases), 340 native tests w
 ## Independent review
 
 Approved after parsed-source counterexamples confirmed native value identity, lazy effects, error locations, output snapshots, int64 boundaries, and nested collected loops. Compiled control flow still executes with all tree dispatchers disabled. Production native-language parity remains a separate step.
+
+## Compiled REPL follow-up — 2026-10-12
+
+Status: complete; both real console views and independent review passed.
+
+- [x] Opt-in `--script-engine compiled` in both workspace and prompt consoles, with a one-command `scripts/ctk-prototype` launcher.
+- [x] Formal combined grammar for prototype expressions and native CTK operation leaves; persistent shared bindings, scopes and a bounded compilation cache.
+- [x] Multiline validation, highlighting and completion keywords in both editors.
+- [x] Existing output sinks, consumed values, structured result outlines and recoverable errors/cancellation.
+- [x] Complete regression and real-server PTY gates, independent review and updated Page/wiki evidence.
+
+Ownership: language worker owns repl_language.py/tests, editor worker owns repl_editor.py plus minimal prompt/workspace plumbing/tests, E2E worker owns new real-console BDD cases, root owns session/compiler/app/launcher/docs integration. Independent explorer reviews native value, output and cleanup behavior.
+
+Follow-up validation: 1,242 full Python unit tests and 79 final focused cases passed; all 343 native tests passed against the existing main-checkout binary at e399a47c332e. Existing BDD full run passed 122/123 cases; the one native-parse PTY deadline failure passed in isolation, so all 123 distinct existing cases passed. Two new compiled-console PTY scenarios passed, giving 125 distinct passing cases across the runs. Both editors accept real multiline paste, direct native matching and retained-node continuation, recover after script errors and quit normally; the workspace also cancels a nested compiled loop with Ctrl-C and executes the next script successfully. Independent review also verified output limits, prior-output preservation during cancellation, native query/rendering exactly once and zero resource counters after cleanup. The launcher example prints the expected total 12 and next calculation 13. Ruff and whitespace checks pass.

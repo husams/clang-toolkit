@@ -2,7 +2,51 @@
 
 This isolated prototype compares a tree interpreter with compile-once Python execution for the proposed scripting language. Both engines evaluate the same parsed AST with the same checked operations, lexical scopes, execution budget and host-function registry.
 
-Branch: `codex/scripting-runtime-prototype`; base: `8907c6a`. The experimental command is separate from the released `ctk` console and native `RunScript` language.
+Branch: `codex/scripting-runtime-prototype`; base: `8907c6a`. The standalone experiment and an opt-in compiled version of both existing console views are available in this checkout. Native `RunScript` remains unchanged.
+
+## Try the compiled REPL
+
+Launch the normal workspace console from this isolated version:
+
+```sh
+/Users/husam/.claude/worktrees/clang-toolkit/scripting-runtime-prototype/scripts/ctk-prototype
+```
+
+For the basic prompt console, append `--ui prompt`; append `--server unix:///tmp/ctk.sock` to select a running server. The launcher selects this checkout and supplies `--script-engine compiled` to the installed `ctk` command. An equivalent launch is:
+
+```sh
+CTK_REPO=/Users/husam/.claude/worktrees/clang-toolkit/scripting-runtime-prototype ctk --script-engine compiled --ui prompt
+```
+
+Enter this script, or paste it into either console:
+
+```text
+let total = 0
+let totals = foreach value in [2, 4, 6] do {
+    $total += $value
+    $total
+}
+let report = {
+    total: $total,
+    label: $total > 10 ? "large" : "small",
+    message: unless $total > 20 do "below threshold" else "above threshold"
+}
+print $report
+```
+
+The report has `total: 12`, `label: "large"` and `message: "below threshold"`. The next submission can use `$total += 1; print $total`; it prints `13`. Bindings persist between submissions. Enter continues incomplete expressions and open blocks; the workspace also supports Alt-Enter for a newline and Ctrl-J to submit.
+
+The same engine runs file/stdin/`--execute` scripts:
+
+```sh
+/Users/husam/.claude/worktrees/clang-toolkit/scripting-runtime-prototype/scripts/ctk-prototype --execute 'let total=12; print $total > 10 ? 10 : 20'
+```
+
+The combined formal grammar keeps native CTK operations such as `let rows = match functionDecl().bind("f")`, `server status`, and `let count = $rows.length + 1`. Native operations execute once through the existing Runtime; compiled branches and loops share their bindings and scoped iterator values. Existing console help and quit remain available. The REPL keeps a 64-submission compilation cache; each execution receives fresh limits and output state. Ctrl-C cancels compiled loops and leaves the console ready for the next command.
+
+`let` and mutation are quiet. Assigned control-flow expressions collect their final values without automatic display, including nested prints to the configured display sink. Explicit `print ... to ...` and `save` remain file effects. Bare values and unconsumed branches display their result; print output that precedes a later failure remains visible. Workspace results retain structured outlines.
+
+Use `--script-engine tree` to compare the reference evaluator through the same REPL. The default `ctk` engine remains `legacy` unless selected by this launcher or flag. Older `do ... done` loop syntax and `--continue-on-error` remain available with the legacy engine; the compiled dialect uses `do STATEMENT` or brace blocks.
 
 ## Run the complete example
 
@@ -59,7 +103,7 @@ assert first == second == 499500
 
 ## CTK operations
 
-An explicit `ctk(command)` function delegates once to the existing `Runtime.evaluate`. It returns typed values without reconstructing handles from JSON. Prototype bindings and the command-string runtime's bindings are separate namespaces.
+An explicit `ctk(command)` function delegates once to the existing `Runtime.evaluate`. It returns typed values without reconstructing handles from JSON. In this standalone API, prototype bindings and the command-string runtime's bindings are separate namespaces; the REPL integration shares bindings and loop scopes.
 
 ```sh
 /Users/husam/workspace/clang-toolkit/.venv/bin/python -m clang_toolkit.cli.runtime.prototype examples/runtime-prototype/host.ctks --server unix:///tmp/ctk.sock
@@ -75,17 +119,18 @@ These are local Python runtime measurements. The registered-host workload uses a
 
 ## Validation
 
-- 1,187 Python unit tests passed, including 66 prototype cases.
-- All 340 existing native tests passed in one process with fresh storage. Native source/API/build files match the prebuilt binary's source revision.
-- The full existing BDD run passed 119 cases; two version tests initially failed because the new worktree lacked its ignored client build stamp. Generating that stamp with the repository build helper made both pass.
-- Two new real-server prototype BDD scenarios passed for both engines. Across the original run and corrected reruns, all 123 distinct BDD cases passed.
-- Ruff and whitespace checks passed; the full feature script produced identical visible results in both modes.
+- All 1,242 Python unit tests passed; a final focused REPL/editor/CLI rerun passed 79 cases after the cancellation-status change.
+- All 343 native tests passed with fresh storage against the existing `ctk-server 0.1.0` binary at revision `e399a47c332e`. This Python-only worktree remains based on `8907c6a`; no native source, API or build changes are part of this extension.
+- The existing BDD suite passed 122 cases in its full run. One workspace PTY case exceeded its 15-second deadline while awaiting a native parse; its isolated rerun passed. All 123 distinct existing cases therefore passed across those runs.
+- Two new real-server PTY scenarios passed in the prompt and workspace views. They exercise multiline paste, persistent bindings and mutation, expressions, direct native match/continuation, lazy host calls, error recovery, workspace Ctrl-C cancellation and recovery, ordinary `quit`, and zero resource counters after cleanup. Across existing and new cases, all 125 distinct BDD scenarios passed.
+- Independent review approved tree/compiled parity, native target and presence-method compatibility, exactly-once query/rendering behavior, shared output limits, preserved output during interruption, scope recovery and native resource cleanup. Separate fresh PTY probes confirmed interpolation and ordinary quit in both views.
+- Ruff and whitespace checks passed. The documented launcher example produced the expected structured report with total 12, followed by 13 in the next calculation.
 
-Parallel native test processes sharing one storage directory initially hit its exclusive ownership lock; the complete single-process rerun passed. This required test isolation, not a native source change.
+The standalone measurements remain the original seven-sample experiment; they do not measure the REPL editor or native-server performance. Historical standalone validation is recorded in progress.md.
 
 ## Prototype boundaries
 
-The released console editor/help/completion and native ANTLR language are not connected to this experimental parser. There is no server-side Python runtime integration, automatic compiled-script cache, general user-function syntax, or new RPC.
+Both REPL editors support the opt-in compiled dialect, including highlighting, completion keywords, multiline validation and structured results. Native ANTLR scripts, server-side Python execution, general user functions and new RPCs remain outside this prototype. The standalone run_source API still compiles per call; the REPL caches validated submissions. Native operation argument syntax continues to follow its existing grammar.
 
 Item and step limits are enforced, including output, range, collection literals and dictionary growth. Cumulative retained-byte accounting and parser nesting admission remain production integration work. Host operations retain their existing ownership and effect rules; earlier effects are not rolled back by a later script error.
 

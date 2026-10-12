@@ -57,6 +57,8 @@ from clang_toolkit.cli.file_explorer import FileExplorer
 from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
 from clang_toolkit.cli.runtime.management import _render_status
 from clang_toolkit.cli.highlight import STYLE, WORKSPACE_SYNTAX, ReplLexer
+from clang_toolkit.cli.input_state import input_state
+from clang_toolkit.cli.language import lex
 from clang_toolkit.cli.workspace_context import CommandContext
 from clang_toolkit.cli.workspace_menu import ActionMenu, WorkspaceAction
 from clang_toolkit.cli.workspace_output import MAX_TRANSCRIPT_CHARS, WorkspaceOutput
@@ -68,14 +70,26 @@ from clang_toolkit.cli.workspace_transcript import (
     command_block,
     error_span,
 )
-from clang_toolkit.cli.workspace_markdown import MarkdownPanel, output_markdown, render_markdown
+from clang_toolkit.cli.workspace_markdown import (
+    MarkdownPanel,
+    output_markdown,
+    render_markdown,
+)
 from clang_toolkit.cli.workspace_editing import control_enter_keys, editing_bindings
 from clang_toolkit.cli.workspace_state import PanelEntry, display_snapshot
-from clang_toolkit.cli.workspace_result_tree import ResultTrees, SnapshotReader, TreeSelection
+from clang_toolkit.cli.workspace_result_tree import (
+    ResultTrees,
+    SnapshotReader,
+    TreeSelection,
+)
 from clang_toolkit.cli.workspace_tree import WorkspaceTree
 from clang_toolkit.cli.runtime.progress import BatchProgress
 from clang_toolkit.cli.workspace_source import SourceWindow
-from clang_toolkit.cli.workspace_source_data import SourceSnapshot, SourceTarget, source_snapshot
+from clang_toolkit.cli.workspace_source_data import (
+    SourceSnapshot,
+    SourceTarget,
+    source_snapshot,
+)
 
 
 class CommandOutcome(Protocol):
@@ -97,7 +111,10 @@ class WorkspaceConsole:
         | None = None,
         resources: Callable[[], Awaitable[list[PanelEntry]]] | None = None,
         result_outline: SnapshotReader | None = None,
-        source_reader: Callable[[SourceTarget, tuple[Any, ...]], Awaitable[SourceSnapshot]] | None = None,
+        source_reader: Callable[
+            [SourceTarget, tuple[Any, ...]], Awaitable[SourceSnapshot]
+        ]
+        | None = None,
         batch_status: Callable[[str], Awaitable[BatchProgress]] | None = None,
         batch_cancel: Callable[[str], Awaitable[BatchProgress]] | None = None,
         input: Input | None = None,
@@ -120,7 +137,12 @@ class WorkspaceConsole:
         self.source_task: asyncio.Task[None] | None = None
         self.source_tasks: set[asyncio.Task[None]] = set()
         self.source_generation = 0
-        self.source = SourceWindow(self.close_source, lambda: self.app.invalidate(), self.interrupt_source, self.request_exit)
+        self.source = SourceWindow(
+            self.close_source,
+            lambda: self.app.invalidate(),
+            self.interrupt_source,
+            self.request_exit,
+        )
         self.server_snapshot: pb.ServerStatusResponse | None = None
         self.server_sampled: float | None = None
         self.server_error = (
@@ -152,7 +174,9 @@ class WorkspaceConsole:
         self.context = CommandContext()
         self.server_panel = MarkdownPanel()
         self.server_panel.set_markdown("## Server status\n\nChecking server…")
-        self.outline = WorkspaceTree(self.refresh_panels, self.prepare, self.open_source)
+        self.outline = WorkspaceTree(
+            self.refresh_panels, self.prepare, self.open_source
+        )
         self.resources = WorkspaceTree(self.refresh_panels, self.prepare)
         self.right_panel = Frame(
             HSplit(
@@ -186,23 +210,36 @@ class WorkspaceConsole:
             lexer=self.transcript_lexer,
             input_processors=[
                 CodeRows(lambda: self.wrap_results),
-                TreeSelection(lambda line: self.app.layout.has_focus(self.results.window) and self.result_trees.at(line) is not None),
+                TreeSelection(
+                    lambda line: self.app.layout.has_focus(self.results.window)
+                    and self.result_trees.at(line) is not None
+                ),
             ],
             focus_on_click=True,
             search_buffer_control=self.search.control,
         )
         self.results.window.content = self.results.control
-        async def local_result_outline(kind: str, value: Any, expanded: frozenset[str], pages: dict[str, int]) -> list[PanelEntry] | None:
-            return await asyncio.to_thread(display_snapshot, kind, value, expanded, pages)
+
+        async def local_result_outline(
+            kind: str, value: Any, expanded: frozenset[str], pages: dict[str, int]
+        ) -> list[PanelEntry] | None:
+            return await asyncio.to_thread(
+                display_snapshot, kind, value, expanded, pages
+            )
 
         self.result_trees = ResultTrees(
-            self.results, self.transcript_lexer, self._append,
-            result_outline or local_result_outline, self.result_text_replaced,
+            self.results,
+            self.transcript_lexer,
+            self._append,
+            result_outline or local_result_outline,
+            self.result_text_replaced,
         )
         self.result_tree_tasks: set[asyncio.Task[None]] = set()
         self._original_result_mouse = self.results.control.mouse_handler
         self.results.control.mouse_handler = self.results_mouse  # type: ignore[method-assign, assignment]
         self.buffer = session.default_buffer
+        self.input_state_fn = getattr(session, "input_state_fn", input_state)
+        self.editor_tokenizer = getattr(session, "editor_tokenizer", lex)
         self.buffer.accept_handler = self._accept
         if self.buffer.completer is not None:
             self.buffer.completer = ConditionalCompleter(
@@ -210,7 +247,8 @@ class WorkspaceConsole:
             )
         self.editor_control = BufferControl(
             buffer=self.buffer,
-            lexer=ReplLexer(semantic_matchers=True),
+            lexer=getattr(session, "editor_lexer", None)
+            or ReplLexer(semantic_matchers=True),
             focus_on_click=True,
             search_buffer_control=self.search.control,
         )
@@ -387,8 +425,13 @@ class WorkspaceConsole:
                     ),
                 ),
                 Float(
-                    left=0, right=0, top=0, bottom=0,
-                    content=ConditionalContainer(self.source.container, Condition(lambda: self.source.visible)),
+                    left=0,
+                    right=0,
+                    top=0,
+                    bottom=0,
+                    content=ConditionalContainer(
+                        self.source.container, Condition(lambda: self.source.visible)
+                    ),
                 ),
             ],
         )
@@ -404,8 +447,12 @@ class WorkspaceConsole:
                         has_focus(self.buffer)
                         & ~is_searching
                         & Condition(lambda: not self.closing),
+                        input_state_fn=self.input_state_fn,
+                        tokenizer=self.editor_tokenizer,
                     ),
-                    ConditionalKeyBindings(self._bindings(), Condition(lambda: not self.source.visible)),
+                    ConditionalKeyBindings(
+                        self._bindings(), Condition(lambda: not self.source.visible)
+                    ),
                 ]
             ),
             style=merge_styles(
@@ -634,7 +681,14 @@ class WorkspaceConsole:
         return f" Script · {lines} line{'s' if lines != 1 else ''} · Ctrl+Enter run · Alt+Enter newline"
 
     def footer(self) -> str:
-        active = next((progress for progress in reversed(self.progress_states.values()) if progress.active), None)
+        active = next(
+            (
+                progress
+                for progress in reversed(self.progress_states.values())
+                if progress.active
+            ),
+            None,
+        )
         if active is not None:
             # Reuse the existing status row so live progress stays visible even
             # when the batch body itself produces long output.
@@ -743,11 +797,19 @@ class WorkspaceConsole:
                     self._original_result_mouse(event)
                     self.open_source(item.source)
                     return None
-                if found[0].kind == "batch_progress" and found[0].value.active and "[Cancel]" in item.label and event.position.x >= item.label.index("[Cancel]") + 2:
+                if (
+                    found[0].kind == "batch_progress"
+                    and found[0].value.active
+                    and "[Cancel]" in item.label
+                    and event.position.x >= item.label.index("[Cancel]") + 2
+                ):
                     self._original_result_mouse(event)
                     self.cancel_progress(found[0].value)
                     return None
-                if item.page is not None or (item.expandable and 2 * item.depth <= event.position.x < 2 * item.depth + 2):
+                if item.page is not None or (
+                    item.expandable
+                    and 2 * item.depth <= event.position.x < 2 * item.depth + 2
+                ):
                     self._original_result_mouse(event)
                     self.navigate_result_tree("enter")
                     return None
@@ -767,11 +829,21 @@ class WorkspaceConsole:
         self.source.notice = "Loading source…"
         self.app.layout.focus(self.source.code.window)
         self.app.invalidate()
-        values = tuple(tree.value for tree in self.result_trees.trees if tree.kind != "batch_progress")
+        values = tuple(
+            tree.value
+            for tree in self.result_trees.trees
+            if tree.kind != "batch_progress"
+        )
 
         async def load() -> None:
             try:
-                snapshot = await self.read_source(target, values) if self.read_source else await asyncio.to_thread(source_snapshot, target, values, self.files.root)
+                snapshot = (
+                    await self.read_source(target, values)
+                    if self.read_source
+                    else await asyncio.to_thread(
+                        source_snapshot, target, values, self.files.root
+                    )
+                )
                 if self.source.visible and generation == self.source_generation:
                     self.source.show(snapshot, target)
             except Exception as exc:  # noqa: BLE001 - optional source viewer boundary
@@ -823,11 +895,18 @@ class WorkspaceConsole:
             if len(self.progress_states) > 20:
                 self.progress_states.pop(next(iter(self.progress_states)))
             self.result_trees.progress(progress)
-            if progress.durable and progress.active and self.read_batch_status and progress.run_id not in self.batch_monitors:
+            if (
+                progress.durable
+                and progress.active
+                and self.read_batch_status
+                and progress.run_id not in self.batch_monitors
+            ):
                 if len(self.batch_monitors) >= 20:
                     oldest = self.batch_monitors.pop(next(iter(self.batch_monitors)))
                     oldest.cancel()
-                self.batch_monitors[progress.run_id] = self.app.create_background_task(self.monitor_batch(progress))
+                self.batch_monitors[progress.run_id] = self.app.create_background_task(
+                    self.monitor_batch(progress)
+                )
         self.app.invalidate()
 
     async def monitor_batch(self, progress: BatchProgress) -> None:
@@ -853,6 +932,7 @@ class WorkspaceConsole:
                     await self._cancel()
             except Exception as exc:  # noqa: BLE001 - cancellation boundary
                 self.write_output(f"Batch cancellation was not confirmed: {exc}")
+
         self.app.create_background_task(cancel())
 
     def result_text_replaced(self, start: int, end: int, length: int) -> None:
@@ -864,6 +944,7 @@ class WorkspaceConsole:
 
     def navigate_result_tree(self, direction: str) -> None:
         self.follow = False
+
         async def navigate() -> None:
             await self.result_trees.navigate(direction)
             self.app.invalidate()
@@ -952,7 +1033,9 @@ class WorkspaceConsole:
             # Command task is the CLI error boundary; keep the draft/UI recoverable.
             self.exit_code = 1
             self.status = "Command failed"
-            self.write_markdown(output_markdown(self.mark_command_error(source, f"error: {exc}")))
+            self.write_markdown(
+                output_markdown(self.mark_command_error(source, f"error: {exc}"))
+            )
             self.explain_match_error(str(exc))
         finally:
             self.last_elapsed = monotonic() - self.started if self.started else None
@@ -972,7 +1055,11 @@ class WorkspaceConsole:
                 if not outcome.success
                 else outcome.output or ""
             )
-            if outcome.success and outline_value is not None and await self.result_trees.show(*outline_value):
+            if (
+                outcome.success
+                and outline_value is not None
+                and await self.result_trees.show(*outline_value)
+            ):
                 return
             if outcome.success and outcome.markdown is not None:
                 self.write_markdown(outcome.markdown)
@@ -1227,7 +1314,10 @@ class WorkspaceConsole:
         def result_branch(event: KeyPressEvent) -> None:
             key = event.key_sequence[0].key
             direction = "enter" if key == "c-m" else key
-            if self.result_trees.at(self.results.buffer.document.cursor_position_row) is not None:
+            if (
+                self.result_trees.at(self.results.buffer.document.cursor_position_row)
+                is not None
+            ):
                 self.navigate_result_tree(direction)
             elif direction == "left":
                 self.results.buffer.cursor_left()
@@ -1236,13 +1326,17 @@ class WorkspaceConsole:
 
         @bindings.add("o", filter=has_focus(self.results.buffer) & ~is_searching)
         def open_result_source(event: KeyPressEvent) -> None:
-            found = self.result_trees.at(self.results.buffer.document.cursor_position_row)
+            found = self.result_trees.at(
+                self.results.buffer.document.cursor_position_row
+            )
             if found and found[0].entries[found[1]].source:
                 self.open_source(cast(SourceTarget, found[0].entries[found[1]].source))
 
         @bindings.add("c", filter=has_focus(self.results.buffer) & ~is_searching)
         def cancel_result_batch(event: KeyPressEvent) -> None:
-            found = self.result_trees.at(self.results.buffer.document.cursor_position_row)
+            found = self.result_trees.at(
+                self.results.buffer.document.cursor_position_row
+            )
             if found and found[0].kind == "batch_progress" and found[0].value.active:
                 self.cancel_progress(found[0].value)
 
