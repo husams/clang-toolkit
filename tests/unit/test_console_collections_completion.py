@@ -16,6 +16,36 @@ def _options(completer: ReplCompleter, source: str) -> dict[str, object]:
     }
 
 
+def test_read_format_completion():
+    completer = ReplCompleter()
+    assert {"json", "yaml", "text", "csv"} <= _options(completer, 'let lines = read "data" as ').keys()
+    assert "proto" not in _options(completer, 'let lines = read "data" as ')
+    assert "text" not in _options(completer, 'save $data to "data" as ')
+
+
+def test_string_strip_completion_including_read_line(tmp_path):
+    from unittest.mock import Mock
+
+    from clang_toolkit.cli.runtime import Runtime
+    from clang_toolkit.client import Client
+
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    try:
+        runtime.execute('let text = " hello "')
+        (tmp_path / "names.txt").write_text(" λ \n", encoding="utf-8")
+        runtime.execute('let lines = read "names.txt"')
+        completer = ReplCompleter(
+            references=runtime.completion_references,
+            field_resolver=runtime.completion_suggestions,
+        )
+        for source in ("$text.", "$lines[0]."):
+            options = _options(completer, source)
+            assert "strip(" in options
+            assert "method" in to_plain_text(options["strip("].display_meta)
+    finally:
+        runtime.close()
+
+
 def test_collection_keywords_are_offered_in_their_grammar_positions():
     completer = ReplCompleter()
 

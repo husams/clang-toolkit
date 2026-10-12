@@ -171,6 +171,7 @@ let text = join parts with ","
 - push NAME, VALUE and push NAME with VALUE append; pop NAME removes and returns the final item.
 - set NAME[KEY] = VALUE, delete NAME[KEY] and delete NAME[INDEX] mutate a collection in place.
 - split STRING by SEPARATOR returns a list; join NAME with SEPARATOR returns a string.
+- String method: strip() trims leading/trailing whitespace; strip(chars) trims any of the specified characters.
 - Mutations are local to the runtime and do not modify source files or query results.
 
 ```text
@@ -607,16 +608,19 @@ save $lst[0].root.node.qualified_name to "name.json" as json
 
 ## read
 
-Read an ordinary JSON or YAML file as a console value.
+Read an ordinary JSON, YAML, text or CSV file as a console value.
 
 ```text
-read PATH
-let data = read PATH
+read PATH [as FORMAT]
+let data = read PATH [as FORMAT]
 ```
 
-- PATH: quoted/interpolated file path, string variable or File; .json, .yaml and .yml are supported.
+- PATH: quoted/interpolated file path, string variable or File; .json, .yaml, .yml, .txt, .text and .csv are supported.
+- FORMAT: json, yaml, text or csv; inferred from the suffix. An explicit format can read any suffix or an extensionless file.
 - Files are read on the client computer; relative paths use the session directory and ~/ uses HOME.
 - Objects expose fields and string-key indexing; lists support zero-based indexing and foreach. Scalar and null roots are also supported; empty YAML returns null.
+- Text returns a list of UTF-8 lines without line endings; spaces and blank lines are preserved. Use $line.strip() to trim whitespace or $line.strip(chars) to trim specific characters.
+- CSV uses its first row as headers and returns a list of dictionaries with string cells; quotes, embedded commas/newlines and UTF-8 BOMs are supported. Empty files return an empty list; duplicate/empty headers and uneven rows are rejected.
 - YAML uses safe loading; recursive aliases are rejected. Errors preserve the previous assignment value.
 - read returns every document key as written. load also recognizes older typed snapshot envelopes.
 
@@ -627,6 +631,11 @@ print $data.project.name
 print $data.sources[0]
 let filename = "$HOME/config.yml"
 let data = read $filename
+let lines = read "names.txt"
+let names = foreach line in $lines do $line.strip() done
+let lines = read "build.log" as text
+let rows = read "people.csv"
+print $rows[0].name.strip()
 ```
 
 ## load

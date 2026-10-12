@@ -719,17 +719,47 @@ def load(path: Path) -> Any:
     return document
 
 
-def read_document(path: Path) -> Any:
-    """Read ordinary JSON/YAML without interpreting CTK persistence envelopes."""
-    if path.suffix.lower() not in {".json", ".yaml", ".yml"}:
-        raise PersistenceError("read requires a .json, .yaml or .yml file")
+def read_document(path: Path, *, format_name: str | None = None) -> Any:
+    """Read ordinary data without interpreting CTK persistence envelopes."""
+    formats = {
+        ".json": "json", ".yaml": "yaml", ".yml": "yaml",
+        ".txt": "text", ".text": "text", ".csv": "csv",
+    }
+    kind = format_name.lower() if format_name is not None else formats.get(path.suffix.lower())
+    if kind not in {"json", "yaml", "text", "csv"}:
+        raise PersistenceError(
+            "read requires a .json, .yaml, .yml, .txt, .text or .csv file "
+            "or an explicit format: as json, yaml, text or csv"
+        )
     try:
+        if kind == "csv":
+            return _read_csv_document(path)
         with path.open(encoding="utf-8") as handle:
-            value = json.load(handle) if path.suffix.lower() == ".json" else yaml.safe_load(handle)
+            if kind == "text":
+                return [line.removesuffix("\n") for line in handle]
+            value = json.load(handle) if kind == "json" else yaml.safe_load(handle)
         _check_document(value, set())
         return value
-    except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, RecursionError, yaml.YAMLError, csv.Error) as exc:
         raise PersistenceError(f"cannot read {path}: {exc}") from exc
+
+
+def _read_csv_document(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.reader(handle, strict=True)
+        headers = next(reader, None)
+        if headers is None:
+            return []
+        if not headers or any(not header for header in headers) or len(set(headers)) != len(headers):
+            raise PersistenceError("CSV has duplicate or empty columns")
+        rows = []
+        for row in reader:
+            if not row:
+                continue
+            if len(row) != len(headers):
+                raise PersistenceError(f"CSV row at line {reader.line_num} has the wrong number of columns")
+            rows.append(dict(zip(headers, row)))
+        return rows
 
 
 def _check_document(value: Any, ancestors: set[int]) -> None:

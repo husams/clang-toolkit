@@ -196,6 +196,10 @@ def call_method(value: Any, name: str, arguments: list[Any]) -> Any:
     except SemanticError as error:
         if name in {"hasField", "fieldState", "fieldOr"}:
             raise ReferenceError(str(error)) from error
+    if isinstance(value, str) and name == "strip":
+        if len(arguments) > 1 or (arguments and not isinstance(arguments[0], str)):
+            raise ReferenceError("strip accepts an optional string of characters")
+        return value.strip(*arguments)
     if isinstance(value, list):
         from .collections import ensure_insertable
 
@@ -433,6 +437,8 @@ def field_names(value: Any) -> tuple[str, ...]:
             except (SemanticError, MatchValueError):
                 pass
         return (*metadata, *semantic_fields)
+    if isinstance(value, str):
+        return ("strip",)
     if isinstance(value, list):
         return ("length", "isEmpty", "push", "pop", "insert", "remove", "clear", "joinWith", "unique", "sort", "filter")
     if type(value) is dict:

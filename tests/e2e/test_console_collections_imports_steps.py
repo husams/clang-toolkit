@@ -54,6 +54,34 @@ def _run(collection_fixture, *arguments: str):
     return result.stdout.splitlines()
 
 
+@when("I read text and CSV files through the CLI", target_fixture="read_output")
+def run_read_documents(collection_fixture):
+    _, _, _, directory = collection_fixture
+    (directory / "names.txt").write_bytes("  λ  \r\n\r\n\tمرحبا\t".encode("utf-8"))
+    (directory / "people.csv").write_text(
+        'name,count,note\n" λ ",002,"a,b"\nمرحبا,3,"say ""hi"""\n', encoding="utf-8"
+    )
+    (directory / "build.log").write_text("  done  \n", encoding="utf-8")
+    return _run(collection_fixture, "-e", "\n".join([
+        'let lines = read "names.txt"',
+        "print $lines.length",
+        "let names = foreach line in $lines do $line.strip() done",
+        'print $names.joinWith("|")',
+        'let rows = read "people.csv"',
+        "print $rows[0].name.strip()",
+        "print $rows[0].count",
+        "print $rows[0].note",
+        "print $rows[1].note",
+        'let log = read "build.log" as text',
+        "print $log[0].strip()",
+    ]))
+
+
+@then("the console preserves lines and CSV strings and trims requested whitespace")
+def verify_read_documents(read_output):
+    assert read_output == ["3", "λ||مرحبا", "λ", "002", "a,b", 'say "hi"', "done"]
+
+
 @when("I run the collection operations through the CLI", target_fixture="collection_output")
 def run_collections(collection_fixture):
     return _run(collection_fixture, "-e", "\n".join([

@@ -21,6 +21,29 @@ def make_runtime(tmp_path):
     return client, Runtime(client, cwd=tmp_path, environment={})
 
 
+def test_string_strip_trims_without_changing_original_value(tmp_path):
+    _, runtime = make_runtime(tmp_path)
+    try:
+        runtime.execute('let text = " \\tλ x\\n "')
+        assert runtime.execute("print $text.strip()") == "λ x"
+        assert runtime.execute('print $text.strip(" ")') == "\tλ x\n"
+        assert runtime.execute('print ("--λ--").strip("-")') == "λ"
+        assert runtime.bindings["text"] == " \tλ x\n "
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("arguments", ["1", '"a", "b"'])
+def test_invalid_strip_arguments_preserve_assignment(tmp_path, arguments):
+    client, runtime = make_runtime(tmp_path)
+    try:
+        runtime.execute('let text = "original"')
+        assert "strip accepts" in dispatch(client, f"let text = $text.strip({arguments})", runtime)
+        assert runtime.bindings["text"] == "original"
+    finally:
+        runtime.close()
+
+
 def test_list_dictionary_literals_access_and_collection_commands(tmp_path):
     client, runtime = make_runtime(tmp_path)
 

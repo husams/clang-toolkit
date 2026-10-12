@@ -758,7 +758,7 @@ class Runtime:
                 fields[name] = tuple(value.bindings)
             elif isinstance(value, ParsedTree):
                 fields[name] = ("path",)
-            elif isinstance(value, list):
+            elif isinstance(value, (list, str)):
                 fields[name] = field_names(value)
             elif type(value) is dict:
                 fields[name] = field_names(value)
@@ -866,6 +866,9 @@ class Runtime:
                 ):
                     kind = "method"
                     meta = "method · checks field presence or reports availability"
+                elif isinstance(value, str) and name == "strip":
+                    kind = "method"
+                    meta = "method · trim leading and trailing whitespace or characters"
                 elif isinstance(value, list) and name in {
                     "push",
                     "pop",
@@ -1428,7 +1431,12 @@ class Runtime:
                 )
             )
         if kind == "read_expression":
-            return read_document(self._output_path(node.children[1]))
+            format_name = (
+                str(node.children[-1])
+                if len(node.children) > 3 and node.children[-1] is not None
+                else None
+            )
+            return read_document(self._output_path(node.children[1]), format_name=format_name)
         if kind == "analysis_block":
             return self._analysis_block(node)
         if kind == "traverse_expression":
