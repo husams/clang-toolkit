@@ -36,10 +36,23 @@ void sync_file(int descriptor) {
 }
 
 Bytes read_file(const std::filesystem::path &path) {
-  std::ifstream input(path, std::ios::binary);
+  std::ifstream input(path, std::ios::binary | std::ios::ate);
   if (!input)
     throw std::runtime_error("cannot open native blob");
-  return Bytes(std::istreambuf_iterator<char>(input), {});
+  const auto size = input.tellg();
+  if (size < 0)
+    throw std::runtime_error("cannot determine native blob size");
+  Bytes bytes;
+  bytes.reserve(static_cast<std::size_t>(size));
+  input.seekg(0);
+  std::array<char, 64 * 1024> buffer;
+  while (input) {
+    input.read(buffer.data(), buffer.size());
+    bytes.append(buffer.data(), static_cast<std::size_t>(input.gcount()));
+  }
+  if (!input.eof())
+    throw std::runtime_error("cannot read native blob");
+  return bytes;
 }
 
 } // namespace
@@ -72,12 +85,13 @@ void BlobStore::sync_directory(const std::filesystem::path &path) const {
     throw std::system_error(error_number, std::generic_category(), "sync directory");
 }
 
-std::string BlobStore::publish(std::string_view bytes,
-                               std::int64_t created_at_ms) {
-  (void)created_at_ms;
+void BlobStore::publish(std::string_view bytes,
+                        std::string_view verified_digest) {
   if (bytes.size() > max_artifact_bytes_)
     throw std::runtime_error("native artifact exceeds configured size limit");
-  const auto digest = sha256(bytes);
+  // Store computes this digest from the same immutable draft before reserving
+  // publisher leases. Reuse it instead of hashing a large AST a second time.
+  const auto digest = validate_sha256(verified_digest);
   const auto destination = blob_path(digest);
   std::filesystem::create_directories(destination.parent_path());
   if (std::filesystem::exists(destination)) {
@@ -100,7 +114,7 @@ std::string BlobStore::publish(std::string_view bytes,
       sync_directory(directory);
       if (directory == root_) break;
     }
-    return digest;
+    return;
   }
 
   auto temporary_template = (root_ / "staging" / "blob-XXXXXX").string();
@@ -140,7 +154,6 @@ std::string BlobStore::publish(std::string_view bytes,
     std::filesystem::remove(temporary, ignored);
     throw;
   }
-  return digest;
 }
 
 Bytes BlobStore::read(std::string_view digest, std::uint64_t expected_size) const {

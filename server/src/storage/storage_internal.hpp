@@ -95,7 +95,7 @@ private:
 class BlobStore final {
 public:
   BlobStore(std::filesystem::path root, std::uint64_t max_artifact_bytes);
-  std::string publish(std::string_view bytes, std::int64_t created_at_ms);
+  void publish(std::string_view bytes, std::string_view verified_digest);
   Bytes read(std::string_view digest, std::uint64_t expected_size) const;
   void remove(std::string_view digest) const;
   std::uint64_t physical_bytes(std::size_t budget) const;
@@ -116,7 +116,8 @@ class MetadataRepository final {
 public:
   explicit MetadataRepository(Database &database) : database_(database) {}
   SnapshotId publish(const SnapshotDraft &snapshot,
-                    const std::vector<std::string> &digests);
+                    const std::vector<std::string> &digests,
+                    std::int64_t created_at_ms);
   std::vector<SnapshotDescriptor>
   ready_snapshots(const CompilationProfile &profile);
   SnapshotDescriptor load_snapshot(SnapshotId id) const;
@@ -146,7 +147,8 @@ private:
                        const std::vector<std::string> &arguments);
   void insert_inputs(SnapshotId id, const SnapshotDraft &snapshot);
   void insert_artifacts(SnapshotId id, const SnapshotDraft &snapshot,
-                        const std::vector<std::string> &digests);
+                        const std::vector<std::string> &digests,
+                        std::int64_t created_at_ms);
   Database &database_;
 };
 
@@ -168,7 +170,8 @@ struct Store::Impl : std::enable_shared_from_this<Store::Impl> {
   void reserve_publisher_blobs(const std::vector<std::string> &digests);
   void release_publisher_blobs(const std::vector<std::string> &digests);
   SnapshotId commit_publication(const SnapshotDraft &snapshot,
-                                const std::vector<std::string> &digests);
+                                const std::vector<std::string> &digests,
+                                std::int64_t created_at_ms);
   void complete_publication(const std::vector<std::string> &digests) noexcept;
   void cleanup_failed_publication(const std::vector<std::string> &digests);
   void collect_unreferenced_locked(std::size_t budget = 4096);

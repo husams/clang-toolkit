@@ -342,4 +342,82 @@ TEST(StorageStore, EnforcesExclusiveCacheRootOwnership) {
   EXPECT_THROW(Store::open(options(root.path())), std::system_error);
 }
 
+TEST(StorageStore, BulkBlobReaderPreservesBinaryBoundariesAndIntegrity) {
+  using namespace ctk::storage;
+  for (const std::size_t size : {0U, 65535U, 65536U, 65537U, 3145745U}) {
+    SCOPED_TRACE(size);
+    TemporaryRoot root;
+    auto store = Store::open(options(root.path()));
+    Bytes bytes(size, '\0');
+    for (std::size_t i = 0; i < size; ++i)
+      bytes[i] = static_cast<char>(i % 256);
+    const auto snapshot = draft("generation-one", bytes);
+    store->publish(snapshot);
+    const auto leases = store->acquire_ready(snapshot.profile);
+    ASSERT_EQ(leases.size(), 1U);
+    EXPECT_EQ(leases.front()->read_artifact(0), bytes);
+    const auto blob = find_blob(root.path());
+    {
+      std::ofstream output(blob, std::ios::binary | std::ios::app);
+      output.put('!');
+    }
+    EXPECT_THROW(leases.front()->read_artifact(0), std::runtime_error);
+    if (!bytes.empty()) {
+      {
+        std::ofstream output(blob, std::ios::binary | std::ios::trunc);
+        Bytes changed = bytes;
+        changed[0] = '!';
+        output.write(changed.data(), changed.size());
+      }
+      EXPECT_THROW(leases.front()->read_artifact(0), std::runtime_error);
+      std::filesystem::resize_file(blob, size / 2);
+      EXPECT_THROW(leases.front()->read_artifact(0), std::runtime_error);
+    }
+    std::filesystem::remove(blob);
+    EXPECT_THROW(leases.front()->read_artifact(0), std::runtime_error);
+  }
+}
+
+TEST(StorageStore, PublicationPreservesCallerBuffersAndNormalizesOnlyStoredTime) {
+  using namespace ctk::storage;
+  for (const std::int64_t supplied : {0LL, -1LL, 123456789LL}) {
+    SCOPED_TRACE(supplied);
+    TemporaryRoot root;
+    auto store = Store::open(options(root.path()));
+    auto snapshot = draft("generation-one", Bytes(1024 * 1024, 'x'));
+    snapshot.created_at_ms = supplied;
+    const auto *buffer = snapshot.artifacts.front().native_bytes.data();
+    store->publish(snapshot);
+    EXPECT_EQ(snapshot.created_at_ms, supplied);
+    EXPECT_EQ(snapshot.artifacts.front().native_bytes.data(), buffer);
+    EXPECT_EQ(snapshot.artifacts.front().native_bytes, Bytes(1024 * 1024, 'x'));
+    const auto leases = store->acquire_ready(snapshot.profile);
+    ASSERT_EQ(leases.size(), 1U);
+    const auto &stored = leases.front()->descriptor();
+    if (supplied > 0)
+      EXPECT_EQ(stored.created_at_ms, supplied);
+    else
+      EXPECT_GT(stored.created_at_ms, 0);
+    EXPECT_EQ(stored.last_accessed_at_ms, stored.created_at_ms);
+    EXPECT_EQ(leases.front()->read_artifact(0), snapshot.artifacts.front().native_bytes);
+  }
+}
+
+TEST(StorageStore, PrehashedPublicationStillRejectsCorruptExistingBlob) {
+  using namespace ctk::storage;
+  TemporaryRoot root;
+  auto store = Store::open(options(root.path()));
+  const auto snapshot = draft();
+  store->publish(snapshot);
+  const auto leases = store->acquire_ready(snapshot.profile);
+  ASSERT_EQ(leases.size(), 1U);
+  {
+    std::fstream output(find_blob(root.path()), std::ios::binary | std::ios::in | std::ios::out);
+    output.put('!');
+  }
+  EXPECT_THROW(store->publish(snapshot), std::runtime_error);
+  EXPECT_THROW(leases.front()->read_artifact(0), std::runtime_error);
+  EXPECT_EQ(store->stats().ready_snapshots, 1U);
+}
+
 } // namespace

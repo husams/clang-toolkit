@@ -6,7 +6,7 @@ import os
 import threading
 from glob import has_magic, iglob
 from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -199,6 +199,7 @@ class Runtime:
         self._batch_unknown_file_outcomes: set[str] = set()
         self._batch_outcome_lock = threading.Lock()
         self._batch_cancel_requested = threading.Event()
+        self._last_batch_admitted = False
         self._last_batch_file_outcomes: dict[tuple[str, str], str] = {}
         self._last_batch_unknown_file_count = 0
         self._last_batch_unattempted_file_count = 0
@@ -2027,10 +2028,19 @@ class Runtime:
                                 self._match_target, text, target, options, on_row
                             )
                         )
+                    # Observe failures as they finish rather than waiting for
+                    # an earlier slow input before cancelling sibling work.
+                    for future in as_completed(futures):
+                        future.result()
                     return [future.result() for future in futures]
                 except BaseException:
                     for future in futures:
                         future.cancel()
+                    if self._active_resource_scope is not None:
+                        try:
+                            self._active_resource_scope.cancel()
+                        except Exception:
+                            pass
                     raise
         except BaseException:
             # The pool has joined: also release successful results completed

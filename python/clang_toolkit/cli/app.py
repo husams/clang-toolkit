@@ -303,6 +303,30 @@ async def _prompt(session, prompt: str) -> str:
     return await asyncio.to_thread(session.prompt, prompt)
 
 
+async def _run_interactive_command(
+    client: Client, source: str, runtime: Runtime, async_client: AsyncClient
+) -> DispatchResult:
+    """Give foreground batches the same cancellation/join path in every UI."""
+    try:
+        tree = command_parser().parse(source)
+        foreground_batch = any(
+            node.data == "batch_statement" for node in tree.iter_subtrees()
+        )
+    except UnexpectedInput:
+        foreground_batch = False
+    if not foreground_batch:
+        return await asyncio.to_thread(dispatch_result, client, source, runtime)
+    runtime.clear_batch_cancel()
+    outcome, interrupted = await _run_batch_with_interrupts(
+        runtime,
+        lambda: dispatch_result(client, source, runtime),
+        async_client=async_client,
+    )
+    if interrupted:
+        return DispatchResult("batch interrupted; see progress for cleanup status", False)
+    return outcome
+
+
 async def _run() -> int:
     parser = argparse.ArgumentParser(
         prog="ctk",
@@ -679,8 +703,8 @@ async def _run() -> int:
                         async with runtime_lock:
                             runtime.clear_batch_cancel()
                             await leases.refresh(force=True)
-                            return await asyncio.to_thread(
-                                dispatch_result, client, source, runtime
+                            return await _run_interactive_command(
+                                client, source, runtime, async_client
                             )
 
                     async def workspace_server_status():
@@ -772,8 +796,8 @@ async def _run() -> int:
                     except KeyboardInterrupt:
                         continue
                     try:
-                        outcome = await asyncio.to_thread(
-                            dispatch_result, client, line, runtime
+                        outcome = await _run_interactive_command(
+                            client, line, runtime, async_client
                         )
                     except (NotImplementedError, CursorError, AnalysisError) as exc:
                         outcome = DispatchResult(f"error: {exc}", False)

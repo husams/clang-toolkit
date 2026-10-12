@@ -99,7 +99,10 @@ def collect_batch_values(batch_value_server):
 def collected_batch_cleanup(collected_batch_evidence):
     result, root, status = collected_batch_evidence
     assert result.returncode == 0, result.stdout
-    assert result.stdout.splitlines() == ["completed", "1", "2", "3", "true"]
+    assert "group 1 started" in result.stdout
+    assert "group 3 completed" in result.stdout
+    assert "assignment must be silent" not in result.stdout
+    assert [line for line in result.stdout.splitlines() if not line.startswith("batch ")] == ["completed", "1", "2", "3", "true"]
     detached = load(root / "collected.proto")
     assert len(detached) == 3
     assert all(len(group.rows) == 1 for group in detached)
@@ -145,7 +148,7 @@ def flattened_batch_cleanup(flattened_batch_evidence):
     result, root, status = flattened_batch_evidence
     assert result.returncode == 0, result.stdout
     names = [f"collected_{index}" for index in range(3)]
-    assert result.stdout.splitlines() == names + names + ["3"]
+    assert [line for line in result.stdout.splitlines() if not line.startswith("batch ")] == names + names + ["3"]
     assert len(load(root / "flattened.proto")) == 3
     for counter in (
         "result_cursors", "explicit_file_leases", "active_work", "reserved_bytes",

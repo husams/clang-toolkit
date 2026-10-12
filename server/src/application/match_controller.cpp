@@ -397,7 +397,7 @@ struct MatchController::Impl {
       if (!cursor)
         return failure(MatchCode::NotFound, "cursor unavailable");
     }
-    std::lock_guard operation(cursor->operation);
+    std::unique_lock operation(cursor->operation);
     auto resource_scope = detail::make_snapshot_scope(
         resources, owner, request.resource_scope_id(), work_token);
     if (!fresh_file) {
@@ -467,7 +467,7 @@ struct MatchController::Impl {
       fork->input_identity = cursor->input_identity;
       fork->scope_id = request.resource_scope_id();
       fork->input = cursor->input;
-      std::lock_guard fork_operation(fork->operation);
+      std::unique_lock fork_operation(fork->operation);
       auto reply = registry->commit(fork, std::move(result), checkpoint, true,
                                    stream_sink != nullptr);
       if (reply.code == MatchCode::Ok) {
@@ -485,6 +485,7 @@ struct MatchController::Impl {
               (state ? state->retained_bytes() : 0) +
                   fork->response.ByteSizeLong());
         } catch (const std::exception &error) {
+          fork_operation.unlock();
           (void)registry->close(owner, fork->id);
           return failure(MatchCode::ResourceExhausted, error.what());
         }
@@ -526,6 +527,8 @@ struct MatchController::Impl {
             (state ? state->retained_bytes() : 0) +
                 cursor->response.ByteSizeLong());
       } catch (const std::exception &error) {
+        // close() takes the cursor operation lock itself.
+        operation.unlock();
         (void)registry->close(owner, cursor->id);
         return failure(MatchCode::ResourceExhausted, error.what());
       }

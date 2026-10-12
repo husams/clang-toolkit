@@ -18,6 +18,8 @@ class BatchProgress:
     durable: bool = False
     skipped: int = 0
     revision: int = 0
+    phase: str = ""
+    elapsed_seconds: float = 0.0
 
     @property
     def active(self) -> bool:
@@ -35,6 +37,7 @@ class BatchProgress:
         return (
             f"State: {self.state} · {self.succeeded} succeeded · {self.failed} failed"
             + (f" · {self.skipped} skipped" if self.skipped else "")
+            + (f" · {self.phase} · {self.elapsed_seconds:.1f}s elapsed" if self.phase else "")
             + (" · [Cancel]" if self.active else "")
         )
 
