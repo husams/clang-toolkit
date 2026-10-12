@@ -1090,18 +1090,18 @@ cursor close "CURSOR_ID"
 
 ## traverse
 
-Visit a file's AST and return a typed traversal value.
+Stream native AST visits from a path, parsed tree or binding.
 
 ```text
-traverse PATH [depth NUMBER] [nodes NUMBER] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth NUMBER] [payload-nodes NUMBER]
+traverse TARGET [depth NUMBER] [nodes NUMBER] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth NUMBER] [payload-nodes NUMBER]
 ```
 
-- PATH: quoted source file or path/File reference. BOOL: true or false.
+- TARGET: quoted path, File, parsed tree or native binding reference. BOOL: true or false.
 - depth: 0..256, default 64. nodes: 1..100000, default 10000.
 - implicit/instantiations: false by default. Each option may occur once.
 - projection: shallow by default; recursive includes nested semantic payloads. payload-depth: 1..64 (default 24); payload-nodes: 1..100000 (default 10000 per node payload). These limits are independent of traversal depth/nodes.
 - main-file true restricts traversal to the main source file; default false includes header declarations.
-- Assign to a variable to use nodes and depth_limited as typed fields. A standalone command continues to print ProtoJSON.
+- Standalone commands stream each node as ProtoJSON, followed by completion metadata. Assignment explicitly collects nodes and depth_limited.
 - Uses configured extra_args and the session directory.
 
 ```text

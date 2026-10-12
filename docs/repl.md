@@ -218,7 +218,7 @@ Matching executes through the native server over Unix or TCP. Retained matching
 uses the formal `cursor open`, `cursor continue`, `cursor restart` and
 `cursor close` commands; see [result cursors](result-cursors.md) for revision,
 selection, scope and cleanup semantics. Standalone traversal runs through
-`traverse "file.cc" depth 12 nodes 10000`; see [AST traversal](ast-traversal.md).
+`traverse "file.cc" depth 12 nodes 10000` streams visits; parsed-tree and binding references also work, while `let graph = traverse ...` explicitly collects; see [AST traversal](ast-traversal.md).
 
 Legacy `cfg FUNCTION` and bare `callgraph` are recognized but now report a local
 missing-file error; supply the explicit file forms below.

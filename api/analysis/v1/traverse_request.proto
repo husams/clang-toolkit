@@ -2,10 +2,19 @@ syntax = "proto3";
 package ctk.analysis.v1;
 
 import "match/v1/match_service.proto";
+import "match/v1/resources.proto";
+
 import "analysis/v1/value_projection.proto";
 
 message TraverseRequest {
-  ctk.match.v1.FileMatchTarget file = 1;
+  // A path, pinned parsed tree, or native binding. Retained targets do not
+  // reparse, mutate the source cursor, or apply matcher scope restrictions.
+  oneof target {
+    ctk.match.v1.FileMatchTarget file = 1;
+    ctk.match.v1.SessionMatchTarget session = 9;
+    ctk.match.v1.BindingMatchTarget binding = 10;
+    ctk.match.v1.FileHandleTarget file_handle = 11;
+  }
   // RecursiveASTVisitor options; these are not matcher traversal policies.
   bool visit_implicit_code = 2;
   bool visit_template_instantiations = 3;

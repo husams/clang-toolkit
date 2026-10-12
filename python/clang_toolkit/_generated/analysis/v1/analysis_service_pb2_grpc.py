@@ -11,6 +11,7 @@ from . import script_request_pb2 as analysis_dot_v1_dot_script__request__pb2
 from . import script_response_pb2 as analysis_dot_v1_dot_script__response__pb2
 from . import traverse_request_pb2 as analysis_dot_v1_dot_traverse__request__pb2
 from . import traverse_response_pb2 as analysis_dot_v1_dot_traverse__response__pb2
+from . import traverse_stream_pb2 as analysis_dot_v1_dot_traverse__stream__pb2
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -76,6 +77,11 @@ class AnalysisServiceStub:
                 request_serializer=analysis_dot_v1_dot_traverse__request__pb2.TraverseRequest.SerializeToString,
                 response_deserializer=analysis_dot_v1_dot_traverse__response__pb2.TraverseResponse.FromString,
                 _registered_method=True)
+        self.StreamTraverse = channel.unary_stream(
+                '/ctk.analysis.v1.AnalysisService/StreamTraverse',
+                request_serializer=analysis_dot_v1_dot_traverse__request__pb2.TraverseRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_traverse__stream__pb2.TraverseStreamEvent.FromString,
+                _registered_method=True)
         self.CallGraph = channel.unary_unary(
                 '/ctk.analysis.v1.AnalysisService/CallGraph',
                 request_serializer=analysis_dot_v1_dot_call__graph__request__pb2.CallGraphRequest.SerializeToString,
@@ -135,6 +141,16 @@ class AnalysisServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamTraverse(self, request, context):
+        """Preorder nodes are written as visited, with transport backpressure. A
+        successful stream has exactly one completion and terminal OK. Failures
+        may follow provisional nodes, but never publish completion. No cursor is
+        modified. Each event, rather than the aggregate stream, is byte bounded.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def CallGraph(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -184,6 +200,11 @@ def add_AnalysisServiceServicer_to_server(servicer, server):
                     servicer.Traverse,
                     request_deserializer=analysis_dot_v1_dot_traverse__request__pb2.TraverseRequest.FromString,
                     response_serializer=analysis_dot_v1_dot_traverse__response__pb2.TraverseResponse.SerializeToString,
+            ),
+            'StreamTraverse': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamTraverse,
+                    request_deserializer=analysis_dot_v1_dot_traverse__request__pb2.TraverseRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_traverse__stream__pb2.TraverseStreamEvent.SerializeToString,
             ),
             'CallGraph': grpc.unary_unary_rpc_method_handler(
                     servicer.CallGraph,
@@ -385,6 +406,33 @@ class AnalysisService:
             '/ctk.analysis.v1.AnalysisService/Traverse',
             analysis_dot_v1_dot_traverse__request__pb2.TraverseRequest.SerializeToString,
             analysis_dot_v1_dot_traverse__response__pb2.TraverseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamTraverse(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/StreamTraverse',
+            analysis_dot_v1_dot_traverse__request__pb2.TraverseRequest.SerializeToString,
+            analysis_dot_v1_dot_traverse__stream__pb2.TraverseStreamEvent.FromString,
             options,
             channel_credentials,
             insecure,

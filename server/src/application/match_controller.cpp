@@ -746,6 +746,64 @@ MatchReply MatchController::stream_match(
                    "match executor queue is full or stopped");
   return future.get();
 }
+std::shared_ptr<ResourceManager> MatchController::resource_manager() const {
+  return impl_->resources;
+}
+MatchReply MatchController::native_state(
+    const std::string &owner, const MatchRequest &target,
+    std::shared_ptr<const ctk::clang_layer::NativeBindingState> &state,
+    const std::string &work_token) {
+  state.reset();
+  const auto invalid = invalid_request(target);
+  if (!invalid.empty())
+    return failure(MatchCode::InvalidArgument, invalid);
+  if (target.has_file_handle()) {
+    std::lock_guard lock(impl_->file_store->mutex);
+    const auto found =
+        impl_->file_store->files.find(target.file_handle().lease_id());
+    if (found == impl_->file_store->files.end() ||
+        found->second->owner != owner || found->second->closed.load())
+      return failure(MatchCode::NotFound, "file lease unavailable");
+    state = found->second->state;
+    if (!target.resource_scope_id().empty())
+      impl_->resources->claim_snapshot(
+          owner, target.resource_scope_id(), found->second->identity,
+          state->snapshot(), {}, found->second->input);
+    impl_->resources->register_work_snapshot(
+        owner, work_token, found->second->identity, state->snapshot(),
+        found->second->input);
+    return {};
+  }
+  if (!target.has_session() && !target.has_binding())
+    return failure(MatchCode::InvalidArgument, "retained target required");
+  const auto &id = target.has_session() ? target.session().session_id()
+                                        : target.binding().session_id();
+  auto cursor = impl_->registry->find(owner, id);
+  if (!cursor)
+    return failure(MatchCode::NotFound, "cursor unavailable");
+  std::lock_guard lock(cursor->operation);
+  if (cursor->closed || cursor->deadline <= std::chrono::steady_clock::now())
+    return failure(MatchCode::NotFound, "cursor expired or closed");
+  const bool guarded = target.has_session()
+                           ? target.session().has_expected_result_revision()
+                           : target.binding().has_expected_result_revision();
+  const auto revision = target.has_session()
+                            ? target.session().expected_result_revision()
+                            : target.binding().expected_result_revision();
+  if (guarded && revision != cursor->response.result_revision())
+    return failure(MatchCode::Aborted, "cursor result revision changed");
+  state = cursor->state;
+  if (!target.resource_scope_id().empty())
+    impl_->resources->claim_snapshot(owner, target.resource_scope_id(),
+                                     cursor->input_identity, state->snapshot(),
+                                     {}, cursor->input);
+  impl_->resources->register_work_snapshot(owner, work_token,
+                                           cursor->input_identity,
+                                           state->snapshot(), cursor->input);
+  cursor->deadline =
+      std::chrono::steady_clock::now() + impl_->settings.idle_ttl;
+  return {};
+}
 MatchReply MatchController::close(const std::string &owner,
                                   const std::string &id) {
   const auto cursor = impl_->registry->find(owner, id);
