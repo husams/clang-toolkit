@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from lark import Token
 from lark.exceptions import UnexpectedInput
 
-from clang_toolkit.cli.language import parser, reference_parser
+from clang_toolkit.cli.language import batch_parser, reference_parser
 
 _KEYWORD_TYPES = {
     "FILE",
@@ -85,7 +85,7 @@ _KEYWORD_TYPES = {
 
 def accepted_after(tokens: Iterable[Token]) -> set[str]:
     """Return grammar terminals valid after tokens, or an empty set if invalid."""
-    interactive = parser().parse_interactive("")
+    interactive = batch_parser().parse_interactive("")
     try:
         for token in tokens:
             accepted = set(interactive.accepts())

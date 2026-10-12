@@ -15,7 +15,7 @@ import grpc
 from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.cli.runtime.evaluator import EvaluationError, Runtime
 from clang_toolkit.cli.runtime.batch_execution import BatchInterrupted
-from clang_toolkit.cli.app import _run_batch_with_interrupts
+from clang_toolkit.cli.app import _run_batch_with_interrupts, _run_interactive_command
 from clang_toolkit.cli.app import dispatch_result
 from clang_toolkit.cursors import CursorError
 from clang_toolkit.resources import FileHandle, FileSet, InputDescriptor
@@ -742,6 +742,35 @@ def test_cleanup_unknown_group_is_counted_once_when_release_and_describe_fail(
 
     assert not result.success
     assert '"cleanup_unknown_groups_total":1' in result.output
+
+
+@pytest.mark.parametrize("prefix", ['print "before"\n', 'let report =\n'])
+def test_interactive_scripts_cancel_foreground_work_and_skip_later_statements(tmp_path, prefix):
+    runtime, client = _runtime(tmp_path)
+    runtime.bindings["inputs"] = FileSet(
+        (InputDescriptor.from_path("one.cc", working_directory=tmp_path),)
+    )
+    evaluate_statement = runtime._evaluate_statement_once
+
+    def interrupt_in_scope(node, source, *, value_context):
+        result = evaluate_statement(node, source, value_context=value_context)
+        if node.data == "print" and runtime._active_resource_scope is not None:
+            runtime.request_batch_cancel()
+        return result
+
+    runtime._evaluate_statement_once = interrupt_in_scope
+    source = prefix + "batch part in $inputs size 1 do { print $part.index; }"
+    if prefix.startswith("print"):
+        source += "\nlet skipped = 9"
+    try:
+        result = asyncio.run(_run_interactive_command(client, source, runtime, None))
+        assert not result.success and "batch interrupted" in result.output
+        assert "skipped" not in runtime.bindings
+        assert runtime._active_resource_scope is None
+        assert not runtime._source_stack
+        assert client.scopes and all(scope.released for scope in client.scopes)
+    finally:
+        runtime.close()
 
 
 def test_foreground_runner_handles_first_sigint_in_worker_and_joins(tmp_path):

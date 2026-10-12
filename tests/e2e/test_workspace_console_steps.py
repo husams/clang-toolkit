@@ -79,9 +79,8 @@ def run_workspace(
     commands = [
         'let inputs = [\n"one",\n"two"\n]',
         f'let tree = parse "{source}"',
-        'let rows = match functionDecl().bind("f") in $tree',
-        "print $rows[0].f.decl_name",
-        'print "INPUT_COUNT=${inputs.length}"',
+        'let rows = match functionDecl().bind("f") in $tree\n'
+        'print $rows[0].f.decl_name; print "INPUT_COUNT=${inputs.length}"',
     ]
 
     def read_until(
@@ -170,8 +169,6 @@ def run_workspace(
         expected = [
             "let inputs",
             "let tree",
-            "let rows",
-            "workspace_native",
             "INPUT_COUNT=2",
         ]
         source_session = None
@@ -367,7 +364,7 @@ def run_workspace(
             f"\x1b[<0;{column};{title + 1}M\x1b[<0;{column};{title + 1}m".encode(),
         )
         read_until(
-            "Command · 1 line",
+            "Script · 1 line",
             recorded=lambda: not any("[×]" in line for line in screen.display),
         )
         os.write(master, b"\x1b[18~")  # F7 binding outline.
@@ -495,7 +492,7 @@ def run_workspace(
         screen.resize(lines=28, columns=100)
         os.kill(process.pid, signal.SIGWINCH)
         os.write(master, ("\x1b[200~" + commands[0] + "\x1b[201~").encode())
-        read_until("Command · 4 lines")
+        read_until("Script · 4 lines")
         expanded = read_until("   4 │ ]")
         assert "...>" not in expanded
         assert any(
@@ -515,7 +512,7 @@ def run_workspace(
         read_until("Draft cleared")
         long_draft = "let inputs = [\n" + ",\n".join(str(i) for i in range(25))
         os.write(master, ("\x1b[200~" + long_draft + "\x1b[201~").encode())
-        read_until("Command · 26 lines")
+        read_until("Script · 26 lines")
         capped = read_until("  26 │ 24")
         assert "  26 │ 24" in capped
         (tmp_path / "workspace-capped.txt").write_text(capped)
@@ -554,7 +551,7 @@ def run_workspace(
         os.write(master, b"\x7f")
         read_until("let smart = ")
         os.write(master, b"[\r1,\r2")
-        smart_frame = read_until("Command · 4 lines")
+        smart_frame = read_until("Script · 4 lines")
         assert "    2" in smart_frame
         (tmp_path / "workspace-editing.txt").write_text(smart_frame)
         commands.append("let smart = [\n    1,\n    2\n]")
@@ -700,7 +697,7 @@ def run_workspace(
         os.kill(process.pid, signal.SIGWINCH)
         for failed, explanation, marked_token in [
             (";et bad = 1", "syntax error at line 1, column 1", ";"),
-            ("print $missing", "error: unknown variable: missing", "$missing"),
+            ('print "BEFORE_ERROR"\nprint $missing\nsave [1] to "skipped.json" as json', "error: unknown variable: missing", "$missing"),
             ("print $a_manifest[0]", "value does not support indexing", "0"),
         ]:
             commands.append(failed)
@@ -710,12 +707,14 @@ def run_workspace(
                 recorded=lambda: any("^" in line for line in screen.display),
             )
             row = next(
-                i for i, line in enumerate(screen.display) if "│ " + failed in line
+                i for i, line in enumerate(screen.display)
+                if "│ " in line and marked_token in line and not line.lstrip().startswith("error:")
             )
             col = screen.display[row].index(marked_token)
             assert screen.buffer[row][col].underscore
             assert screen.display[row + 1].index("^") == col
             (tmp_path / "workspace-errors.txt").write_text("\n".join(screen.display))
+            assert not (tmp_path / "skipped.json").exists()
         commands.append('print "RECOVERED"')
         submit(commands[-1], "RECOVERED")
         os.write(master, b"\x1b[21~")

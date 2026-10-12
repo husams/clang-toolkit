@@ -49,7 +49,7 @@ def parser() -> Lark:
 
 @cache
 def batch_parser() -> Lark:
-    """Build the formal multi-command parser used by noninteractive runs."""
+    """Build the formal multi-command parser shared by every console UI."""
     return Lark(
         GRAMMAR.read_text(),
         parser="lalr",

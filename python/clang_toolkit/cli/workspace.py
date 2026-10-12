@@ -631,7 +631,7 @@ class WorkspaceConsole:
 
     def editor_title(self) -> str:
         lines = self.buffer.document.line_count
-        return f" Command · {lines} line{'s' if lines != 1 else ''} · Ctrl+Enter / Ctrl+J run · Enter completes"
+        return f" Script · {lines} line{'s' if lines != 1 else ''} · Ctrl+Enter run · Alt+Enter newline"
 
     def footer(self) -> str:
         active = next((progress for progress in reversed(self.progress_states.values()) if progress.active), None)
@@ -944,23 +944,10 @@ class WorkspaceConsole:
             if not outcome.success:
                 self.exit_code = 1
             self.status = "Ready" if outcome.success else "Command failed"
-            if outcome.output is None:
+            for part in getattr(outcome, "parts", ()) or (outcome,):
+                await self._render_result(source, part)
+            if outcome.output is None or getattr(outcome, "exit_requested", False):
                 self.closing = True
-            elif outcome.output or getattr(outcome, "outline_value", None) is not None:
-                output = (
-                    self.mark_command_error(source, outcome.output)
-                    if not outcome.success
-                    else outcome.output
-                )
-                outline_value = getattr(outcome, "outline_value", None)
-                if outcome.success and outline_value is not None and await self.result_trees.show(*outline_value):
-                    pass
-                elif outcome.success and outcome.markdown is not None:
-                    self.write_markdown(outcome.markdown)
-                else:
-                    self.write_markdown(output_markdown(output))
-                if not outcome.success:
-                    self.explain_match_error(outcome.output)
         except Exception as exc:  # noqa: BLE001 - background CLI error boundary
             # Command task is the CLI error boundary; keep the draft/UI recoverable.
             self.exit_code = 1
@@ -976,6 +963,23 @@ class WorkspaceConsole:
             self.app.invalidate()
             if self.closing and self.app.is_running:
                 self.app.exit()
+
+    async def _render_result(self, source: str, outcome: CommandOutcome) -> None:
+        outline_value = getattr(outcome, "outline_value", None)
+        if outcome.output or outline_value is not None:
+            output = (
+                self.mark_command_error(source, outcome.output or "")
+                if not outcome.success
+                else outcome.output or ""
+            )
+            if outcome.success and outline_value is not None and await self.result_trees.show(*outline_value):
+                return
+            if outcome.success and outcome.markdown is not None:
+                self.write_markdown(outcome.markdown)
+            else:
+                self.write_markdown(output_markdown(output))
+            if not outcome.success:
+                self.explain_match_error(outcome.output or "")
 
     def mark_command_error(self, source: str, message: str) -> str:
         span = error_span(source, message)
@@ -1127,7 +1131,7 @@ class WorkspaceConsole:
             "## Workspace shortcuts\n\n"
             "**F1** Shortcuts · **F2** Actions · **F3** Files · **F4** Help · **F5** Refresh · **F6** Focus\n\n"
             "**F7** Outline · **F8** Resources · **F9** Server · **F10** Quit\n\n"
-            "- **Ctrl+Enter** or **Ctrl+J** runs the whole draft. **Enter** runs complete input at its end; otherwise it adds an indented line. **Actions → Run command** also executes. Paired brackets and quotes keep the cursor inside.\n"
+            "- **Ctrl+Enter** or **Ctrl+J** runs the whole script, with statements separated by newlines or semicolons. **Alt+Enter** or **Shift+Enter** adds an indented line. **Enter** runs complete input at its end; otherwise it adds an indented line. **Actions → Run command** also executes. Paired brackets and quotes keep the cursor inside.\n"
             "- **Ctrl+R** searches history or results; **Ctrl+C** clears a draft or requests cancellation.\n"
             "- **Escape** closes the focused panel or menu. Files are local; selecting a file prepares `parse`.\n"
             "- Outline: **Enter** expands/collapses; **Left/Right** pans; **p** prepares `print`. Select Next/Previous page for 50 items.\n"
@@ -1264,7 +1268,7 @@ class WorkspaceConsole:
         def busy_enter(event: KeyPressEvent) -> None:
             self.write("A command is running; your next draft is kept.")
 
-        @bindings.add("escape", filter=~is_searching, eager=True)
+        @bindings.add("escape", filter=~is_searching)
         def escape(event: KeyPressEvent) -> None:
             if self.buffer.complete_state is not None:
                 self.buffer.cancel_completion()

@@ -13,9 +13,10 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
+from lark import Tree
 from lark.exceptions import UnexpectedInput
 
-from clang_toolkit.cli.language import lex, parser as command_parser
+from clang_toolkit.cli.language import batch_parser, lex, parser as command_parser
 from clang_toolkit.cli.help import COMMANDS, render_help, render_help_markdown
 from clang_toolkit.cli.syntax_diagnostics import (
     syntax_diagnostic,
@@ -27,6 +28,7 @@ from clang_toolkit.cli.prompt import PersistentPromptHistory, create_session
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
 from clang_toolkit.cli.runtime.imports import script_source
 from clang_toolkit.cli.runtime.config import ConfigError
+from clang_toolkit.cli.runtime.collections import snapshot_collections
 from clang_toolkit.cli.runtime.history import HistoryError, HistoryStore
 from clang_toolkit.cli.runtime.output import OutputError
 from clang_toolkit.cli.runtime.persistence import PersistenceError
@@ -39,6 +41,19 @@ from clang_toolkit.version import client_version
 
 _SESSION_CLOSE_TIMEOUT = 5.0
 _BATCH_RUNNER_CANCEL_TIMEOUT = 30.0
+_DISPATCH_ERRORS = (
+    EvaluationError,
+    ConfigError,
+    ConfigurationError,
+    QueryError,
+    PersistenceError,
+    OutputError,
+    HistoryError,
+    CursorError,
+    MatchValueError,
+    NotImplementedError,
+    AnalysisError,
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +62,8 @@ class DispatchResult:
     success: bool
     markdown: str | None = None
     outline_value: tuple[str, Any] | None = None
+    parts: tuple[DispatchResult, ...] = ()
+    exit_requested: bool = False
 
 
 class _SessionCompletionTracker:
@@ -137,47 +154,90 @@ class _SessionCompletionTracker:
         return future.result()
 
 
+def _parse_submission(source: str) -> list[Tree]:
+    """Share script validation between dispatch and foreground cancellation."""
+    try:
+        # Preserve single-command syntax and diagnostics; the same formal
+        # grammar also has a script entry point for newline/semicolon batches.
+        return [command_parser().parse(source).children[0]]
+    except UnexpectedInput as single_error:
+        try:
+            tree = batch_parser().parse(source)
+        except UnexpectedInput as script_error:
+            if (
+                (single_error.line == 1 and single_error.column == 1)
+                or (script_error.line, script_error.column)
+                < (single_error.line, single_error.column)
+            ):
+                raise single_error
+            raise script_error
+        return [
+            item for item in tree.children
+            if isinstance(item, Tree) and item.data != "batch_separator"
+        ]
+
+
 def dispatch_result(
     client: Client, line: str, runtime: Runtime | None = None
 ) -> DispatchResult:
-    """Validate one sentence and evaluate it in the active REPL runtime."""
+    """Validate the whole submission, then run its statements in order."""
     if not line.strip():
         return DispatchResult("", True)
     try:
-        statement = command_parser().parse(line).children[0]
-        if statement.data in {"help", "help_shortcut"}:
-            if runtime is not None and runtime.history is not None:
-                runtime.history.append(line, runtime.session_id, runtime.label)
-            return DispatchResult(render_help(statement), True, render_help_markdown(statement))
-        runtime = runtime or Runtime(client)
-        output = runtime.execute(line)
-        outline_value, runtime.display_value = runtime.display_value, None
-        return DispatchResult(output, True, outline_value=outline_value)
+        statements = _parse_submission(line)
+        if runtime is not None and runtime.history is not None:
+            runtime.history.append(line, runtime.session_id, runtime.label)
+        parts: list[DispatchResult] = []
+        for statement in statements:
+            if statement.data not in {"help", "help_shortcut"}:
+                runtime = runtime or Runtime(client)
+            outcome = _dispatch_statement(
+                statement, line, runtime, freeze_display=len(statements) > 1
+            )
+            parts.append(outcome)
+            if not outcome.success or outcome.output is None:
+                break
+        if len(parts) == 1:
+            return parts[0]
+        return DispatchResult(
+            "\n".join(part.output for part in parts if part.output),
+            all(part.success for part in parts),
+            parts=tuple(parts),
+            exit_requested=bool(parts and parts[-1].output is None),
+        )
     except UnexpectedInput as exc:
         if runtime is not None and runtime.history is not None:
             try:
                 runtime.history.append(line, runtime.session_id, runtime.label)
             except HistoryError as history_error:
                 return DispatchResult(f"error: {history_error}", False)
-        first = next(token for token in lex(line) if token.type != "WS")
-        if first.type == "NAME" and str(first) not in COMMANDS:
+        first = next(
+            (token for token in lex(line) if token.type not in {"WS", "COMMENT"}), None
+        )
+        if first is not None and first.type == "NAME" and str(first) not in COMMANDS:
             return DispatchResult(
                 unknown_command_diagnostic(line, str(first), COMMANDS), False
             )
         return DispatchResult(syntax_diagnostic(line, exc), False)
-    except (
-        EvaluationError,
-        ConfigError,
-        ConfigurationError,
-        QueryError,
-        PersistenceError,
-        OutputError,
-        HistoryError,
-        CursorError,
-        MatchValueError,
-        NotImplementedError,
-        AnalysisError,
-    ) as exc:
+    except _DISPATCH_ERRORS as exc:
+        return DispatchResult(f"error: {exc}", False)
+
+
+def _dispatch_statement(
+    statement: Tree, source: str, runtime: Runtime | None, *, freeze_display: bool = False
+) -> DispatchResult:
+    """Keep each statement's rich result and original script coordinates."""
+    try:
+        if statement.data in {"help", "help_shortcut"}:
+            return DispatchResult(render_help(statement), True, render_help_markdown(statement))
+        assert runtime is not None
+        output = runtime.execute_statement(statement, source)
+        outline_value, runtime.display_value = runtime.display_value, None
+        if freeze_display and outline_value is not None:
+            kind, value = outline_value
+            outline_value = (kind, snapshot_collections(value))
+        return DispatchResult(output, True, outline_value=outline_value)
+    except _DISPATCH_ERRORS as exc:
         return DispatchResult(f"error: {exc}", False)
 
 
@@ -304,13 +364,14 @@ async def _prompt(session, prompt: str) -> str:
 
 
 async def _run_interactive_command(
-    client: Client, source: str, runtime: Runtime, async_client: AsyncClient
+    client: Client, source: str, runtime: Runtime, async_client: AsyncClient | None
 ) -> DispatchResult:
     """Give foreground batches the same cancellation/join path in every UI."""
     try:
-        tree = command_parser().parse(source)
         foreground_batch = any(
-            node.data == "batch_statement" for node in tree.iter_subtrees()
+            node.data == "batch_statement"
+            for statement in _parse_submission(source)
+            for node in statement.iter_subtrees()
         )
     except UnexpectedInput:
         foreground_batch = False
@@ -810,6 +871,8 @@ async def _run() -> int:
                         break
                     if out:
                         print(out)
+                    if outcome.exit_requested:
+                        break
                 try:
                     await async_client.wait_background()
                 except QueryError:

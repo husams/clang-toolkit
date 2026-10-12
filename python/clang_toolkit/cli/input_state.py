@@ -33,13 +33,13 @@ def input_state(text: str) -> InputState:
     open_string = False
     block_depth = 0
 
-    tokens = lex(text)
+    tokens = lex(text, batch=True)
     for index, token in enumerate(tokens):
         if token.type == "DO":
             remainder = text[token.end_pos :]
             next_token_index = index + 1
             while next_token_index < len(tokens) and tokens[next_token_index].type in {
-                "WS", "COMMENT"
+                "WS", "COMMENT", "BATCH_SEPARATOR"
             }:
                 next_token_index += 1
             opens_brace_block = (
