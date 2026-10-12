@@ -11,6 +11,7 @@ Produce runnable CTK statements that answer the user's question and verify them 
 
 - **Console DSL (default):** interactive `ctk`, `ctk --script FILE.ctk`, or `ctk --execute TEXT`. Read [console.md](references/console.md).
 - **Named script arguments:** `ctk FILE.ctk x=value` runs the file and exposes the literal string as `$arg.x`; `--script`, `--execute`, and piped runs accept the same arguments.
+- **Text and CSV inputs:** `read` returns text lines or CSV records; trim strings explicitly with `.strip()`. See the complete input example in [console.md](references/console.md).
 - **Native server DSL:** the console's `script "SOURCE" [in "TARGET"]`, SDK `run_script`, or a `background batch`/`durable batch` body. Read [native.md](references/native.md). This language uses explicit `emit` statements.
 - For multi-file discovery, batching, resource cleanup, and exports, also read [batches.md](references/batches.md).
 
@@ -38,4 +39,4 @@ Use `$row.f.qualified_name`, `$row.f.decl_name`, and other discovered direct pro
 
 Return the exact script and observed output or an explicit unverified boundary when details are requested. Follow the user's response-length preference. Parsing syntax or reading a manual is not live verification.
 
-References were checked against the local clang-toolkit checkout on 2026-10-11; each lists maintained sources for refresh when needed. Different installed versions may differ.
+Console guidance was refreshed on 2026-10-12 after the text/CSV reads, whole interactive scripts, and named script arguments were merged. Native-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` when installed behavior differs.

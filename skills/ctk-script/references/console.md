@@ -16,6 +16,15 @@ Endpoint/database paths above are examples; use supplied or configured values. `
 
 `ctk SCRIPT KEY=VALUE ...` also runs the file and exits. Script, inline, and piped runs expose a dictionary named `arg`: use `$arg.x` or `$arg["x"]`. Values are literal strings, including empty values, spaces inside a quoted argument, and any `=` after the first separator. Names are trimmed; missing/empty names and duplicate names are errors before execution. With no parameters, `$arg` is `{}`. Imported libraries share the same arguments.
 
+The complete `analysis.ctk` for the named-argument command above is:
+
+```text
+print $arg.x
+print $arg.message
+```
+
+It prints `gggg` and `hello world`. For piped input, `printf '%s\n' 'print $arg.x' | ctk x=gggg` prints `gggg`. Use `--script FILE` when a filename itself contains `=`. Script arguments populate batch runs; interactive sessions do not receive this dictionary automatically.
+
 For console-only interaction, allocate a TTY (`exec_command` with `tty: true`). The repository's `scripts/manual_console.sh` can start a private disposable server for validation; exit stops that server.
 
 In `--script`/`--execute` and interactive submissions, newlines or semicolons separate top-level commands. In the workspace, paste a complete script and use Ctrl+Enter or Ctrl+J to execute it; Alt+Enter or Shift+Enter adds another line while typing. The console validates the whole submission before execution, runs statements in order with shared bindings, stops at the first error or exit, and records one history entry. Prefer semicolons inside blocks. Comments use `#`. Declare names without `$`; references use `$name`. Double-quoted strings interpolate `$name` and `${path.to.field}`; single quotes are literal. Escape a dollar in double quotes when literal text is intended.
@@ -81,6 +90,27 @@ print $text;
 
 Mutations affect local collections, not native rows or source files. `.unique("f.symbol_identity")` keeps first occurrences, `.sort("f.decl_name")` sorts, and `.filter("f.decl_name", "demo::run")` uses equality. These methods do not imply SQL-style predicates or proposed foreach header clauses.
 
+## Read text and CSV
+
+`read PATH [as FORMAT]` reads files on the client computer. Formats are `json`, `yaml`, `text`, and `csv`; `.txt`/`.text` infer text and `.csv` infers CSV. Use `as text` for logs or extensionless files. Relative input paths use the session directory.
+
+Text is a list of UTF-8 lines with line endings removed; spaces and blank lines remain. `.strip()` removes surrounding whitespace, and `.strip(chars)` removes the specified characters at either end. CSV is a list of dictionaries keyed by the header row; every cell remains a string, including `002`. Headers with spaces need string-key indexing. Quotes, embedded commas/newlines, and UTF-8 BOMs work; duplicate/empty headers and uneven rows fail. Use `read` for ordinary input; `load` also understands CTK's saved-value formats.
+
+For a names file and a CSV with `name,count` columns, the complete `inputs.ctk` is:
+
+```text
+let lines = read $arg.names as text
+let names = foreach line in $lines do $line.strip() done
+print $names.joinWith("|")
+let people = read $arg.people as csv
+foreach person in $people do {
+    print $person.name.strip();
+    print $person.count;
+}
+```
+
+Run it with `ctk inputs.ctk names=names.txt people=people.csv`. Supply files matching that header schema; use `.keys` or the actual headers when adapting it to another CSV.
+
 ## Scope and exports
 
 ```text
@@ -98,6 +128,12 @@ save $calls to "/absolute/output/calls.json" as json;
 
 ## Sources
 
+- `python/clang_toolkit/cli/app.py` (script arguments and execution modes)
+- `python/clang_toolkit/cli/runtime/persistence.py` (text and CSV reads)
+- `tests/unit/test_script_arguments.py`
+- `tests/e2e/test_script_arguments_steps.py`
+- `tests/e2e/test_console_collections_imports_steps.py`
+- `tests/e2e/test_workspace_console_steps.py`
 - `docs/console-command-reference.md`
 - `docs/parse-match-expressions.md`
 - `docs/expression-values.md`
