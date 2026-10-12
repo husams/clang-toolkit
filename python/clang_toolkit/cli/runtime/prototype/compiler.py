@@ -1,0 +1,388 @@
+"""Recursive Python-AST compiler for the experimental scripting runtime."""
+
+from __future__ import annotations
+
+import ast
+from collections.abc import Mapping
+from typing import Any, Callable
+
+from .semantics import (
+    Context, ExecutionLimitError, Node, PrototypeError, _as_bool, _binary,
+    _ensure_dict_capacity, _ensure_insertable, _error, _finite, _int, _kind, _name, _unary, child, children,
+    child_values, index_value, iterable_value, property_value,
+)
+
+
+def _tick(context: Context, node: Any) -> None:
+    context.tick(node)
+
+
+def _value(context: Context, node: Any, thunk: Callable[[], Any]) -> Any:
+    context.tick(node)
+    return thunk()
+
+
+def _literal(context: Context, node: Any, value: Any) -> Any:
+    if type(value) is int:
+        return _int(context, value, node)
+    if type(value) is float:
+        return _finite(context, value, node)
+    return value
+
+
+def _make_list(context: Context, node: Any, count: int, thunk: Callable[[], list[Any]]) -> list[Any]:
+    if count > context.max_items:
+        raise _error(context, node, "list exceeds item limit", ExecutionLimitError)
+    result = thunk()
+    if len(result) > context.max_items:
+        raise _error(context, node, "list exceeds item limit", ExecutionLimitError)
+    return result
+
+
+def _make_dict(context: Context, node: Any, count: int, thunk: Callable[[], list[tuple[Any, Any]]]) -> dict[Any, Any]:
+    if count > context.max_items:
+        raise _error(context, node, "dictionary exceeds item limit", ExecutionLimitError)
+    result: dict[Any, Any] = {}
+    try:
+        for key, value in thunk():
+            if type(key) is not str:
+                raise _error(context, node, "dictionary keys must be strings")
+            result[key] = value
+    except TypeError as error:
+        raise _error(context, node, "dictionary key is not hashable") from error
+    if len(result) > context.max_items:
+        raise _error(context, node, "dictionary exceeds item limit", ExecutionLimitError)
+    return result
+
+
+def _get(context: Context, node: Any, base_thunk: Callable[[], Any], name: str) -> Any:
+    base = base_thunk()
+    try:
+        return property_value(base, name)
+    except Exception as error:
+        raise _error(context, node, f"property {name!r} is unavailable on {type(base).__name__}: {error}") from error
+
+
+def _index(context: Context, node: Any, base_thunk: Callable[[], Any], key_thunk: Callable[[], Any]) -> Any:
+    return index_value(base_thunk(), key_thunk(), context, node)
+
+
+def _iterable(context: Context, node: Any, value: Any) -> Any:
+    return iterable_value(context, node, value)
+
+
+def _logical(context: Context, node: Any, operator: str, left: Callable[[], Any], right: Callable[[], Any]) -> bool:
+    value = _as_bool(context, left(), node)
+    if operator == "and":
+        return _as_bool(context, right(), node) if value else False
+    if operator == "or":
+        return True if value else _as_bool(context, right(), node)
+    raise _error(context, node, f"unknown logical operator {operator!r}")
+
+
+def _call(context: Context, node: Any, name: str, args: Callable[[], list[Any]]) -> Any:
+    function = context.functions.get(name)
+    if function is None:
+        raise _error(context, node, f"unregistered host function {name!r}")
+    try:
+        return function(*args())
+    except PrototypeError as error:
+        if getattr(node, "line", None) is not None and f"line {getattr(node, 'line')}" not in str(error):
+            raise _error(context, node, str(error), type(error)) from error
+        raise
+    except Exception as error:
+        raise _error(context, node, f"host function {name!r} failed: {error}") from error
+
+
+def _run_scoped(context: Context, function: Callable[[Context], Any]) -> Any:
+    context.push_scope()
+    try:
+        return function(context)
+    finally:
+        context.pop_scope()
+
+
+def _conditional(context: Context, node: Any, condition: Callable[[], Any], true_fn: Callable[[Context], Any], false_fn: Callable[[Context], Any]) -> Any:
+    return _run_scoped(context, true_fn if _as_bool(context, condition(), node) else false_fn)
+
+
+def _print(context: Context, value: Callable[[], Any], node: Any) -> Any:
+    result = value()
+    return context.emit(result, node)
+
+
+def _lookup(context: Context, node: Any, name: str) -> Any:
+    return context.lookup(name, node)
+
+
+def _define(context: Context, name: str, value: Any) -> Any:
+    return context.define(name, value)
+
+
+def _assign_ref(context: Context, node: Any, name: str, operator: str, value: Callable[[], Any]) -> Any:
+    scope = context.lookup_scope(name)
+    if scope is None:
+        raise _error(context, node, f"cannot assign undefined binding {name!r}")
+    old = scope[name] if operator != "=" else None
+    result = value()
+    if operator != "=":
+        result = _binary(context, operator[:-1], old, result, node)
+    scope[name] = result
+    return result
+
+
+def _assign_index(context: Context, node: Any, target_node: Any, operator: str, base: Any, key: Any, value: Callable[[], Any]) -> Any:
+    if type(key) is bool:
+        raise _error(context, node, "boolean is not a valid index")
+    if isinstance(base, list):
+        if type(key) is not int or key < 0 or key >= len(base):
+            raise _error(context, node, "list assignment index out of range")
+        old = base[key] if operator != "=" else None
+        result = value()
+        if operator != "=":
+            result = _binary(context, operator[:-1], old, result, node)
+        _ensure_insertable(context, base, result, target_node)
+        base[key] = result
+        return result
+    if isinstance(base, dict):
+        if type(key) is not str:
+            raise _error(context, node, "dictionary assignment keys must be strings")
+        present = key in base
+        if operator != "=" and not present:
+            raise _error(context, node, f"undefined dictionary key {key!r}")
+        old = base[key] if operator != "=" else None
+        result = value()
+        if operator != "=":
+            result = _binary(context, operator[:-1], old, result, node)
+        _ensure_dict_capacity(context, base, key, target_node)
+        _ensure_insertable(context, base, result, target_node)
+        base[key] = result
+        return result
+    raise _error(context, node, "assignment requires a mutable list or dictionary")
+
+
+def _assign_get(context: Context, node: Any, target_node: Any, operator: str, base: Any, key: str, value: Callable[[], Any]) -> Any:
+    if not isinstance(base, dict):
+        raise _error(context, node, "dot assignment requires a mutable dictionary")
+    if operator != "=" and key not in base:
+        raise _error(context, node, f"undefined dictionary key {key!r}")
+    old = base[key] if operator != "=" else None
+    result = value()
+    if operator != "=":
+        result = _binary(context, operator[:-1], old, result, node)
+    _ensure_dict_capacity(context, base, key, target_node)
+    _ensure_insertable(context, base, result, target_node)
+    base[key] = result
+    return result
+
+
+def _bad_target(context: Context, node: Any) -> Any:
+    raise _error(context, node, "assignment target must be a binding or mutable index")
+
+
+def _check_items(context: Context, node: Any, count: int) -> None:
+    if count >= context.max_items:
+        raise _error(context, node, "foreach result exceeds item limit", ExecutionLimitError)
+
+
+class _Lowerer:
+    def __init__(self, root: Any) -> None:
+        self.root = root
+        self.nodes: list[Any] = []
+        self.values: list[Any] = []
+        self.node_ids: dict[int, int] = {}
+        self.value_ids: dict[int, int] = {}
+        self.functions: list[ast.FunctionDef] = []
+        self.counter = 0
+
+    def node_ref(self, node: Any) -> ast.expr:
+        key = id(node)
+        index = self.node_ids.get(key)
+        if index is None:
+            index = len(self.nodes)
+            self.node_ids[key] = index
+            self.nodes.append(node)
+        return ast.Subscript(ast.Name("nodes", ast.Load()), ast.Constant(index), ast.Load())
+
+    def value_ref(self, value: Any) -> ast.expr:
+        key = id(value)
+        index = self.value_ids.get(key)
+        if index is None:
+            index = len(self.values)
+            self.value_ids[key] = index
+            self.values.append(value)
+        return ast.Subscript(ast.Name("values", ast.Load()), ast.Constant(index), ast.Load())
+
+    @staticmethod
+    def call(name: str, *args: ast.expr) -> ast.Call:
+        return ast.Call(ast.Name(name, ast.Load()), list(args), [])
+
+    @staticmethod
+    def lambda0(expr: ast.expr) -> ast.Lambda:
+        return ast.Lambda(ast.arguments([], [], None, [], [], None, []), expr)
+
+    def ticked(self, node: Any, expr: ast.expr) -> ast.expr:
+        return self.call("_value", ast.Name("context", ast.Load()), self.node_ref(node), self.lambda0(expr))
+
+    def emit_expr(self, node: Any) -> ast.expr:
+        kind = _kind(node)
+        nref = self.node_ref(node)
+        context = ast.Name("context", ast.Load())
+        if kind == "literal":
+            expr = self.call("_literal", context, nref, self.value_ref(getattr(node, "value", None)))
+        elif kind == "ref":
+            expr = self.call("_lookup", context, nref, ast.Constant(_name(node)))
+        elif kind == "list":
+            items = child_values(node)
+            expr = self.call("_make_list", context, nref, ast.Constant(len(items)), self.lambda0(ast.List([self.emit_expr(x) for x in items], ast.Load())))
+        elif kind == "dict":
+            raw = children(node)
+            entries = tuple(raw.values()) if isinstance(raw, Mapping) else child_values(node)
+            if isinstance(raw, Mapping) and not any(k in raw for k in ("entries", "items", "elements", "children", "statements")):
+                entries = tuple((k, v) for k, v in raw.items())
+            pairs: list[ast.expr] = []
+            for entry in entries:
+                if isinstance(entry, tuple) and len(entry) == 2 and not hasattr(entry, "kind"):
+                    key, value = entry
+                else:
+                    key, value = getattr(entry, "value", None), child(entry, "expr", 0)
+                    if value is None:
+                        value = child_values(entry)[0]
+                key_expr = self.emit_expr(key) if hasattr(key, "kind") else self.value_ref(key)
+                pairs.append(ast.Tuple([key_expr, self.emit_expr(value)], ast.Load()))
+            expr = self.call("_make_dict", context, nref, ast.Constant(len(pairs)), self.lambda0(ast.List(pairs, ast.Load())))
+        elif kind == "get":
+            expr = self.call("_get", context, nref, self.lambda0(self.emit_expr(child(node, "base", 0))), ast.Constant(str(getattr(node, "value", None))))
+        elif kind == "index":
+            expr = self.call("_index", context, nref, self.lambda0(self.emit_expr(child(node, "base", 0))), self.lambda0(self.emit_expr(child(node, "key", 1))))
+        elif kind == "call":
+            args = [self.emit_expr(x) for x in child_values(node)]
+            expr = self.call("_call", context, nref, ast.Constant(_name(node)), self.lambda0(ast.List(args, ast.Load())))
+        elif kind == "foreach":
+            return self.call(self.emit_foreach_function(node), context)
+        elif kind == "binary":
+            op = str(getattr(node, "value", None))
+            left, right = child(node, "lhs", 0), child(node, "rhs", 1)
+            if op in {"and", "or"}:
+                expr = self.call("_logical", context, nref, ast.Constant(op), self.lambda0(self.emit_expr(left)), self.lambda0(self.emit_expr(right)))
+            else:
+                expr = self.call("_binary", context, ast.Constant(op), self.emit_expr(left), self.emit_expr(right), nref)
+        elif kind == "unary":
+            expr = self.call("_unary", context, ast.Constant(str(getattr(node, "value", None))), self.emit_expr(child(node, "expr", 0)), nref)
+        elif kind == "conditional":
+            true_fn = self.emit_block_function(child(node, "block", 1))
+            false_fn = self.emit_block_function(child(node, "block", 2))
+            expr = self.call("_conditional", context, nref, self.lambda0(self.emit_expr(child(node, "condition", 0))), ast.Name(true_fn, ast.Load()), ast.Name(false_fn, ast.Load()))
+        elif kind == "block":
+            expr = self.call("_run_scoped", context, ast.Name(self.emit_block_function(node), ast.Load()))
+        else:
+            raise ValueError(f"unknown expression node {kind!r}")
+        return self.ticked(node, expr)
+
+    def emit_assignment(self, node: Any) -> ast.expr:
+        target, value = child(node, "target", 0), child(node, "expr", 1)
+        context, nref = ast.Name("context", ast.Load()), self.node_ref(node)
+        operator = str(getattr(node, "value", "="))
+        if _kind(target) == "ref":
+            return self.call("_assign_ref", context, nref, ast.Constant(_name(target)), ast.Constant(operator), self.lambda0(self.emit_expr(value)))
+        if _kind(target) == "index":
+            return self.call("_assign_index", context, nref, self.node_ref(target), ast.Constant(operator), self.emit_expr(child(target, "base", 0)), self.emit_expr(child(target, "key", 1)), self.lambda0(self.emit_expr(value)))
+        if _kind(target) == "get":
+            return self.call("_assign_get", context, nref, self.node_ref(target), ast.Constant(operator), self.emit_expr(child(target, "base", 0)), ast.Constant(str(getattr(target, "value", None))), self.lambda0(self.emit_expr(value)))
+        return self.call("_bad_target", context, self.node_ref(target))
+
+    def emit_block_function(self, block: Any) -> str:
+        name = f"_block_{self.counter}"
+        self.counter += 1
+        values = child(block, "statements", 0, ()) if isinstance(children(block), Mapping) else child_values(block)
+        statements = tuple(values) if isinstance(values, (tuple, list)) else (values,)
+        body = [ast.Expr(self.call("_tick", ast.Name("context", ast.Load()), self.node_ref(block))), ast.Assign([ast.Name("last", ast.Store())], ast.Constant(None))]
+        for statement in statements:
+            body.extend(self.emit_stmt(statement))
+        body.append(ast.Return(ast.Name("last", ast.Load())))
+        self.functions.append(ast.FunctionDef(name, ast.arguments([], [ast.arg("context")], None, [], [], None, []), body, []))
+        return name
+
+    def emit_foreach(self, node: Any) -> list[ast.stmt]:
+        iterable, block = child(node, "iterable", 0), child(node, "block", 1)
+        index = self.counter
+        self.counter += 1
+        item, iterable_name, results = f"_item_{index}", f"_iter_{index}", f"_results_{index}"
+        body_fn = self.emit_block_function(block)
+        context = ast.Name("context", ast.Load())
+        body = [
+            ast.Expr(self.call("_check_items", context, self.node_ref(node), self.call("len", ast.Name(results, ast.Load())))),
+            ast.Expr(self.call("_tick", context, self.node_ref(node))),
+            ast.Expr(ast.Call(ast.Attribute(context, "push_scope", ast.Load()), [ast.Dict([ast.Constant(str(getattr(node, "value", "")))], [ast.Name(item, ast.Load())])], [])),
+            ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))], [], [], [ast.Expr(ast.Call(ast.Attribute(context, "pop_scope", ast.Load()), [], []))]),
+            ast.Expr(ast.Call(ast.Attribute(ast.Name(results, ast.Load()), "append", ast.Load()), [ast.Name("last", ast.Load())], [])),
+        ]
+        return [
+            ast.Expr(self.call("_tick", context, self.node_ref(node))),
+            ast.Assign([ast.Name(iterable_name, ast.Store())], self.call("_iterable", context, self.node_ref(node), self.emit_expr(iterable))),
+            ast.Assign([ast.Name(results, ast.Store())], ast.List([], ast.Load())),
+            ast.For(ast.Name(item, ast.Store()), ast.Name(iterable_name, ast.Load()), body, []),
+            ast.Assign([ast.Name("last", ast.Store())], ast.Name(results, ast.Load())),
+        ]
+
+    def emit_foreach_function(self, node: Any) -> str:
+        name = f"_foreach_{self.counter}"
+        self.counter += 1
+        body = [*self.emit_foreach(node), ast.Return(ast.Name("last", ast.Load()))]
+        self.functions.append(ast.FunctionDef(name, ast.arguments([], [ast.arg("context")], None, [], [], None, []), body, []))
+        return name
+
+    def emit_stmt(self, node: Any) -> list[ast.stmt]:
+        kind = _kind(node)
+        context, nref = ast.Name("context", ast.Load()), self.node_ref(node)
+        if kind == "foreach":
+            return self.emit_foreach(node)
+        if kind == "block":
+            return [ast.Assign([ast.Name("last", ast.Store())], self.call("_run_scoped", context, ast.Name(self.emit_block_function(node), ast.Load())))]
+        if kind == "let":
+            expr = self.call("_define", context, ast.Constant(_name(node)), self.emit_expr(child(node, "expr", 0)))
+        elif kind == "assign":
+            expr = self.emit_assignment(node)
+        elif kind == "print":
+            expr = self.call("_print", context, self.lambda0(self.emit_expr(child(node, "expr", 0))), nref)
+        else:
+            expr = self.emit_expr(node)
+        prefix = [ast.Expr(self.call("_tick", context, nref))] if kind in {"let", "assign", "print"} else []
+        return [*prefix, ast.Assign([ast.Name("last", ast.Store())], expr)]
+
+    def module(self) -> ast.Module:
+        if _kind(self.root) == "program":
+            values = child(self.root, "statements", 0, ()) if isinstance(children(self.root), Mapping) else child_values(self.root)
+            statements = tuple(values) if isinstance(values, (tuple, list)) else (values,)
+        else:
+            statements = (self.root,)
+        main_body = [ast.Expr(self.call("_tick", ast.Name("context", ast.Load()), self.node_ref(self.root))), ast.Assign([ast.Name("last", ast.Store())], ast.Constant(None))]
+        for statement in statements:
+            main_body.extend(self.emit_stmt(statement))
+        main_body.append(ast.Return(ast.Name("last", ast.Load())))
+        main = ast.FunctionDef("_ctk_compiled_program", ast.arguments([], [ast.arg("context")], None, [], [], None, []), main_body, [])
+        return ast.Module([*self.functions, main], [])
+
+
+def compile_program(program: Node) -> Callable[[Context], Any]:
+    lowerer = _Lowerer(program)
+    module = lowerer.module()
+    ast.fix_missing_locations(module)
+    namespace: dict[str, Any] = {
+        "__builtins__": {}, "nodes": lowerer.nodes, "values": lowerer.values,
+        "_tick": _tick, "_value": _value, "_literal": _literal,
+        "_lookup": _lookup, "_define": _define, "_make_list": _make_list,
+        "_make_dict": _make_dict, "_get": _get, "_index": _index, "_iterable": _iterable,
+        "_logical": _logical, "_binary": _binary, "_unary": _unary,
+        "_call": _call, "_conditional": _conditional, "_run_scoped": _run_scoped,
+        "_print": _print, "_assign_ref": _assign_ref, "_assign_index": _assign_index, "_assign_get": _assign_get,
+        "_bad_target": _bad_target, "_check_items": _check_items, "len": len,
+    }
+    exec(compile(module, "<ctk-prototype-compiled>", "exec"), namespace)
+    function = namespace["_ctk_compiled_program"]
+    function.__ctk_source__ = ast.unparse(module)
+    function.__ctk_ast__ = module
+    return function
+
+
+__all__ = ["compile_program"]
