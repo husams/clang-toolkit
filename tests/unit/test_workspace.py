@@ -140,8 +140,10 @@ def test_assigned_batch_progress_reaches_workspace_before_command_finishes(tmp_p
 
     async def drive(ui, pipe):
         try:
+            runtime.batch_progress = ui.show_batch_progress
             pipe.send_text("let run = batch part in $inputs size 1 do { $part.index; }\x1b[27;5;13~")
-            await wait_until(lambda: "running: 0/1 completed" in ui.results.text)
+            await wait_until(lambda: any(event.phase == "working" for event in ui.progress_states.values()))
+            assert any("elapsed" in event.status_label() for event in ui.progress_states.values())
             assert ui.busy and not ui.command_task.done()
             release.set()
             await wait_until(lambda: not ui.busy)

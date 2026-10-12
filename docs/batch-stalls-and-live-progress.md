@@ -22,7 +22,8 @@ memory limit is preserved.
 
 Foreground progress defaults to on, including `let`. Running updates print
 elapsed time, completed/failed/in-flight file counts, and the current phase every
-second through admission, work, and cleanup. Progress goes to stdout independently
+second through admission, work, and cleanup. The workspace refreshes its progress
+display in place; other modes print on stdout independently
 of output destinations and the bounded body-output budget. `progress off` remains
 quiet. Assigned body display and automatic final report output remain suppressed.
 

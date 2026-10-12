@@ -92,7 +92,8 @@ batch part in $inputs size 1 progress off do {
 `progress off` suppresses lifecycle events; body output and the standalone final
 report remain enabled. `progress on` is the default, including in `let`.
 Running groups print elapsed time and completed/failed/active file counts every
-second on stdout, independently of file output destinations and body output limits.
+second in the console, independently of file output destinations and body output limits.
+The workspace refreshes its progress display in place; other modes print on stdout.
 Updates remain active through admission and cleanup.
 In either interactive UI, Ctrl-C requests scope cancellation and joins the
 foreground runner before returning control. An interrupted assignment keeps its
