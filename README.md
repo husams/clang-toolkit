@@ -103,6 +103,21 @@ uv run ctk
 
 The default CTK console includes menus, panels, and multiline editing; see the [console guide](docs/console-workspace.md). Use `uv run ctk --ui prompt` for the basic prompt.
 
+To run a saved script and exit, pass its filename and named arguments:
+
+```sh
+uv run ctk analysis.ctk x=gggg 'message=hello world'
+```
+
+The complete `analysis.ctk` for this example is:
+
+```text
+print $arg.x
+print $arg.message
+```
+
+Arguments are stored in the script's `$arg` dictionary as literal strings. Quote arguments containing spaces; empty values and additional `=` characters are preserved. `$arg` is `{}` when no arguments are supplied. The existing `--script`, `--execute`, and piped-input modes accept the same `KEY=VALUE` arguments. Missing names, missing `=`, and duplicate names fail before the script runs.
+
 Check installed client and server builds, or identify the running server:
 
 ```sh

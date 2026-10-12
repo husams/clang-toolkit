@@ -10,6 +10,7 @@ Produce runnable CTK statements that answer the user's question and verify them 
 ## Choose the language
 
 - **Console DSL (default):** interactive `ctk`, `ctk --script FILE.ctk`, or `ctk --execute TEXT`. Read [console.md](references/console.md).
+- **Named script arguments:** `ctk FILE.ctk x=value` runs the file and exposes the literal string as `$arg.x`; `--script`, `--execute`, and piped runs accept the same arguments.
 - **Native server DSL:** the console's `script "SOURCE" [in "TARGET"]`, SDK `run_script`, or a `background batch`/`durable batch` body. Read [native.md](references/native.md). This language uses explicit `emit` statements.
 - For multi-file discovery, batching, resource cleanup, and exports, also read [batches.md](references/batches.md).
 

@@ -7,10 +7,14 @@ ctk
 ctk --server unix:///tmp/ctk.sock
 ctk --server unix:///tmp/ctk.sock --compile-commands /project/build/compile_commands.json
 ctk --script /absolute/path/analysis.ctk
+ctk /absolute/path/analysis.ctk x=gggg 'message=hello world'
 ctk --execute 'let xs = [1, 2]; print $xs.length'
+ctk --execute 'print $arg.x' x=gggg
 ```
 
 Endpoint/database paths above are examples; use supplied or configured values. `--script` executes console commands and exits; nonterminal stdin also runs as a script. Execution stops at the first failure by default. Use `--continue-on-error` only when later commands are independent. Relative analysis paths use the session directory. Imports use the importing library's directory; top-level imports use the script source directory.
+
+`ctk SCRIPT KEY=VALUE ...` also runs the file and exits. Script, inline, and piped runs expose a dictionary named `arg`: use `$arg.x` or `$arg["x"]`. Values are literal strings, including empty values, spaces inside a quoted argument, and any `=` after the first separator. Names are trimmed; missing/empty names and duplicate names are errors before execution. With no parameters, `$arg` is `{}`. Imported libraries share the same arguments.
 
 For console-only interaction, allocate a TTY (`exec_command` with `tty: true`). The repository's `scripts/manual_console.sh` can start a private disposable server for validation; exit stops that server.
 
