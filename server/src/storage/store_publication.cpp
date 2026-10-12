@@ -27,9 +27,10 @@ std::vector<std::string> blob_digests(const SnapshotDraft &snapshot,
 }
 
 void stage_complete_blobs(detail::BlobStore &blobs,
-                          const SnapshotDraft &snapshot) {
-  for (const auto &artifact : snapshot.artifacts)
-    blobs.publish(artifact.native_bytes, snapshot.created_at_ms);
+                          const SnapshotDraft &snapshot,
+                          const std::vector<std::string> &digests) {
+  for (std::size_t index = 0; index < snapshot.artifacts.size(); ++index)
+    blobs.publish(snapshot.artifacts[index].native_bytes, digests[index]);
 }
 
 } // namespace
@@ -53,14 +54,15 @@ void Store::Impl::release_publisher_blobs(
 }
 
 SnapshotId Store::Impl::commit_publication(
-    const SnapshotDraft &snapshot, const std::vector<std::string> &digests) {
+    const SnapshotDraft &snapshot, const std::vector<std::string> &digests,
+    std::int64_t created_at_ms) {
   std::lock_guard lock(mutex);
   enforce_retention_locked();
   const auto budget = std::max<std::size_t>(options.recovery_entry_budget * 4096,
                                             4096);
   if (blobs->physical_bytes(budget) > options.max_physical_bytes)
     throw std::runtime_error("storage quota remains exceeded after retention");
-  const auto id = metadata.publish(snapshot, digests);
+  const auto id = metadata.publish(snapshot, digests, created_at_ms);
   return id;
 }
 
@@ -86,15 +88,17 @@ void Store::Impl::cleanup_failed_publication(
 
 SnapshotId Store::publish(const SnapshotDraft &snapshot) {
   detail::validate_snapshot_draft(snapshot, impl_->options.max_artifact_bytes);
-  SnapshotDraft complete = snapshot;
-  if (complete.created_at_ms <= 0) complete.created_at_ms = now_ms();
+  // Timestamp normalization must not copy the draft's native AST buffers.
+  const auto created_at_ms = snapshot.created_at_ms > 0
+                                 ? snapshot.created_at_ms
+                                 : now_ms();
 
   std::vector<std::string> unique;
-  const auto digests = blob_digests(complete, unique);
+  const auto digests = blob_digests(snapshot, unique);
   impl_->reserve_publisher_blobs(unique);
   try {
-    stage_complete_blobs(*impl_->blobs, complete);
-    const auto id = impl_->commit_publication(complete, digests);
+    stage_complete_blobs(*impl_->blobs, snapshot, digests);
+    const auto id = impl_->commit_publication(snapshot, digests, created_at_ms);
     impl_->complete_publication(unique);
     return id;
   } catch (...) {

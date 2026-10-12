@@ -588,6 +588,7 @@ private:
       if (!owner.writer)
         return;
       auto bytes = owner.writer->serialize(owner.unit->getSema());
+      const auto main_path = normalized_path(file);
       ctk::storage::SnapshotDraft draft;
       draft.profile = storage_profile(file, context);
       std::map<std::string, ctk::storage::InputRole> roles;
@@ -599,7 +600,7 @@ private:
       for (const auto &[path, captured] : owner.filesystem->inputs()) {
         if (captured.staged)
           continue;
-        const auto role = path == normalized_path(file)
+        const auto role = path == main_path
                               ? ctk::storage::InputRole::MainSource
                           : roles.contains(path) ? roles.at(path)
                           : captured.error || captured.status.isDirectory()
@@ -626,7 +627,7 @@ private:
         draft.inputs.push_back(std::move(observation));
       }
       draft.artifacts.push_back({ctk::storage::ArtifactKind::TranslationUnit,
-                                 normalized_path(file), std::move(bytes)});
+                                 main_path, std::move(bytes)});
       for (std::size_t index = 0;
            index < owner.artifact_closure.artifacts.size(); ++index) {
         const auto &artifact = owner.artifact_closure.artifacts[index];

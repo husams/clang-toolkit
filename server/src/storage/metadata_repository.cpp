@@ -234,7 +234,7 @@ void MetadataRepository::insert_inputs(SnapshotId id,
 
 void MetadataRepository::insert_artifacts(
     SnapshotId id, const SnapshotDraft &snapshot,
-    const std::vector<std::string> &digests) {
+    const std::vector<std::string> &digests, std::int64_t created_at_ms) {
   for (std::size_t index = 0; index < snapshot.artifacts.size(); ++index) {
     const auto &artifact = snapshot.artifacts[index];
     auto blob = Statement(database_.handle(),
@@ -245,7 +245,7 @@ void MetadataRepository::insert_artifacts(
     blob.bind(1, digests[index]);
     blob.bind(2, relative);
     blob.bind(3, static_cast<std::uint64_t>(snapshot.artifacts[index].native_bytes.size()));
-    blob.bind(4, snapshot.created_at_ms);
+    blob.bind(4, created_at_ms);
     blob.execute();
     auto verify_blob = Statement(database_.handle(),
         "SELECT relative_path,size_bytes FROM blobs WHERE blob_sha256=?");
@@ -273,7 +273,8 @@ void MetadataRepository::insert_artifacts(
 }
 
 SnapshotId MetadataRepository::publish(const SnapshotDraft &snapshot,
-                                        const std::vector<std::string> &digests) {
+                                        const std::vector<std::string> &digests,
+                                        std::int64_t created_at_ms) {
   const auto manifest = canonical_manifest(snapshot);
   Transaction transaction(database_);
   const auto profile_id = resolve_profile(snapshot.profile);
@@ -283,12 +284,12 @@ SnapshotId MetadataRepository::publish(const SnapshotDraft &snapshot,
   insert.bind(1, profile_id);
   insert.bind(2, sha256(manifest));
   insert.bind_blob(3, manifest);
-  insert.bind(4, snapshot.created_at_ms);
-  insert.bind(5, snapshot.created_at_ms);
+  insert.bind(4, created_at_ms);
+  insert.bind(5, created_at_ms);
   insert.execute();
   const auto id = sqlite3_last_insert_rowid(database_.handle());
   insert_inputs(id, snapshot);
-  insert_artifacts(id, snapshot, digests);
+  insert_artifacts(id, snapshot, digests, created_at_ms);
   auto ready = Statement(database_.handle(),
       "UPDATE snapshots SET state='READY' WHERE snapshot_id=? AND state='BUILDING'");
   ready.bind(1, static_cast<std::int64_t>(id));
