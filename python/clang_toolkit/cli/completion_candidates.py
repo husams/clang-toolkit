@@ -148,9 +148,11 @@ def candidates_for(
         names.extend((name, False, False, None) for name in references)
     elif "NAME" in accepted and previous in {"PRUNE", "AS"}:
         options = ("memory", "disk", "all") if previous == "PRUNE" else ("yaml", "json", "csv", "proto")
-        if previous == "AS" and any(token.type == "READ" for token in context.prefix_tokens) and not any(
-            token.type == "SAVE" for token in context.prefix_tokens
-        ):
+        format_command = next(
+            (token.type for token in reversed(context.prefix_tokens) if token.type in {"READ", "SAVE"}),
+            None,
+        )
+        if previous == "AS" and format_command == "READ":
             options = ("yaml", "json", "csv", "text")
         names.extend((name, False, False, None) for name in options)
     elif (

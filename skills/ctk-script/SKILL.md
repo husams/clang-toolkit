@@ -23,7 +23,7 @@ When the user requests console-only exploration or forbids file reading, use a r
 
 Verify in small steps: one target, one matcher, row count, one binding's fields, then iteration or continuation. Use `let rows = match ...`, including `match`; `let predicate = functionDecl(...)` only constructs a matcher. Avoid indexing until a nonempty result is established.
 
-Submit one top-level command at a time in the interactive prompt; brace blocks may contain several statements. Newline/semicolon-separated top-level scripts belong to `--script` or `--execute`. For a multi-file continuation, `source_match_index` is local to the originating file's match result, not a global index into the combined parent collection; use `source_file` and per-file parents for attribution.
+The interactive console accepts whole scripts with newline/semicolon-separated top-level statements, just like `--script` or `--execute`. In the workspace, paste the script and press Ctrl+Enter or Ctrl+J; use Alt+Enter or Shift+Enter to type additional lines. Execution stops at the first error or exit, and history keeps the whole submission once. For a multi-file continuation, `source_match_index` is local to the originating file's match result, not a global index into the combined parent collection; use `source_file` and per-file parents for attribution.
 
 Use `$row.f.qualified_name`, `$row.f.decl_name`, and other discovered direct properties. Preserve explicit bindings and implicit `root`. Keep headers included unless the user requests main-file-only analysis. Query AST children through follow-up matching rather than treating unrequested fields as empty.
 

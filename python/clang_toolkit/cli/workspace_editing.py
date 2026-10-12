@@ -23,10 +23,16 @@ INDENT = " " * 4
 def control_enter_keys() -> Iterator[None]:
     """Distinguish modified Return for this workspace; restore prompt defaults."""
     sequences = ("\x1b[27;5;13~", "\x1b[27;6;13~", "\x1b[13;5u", "\x1b[13;6u")
-    previous = {sequence: ANSI_SEQUENCES.get(sequence) for sequence in sequences}
+    newline_sequences = ("\x1b[27;2;13~", "\x1b[13;2u")
+    previous = {
+        sequence: ANSI_SEQUENCES.get(sequence)
+        for sequence in (*sequences, *newline_sequences)
+    }
     try:
         for sequence in sequences:
             ANSI_SEQUENCES[sequence] = Keys.ControlJ
+        for sequence in newline_sequences:
+            ANSI_SEQUENCES[sequence] = (Keys.Escape, Keys.ControlM)
         yield
     finally:
         for sequence, key in previous.items():
@@ -213,6 +219,10 @@ def editing_bindings(buffer: Buffer, enabled: Filter) -> KeyBindings:
     @bindings.add("c-j", filter=enabled, eager=True)
     def execute(event: KeyPressEvent) -> None:
         buffer.validate_and_handle()
+
+    @bindings.add("escape", "enter", filter=enabled, eager=True)
+    def newline(event: KeyPressEvent) -> None:
+        smart_newline(buffer)
 
     def typed(event: KeyPressEvent) -> None:
         insert_pair(buffer, event.data)

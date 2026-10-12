@@ -243,6 +243,11 @@ class Runtime:
         statement = parser().parse(source).children[0]
         if not isinstance(statement, Tree):
             raise EvaluationError("expected a statement")
+        return self.execute_statement(statement, source)
+
+    def execute_statement(self, statement: Tree, source: str) -> str | None:
+        """Execute a validated tree against its complete source, without history."""
+        self.display_value = None
         return self._execute_statement(statement, source)
 
     def _execute_statement(self, statement: Tree, source: str) -> str | None:

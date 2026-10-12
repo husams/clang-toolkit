@@ -14,7 +14,7 @@ def test_dispatch_result_does_not_infer_failure_from_output_text():
 
     runtime = Mock()
     runtime.history = None
-    runtime.execute.return_value = "error: this is a valid string value"
+    runtime.execute_statement.return_value = "error: this is a valid string value"
 
     result = dispatch_result(Client(), '"error: this is a valid string value"', runtime)
 
@@ -30,12 +30,25 @@ def test_dispatch_result_marks_evaluation_exceptions_as_failures():
 
     runtime = Mock()
     runtime.history = None
-    runtime.execute.side_effect = EvaluationError("unknown variable: missing")
+    runtime.execute_statement.side_effect = EvaluationError("unknown variable: missing")
 
     result = dispatch_result(Client(), "server status", runtime)
 
     assert result.output == "error: unknown variable: missing"
     assert not result.success
+
+
+def test_dispatch_result_reports_runtime_initialization_errors(monkeypatch):
+    from clang_toolkit.cli import app
+    from clang_toolkit.cli.runtime.config import ConfigError
+
+    def fail_initialization(_client):
+        raise ConfigError("invalid console configuration")
+
+    monkeypatch.setattr(app, "Runtime", fail_initialization)
+    result = app.dispatch_result(Client(), 'print "first"\nprint "second"')
+    assert not result.success
+    assert result.output == "error: invalid console configuration"
 
 
 def test_interactive_command_failure_sets_nonzero_process_status(monkeypatch, tmp_path):

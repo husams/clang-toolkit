@@ -8,6 +8,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
+from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.language import lex, parser as parser
 
@@ -236,8 +237,13 @@ class ReplLexer(Lexer):
     def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
         # Lex once for the whole document so strings/references retain context.
         lines: list[StyleAndTextTuples] = [[]]
+        try:
+            parser().parse(document.text)
+            batch = False
+        except UnexpectedInput:
+            batch = True
         for fragment in highlight(
-            document.text, semantic_matchers=self.semantic_matchers
+            document.text, semantic_matchers=self.semantic_matchers, batch=batch
         ):
             style, text = fragment[0], fragment[1]
             for index, part in enumerate(text.split("\n")):

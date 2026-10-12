@@ -76,7 +76,7 @@ def cursor_context(source: str, cursor: int) -> CursorContext | None:
     ):
         return None
 
-    tokens = lex(source)
+    tokens = lex(source, batch=True)
     partial = ""
     skipped: set[int] = set()
     partial_token_id: int | None = None
