@@ -31,7 +31,7 @@ foreach name in $names do {
 
 - Choose `size N` or `count N`. `jobs` defaults to configured `pool_size`; `jobs J` overrides parallel file work for this batch. The body is serial, group indices one-based.
 - `$part.inputs`, `.paths`, `.index`, `.length` expose the group. Inputs freeze before execution; acknowledged resource cleanup precedes the next group.
-- Assigned batches suppress automatic body/progress/report output. Explicit writes still occur. The body's final value is detached and collected.
+- Assigned batches suppress automatic body/report output; progress defaults to on, with one-second running updates even in `let`. Use `progress off` for quiet execution. Explicit writes still occur. The body's final value is detached and collected.
 - Inspect status, completeness and failed/skipped groups. Earlier successful values may coexist with failure. `on error continue` still reports a failed run.
 - Collection is bounded across the run to 10,000 items/1,000,000 estimated bytes. Large tasks may need per-group exports instead of collecting every row.
 - Detached results support inspection/export, not continuation. Continue matching inside the group while values are live.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from unittest.mock import Mock
@@ -114,6 +115,44 @@ def test_multiline_expands_and_submits_as_one_command(tmp_path: Path) -> None:
 
     asyncio.run(interact(tmp_path, drive, execute=execute))
     assert seen == ["let inputs = [\n    1,\n    2\n]"]
+
+
+def test_assigned_batch_progress_reaches_workspace_before_command_finishes(tmp_path, monkeypatch):
+    from test_console_file_batch_runtime import _runtime
+    from clang_toolkit.cli.runtime import batch_execution
+    from clang_toolkit.resources import FileSet, InputDescriptor
+
+    runtime, _ = _runtime(tmp_path)
+    runtime.bindings["inputs"] = FileSet((InputDescriptor.from_path("a.cc", working_directory=tmp_path),))
+    monkeypatch.setattr(batch_execution, "_PROGRESS_INTERVAL_SECONDS", 0.01)
+    release = threading.Event()
+    original = runtime._evaluate_statement_once
+
+    def blocked(statement, source, *, value_context):
+        if str(statement.data) == "display":
+            assert release.wait(2)
+        return original(statement, source, value_context=value_context)
+
+    monkeypatch.setattr(runtime, "_evaluate_statement_once", blocked)
+
+    async def execute(source):
+        return await asyncio.to_thread(dispatch_result, runtime.client, source, runtime)
+
+    async def drive(ui, pipe):
+        try:
+            pipe.send_text("let run = batch part in $inputs size 1 do { $part.index; }\x1b[27;5;13~")
+            await wait_until(lambda: "running: 0/1 completed" in ui.results.text)
+            assert ui.busy and not ui.command_task.done()
+            release.set()
+            await wait_until(lambda: not ui.busy)
+            assert runtime.bindings["run"]["status"] == "completed"
+        finally:
+            release.set()
+
+    try:
+        asyncio.run(interact(tmp_path, drive, execute=execute))
+    finally:
+        runtime.close()
 
 
 @pytest.mark.parametrize("columns", [48, 100])

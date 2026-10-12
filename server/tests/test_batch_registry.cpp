@@ -520,7 +520,8 @@ TEST(BatchRegistry, PostRenameJournalFailureFailsClosedUntilRestart) {
     ctk::analysis::v1::BatchRunRequest lookup;
     lookup.set_run_id(run_id);
     const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        // Cold native snapshot publication includes durable filesystem syncs.
+        std::chrono::steady_clock::now() + std::chrono::seconds(30);
     Code status = Code::Ok;
     do {
       ctk::analysis::v1::BatchRun response;

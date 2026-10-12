@@ -6,7 +6,10 @@ import json
 import re
 import base64
 import dataclasses
-from collections.abc import Mapping
+import threading
+import time
+from contextlib import contextmanager
+from collections.abc import Callable, Iterator, Mapping
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -28,6 +31,48 @@ _MAX_RESULT_BYTES = 1_000_000
 _MAX_RESULT_DEPTH = 64
 _MAX_GROUP_ERROR_SAMPLES = 4
 _MAX_GROUP_ERROR_CHARS = 300
+_PROGRESS_INTERVAL_SECONDS = 1.0
+
+
+@contextmanager
+def _group_progress(
+    runtime: Any, run_id: str, batch: FileBatch, enabled: bool,
+    publish: Callable[..., None],
+) -> Iterator[None]:
+    """Keep feedback alive through admission, native work, and cleanup."""
+    stopped = threading.Event()
+    started = time.monotonic()
+
+    def heartbeat() -> None:
+        outcomes: tuple[str, ...] = ()
+        while not stopped.wait(_PROGRESS_INTERVAL_SECONDS):
+            with runtime._batch_outcome_lock:
+                if runtime._active_batch_inputs == batch.inputs:
+                    outcomes = tuple(runtime._batch_file_outcomes.values())
+                elif runtime._last_batch_admitted:
+                    outcomes = tuple(runtime._last_batch_file_outcomes.values())
+            completed = outcomes.count("completed")
+            failed = outcomes.count("failed")
+            active = outcomes.count("attempting")
+            phase = ("admitting" if not runtime._last_batch_admitted else
+                     "working" if runtime._active_resource_scope is not None else "cleaning up")
+            publish(live=True, phase=phase, elapsed_seconds=time.monotonic() - started)
+            _emit(
+                runtime,
+                f"batch {run_id} group {batch.index} running: "
+                f"{completed}/{batch.length} completed, {failed} failed, "
+                f"{active} active, {time.monotonic() - started:.1f}s elapsed ({phase})",
+            )
+
+    thread = threading.Thread(target=heartbeat, name="ctk-batch-progress", daemon=True)
+    if enabled:
+        thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        if enabled:
+            thread.join()
 
 
 class BatchInterrupted(Exception):
@@ -150,19 +195,27 @@ def execute_batch(
         "results_complete": True,
     }
     interactive = runtime.batch_progress is not None and runtime.output.destination == "stdout"
-    progress_enabled = bool(settings["progress"]) and (not value_context or interactive)
-    def publish(state: str = "running", *, live: bool = False) -> None:
+    progress_enabled = bool(settings["progress"])
+    def publish(
+        state: str = "running", *, live: bool = False,
+        phase: str = "", elapsed_seconds: float = 0.0,
+    ) -> None:
         if not interactive or not progress_enabled:
             return
         completed, failed = report["completed_files"], report["failed_files"]
         if live:
             with runtime._batch_outcome_lock:
-                outcomes = tuple(runtime._batch_file_outcomes.values())
+                outcomes = tuple(
+                    runtime._batch_file_outcomes.values()
+                    if runtime._active_batch_inputs is not None
+                    else runtime._last_batch_file_outcomes.values()
+                )
             completed += outcomes.count("completed")
             failed += outcomes.count("failed")
         runtime.batch_progress(BatchProgress(
             run_id, len(manifest), completed + failed, completed, failed, state,
             skipped=report["skipped_files"] + report["unattempted_files"],
+            phase=phase, elapsed_seconds=elapsed_seconds,
         ))
 
     publish()
@@ -196,19 +249,20 @@ def execute_batch(
         try:
             runtime._batch_file_progress = lambda: publish(live=True)
             result_budget = [report["result_items"], report["results_bytes"]]
-            detached_result = _run_group(
-                runtime,
-                node,
-                body,
-                source,
-                name,
-                batch,
-                report,
-                settings,
-                jobs,
-                value_context=value_context,
-                result_budget=result_budget,
-            )
+            with _group_progress(runtime, run_id, batch, progress_enabled, publish):
+                detached_result = _run_group(
+                    runtime,
+                    node,
+                    body,
+                    source,
+                    name,
+                    batch,
+                    report,
+                    settings,
+                    jobs,
+                    value_context=value_context,
+                    result_budget=result_budget,
+                )
             report["completed_groups"] += 1
             _record_file_outcomes(report, runtime)
             report["results"].append(detached_result)
@@ -936,6 +990,5 @@ def _record_skipped(
 def _emit(runtime: Any, text: str) -> None:
     if runtime.batch_progress is not None and runtime.output.destination == "stdout":
         return
-    output = runtime.output.emit(text)
-    if output:
-        print(output, flush=True)
+    # Operational feedback stays separate from captured values and body budgets.
+    print(text, flush=True)

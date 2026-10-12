@@ -78,8 +78,8 @@ Collection is bounded across the run to 10,000 retained items and 1,000,000 esti
 exceeding a result bound fails the group
 and preserves earlier successful values, rather than returning silent truncation.
 
-An assigned or otherwise consumed batch is silent, including its body display
-and progress events. Explicit `save` and `print ... to ...` writes remain effects.
+An assigned or otherwise consumed batch suppresses automatic body display
+and the final report; progress remains visible. Explicit `save` and `print ... to ...` writes remain effects.
 A standalone batch retains its body output, default progress and final report:
 
 ```text
@@ -90,8 +90,13 @@ batch part in $inputs size 1 progress off do {
 ```
 
 `progress off` suppresses lifecycle events; body output and the standalone final
-report remain enabled. `progress on` is the default for standalone batches.
-Consuming a batch value suppresses automatic output even with `progress on`.
+report remain enabled. `progress on` is the default, including in `let`.
+Running groups print elapsed time and completed/failed/active file counts every
+second on stdout, independently of file output destinations and body output limits.
+Updates remain active through admission and cleanup.
+In either interactive UI, Ctrl-C requests scope cancellation and joins the
+foreground runner before returning control. An interrupted assignment keeps its
+previous binding; the next batch starts with a fresh cancellation state.
 The other `size`, `count`, `jobs`, `memory`, and `on error` controls are unchanged.
 The compact standalone report displays collection counts/bytes; its separate
 returned `results` array is available to consumed expressions.

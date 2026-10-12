@@ -100,7 +100,8 @@ TEST_F(MatchCursors, StreamEmitsFullRowsThenCommitsThinContinuationState) {
                     return MatchCode::Ok;
                   });
   });
-  const auto arrived = first_row.get_future().wait_for(std::chrono::seconds(5));
+  // Cold snapshot publication performs durable filesystem syncs before rows.
+  const auto arrived = first_row.get_future().wait_for(std::chrono::seconds(30));
   EXPECT_EQ(arrived, std::future_status::ready);
   EXPECT_EQ(pending.wait_for(std::chrono::seconds(0)),
             std::future_status::timeout);
@@ -1306,6 +1307,38 @@ TEST(CursorPublication, ForkMemoryAccountingChargesSharedSnapshotOnce) {
   request.mutable_session()->set_session_id(first.response.session_id());
   EXPECT_EQ(controller.match("owner", request, [] { return true; }).code,
             MatchCode::Ok);
+}
+TEST(CursorPublication, ResourceRejectionClosesFreshAndForkedCursorsWithoutDeadlock) {
+  auto backend = std::make_shared<PublicationBackend>();
+  CursorSettings settings;
+  ResourceManagerSettings limits;
+  limits.max_memory_bytes = 1024;
+  settings.resources = std::make_shared<ResourceManager>(limits);
+  MatchController controller(settings, backend);
+  const auto original = controller.match("owner", publication_request(), [] { return true; });
+  ASSERT_EQ(original.code, MatchCode::Ok);
+  ctk::cache::LoadedSnapshot loaded;
+  loaded.owner = std::make_shared<ctk::cache::NativeSnapshotOwner>();
+  loaded.estimated_bytes = 2048;
+  loaded.inputs.push_back({"/ctk-resource-rejection.cc", ctk::cache::InputKind::File,
+                           "revision", {}, std::nullopt});
+  backend->snapshot = std::make_shared<ctk::cache::SnapshotEntry>(1, "profile", std::move(loaded));
+  EXPECT_EQ(controller.match("owner", publication_request(), [] { return true; }).code,
+            MatchCode::ResourceExhausted);
+  EXPECT_EQ(controller.stream_match("owner", publication_request(), [] { return true; },
+                                   [](const MatchStreamEvent &, std::string &) { return MatchCode::Ok; }).code,
+            MatchCode::ResourceExhausted);
+  MatchRequest fork;
+  fork.set_query("decl()");
+  fork.set_preserve_source(true);
+  fork.mutable_session()->set_session_id(original.response.session_id());
+  EXPECT_EQ(controller.match("owner", fork, [] { return true; }).code,
+            MatchCode::ResourceExhausted);
+  EXPECT_EQ(controller.list_sessions("owner").sessions_size(), 1);
+  EXPECT_EQ(controller.close("owner", original.response.session_id()).code, MatchCode::Ok);
+  EXPECT_EQ(controller.server_status().active_sessions(), 0);
+  backend->snapshot.reset();
+  EXPECT_EQ(controller.match("owner", publication_request(), [] { return true; }).code, MatchCode::Ok);
 }
 class MatchOnlyBackend final : public ctk::clang_layer::IMatchBackend {
 public:
