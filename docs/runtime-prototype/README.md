@@ -2,20 +2,21 @@
 
 This isolated prototype compares a tree interpreter with compile-once Python execution for the proposed scripting language. Both engines evaluate the same parsed AST with the same checked operations, lexical scopes, execution budget and host-function registry.
 
-Branch: `codex/scripting-runtime-prototype`; base: `8907c6a`. The standalone experiment and an opt-in compiled version of both existing console views are available in this checkout. Native `RunScript` remains unchanged.
+Branch: `codex/scripting-runtime-prototype`; base: `8907c6a`. The standalone experiment and a compiled version of both existing console views are available in this checkout. Native `RunScript` remains unchanged.
 
 ## Try the compiled REPL
 
-Launch the normal workspace console from this isolated version:
+From the isolated prototype folder, launch the compiled workspace console:
+
+```sh
+cd /Users/husam/.claude/worktrees/clang-toolkit/scripting-runtime-prototype
+uv run ctk
+```
+
+For the basic prompt console, use `uv run ctk --ui prompt`; append `--server unix:///tmp/ctk.sock` to select a running server. Interactive launch requires a terminal and a running CTK server. From any directory, the existing launcher also selects this checkout and the compiled engine:
 
 ```sh
 /Users/husam/.claude/worktrees/clang-toolkit/scripting-runtime-prototype/scripts/ctk-prototype
-```
-
-For the basic prompt console, append `--ui prompt`; append `--server unix:///tmp/ctk.sock` to select a running server. The launcher selects this checkout and supplies `--script-engine compiled` to the installed `ctk` command. An equivalent launch is:
-
-```sh
-CTK_REPO=/Users/husam/.claude/worktrees/clang-toolkit/scripting-runtime-prototype ctk --script-engine compiled --ui prompt
 ```
 
 Enter this script, or paste it into either console:
@@ -46,7 +47,7 @@ The combined formal grammar keeps native CTK operations such as `let rows = matc
 
 `let` and mutation are quiet. Assigned control-flow expressions collect their final values without automatic display, including nested prints to the configured display sink. Explicit `print ... to ...` and `save` remain file effects. Bare values and unconsumed branches display their result; print output that precedes a later failure remains visible. Workspace results retain structured outlines.
 
-Use `--script-engine tree` to compare the reference evaluator through the same REPL. The default `ctk` engine remains `legacy` unless selected by this launcher or flag. Older `do ... done` loop syntax and `--continue-on-error` remain available with the legacy engine; the compiled dialect uses `do STATEMENT` or brace blocks.
+This checkout's `uv run ctk` entrypoint defaults to `compiled`; restart an already running console to use the updated default. Use `--script-engine tree` to compare the reference evaluator, or `--script-engine legacy` for the previous parser. The main checkout and direct `python -m clang_toolkit.cli.app` launch retain the legacy default. Older `do ... done` loop syntax and `--continue-on-error` remain available with the legacy engine; the compiled dialect uses `do STATEMENT` or brace blocks.
 
 ## Run the complete example
 
@@ -130,7 +131,7 @@ The standalone measurements remain the original seven-sample experiment; they do
 
 ## Prototype boundaries
 
-Both REPL editors support the opt-in compiled dialect, including highlighting, completion keywords, multiline validation and structured results. Native ANTLR scripts, server-side Python execution, general user functions and new RPCs remain outside this prototype. The standalone run_source API still compiles per call; the REPL caches validated submissions. Native operation argument syntax continues to follow its existing grammar.
+Both REPL editors support the compiled dialect, including highlighting, completion keywords, multiline validation and structured results. Native ANTLR scripts, server-side Python execution, general user functions and new RPCs remain outside this prototype. The standalone run_source API still compiles per call; the REPL caches validated submissions. Native operation argument syntax continues to follow its existing grammar.
 
 Item and step limits are enforced, including output, range, collection literals and dictionary growth. Cumulative retained-byte accounting and parser nesting admission remain production integration work. Host operations retain their existing ownership and effect rules; earlier effects are not rolled back by a later script error.
 

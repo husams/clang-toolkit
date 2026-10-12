@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ctk = "clang_toolkit.cli.app:main"
+ctk = "clang_toolkit.cli.app:prototype_main"
 
 [dependency-groups]
 dev = [

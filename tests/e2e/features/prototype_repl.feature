@@ -1,5 +1,5 @@
 Feature: Compiled scripts in the interactive REPL
-  The compiled prototype engine runs inside both existing console interfaces.
+  The isolated project's default ctk entrypoint runs compiled scripts inside both existing console interfaces.
 
   Scenario: Prompt REPL executes compiled scripts and recovers after errors
     Given an isolated compiled prompt REPL and native sample

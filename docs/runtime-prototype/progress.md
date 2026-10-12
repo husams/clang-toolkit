@@ -40,3 +40,17 @@ Status: complete; both real console views and independent review passed.
 Ownership: language worker owns repl_language.py/tests, editor worker owns repl_editor.py plus minimal prompt/workspace plumbing/tests, E2E worker owns new real-console BDD cases, root owns session/compiler/app/launcher/docs integration. Independent explorer reviews native value, output and cleanup behavior.
 
 Follow-up validation: 1,242 full Python unit tests and 79 final focused cases passed; all 343 native tests passed against the existing main-checkout binary at e399a47c332e. Existing BDD full run passed 122/123 cases; the one native-parse PTY deadline failure passed in isolation, so all 123 distinct existing cases passed. Two new compiled-console PTY scenarios passed, giving 125 distinct passing cases across the runs. Both editors accept real multiline paste, direct native matching and retained-node continuation, recover after script errors and quit normally; the workspace also cancels a nested compiled loop with Ctrl-C and executes the next script successfully. Independent review also verified output limits, prior-output preservation during cancellation, native query/rendering exactly once and zero resource counters after cleanup. The launcher example prints the expected total 12 and next calculation 13. Ruff and whitespace checks pass.
+
+
+## Default prototype entrypoint follow-up — 2026-10-12
+
+Status: complete; ordinary `uv run ctk` in the isolated checkout now opens the compiled interactive REPL.
+
+- [x] Isolated package entrypoint selects compiled scripting with accurate CLI help and explicit engine overrides.
+- [x] Preserve the existing main/module legacy default and production checkout.
+- [x] Verify the exact user arithmetic example, script/stdin/named arguments and exit codes.
+- [x] Exercise both real console views through the installed default entrypoint without an engine flag.
+
+Ownership: root owns app.py, pyproject.toml, entrypoint unit tests and documentation; E2E worker owns the two default-launch terminal cases; independent explorer reviews argument handling and refreshed installation metadata.
+
+Validation: all 1,252 Python unit tests passed in 27.76 seconds; both default-entrypoint PTY BDD scenarios passed in 20.26 seconds, including native continuation, cancellation/recovery and resource cleanup. The exact `let x = 1` / `let y = $x + 1` example followed by `print $y` prints 2 through `uv run ctk`. Independent review verified the installed entrypoint, explicit overrides, help and version behavior. Ruff and whitespace checks pass. Prior 343 native and 123 existing BDD checks remain applicable because native code and the core module default are unchanged. Main checkout remains clean.

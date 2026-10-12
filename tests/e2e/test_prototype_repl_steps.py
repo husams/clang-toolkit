@@ -11,7 +11,6 @@ import select
 import signal
 import struct
 import subprocess
-import sys
 import termios
 import time
 from pathlib import Path
@@ -90,17 +89,19 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
     master, slave = pty.openpty()
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 110, 0, 0))
     state_root = tmp_path / "state"
+    project_root = Path(__file__).resolve().parents[2]
     process = subprocess.Popen(
         [
-            sys.executable,
-            "-m",
-            "clang_toolkit.cli.app",
+            "uv",
+            "run",
+            "--quiet",
+            "--project",
+            str(project_root),
+            "ctk",
             "--server",
             server.endpoint,
             "-c",
             str(server.config),
-            "--script-engine",
-            "compiled",
             "--ui",
             ui,
         ],
@@ -197,7 +198,7 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
     try:
         read_until("Session open" if ui == "workspace" else "ctk>")
         # New operators and conditional expressions are not in the legacy
-        # grammar. The explicit compiled engine must accept this whole paste.
+        # grammar. The installed project's default ctk entrypoint must accept it.
         setup_script = (
             "let total = 0\n"
             "let arithmetic = (2 +\n 3 * 4)\n"

@@ -424,7 +424,7 @@ def _runtime_for_engine(client: Client, engine: str, **kwargs: Any) -> Runtime:
     return PrototypeRuntime(client, script_engine=engine, **kwargs)
 
 
-async def _run() -> int:
+async def _run(*, script_engine_default: str = "legacy") -> int:
     parser = argparse.ArgumentParser(
         prog="ctk",
         description="Interactive console or noninteractive console-script runner.",
@@ -448,8 +448,9 @@ async def _run() -> int:
     )
     parser.add_argument("--server", help="override the configured gRPC endpoint")
     parser.add_argument(
-        "--script-engine", choices=("legacy", "tree", "compiled"), default="legacy",
-        help="experimental scripting engine for REPL and scripts (default: legacy)",
+        "--script-engine", choices=("legacy", "tree", "compiled"),
+        default=script_engine_default,
+        help=f"experimental scripting engine for REPL and scripts (default: {script_engine_default})",
     )
     parser.add_argument(
         "--ui", choices=("prompt", "workspace"),
@@ -977,6 +978,13 @@ async def _run() -> int:
 
 def main() -> None:
     result = asyncio.run(_run())
+    if result:
+        raise SystemExit(result)
+
+
+def prototype_main() -> None:
+    """Launch the isolated prototype with compiled scripting by default."""
+    result = asyncio.run(_run(script_engine_default="compiled"))
     if result:
         raise SystemExit(result)
 
