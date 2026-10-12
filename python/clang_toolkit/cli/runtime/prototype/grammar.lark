@@ -1,0 +1,110 @@
+// Standalone experimental scripting grammar.  This is deliberately separate
+// from the released console grammar.
+
+start: program
+
+program: separators? statement (separators statement)* separators?
+        |                  -> empty_program
+
+?statement: let_stmt
+          | foreach_expr
+          | print_stmt
+          | assign_stmt
+          | expression
+
+let_stmt: "let" CNAME "=" expression
+print_stmt: "print" expression
+foreach_expr: "foreach" CNAME "in" expression body
+assign_stmt: target ASSIGN_OP expression
+
+if_expr: "if" expression body if_else?
+if_else: separators? "else" else_body
+else_body: "do" statement       -> single_else_body
+         | "do"? block           -> block_else_body
+         | statement              -> statement_else_body
+unless_expr: "unless" expression body if_else?
+
+body: "do" statement       -> single_body
+    | "do"? block           -> block_body
+
+block: "{" block_contents? "}"
+block_contents: separators? statement (separators statement)* separators?
+
+?expression: control_expression
+           | conditional
+?control_expression: if_expr
+                    | unless_expr
+                    | foreach_expr
+?conditional: or_expr
+            | or_expr soft_newlines "?" soft_newlines conditional soft_newlines ":" soft_newlines conditional
+?or_expr: and_expr (soft_newlines "or" soft_newlines and_expr)*
+?and_expr: not_expr (soft_newlines "and" soft_newlines not_expr)*
+?not_expr: "not" soft_newlines not_expr  -> not_expr
+         | comparison
+?comparison: additive (soft_newlines COMPARE_OP soft_newlines additive)?
+?additive: multiplicative (soft_newlines ADD_OP soft_newlines multiplicative)*
+?multiplicative: unary (soft_newlines MUL_OP soft_newlines unary)*
+?unary: UNARY_OP unary       -> unary_expr
+      | postfix
+?postfix: atom postfix_part*
+
+?postfix_part: soft_newlines "." soft_newlines CNAME -> member_part
+             | index_expression
+
+target: reference target_part*
+?target_part: "." CNAME       -> target_member_part
+           | index_expression
+
+reference: "$" CNAME
+
+?atom: literal
+     | reference
+     | named_call
+     | list_literal
+     | dict_literal
+     | grouped_expression
+
+named_call: CNAME "(" arguments? ")"
+arguments: separators? expression ("," separators? expression)* ","? separators?
+
+index_expression: "[" separators? expression separators? "]"
+
+grouped_expression: "(" inner_expression ")"
+inner_expression: separators? expression separators?
+
+list_literal: "[" list_items? "]"
+list_items: separators? expression ("," separators? expression)* ","? separators?
+
+dict_literal: "{" dict_items? "}"
+dict_items: separators? dict_item ("," separators? dict_item)* ","? separators?
+dict_item: key ":" expression
+?key: STRING
+    | CNAME
+
+literal: INT       -> integer_literal
+        | FLOAT     -> float_literal
+        | STRING    -> string_literal
+        | "true"    -> true_literal
+        | "false"   -> false_literal
+        | "null"    -> null_literal
+
+separators: separator+
+?separator: NEWLINE | ";"
+soft_newlines: NEWLINE*
+
+ASSIGN_OP: "=" | "+=" | "-=" | "*=" | "/=" | "%="
+COMPARE_OP: "==" | "!=" | "<=" | ">=" | "<" | ">"
+ADD_OP: "+" | "-"
+MUL_OP: "*" | "/" | "%"
+UNARY_OP: "+" | "-"
+
+FLOAT: /(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+/
+INT: /[0-9]+/
+STRING: ESCAPED_STRING
+CNAME: /[A-Za-z_][A-Za-z0-9_]*/
+NEWLINE: /\r?\n/
+
+%import common.ESCAPED_STRING
+%import common.WS_INLINE
+%ignore WS_INLINE
+%ignore /\/\/[^\r\n]*/
