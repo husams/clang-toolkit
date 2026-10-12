@@ -65,6 +65,11 @@ their full batch cleanup reports and concurrent status samples are retained.
   appended/truncated/corrupt/missing blobs, caller buffer preservation, timestamp
   normalization and corrupt existing blobs during prehashed publication.
 
+After integration with the newer workspace console on 2026-10-12, the full
+macOS native suite passes all 340 cases, Python units pass all 1,047 cases, and
+console acceptance passes all 116 cases. The controlled Linux measurements
+above precede that console integration; the native snapshot changes are the same.
+
 Implementation: `server/src/storage/blob_store.cpp`,
 `server/src/storage/store_publication.cpp`,
 `server/src/storage/metadata_repository.cpp`,
