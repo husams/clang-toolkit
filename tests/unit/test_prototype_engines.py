@@ -128,4 +128,3 @@ def test_assigned_foreach_is_a_value_in_both_engines():
     selection = Node("get", "index", (Node("index", children=(ref("rows"), lit(2))),))
     p = program(Node("let", "rows", (loop,)), selection)
     assert run_both(p) == [(2, {"rows": [{"index": 0}, {"index": 1}, {"index": 2}]}, [], 23)] * 2
-

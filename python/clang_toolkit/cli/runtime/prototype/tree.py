@@ -10,4 +10,3 @@ from .semantics import Context, Node, eval_program
 def evaluate(program: Node, context: Context) -> Any:
     """Evaluate *program* using the reference interpreter."""
     return eval_program(context, program)
-
