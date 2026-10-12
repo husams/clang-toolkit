@@ -246,6 +246,22 @@ def dispatch(client: Client, line: str, runtime: Runtime | None = None) -> str |
     return dispatch_result(client, line, runtime).output
 
 
+def _script_arguments(values: list[str]) -> dict[str, str]:
+    """Read literal named values without evaluating them as console syntax."""
+    arguments: dict[str, str] = {}
+    for item in values:
+        key, separator, value = item.partition("=")
+        if not separator:
+            raise ValueError("script arguments must use KEY=VALUE")
+        key = key.strip()
+        if not key:
+            raise ValueError("script argument names cannot be empty")
+        if key in arguments:
+            raise ValueError(f"duplicate script argument: {key}")
+        arguments[key] = value
+    return arguments
+
+
 def _load_prompt_history(store: HistoryStore) -> PersistentPromptHistory | None:
     try:
         return PersistentPromptHistory(store)
@@ -395,7 +411,8 @@ async def _run() -> int:
         epilog=(
             "With a nonterminal stdin and no --query, input runs as a batch script. "
             "Batch commands may be separated by newlines or semicolons; execution "
-            "stops at the first failed command unless --continue-on-error is set."
+            "stops at the first failed command unless --continue-on-error is set. "
+            "Run ctk SCRIPT KEY=VALUE ... to pass literal strings through $arg."
         ),
     )
     parser.add_argument(
@@ -441,7 +458,20 @@ async def _run() -> int:
         help="run --query while the prompt remains active",
     )
     parser.add_argument("--session", action="store_true", help=argparse.SUPPRESS)
-    args = parser.parse_args()
+    parser.add_argument(
+        "script_inputs", nargs="*", metavar="SCRIPT|KEY=VALUE",
+        help="optional script file followed by named values available as $arg.key",
+    )
+    args = parser.parse_intermixed_args()
+
+    script_values = list(args.script_inputs)
+    if args.script is None and args.execute_text is None and script_values:
+        if "=" not in script_values[0]:
+            args.script = script_values.pop(0)
+    try:
+        script_arguments = _script_arguments(script_values)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     batch_source: str | None = None
     batch_source_path: Path | None = None
@@ -451,7 +481,7 @@ async def _run() -> int:
         try:
             batch_source_path = Path(args.script).resolve()
             batch_source = batch_source_path.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             print(f"error: cannot read script {args.script}: {exc}")
             return 1
     elif not sys.stdin.isatty() and args.query is None:
@@ -465,6 +495,8 @@ async def _run() -> int:
         parser.error(
             "--continue-on-error requires --execute, --script, or nonterminal stdin"
         )
+    if script_arguments and batch_source is None:
+        parser.error("script arguments require a script file, --execute, or nonterminal stdin")
     if batch_source is not None and args.query is not None:
         parser.error("batch input cannot be combined with --query")
     if args.ui == "workspace" and (
@@ -508,6 +540,7 @@ async def _run() -> int:
         runtime = None
         try:
             runtime = Runtime(client)
+            runtime.bindings["arg"] = script_arguments
             if args.compile_commands is not None:
                 runtime.config_store.effective["compile_commands"] = (
                     args.compile_commands
