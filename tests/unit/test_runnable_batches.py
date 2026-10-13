@@ -84,3 +84,13 @@ def test_requirements_ignore_dormant_bodies_and_follow_reachable_calls(runtime):
     submit(runtime, 'let operation() = { background functionDecl() }; let alias = operation')
     assert session.requirements('alias()').background_query
     assert session.requirements('let helper() = { background functionDecl() }; helper()').background_query
+
+
+def test_omitted_defaults_are_inspected_before_batch_admission(runtime):
+    submit(runtime, 'let unsafe() = { background functionDecl() }; let apply(operation = unsafe) = { operation() }')
+    result = dispatch_result(runtime.client, 'let report = batch chunk in inputs size 1 progress off do { apply() }', runtime)
+    assert not result.success and "foreground" in result.output
+    assert runtime.client.scopes == []
+    assert not runtime._prototype_session.requirements('let dormant(a = unsafe()) = { a }').background_query
+    assert runtime._prototype_session.requirements('let call(a = unsafe()) = { a }; call()').background_query
+    assert not runtime._prototype_session.requirements('apply(null)').background_query

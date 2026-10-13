@@ -373,7 +373,9 @@ class _Lowerer:
             expr = self.call("_define", context, ast.Constant(_name(node)), self.emit_expr(child(node, "expr", 0)))
         elif kind == "runnable":
             body = self.emit_block_function(child_values(node)[0])
-            expr = self.call("_define_runnable", context, nref, ast.Name(body, ast.Load()))
+            defaults = ast.Tuple([ast.Name(self.emit_block_function(default), ast.Load())
+                                  for default in child_values(node)[1:]], ast.Load())
+            expr = self.call("_define_runnable", context, nref, ast.Name(body, ast.Load()), defaults)
         elif kind == "assign":
             expr = self.emit_assignment(node)
         elif kind == "print":

@@ -92,3 +92,30 @@ def test_arguments_run_once_in_order(execute):
 def test_body_error_reports_definition_and_call_location(execute):
     with pytest.raises(EvaluationError, match=r"defined at line 1.*called at line 2"):
         execute('let divide(n) = { 7 / n }\ndivide(0)')
+
+
+def test_defaults_are_lazy_fresh_and_can_reference_earlier_parameters(execute):
+    seen = []
+    context = Context(functions={"next": lambda: seen.append(1) or len(seen)})
+    value, _ = execute("let f(a, b = a * next(), c = [b]) = { c[0] += 1; c }; [f(2), f(3), f(9, 10)]", context)
+    assert value == [[3], [7], [11]]
+    assert seen == [1, 1]
+    assert context.scopes == (context.bindings,)
+
+
+def test_defaults_capture_definition_scope_and_stay_dormant(execute):
+    value, _ = execute("let factor = 2; let f(a = factor) = { a }; let caller(factor) = { f() }; caller(9)")
+    assert value == 2
+    context = Context(functions={"side": lambda: pytest.fail("default evaluated")})
+    execute("let f(a = side()) = { a }; f(7)", context)
+
+
+def test_default_arity_is_checked_before_argument_effects(execute):
+    context = Context(functions={"side": lambda: pytest.fail("argument evaluated")})
+    with pytest.raises(EvaluationError, match="expects 1..2"):
+        execute("let f(a, b = 1) = { a + b }; f(side(), side(), side())", context)
+
+
+def test_required_parameter_after_default_is_rejected(execute):
+    with pytest.raises(ValueError, match="required parameters"):
+        execute("let f(a = 1, b) = { a }")

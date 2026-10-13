@@ -17,6 +17,7 @@ class _Definition:
     parameters: tuple[str, ...]
     body: Node
     environment: dict[str, Any]
+    defaults: tuple[Node, ...] = ()
 
 
 def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
@@ -47,6 +48,12 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
                 body = value._body
             captured[value.name] = value
             captured.update(zip(value.parameters, arguments))
+            defaults = value.default_nodes if isinstance(value, RunnableBlock) else value.defaults if isinstance(value, _Definition) else ()
+            missing = len(value.parameters) - len(arguments)
+            if missing > 0:
+                for default in defaults[-missing:]:
+                    yield from visit(default, captured)
+                    captured[default.value] = resolve(default.children[0], captured)
             yield from visit(body, captured)
         finally:
             active.remove(id(value))
@@ -55,7 +62,7 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
         if isinstance(node, Node):
             if node.kind == "runnable":
                 name, parameters = node.value
-                environment[name] = _Definition(name, parameters, node.children[0], environment)
+                environment[name] = _Definition(name, parameters, node.children[0], environment, node.children[1:])
                 return
             if node.kind == "let":
                 environment[node.value] = resolve(node.children[0], environment)

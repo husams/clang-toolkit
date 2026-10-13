@@ -707,7 +707,9 @@ def eval_statement(ctx: Context, node: Any) -> Any:
 
         ctx.tick(node)
         return define_runnable(ctx, node,
-                               lambda context: eval_block(context, child_values(node)[0], scoped=False))
+                               lambda context: eval_block(context, child_values(node)[0], scoped=False),
+                               tuple(lambda context, expr=default.children[0]: eval_expr(context, expr)
+                                     for default in child_values(node)[1:]))
     if kind == "assign":
         return eval_assign(ctx, node)
     if kind == "print":

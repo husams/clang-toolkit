@@ -19,6 +19,8 @@ class RunnableBlock:
     string_templates: dict[str, Any]
     definition_location: tuple[int | None, int | None]
     source_name: str
+    defaults: tuple[Callable[[Context], Any], ...] = ()
+    default_nodes: tuple[Any, ...] = ()
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(self.parameters)})"
@@ -36,11 +38,14 @@ class RunnableBlock:
         if runtime is not None:
             runtime._matcher_call_depth += 1
         context._scopes[:] = [*self.scopes, {self.name: self},
-                             dict(zip(self.parameters, arguments, strict=True))]
+                             dict(zip(self.parameters, arguments))]
         context.source = self.source
         context.source_name = self.source_name
         context.string_templates = self.string_templates
         try:
+            missing = len(self.parameters) - len(arguments)
+            for name, default in zip(self.parameters[len(arguments):], self.defaults[len(self.defaults) - missing:]):
+                context.define(name, default(context))
             return self.executable(context)
         except Exception as error:
             if not getattr(error, "runnable_frame", False):
@@ -62,7 +67,8 @@ class RunnableBlock:
                 runtime._matcher_call_depth -= 1
 
 
-def define_runnable(context: Context, node: Any, executable: Callable[[Context], Any]) -> RunnableBlock:
+def define_runnable(context: Context, node: Any, executable: Callable[[Context], Any],
+                    defaults: tuple[Callable[[Context], Any], ...] = ()) -> RunnableBlock:
     from clang_toolkit.cli.matcher_catalog import SCRIPT_BUILTIN_MATCHERS
 
     name, parameters = node.value
@@ -72,7 +78,7 @@ def define_runnable(context: Context, node: Any, executable: Callable[[Context],
         raise _error(context, node, f"{name} has duplicate parameter names")
     value = RunnableBlock(name, parameters, node.children[0], executable,
                           context.scopes, context.source, context.string_templates,
-                          (node.line, node.column), context.source_name)
+                          (node.line, node.column), context.source_name, defaults, node.children[1:])
     context.define(name, value)
     return value
 
@@ -83,9 +89,10 @@ def invoke_named(context: Context, node: Any, name: str,
     if present:
         if isinstance(value, RunnableBlock):
             count = len(child_values(node))
-            if count != len(value.parameters):
+            required = len(value.parameters) - len(value.defaults)
+            if not required <= count <= len(value.parameters):
                 raise _error(context, node,
-                             f"{name} expects {len(value.parameters)} argument(s), got {count}")
+                             f"{name} expects {required if required == len(value.parameters) else str(required) + '..' + str(len(value.parameters))} argument(s), got {count}")
             return value.invoke(context, node, arguments())
         from clang_toolkit.cli.runtime.matcher_functions import MatcherFunction
 
