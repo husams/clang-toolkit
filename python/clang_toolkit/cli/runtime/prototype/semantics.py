@@ -652,6 +652,13 @@ def eval_expr(ctx: Context, node: Any) -> Any:
         return consumed_value(ctx, lambda: eval_expr(ctx, child_values(node)[0]))
     if kind == "host":
         return host_value(ctx, node)
+    if kind == "inline_runnable":
+        from .runnables import create_runnable
+
+        return create_runnable(ctx, node,
+                               lambda context: eval_block(context, child_values(node)[0], scoped=False),
+                               tuple(lambda context, spec=default: eval_block(context, spec, scoped=False)
+                                     for default in child_values(node)[1:]))
     if kind == "call":
         name = _name(node)
         from .runnables import invoke_named
@@ -777,7 +784,7 @@ def eval_statement(ctx: Context, node: Any, *, value_context: bool = False) -> A
         return eval_condition_loop(ctx, node, collect=value_context)
     if kind == "block":
         return eval_block(ctx, node)
-    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "predicate", "unary", "host", "recovery"}:
+    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "predicate", "unary", "host", "recovery", "inline_runnable"}:
         return eval_expr(ctx, node)
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 

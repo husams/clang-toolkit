@@ -29,17 +29,23 @@ assign_stmt: target ASSIGN_OP closed_expression
 runnable_definition.20: "let" CNAME "(" parameters? ")" "=" block
                       | "let" CNAME "(" parameters? ")" "=" closed_expression
 open_runnable_definition.20: "let" CNAME "(" parameters? ")" "=" open_expression -> runnable_definition
+inline_runnable.20: "(" parameters? ")" "=" block
+                   | "(" parameters? ")" "=" closed_expression
+open_inline_runnable.20: "(" parameters? ")" "=" open_expression -> inline_runnable
+
 parameters: separators? parameter ("," separators? parameter)* ","? separators?
 parameter: CNAME ("=" expression)?
 
 ?expression: closed_expression | open_expression
-?closed_expression: conditional
+?closed_expression: inline_runnable
+                  | conditional
                   | closed_if_expr
                   | closed_unless_expr
                   | closed_foreach_expr
                   | closed_while_expr
                   | closed_repeat_expr
-?open_expression: open_if_expr
+?open_expression: open_inline_runnable
+                 | open_if_expr
                  | open_unless_expr
                  | open_foreach_expr
                  | open_while_expr

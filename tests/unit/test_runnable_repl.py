@@ -120,3 +120,12 @@ def test_expression_runnables_preserve_builtin_matcher_templates(runtime):
     runtime.client.match = Mock(return_value=[])
     submit(runtime, 'let rows = match wrapped("Sample").bind("root")')
     assert runtime.client.match.call_args.args[0] == 'functionDecl(hasName("Sample")).bind("root")'
+
+
+
+def test_inline_callback_can_return_a_native_matcher(runtime):
+    submit(runtime, "let apply(operation, name) = operation(name)")
+    submit(runtime, 'let selected(name) = apply((value) = functionDecl(hasName(value)), name)')
+    runtime.client.match = Mock(return_value=[])
+    submit(runtime, 'let result = match selected("Sample").bind("root")')
+    assert runtime.client.match.call_args.args[0] == 'functionDecl(hasName("Sample")).bind("root")'

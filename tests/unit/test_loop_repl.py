@@ -45,6 +45,9 @@ def test_page_examples_and_collected_values(runtime):
     ('let numbered(items) = foreach item in items do [item.index, item]; let values = numbered([4, 7])', [[0, 4], [1, 7]]),
     ('let climb(x) = repeat x += 1 until x >= 3; let values = climb(0)', [1, 2, 3]),
     ('let drain(x) = while x > 0 do x -= 1; let values = drain(3)', [2, 1, 0]),
+    ('let numbered = (items) = foreach item in items do [item.index, item]; let values = numbered([4, 7])', [[0, 4], [1, 7]]),
+    ('let climb = (x) = repeat x += 1 until x >= 3; let values = climb(0)', [1, 2, 3]),
+    ('let drain = (x) = while x > 0 do x -= 1; let values = drain(3)', [2, 1, 0]),
 ])
 def test_expression_runnable_loop_values(runtime, source, expected):
     assert submit(runtime, source) == ''
