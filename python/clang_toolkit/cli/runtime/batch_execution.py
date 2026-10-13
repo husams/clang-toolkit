@@ -159,7 +159,7 @@ def execute_batch(
         for child in node.children
         if isinstance(child, Tree) and child.data == "statement_block"
     )
-    _validate_body(body)
+    _validate_body(body, runtime)
     run_id = uuid4().hex[:12]
     report: dict[str, Any] = {
         "run_id": run_id,
@@ -434,6 +434,8 @@ def _run_group(
     runtime._block_owners.append(set())
     last_value: Any = None
     try:
+        if body.children and not isinstance(body.children[0], (Tree, Token)):
+            last_value = runtime._execute_foreground_body(body, source, value_context=value_context)
         for child in body.children:
             if not isinstance(child, Tree) or str(child.data) in {
                 "batch_separator",
@@ -530,7 +532,7 @@ def _positive_integer(token: Token, label: str) -> int:
     return int(raw)
 
 
-def _validate_body(body: Tree) -> None:
+def _validate_body(body: Tree, runtime: Any = None) -> None:
     """Reject constructs whose yielded value cannot stay within a group."""
     unscoped_native_work = {
         "cursor_open",
@@ -547,8 +549,13 @@ def _validate_body(body: Tree) -> None:
         "batch_resume",
         "batch_retry",
         "batch_promote",
+        "dynamic_command",
     }
-    for child in body.iter_subtrees_topdown():
+    if runtime is not None and hasattr(runtime, "_foreground_body_trees"):
+        trees = runtime._foreground_body_trees(body)
+    else:
+        trees = body.iter_subtrees_topdown()
+    for child in trees:
         if child.data == "analysis_block":
             # Analysis blocks already bind their operations to the group's
             # active scope. Their yielded value is detached before that scope
@@ -580,6 +587,7 @@ def _detach_batch_result(
     from clang_toolkit.resources import FileHandle, InputDescriptor
 
     from .matcher_functions import MatcherFunction
+    from .prototype.runnables import RunnableBlock
     from .filesystem import FileSystemEntry
     from .semantic import (
         BindingMapView,
@@ -607,7 +615,7 @@ def _detach_batch_result(
             )
         encoded = base64.b64encode(value).decode("ascii")
         return _charge_result({"type": "bytes", "base64": encoded}, budget)
-    if isinstance(value, (FileHandle, ParsedTree, MatcherFunction)) or callable(value):
+    if isinstance(value, (FileHandle, ParsedTree, MatcherFunction, RunnableBlock)) or callable(value):
         raise EvaluationError(
             f"batch results cannot retain live resource or callable values ({type(value).__name__})"
         )

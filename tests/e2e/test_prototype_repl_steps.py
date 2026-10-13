@@ -53,6 +53,14 @@ def _repl_fixture(
         "struct Sample {};\n",
         encoding="utf-8",
     )
+    (tmp_path / "runnables.ctk").write_text(
+        'let twice(value) = { value * 2 }\n'
+        'let alias = twice\n'
+        'let announce() = { print "RUNNABLE_DORMANT_MARKER" }\n'
+        'let named(name) = functionDecl(hasName(name))\n'
+        'let find(path, name) = { match named(name).bind("f") in path }\n',
+        encoding="utf-8",
+    )
     return {"server": server, "source": source, "ui": ui}
 
 
@@ -226,6 +234,24 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         screenshot += submit("let y = if $x > 0 then $x * 10 else 1", "")
         screenshot += submit('print "SCREENSHOT_${y}"', "SCREENSHOT_10")
 
+        runnables = submit(
+            'import "runnables.ctk"\n'
+            'let answer = alias(21)\n'
+            'let checked = foreach value in [1, 2] do twice(value)\n'
+            'print "RUNNABLE_{answer}_{checked[1]}"',
+            "RUNNABLE_42_4",
+        )
+        assert "RUNNABLE_DORMANT_MARKER" not in runnables
+        runnables += submit(
+            f'let selected = find("{source.name}", "caller")\n'
+            'print "RUNNABLE_MATCH_{selected.length}"',
+            "RUNNABLE_MATCH_1",
+        )
+        runnables += submit(
+            'let ready() = { "RUNNABLE_NO_PARAMS" }\nready()',
+            "RUNNABLE_NO_PARAMS",
+        )
+
         # ctk() keeps native analysis inside the interactive compiled runtime;
         # its returned MatchRows are consumed by a conditional collected loop.
         root_query = (
@@ -316,6 +342,7 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             "ui": ui,
             "result": result,
             "screenshot": screenshot,
+            "runnables": runnables,
             "native": native,
             "predicates": predicates,
             "lazy": lazy,
@@ -349,6 +376,9 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     assert evidence["ui"] in {"prompt", "workspace"}
     assert "SETUP_146" in evidence["result"] and "MUTATION_703" in evidence["result"]
     assert "SCREENSHOT_10" in evidence["screenshot"]
+    assert "RUNNABLE_42_4" in evidence["runnables"]
+    assert "RUNNABLE_MATCH_1" in evidence["runnables"]
+    assert "RUNNABLE_NO_PARAMS" in evidence["runnables"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]
     assert "MULTILINE_MATCHER_1" in evidence["native"]
     assert "PREDICATES_11111" in evidence["predicates"]

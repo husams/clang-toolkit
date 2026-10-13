@@ -198,6 +198,8 @@ class PrototypeReplLexer(Lexer):
                 style = "error"
             elif kind in {"DOLLAR", "BIND"}:
                 style = "reference"
+            elif kind == "ROUTINE_NAME":
+                style = "matcher"
             elif str(token) in {
                 "+",
                 "-",
@@ -260,17 +262,42 @@ class PrototypeCompleter(Completer):
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
-        existing = list(self.base.get_completions(document, complete_event))
-        yield from existing
         before = document.text_before_cursor
+        existing = list(self.base.get_completions(document, complete_event))
+        if "$" not in before:
+            existing = [Completion(item.text.removeprefix("$"), item.start_position,
+                                  display=item.display_text.replace("$", ""), display_meta=item.display_meta)
+                        if item.text.startswith("$") else item for item in existing if item.text != "$"]
+        yield from existing
         tokens = lex(before)
         if any(_kind(token) in {"COMMENT", "OPEN_STRING"} for token in tokens):
             return
-        match = _WORD.search(before)
+        match = re.search(r"[A-Za-z_][A-Za-z0-9_]*$|(?<=\.)$", before)
         if match is None:
             return
         partial = match.group(0)
         known = {item.text for item in existing}
+        references = getattr(self.base, "_references", None)
+        references = references() if callable(references) else references or {}
+        functions = getattr(self.base, "_matcher_functions", None)
+        functions = functions() if callable(functions) else functions or ()
+        if before[:match.start()].endswith("."):
+            field = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\[[0-9]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*)\.[A-Za-z_0-9]*$", before)
+            resolver = getattr(self.base, "_field_resolver", None)
+            suggestions = resolver(field.group(1)) if field and resolver else ()
+            for item in suggestions:
+                name = item.name if hasattr(item, "name") else str(item)
+                if name.startswith(partial) and name not in known:
+                    yield Completion(name, start_position=-len(partial), display_meta="field")
+            return
+        if "$" not in before:
+            for name in sorted(references):
+                if name.startswith(partial) and name != partial and name not in known:
+                    yield Completion(name, start_position=-len(partial), display_meta="binding")
+            for name in sorted(functions):
+                text = name + "("
+                if name.startswith(partial) and text not in known:
+                    yield Completion(text, start_position=-len(partial), display_meta="callable")
         for keyword in sorted(_KEYWORDS):
             if (
                 keyword.startswith(partial)

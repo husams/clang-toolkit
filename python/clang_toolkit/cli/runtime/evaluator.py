@@ -115,6 +115,8 @@ def _simple_reference_name(node: Tree) -> str:
 
 
 def _contains_live_native_value(value: Any, seen: set[int] | None = None) -> bool:
+    from .prototype.runnables import RunnableBlock
+
     if seen is None:
         seen = set()
     if isinstance(
@@ -128,6 +130,7 @@ def _contains_live_native_value(value: Any, seen: set[int] | None = None) -> boo
             NativeMatchCollection,
             NativeBindingCollection,
             MatcherFunction,
+            RunnableBlock,
         ),
     ):
         return True

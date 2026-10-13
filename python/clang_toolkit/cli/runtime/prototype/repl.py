@@ -6,7 +6,7 @@ from collections import OrderedDict
 from dataclasses import replace
 from typing import Any
 
-from lark import Tree
+from lark import Token, Tree
 from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.runtime import EvaluationError as LegacyEvaluationError, Runtime
@@ -15,6 +15,7 @@ from clang_toolkit.cli.runtime.values import render
 from clang_toolkit.cli.syntax_diagnostics import syntax_diagnostic
 
 from .compiler import compile_program
+from .runnables import RunnableBlock, invoke_named, snapshot_scopes
 from .semantics import Context, ExecutionLimitError, PrototypeError
 from .syntax import Node
 from .tree import evaluate
@@ -35,8 +36,11 @@ class _ReplContext(Context):
             host_evaluator=session.host,
             statement_observer=session.observe,
         )
+        self.source = session.source
 
     def _ctk(self, command: str) -> Any:
+        if self.session.runtime._active_resource_scope is not None:
+            raise PrototypeError("ctk() dynamic commands are unsupported inside foreground batches")
         if not isinstance(command, str):
             raise TypeError("ctk() expects one command string")
         return Runtime.evaluate(self.session.runtime, command)
@@ -91,9 +95,43 @@ class PrototypeRuntime(Runtime):
         self._prototype_session = ReplSession(self, script_engine)
 
     def _evaluate(self, node: Any) -> Any:
+        context = self._prototype_context
+        templates = getattr(getattr(node, "meta", None), "ctk_templates", None)
+        if context is not None and templates is not None:
+            previous = context.string_templates
+            context.string_templates = templates
+            try:
+                return self._evaluate_operand(node)
+            finally:
+                context.string_templates = previous
+        return self._evaluate_operand(node)
+
+    def _evaluate_operand(self, node: Any) -> Any:
+        context = self._prototype_context
+        if isinstance(node, Tree) and node.data == "matcher" and context is not None:
+            from clang_toolkit.cli.runtime.matcher_functions import MatcherFunction
+            from clang_toolkit.cli.runtime.values import MatcherExpr
+
+            name = str(node.children[0])
+            present, value = context.binding_state(name)
+            if present and isinstance(value, (RunnableBlock, MatcherFunction)):
+                arguments = []
+                binding = None
+                for child in node.children[1:]:
+                    if isinstance(child, Tree) and child.data == "arguments":
+                        arguments.extend(item for item in child.children if not self._punctuation(item))
+                    elif isinstance(child, Tree) and child.data == "bind":
+                        binding = child.children[2]
+                    elif child is not None and not self._punctuation(child):
+                        arguments.append(child)
+                call = Node("call", name, tuple(arguments), node.meta.line, node.meta.column)
+                result = invoke_named(context, call, name,
+                                      lambda: [self._evaluate(item) for item in arguments])
+                if binding is not None and not isinstance(result, MatcherExpr):
+                    raise LegacyEvaluationError(f"{name} must return a matcher expression to use bind")
+                return replace(result, binding=self._string(str(binding))) if binding is not None else result
         if not isinstance(node, Node):
             return super()._evaluate(node)
-        context = self._prototype_context
         if context is None:
             raise PrototypeError("prototype expression has no active script context")
         if self._prototype_session.engine == "tree":
@@ -104,6 +142,105 @@ class PrototypeRuntime(Runtime):
             executable = compile_program(node)
             self._prototype_operands[key] = executable
         return executable(context)
+
+    def _has_dynamic_part(self, node: Tree) -> bool:
+        if node.data == "matcher" and self._prototype_context is not None:
+            present, value = self._prototype_context.binding_state(str(node.children[0]))
+            if present and isinstance(value, RunnableBlock):
+                return True
+        if any(isinstance(child, Token) and child.type == "STRING"
+               and str(child).startswith('"') and "{" in str(child)
+               for child in node.children):
+            return True
+        return super()._has_dynamic_part(node)
+
+    def _string(self, raw: str) -> str:
+        context = self._prototype_context
+        if context is not None and raw in context.string_templates:
+            return context.string_templates[raw].render(context)
+        return super()._string(raw)
+
+    def _execute_foreground_body(self, body: Tree, source: str, *, value_context: bool) -> Any:
+        context = self._prototype_context
+        if context is None:
+            raise PrototypeError("foreground body has no active script context")
+        program = body.children[0]
+        previous_depth = context.consume_depth
+        previous_scopes = list(context._scopes)
+        context._scopes[:] = snapshot_scopes(context._scopes)
+        if value_context:
+            context.consume_depth += 1
+        try:
+            executable = getattr(body.meta, "ctk_executable", None)
+            return executable(context) if executable is not None else evaluate(program, context)
+        finally:
+            context.consume_depth = previous_depth
+            context._scopes[:] = previous_scopes
+
+    def _foreground_body_trees(self, body: Tree) -> Any:
+        from .dependencies import execution_trees
+
+        bindings = dict(self.bindings)
+        for scope in self._scopes:
+            bindings.update(scope)
+        return execution_trees(body, bindings)
+
+    def matcher_function_names(self) -> tuple[str, ...]:
+        values = dict(self.bindings)
+        for scope in self._scopes:
+            values.update(scope)
+        return tuple(dict.fromkeys((*super().matcher_function_names(),
+                                    *(name for name, value in values.items() if isinstance(value, RunnableBlock)))))
+
+    def completion_suggestions(self, reference: str) -> Any:
+        return super().completion_suggestions(reference if reference.startswith("$") else "$" + reference)
+
+    def completion_presence_fields(self, reference: str) -> tuple[str, ...]:
+        return super().completion_presence_fields(reference if reference.startswith("$") else "$" + reference)
+
+    def _execute_library_source(self, source: str, path: Any) -> None:
+        try:
+            program, executable = self._prototype_session.program(source)
+        except UnexpectedInput as error:
+            raise LegacyEvaluationError(f"{path}: {syntax_diagnostic(source, error)}") from error
+        except ValueError as error:
+            raise LegacyEvaluationError(f"{path}: {error}") from error
+        for wrapper in program.children:
+            node = wrapper.children[0]
+            allowed = node.kind in {"let", "runnable"} or (
+                node.kind == "host" and node.value[0].data in {"matcher_definition", "import_command"})
+            if not allowed:
+                raise LegacyEvaluationError(
+                    f"{path}:{node.line}: libraries accept let definitions and import statements")
+        previous_context = self._prototype_context
+        context = previous_context or _ReplContext(self._prototype_session)
+        previous_scopes = list(context._scopes)
+        previous_runtime_scopes = self._scopes
+        previous_source = context.source
+        previous_source_name = context.source_name
+        previous_templates = context.string_templates
+        self._prototype_context = context
+        context.source = source
+        context.source_name = str(path)
+        context.string_templates = program.value or {}
+        if self._active_resource_scope is None:
+            context._scopes[:] = [self.bindings]
+        self._scopes = context._scopes
+        try:
+            if executable is not None:
+                executable(context)
+            else:
+                evaluate(program, context)
+        except Exception as error:
+            line, _column = context.current_location
+            raise LegacyEvaluationError(f"{path}:{line or 1}: {error}") from error
+        finally:
+            context._scopes[:] = previous_scopes
+            context.source = previous_source
+            context.source_name = previous_source_name
+            context.string_templates = previous_templates
+            self._prototype_context = previous_context
+            self._scopes = previous_runtime_scopes
 
     def close(self) -> None:
         self._prototype_session.cache.clear()
@@ -138,7 +275,16 @@ class ReplSession:
             self.cache.move_to_end(source)
             return cached
         program = parse(source)
+        def prepare_host(tree: Tree) -> Tree:
+            tree = Tree(tree.data, [prepare(child) if isinstance(child, Node)
+                                   else prepare_host(child) if isinstance(child, Tree)
+                                   else child for child in tree.children], meta=tree.meta)
+            if tree.data == "statement_block" and tree.children and isinstance(tree.children[0], Node):
+                tree.meta.ctk_executable = compile_program(tree.children[0]) if self.engine == "compiled" else None
+            return tree
         def prepare(node: Node) -> Node:
+            if node.kind == "host":
+                node = replace(node, value=(prepare_host(node.value[0]), node.value[1]))
             node = replace(node, children=tuple(prepare(child) for child in node.children))
             if node.kind in {"let", "assign"}:
                 children = list(node.children)
@@ -152,6 +298,30 @@ class ReplSession:
                 ))
             return node
         program = prepare(program)
+        from .templates import compile_template
+
+        templates = {}
+        host_trees = []
+        def collect(node: Any) -> None:
+            if isinstance(node, Node):
+                if node.kind == "host":
+                    collect(node.value[0])
+                for child in node.children:
+                    collect(child)
+            elif isinstance(node, Tree):
+                host_trees.append(node)
+                for child in node.children:
+                    collect(child)
+            elif isinstance(node, Token) and node.type in {"STRING", "FILE_STRING", "DIRECTORY_STRING", "PATH_STRING"}:
+                raw = str(node)
+                if raw not in templates:
+                    template = compile_template(raw)
+                    if template is not None:
+                        templates[raw] = template
+        collect(program)
+        for tree in host_trees:
+            tree.meta.ctk_templates = templates
+        program = replace(program, value=templates)
         executable = compile_program(program) if self.engine == "compiled" else None
         self.cache[source] = (program, executable)
         if len(self.cache) > 64:
@@ -166,18 +336,9 @@ class ReplSession:
         except Exception:
             # Dispatch reports invalid source before any evaluation occurs.
             return BatchRequirements()
-        trees: list[Tree] = []
-        def visit(node: Any) -> None:
-            if isinstance(node, Node):
-                if node.kind == "host":
-                    visit(node.value[0])
-                for child in node.children:
-                    visit(child)
-            elif isinstance(node, Tree):
-                trees.append(node)
-                for child in node.children:
-                    visit(child)
-        visit(program)
+        from .dependencies import execution_trees
+
+        trees = list(execution_trees(program, self.runtime.bindings))
         commands = {"session_start", "session_add", "session_match", "session_pause", "session_resume", "session_close"}
         return BatchRequirements(
             query_session=any(str(tree.data) in commands for tree in trees),
@@ -211,6 +372,10 @@ class ReplSession:
         if not isinstance(tree, Tree):
             raise PrototypeError("invalid CTK host syntax tree")
         kind = str(tree.data)
+        if self.runtime._active_resource_scope is not None:
+            from clang_toolkit.cli.runtime.batch_execution import _validate_body
+
+            _validate_body(tree, self.runtime)
         if kind in {"quit", "exit"}:
             from clang_toolkit.cli.app import DispatchResult
 
@@ -223,17 +388,17 @@ class ReplSession:
         if mode == "expression" and kind not in {"display", "match"}:
             expression = Tree("display", [tree], meta=tree.meta)
             return self.runtime._evaluate_statement_once(
-                expression, self.source, value_context=True)[0]
+                expression, context.source, value_context=True)[0]
         visible = mode == "statement" and not context.consume_depth
         if visible:
             self.check_output_capacity()
-        value, display = self.runtime._evaluate_statement_once(tree, self.source, value_context=not visible)
+        value, display = self.runtime._evaluate_statement_once(tree, context.source, value_context=not visible)
         if visible:
             self.host_displays[id(node)] = display
         return value
 
     def observe(self, context: Context, node: Node, value: Any) -> None:
-        tail = self.last_tail if node.kind in {"conditional", "block"} else node.kind
+        tail = self.last_tail if node.kind in {"conditional", "block", "call"} else node.kind
         self.last_tail = tail
         if id(node) not in self.top_statements:
             if node.kind == "host" and id(node) in self.host_displays:
@@ -245,7 +410,7 @@ class ReplSession:
             return
         emitted, self.emitted = self.emitted, False
         self.last_tail = None
-        if node.kind in {"let", "assign", "print"}:
+        if node.kind in {"let", "runnable", "assign", "print"}:
             return
         if node.kind == "host":
             tree, mode = node.value
@@ -280,6 +445,7 @@ class ReplSession:
             self.top_statements = {id(wrapper.children[0]) for wrapper in program.children}
             self.top_hosts = {id(wrapper.children[0]) for wrapper in program.children if wrapper.children[0].kind == "host"}
             context = _ReplContext(self)
+            context.string_templates = program.value or {}
             self.runtime._prototype_context = context
             # Share the exact scope list so pushed loop/branch scopes are visible
             # to CTK leaf operations and are always removed before submission exit.

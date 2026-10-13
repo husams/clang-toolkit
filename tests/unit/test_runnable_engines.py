@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from clang_toolkit.cli.runtime.prototype.compiler import compile_program
-from clang_toolkit.cli.runtime.prototype.semantics import Context, EvaluationError
+from clang_toolkit.cli.runtime.prototype.semantics import Context, EvaluationError, ExecutionLimitError
 from clang_toolkit.cli.runtime.prototype.syntax import parse
 from clang_toolkit.cli.runtime.prototype.tree import evaluate
 
@@ -67,3 +67,28 @@ def test_compiled_body_has_python_functions_and_no_tree_dispatch(monkeypatch):
     assert compiled(Context()) == 42
     assert "_define_runnable" in compiled.__ctk_source__
     assert "eval_statement" not in compiled.__ctk_source__
+
+
+def test_calls_share_the_submission_step_budget(execute):
+    context = Context(max_steps=30)
+    with pytest.raises(ExecutionLimitError, match="step limit"):
+        execute('let work() = { foreach n in range(10) do n }; work(); work()', context)
+    assert context.call_depth == 0
+    assert context.scopes == (context.bindings,)
+
+
+def test_recursive_calls_have_a_checked_depth_limit(execute):
+    with pytest.raises(ExecutionLimitError, match="call depth"):
+        execute('let forever() = { forever() }; forever()')
+
+
+def test_arguments_run_once_in_order(execute):
+    seen = []
+    context = Context(functions={"next": lambda n: seen.append(n) or n})
+    value, _ = execute('let sum(a, b) = { a + b }; sum(next(1), next(2))', context)
+    assert value == 3 and seen == [1, 2]
+
+
+def test_body_error_reports_definition_and_call_location(execute):
+    with pytest.raises(EvaluationError, match=r"defined at line 1.*called at line 2"):
+        execute('let divide(n) = { 7 / n }\ndivide(0)')

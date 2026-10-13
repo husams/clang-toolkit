@@ -334,16 +334,16 @@ def test_prototype_help_documents_all_predicate_forms(tmp_path):
         outcome = dispatch_result(runtime.client, "help predicates", runtime)
         assert outcome.success
         for form in (
-            "$record has a",
-            "$record does not have a",
-            "2 in $items",
-            "2 not in $items",
-            "$node is CXXRecord",
-            "$node is not CXXRecord",
-            "$x is defined",
-            "$x is not defined",
-            "$x is set",
-            "$x is not set",
+            "record has a",
+            "record does not have a",
+            "2 in items",
+            "2 not in items",
+            "node is CXXRecord",
+            "node is not CXXRecord",
+            "x is defined",
+            "x is not defined",
+            "x is set",
+            "x is not set",
         ):
             assert form in outcome.output
         assert outcome.markdown is not None and "| Test | Syntax |" in outcome.markdown

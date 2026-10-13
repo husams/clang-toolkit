@@ -77,6 +77,8 @@ class Context:
         self.consume_depth = 0
         self.call_depth = 0
         self.source = ""
+        self.source_name = "<console>"
+        self.string_templates: dict[str, Any] = {}
         self.steps = 0
         self.step_count = 0
         self.current_location: tuple[int | None, int | None] = (None, None)

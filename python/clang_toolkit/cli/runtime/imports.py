@@ -21,9 +21,16 @@ def _snapshot_plain_containers(bindings: dict[str, object]) -> list[tuple[object
     snapshots: list[tuple[object, object]] = []
     pending = list(bindings.values())
     visited: set[int] = set()
+    from .prototype.runnables import RunnableBlock
+
     while pending:
         value = pending.pop()
-        if type(value) is list:
+        if isinstance(value, RunnableBlock):
+            if id(value) in visited:
+                continue
+            visited.add(id(value))
+            pending.extend(value.scopes)
+        elif type(value) is list:
             if id(value) in visited:
                 continue
             visited.add(id(value))
@@ -135,24 +142,25 @@ def _load_library(runtime: Runtime, path: Path) -> str:
     ):
         return ""
 
-    try:
-        batch = batch_parser().parse(source)
-    except UnexpectedInput as exc:
-        raise EvaluationError(
-            f"{path}: {syntax_diagnostic(source, exc)}"
-        ) from exc
-
     statements: list[tuple[Tree, str]] = []
-    for item in batch.children:
-        if not isinstance(item, Tree) or str(item.data) == "batch_separator":
-            continue
-        if str(item.data) not in {"assignment", "matcher_definition", "import_command"}:
-            line = getattr(item.meta, "line", 1)
+    compiled_loader = getattr(runtime, "_execute_library_source", None)
+    if compiled_loader is None:
+        try:
+            batch = batch_parser().parse(source)
+        except UnexpectedInput as exc:
             raise EvaluationError(
-                f"{path}:{line}: libraries accept let definitions and import statements"
-            )
-        start, end = item.meta.start_pos, item.meta.end_pos
-        statements.append((item, source[start:end].strip()))
+                f"{path}: {syntax_diagnostic(source, exc)}"
+            ) from exc
+        for item in batch.children:
+            if not isinstance(item, Tree) or str(item.data) == "batch_separator":
+                continue
+            if str(item.data) not in {"assignment", "matcher_definition", "import_command"}:
+                line = getattr(item.meta, "line", 1)
+                raise EvaluationError(
+                    f"{path}:{line}: libraries accept let definitions and import statements"
+                )
+            start, end = item.meta.start_pos, item.meta.end_pos
+            statements.append((item, source[start:end].strip()))
 
     # Restore top-level bindings if definition loading fails. Any server work
     # performed by an assignment expression is external and cannot be rolled back.
@@ -166,6 +174,8 @@ def _load_library(runtime: Runtime, path: Path) -> str:
     if runtime._active_resource_scope is None:
         runtime._scopes = []
     try:
+        if compiled_loader is not None:
+            compiled_loader(source, path)
         for item, command in statements:
             try:
                 runtime._execute_statement(item, command)
