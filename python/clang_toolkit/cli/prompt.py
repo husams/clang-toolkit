@@ -142,13 +142,36 @@ def create_session(
     matcher_functions: Iterable[str] | Callable[[], Iterable[str]] | None = None,
     history: History | None = None,
     cwd: Path | None = None,
+    script_engine: str = "legacy",
 ) -> PromptSession[str]:
+    if script_engine not in {"legacy", "tree", "compiled"}:
+        raise ValueError(f"unknown script engine {script_engine!r}")
+    prototype_editor = script_engine != "legacy"
+    editor_tokenizer = lex
+    if prototype_editor:
+        from clang_toolkit.cli.runtime.prototype.repl_editor import (
+            PrototypeCompleter,
+            PrototypeInputValidator,
+            PrototypeReplLexer,
+            input_state as prototype_input_state,
+            lex as prototype_lex,
+        )
+
+        input_state_fn = prototype_input_state
+        editor_tokenizer = prototype_lex
+        lexer = PrototypeReplLexer()
+        validator = PrototypeInputValidator(input_state_fn)
+    else:
+        input_state_fn = input_state
+        lexer = ReplLexer()
+        validator = InputValidator()
+
     bindings = KeyBindings()
 
     @bindings.add("enter", filter=~is_searching)
     def enter(event: KeyPressEvent) -> None:
         buffer = event.current_buffer
-        if input_state(buffer.text).needs_more or buffer.cursor_position != len(
+        if input_state_fn(buffer.text).needs_more or buffer.cursor_position != len(
             buffer.text
         ):
             buffer.newline(copy_margin=True)
@@ -162,22 +185,30 @@ def create_session(
         if target is not None:
             target.buffer.cursor_position = len(target.buffer.text)
 
-    return PromptSession(
-        completer=ReplCompleter(
-            references=references,
-            field_resolver=field_resolver,
-            presence_resolver=presence_resolver,
-            matcher_functions=matcher_functions,
-            cwd=cwd,
-        ),
-        lexer=ReplLexer(),
+    completer = ReplCompleter(
+        references=references,
+        field_resolver=field_resolver,
+        presence_resolver=presence_resolver,
+        matcher_functions=matcher_functions,
+        cwd=cwd,
+    )
+    if prototype_editor:
+        completer = PrototypeCompleter(completer)
+    session = PromptSession(
+        completer=completer,
+        lexer=lexer,
         style=STYLE,
         multiline=True,
         prompt_continuation="...> ",
         key_bindings=bindings,
-        validator=InputValidator(),
+        validator=validator,
         history=history,
         validate_while_typing=False,
         input=input,
         output=output,
     )
+    session.input_state_fn = input_state_fn
+    session.editor_lexer = lexer
+    session.editor_tokenizer = editor_tokenizer
+    session.script_engine = script_engine
+    return session

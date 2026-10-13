@@ -88,7 +88,8 @@ class StyledBlock:
 
 
 class TranscriptLexer(Lexer):
-    def __init__(self) -> None:
+    def __init__(self, code_lexer: Lexer | None = None) -> None:
+        self.code_lexer = code_lexer or ReplLexer(semantic_matchers=True)
         self.blocks: list[StyledBlock] = []
 
     def trim(self, cut: int, shift: int) -> None:
@@ -126,7 +127,7 @@ class TranscriptLexer(Lexer):
                     else:
                         break
                     end += 1
-                highlighted = ReplLexer(semantic_matchers=True).lex_document(
+                highlighted = self.code_lexer.lex_document(
                     Document("\n".join(item.group(2) for _, item in code))
                 )
                 for offset, (number, item) in enumerate(code):

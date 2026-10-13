@@ -46,13 +46,19 @@ async def interact(
     output: SizedOutput | None = None,
     execute: Callable[[str], Awaitable[DispatchResult]] | None = None,
     history: PersistentPromptHistory | None = None,
+    script_engine: str = "legacy",
 ) -> WorkspaceConsole:
     async def echo(source: str) -> DispatchResult:
         return DispatchResult("OK " + source, True)
 
     with create_pipe_input() as pipe:
         screen = output or SizedOutput()
-        session = create_session(input=pipe, output=screen, history=history)
+        session = create_session(
+            input=pipe,
+            output=screen,
+            history=history,
+            script_engine=script_engine,
+        )
         workspace = WorkspaceConsole(
             session, root, execute or echo, input=pipe, output=screen
         )
@@ -115,6 +121,49 @@ def test_multiline_expands_and_submits_as_one_command(tmp_path: Path) -> None:
 
     asyncio.run(interact(tmp_path, drive, execute=execute))
     assert seen == ["let inputs = [\n    1,\n    2\n]"]
+
+
+def test_compiled_workspace_transcript_uses_the_active_session_lexer(
+    tmp_path: Path,
+) -> None:
+    source = "let y = if $x > 0 do $x * 10 + 1 else 1"
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        pipe.send_text("let x = 1\x1b[27;5;13~")
+        await wait_until(lambda: not ui.busy and "OK let x" in ui.results.text)
+        pipe.send_text(source + "\x1b[27;5;13~")
+        await wait_until(lambda: not ui.busy and "let y" in ui.results.text)
+        document = ui.results.buffer.document
+        rendered = ui.transcript_lexer.lex_document(document)
+        row = next(i for i, line in enumerate(document.lines) if "let y" in line)
+        operators = [
+            (style, token)
+            for style, token in rendered(row)
+            if token in {">", "*", "+"}
+        ]
+        assert {token for _, token in operators} == {">", "*", "+"}
+        assert all("class:operator" in style for style, _ in operators)
+        assert all("class:error" not in style for style, _ in operators)
+
+    asyncio.run(interact(tmp_path, drive, script_engine="compiled"))
+
+
+def test_legacy_workspace_transcript_keeps_semantic_matcher_colors(
+    tmp_path: Path,
+) -> None:
+    source = 'match addrLabelExpr(hasDeclaration(labelDecl(hasName("done"))))'
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        pipe.send_text(source + "\x1b[27;5;13~")
+        await wait_until(lambda: not ui.busy and source in ui.results.text)
+        document = ui.results.buffer.document
+        rendered = ui.transcript_lexer.lex_document(document)
+        row = next(i for i, line in enumerate(document.lines) if source in line)
+        styles = {token: style for style, token in rendered(row)}
+        assert styles["addrLabelExpr"] == "class:code class:matcher-root"
+        assert styles["hasName"] == "class:code class:matcher-predicate"
+
+    asyncio.run(interact(tmp_path, drive))
 
 
 def test_assigned_batch_progress_reaches_workspace_before_command_finishes(tmp_path, monkeypatch):

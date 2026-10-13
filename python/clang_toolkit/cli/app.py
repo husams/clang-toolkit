@@ -183,6 +183,9 @@ def dispatch_result(
     """Validate the whole submission, then run its statements in order."""
     if not line.strip():
         return DispatchResult("", True)
+    prototype = vars(runtime).get("_prototype_session") if runtime is not None else None
+    if prototype is not None:
+        return prototype.dispatch(line)
     try:
         statements = _parse_submission(line)
         if runtime is not None and runtime.history is not None:
@@ -383,6 +386,15 @@ async def _run_interactive_command(
     client: Client, source: str, runtime: Runtime, async_client: AsyncClient | None
 ) -> DispatchResult:
     """Give foreground batches the same cancellation/join path in every UI."""
+    if vars(runtime).get("_prototype_session") is not None:
+        runtime.clear_batch_cancel()
+        outcome, interrupted = await _run_batch_with_interrupts(
+            runtime, lambda: dispatch_result(client, source, runtime),
+            async_client=async_client,
+        )
+        if interrupted and outcome is None:
+            return DispatchResult("script interrupted; session is ready for the next command", False)
+        return outcome
     try:
         foreground_batch = any(
             node.data == "batch_statement"
@@ -404,7 +416,15 @@ async def _run_interactive_command(
     return outcome
 
 
-async def _run() -> int:
+def _runtime_for_engine(client: Client, engine: str, **kwargs: Any) -> Runtime:
+    if engine == "legacy":
+        return Runtime(client, **kwargs)
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    return PrototypeRuntime(client, script_engine=engine, **kwargs)
+
+
+async def _run(*, script_engine_default: str = "legacy") -> int:
     parser = argparse.ArgumentParser(
         prog="ctk",
         description="Interactive console or noninteractive console-script runner.",
@@ -427,6 +447,11 @@ async def _run() -> int:
         "--compile-commands", help="server-side compile_commands.json file or directory"
     )
     parser.add_argument("--server", help="override the configured gRPC endpoint")
+    parser.add_argument(
+        "--script-engine", choices=("legacy", "tree", "compiled"),
+        default=script_engine_default,
+        help=f"experimental scripting engine for REPL and scripts (default: {script_engine_default})",
+    )
     parser.add_argument(
         "--ui", choices=("prompt", "workspace"),
         help="interactive presentation (default: workspace; prompt uses the basic console)",
@@ -491,6 +516,8 @@ async def _run() -> int:
             # Test harnesses often install a non-readable stdin sentinel; a
             # real redirected stream remains a batch input source.
             batch_source = None
+    if args.continue_on_error and args.script_engine != "legacy":
+        parser.error("--continue-on-error currently requires --script-engine legacy")
     if args.continue_on_error and batch_source is None:
         parser.error(
             "--continue-on-error requires --execute, --script, or nonterminal stdin"
@@ -539,7 +566,7 @@ async def _run() -> int:
     if batch_source is not None:
         runtime = None
         try:
-            runtime = Runtime(client)
+            runtime = _runtime_for_engine(client, args.script_engine)
             runtime.bindings["arg"] = script_arguments
             if args.compile_commands is not None:
                 runtime.config_store.effective["compile_commands"] = (
@@ -549,10 +576,18 @@ async def _run() -> int:
                 compilation_options["compilation_database"] = (
                     runtime.config_store.effective["compile_commands"]
                 )
-            requirements = batch_requirements(batch_source)
+            if args.script_engine == "legacy":
+                requirements = batch_requirements(batch_source)
+            else:
+                requirements = runtime._prototype_session.requirements(batch_source)
 
             def runner():
                 with script_source(runtime, batch_source_path):
+                    if args.script_engine != "legacy":
+                        from clang_toolkit.cli.batch import BatchResult
+
+                        outcome = dispatch_result(client, batch_source, runtime)
+                        return BatchResult(0 if outcome.success else 1, (outcome.output,) if outcome.output else ())
                     return execute_batch(
                         batch_source,
                         lambda command: dispatch_result(client, command, runtime),
@@ -709,7 +744,7 @@ async def _run() -> int:
         history_store = None
     runtime = None
     try:
-        runtime = Runtime(client, history=history_store)
+        runtime = _runtime_for_engine(client, args.script_engine, history=history_store)
         session = create_session(
             references=runtime.completion_references,
             field_resolver=runtime.completion_suggestions,
@@ -717,6 +752,7 @@ async def _run() -> int:
             matcher_functions=runtime.matcher_function_names,
             history=prompt_history,
             cwd=runtime.cwd,
+            script_engine=args.script_engine,
         )
     except (ConfigError, OutputError) as exc:
         print(f"error: {exc}")
@@ -840,6 +876,8 @@ async def _run() -> int:
                         runtime.request_batch_cancel()
                         scope = runtime._active_resource_scope
                         if scope is None:
+                            if vars(runtime).get("_prototype_session") is not None:
+                                return "Script cancellation requested; waiting for cleanup."
                             if any(not progress.durable and progress.active for progress in workspace.progress_states.values()):
                                 return "Batch cancellation requested; waiting for cleanup."
                             return "This operation has no cancellation control; waiting for completion."
@@ -940,6 +978,13 @@ async def _run() -> int:
 
 def main() -> None:
     result = asyncio.run(_run())
+    if result:
+        raise SystemExit(result)
+
+
+def prototype_main() -> None:
+    """Launch the isolated prototype with compiled scripting by default."""
+    result = asyncio.run(_run(script_engine_default="compiled"))
     if result:
         raise SystemExit(result)
 

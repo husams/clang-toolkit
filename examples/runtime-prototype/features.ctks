@@ -1,0 +1,20 @@
+let total = 0
+foreach item in [2, 4, 6] do $total += $item
+let full = if $total > 10 do 10 else 20
+let short = $total > 10 ? 10 : 20
+let details = unless ($total > 20) {
+    let reason = "below threshold"
+    {message: $reason, retry: true}
+}
+let counts = {functions: 1}
+$counts.functions += 2
+let safe = true ? 7 : never_called()
+let report = {
+    total: $total,
+    full: $full,
+    short: $short,
+    unless: $details,
+    functions: $counts.functions,
+    safe: $safe
+}
+print $report

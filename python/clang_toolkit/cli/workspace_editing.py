@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
+from lark import Token
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completion, get_common_complete_suffix
 from prompt_toolkit.filters import Filter
@@ -14,9 +15,11 @@ from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
 
 from clang_toolkit.cli.input_state import input_state
 from clang_toolkit.cli.language import lex
+from clang_toolkit.cli.input_state import InputState
 
 PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
 INDENT = " " * 4
+Tokenizer = Callable[[str], list[Token]]
 
 
 @contextmanager
@@ -42,26 +45,40 @@ def control_enter_keys() -> Iterator[None]:
                 ANSI_SEQUENCES[sequence] = key
 
 
-def literal_context(prefix: str) -> tuple[bool, bool]:
+def _kind(token: object) -> str:
+    name = getattr(token, "type", "")
+    for prefix in ("LEGACY_", "PROTO_"):
+        if name.startswith(prefix):
+            return name[len(prefix) :]
+    return name
+
+
+def literal_context(prefix: str, *, tokenizer: Tokenizer = lex) -> tuple[bool, bool]:
     """Use the lossless grammar tokens to distinguish strings and comments."""
-    tokens = lex(prefix)
+    tokens = tokenizer(prefix)
     return (
-        bool(tokens and tokens[-1].type == "OPEN_STRING"),
-        bool(tokens and tokens[-1].type == "COMMENT"),
+        bool(tokens and _kind(tokens[-1]) == "OPEN_STRING"),
+        bool(tokens and _kind(tokens[-1]) == "COMMENT"),
     )
 
 
-def insert_pair(buffer: Buffer, char: str) -> None:
+def insert_pair(
+    buffer: Buffer,
+    char: str,
+    *,
+    tokenizer: Tokenizer = lex,
+    input_state_fn: Callable[[str], InputState] = input_state,
+) -> None:
     before = buffer.document.text_before_cursor
     after = buffer.document.text_after_cursor
-    in_string, in_comment = literal_context(before)
+    in_string, in_comment = literal_context(before, tokenizer=tokenizer)
     escaped = (len(before) - len(before.rstrip("\\"))) % 2 == 1
     if in_comment or (in_string and (char not in "\"'" or escaped)):
         buffer.insert_text(char)
         return
     if in_string:
         # Only the delimiter opening this string can close it.
-        quote = str(lex(before)[-1])[0]
+        quote = str(tokenizer(before)[-1])[0]
         if char == quote and after.startswith(char):
             buffer.cursor_right()
         else:
@@ -71,16 +88,24 @@ def insert_pair(buffer: Buffer, char: str) -> None:
         buffer.insert_text(char + PAIRS[char])
         buffer.cursor_left()
         return
-    state = input_state(before)
+    state = input_state_fn(before)
     if state.stack and PAIRS[state.stack[-1]] == char:
         line = buffer.document.current_line_before_cursor
         if not line.strip():
             # Find the unmatched opener's indentation from grammar positions.
             openers = []
-            for token in lex(before):
-                if token.type in {"LPAR", "LSQB", "LBRACE"}:
+            for token in tokenizer(before):
+                if str(token) in {"(", "[", "{"} and _kind(token) not in {
+                    "STRING",
+                    "OPEN_STRING",
+                    "COMMENT",
+                }:
                     openers.append(token)
-                elif token.type in {"RPAR", "RSQB", "RBRACE"} and openers:
+                elif (
+                    str(token) in {")", "]", "}"}
+                    and _kind(token) not in {"STRING", "OPEN_STRING", "COMMENT"}
+                    and openers
+                ):
                     openers.pop()
             if openers:
                 start = int(openers[-1].start_pos or 0)
@@ -102,13 +127,20 @@ def insert_pair(buffer: Buffer, char: str) -> None:
     buffer.insert_text(char)
 
 
-def smart_newline(buffer: Buffer) -> None:
+def smart_newline(
+    buffer: Buffer,
+    *,
+    tokenizer: Tokenizer = lex,
+    input_state_fn: Callable[[str], InputState] = input_state,
+) -> None:
     before = buffer.document.text_before_cursor
     after = buffer.document.text_after_cursor
     line = buffer.document.current_line_before_cursor
     margin = line[: len(line) - len(line.lstrip(" \t"))]
-    in_string, in_comment = literal_context(before)
-    tokens = [token for token in lex(before) if token.type not in {"WS", "COMMENT"}]
+    in_string, in_comment = literal_context(before, tokenizer=tokenizer)
+    tokens = [
+        token for token in tokenizer(before) if _kind(token) not in {"WS", "COMMENT"}
+    ]
     opener = str(tokens[-1]) if tokens else ""
     on_this_line = bool(
         tokens and tokens[-1].end_line == buffer.document.cursor_position_row + 1
@@ -124,7 +156,7 @@ def smart_newline(buffer: Buffer) -> None:
             not in_string
             and not in_comment
             and on_this_line
-            and tokens[-1].type == "DO"
+            and _kind(tokens[-1]) == "DO"
         ):
             indent += INDENT
         buffer.insert_text("\n" + indent)
@@ -197,7 +229,13 @@ class CompletionPairs:
         buffer.apply_completion = apply_completion  # type: ignore[method-assign]
 
 
-def editing_bindings(buffer: Buffer, enabled: Filter) -> KeyBindings:
+def editing_bindings(
+    buffer: Buffer,
+    enabled: Filter,
+    *,
+    input_state_fn: Callable[[str], InputState] = input_state,
+    tokenizer: Tokenizer = lex,
+) -> KeyBindings:
     bindings = KeyBindings()
     completion_pairs = CompletionPairs(buffer)
 
@@ -211,8 +249,10 @@ def editing_bindings(buffer: Buffer, enabled: Filter) -> KeyBindings:
 
     @bindings.add("enter", filter=enabled, eager=True)
     def enter(event: KeyPressEvent) -> None:
-        if input_state(buffer.text).needs_more or buffer.cursor_position != len(buffer.text):
-            smart_newline(buffer)
+        if input_state_fn(buffer.text).needs_more or buffer.cursor_position != len(
+            buffer.text
+        ):
+            smart_newline(buffer, tokenizer=tokenizer, input_state_fn=input_state_fn)
         else:
             buffer.validate_and_handle()
 
@@ -222,10 +262,12 @@ def editing_bindings(buffer: Buffer, enabled: Filter) -> KeyBindings:
 
     @bindings.add("escape", "enter", filter=enabled, eager=True)
     def newline(event: KeyPressEvent) -> None:
-        smart_newline(buffer)
+        smart_newline(buffer, tokenizer=tokenizer, input_state_fn=input_state_fn)
 
     def typed(event: KeyPressEvent) -> None:
-        insert_pair(buffer, event.data)
+        insert_pair(
+            buffer, event.data, tokenizer=tokenizer, input_state_fn=input_state_fn
+        )
 
     for char in (*PAIRS, ")", "]", "}"):
         bindings.add(char, filter=enabled)(typed)
@@ -235,7 +277,9 @@ def editing_bindings(buffer: Buffer, enabled: Filter) -> KeyBindings:
         before = buffer.document.text_before_cursor
         after = buffer.document.text_after_cursor
         in_string, in_comment = (
-            literal_context(before[:-1]) if before else (False, False)
+            literal_context(before[:-1], tokenizer=tokenizer)
+            if before
+            else (False, False)
         )
         if (
             before
