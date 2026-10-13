@@ -779,16 +779,17 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
 
     if not ticked:
         ctx.tick(node)
-    name = _name(node)
+    names = node_value(node)
     iterable = eval_expr(ctx, _expr(node, 0, "iterable"))
     body = _expr(node, 1, "block")
     iterator = iterable_value(ctx, node, iterable)
     result: list[Any] = []
-    for item in iterator:
+    for ordinal, item in enumerate(iterator):
         if len(result) >= ctx.max_items:
             raise _error(ctx, node, "foreach result exceeds item limit", ExecutionLimitError)
         ctx.tick(node)
-        ctx.push_scope({name: item})
+        bindings = {names[0]: ordinal, names[1]: item} if isinstance(names, tuple) else {names: item}
+        ctx.push_scope(bindings)
         try:
             result.append(eval_block(ctx, body, scoped=False))
         except LoopBreak:

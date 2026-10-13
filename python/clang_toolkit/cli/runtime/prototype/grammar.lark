@@ -63,8 +63,8 @@ conditional_body: "do" statement -> single_body
                 | "do"? block -> block_body
                 | "then" block -> block_body
 
-closed_foreach_expr.10: "foreach" CNAME PRED_IN expression closed_body -> foreach_expr
-open_foreach_expr.10: "foreach" CNAME PRED_IN expression open_body -> foreach_expr
+closed_foreach_expr.10: "foreach" CNAME ("," CNAME)? PRED_IN expression closed_body -> foreach_expr
+open_foreach_expr.10: "foreach" CNAME ("," CNAME)? PRED_IN expression open_body -> foreach_expr
 closed_body: "do" closed_statement -> single_body
            | "do"? block -> block_body
 open_body: "do" open_statement -> single_body

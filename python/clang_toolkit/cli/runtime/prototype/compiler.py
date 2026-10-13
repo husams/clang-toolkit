@@ -358,10 +358,20 @@ class _Lowerer:
         item, iterable_name, results = f"_item_{index}", f"_iter_{index}", f"_results_{index}"
         body_fn = self.emit_block_function(block)
         context = ast.Name("context", ast.Load())
+        names = getattr(node, "value", "")
+        if isinstance(names, tuple):
+            ordinal = f"_ordinal_{index}"
+            target = ast.Tuple([ast.Name(ordinal, ast.Store()), ast.Name(item, ast.Store())], ast.Store())
+            source = self.call("enumerate", ast.Name(iterable_name, ast.Load()))
+            bindings = ast.Dict([ast.Constant(name) for name in names],
+                                [ast.Name(ordinal, ast.Load()), ast.Name(item, ast.Load())])
+        else:
+            target, source = ast.Name(item, ast.Store()), ast.Name(iterable_name, ast.Load())
+            bindings = ast.Dict([ast.Constant(str(names))], [ast.Name(item, ast.Load())])
         body = [
             ast.Expr(self.call("_check_items", context, self.node_ref(node), self.call("len", ast.Name(results, ast.Load())))),
             ast.Expr(self.call("_tick", context, self.node_ref(node))),
-            ast.Expr(ast.Call(ast.Attribute(context, "push_scope", ast.Load()), [ast.Dict([ast.Constant(str(getattr(node, "value", "")))], [ast.Name(item, ast.Load())])], [])),
+            ast.Expr(ast.Call(ast.Attribute(context, "push_scope", ast.Load()), [bindings], [])),
             ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))],
                     [ast.ExceptHandler(ast.Name("_LoopBreak", ast.Load()), None, [ast.Break()]),
                      ast.ExceptHandler(ast.Name("_LoopContinue", ast.Load()), None, [ast.Continue()])],
@@ -372,7 +382,7 @@ class _Lowerer:
             ast.Expr(self.call("_tick", context, self.node_ref(node))),
             ast.Assign([ast.Name(iterable_name, ast.Store())], self.call("_iterable", context, self.node_ref(node), self.emit_expr(iterable))),
             ast.Assign([ast.Name(results, ast.Store())], ast.List([], ast.Load())),
-            ast.For(ast.Name(item, ast.Store()), ast.Name(iterable_name, ast.Load()), body, []),
+            ast.For(target, source, body, []),
             ast.Assign([ast.Name("last", ast.Store())], ast.Name(results, ast.Load())),
         ]
 
@@ -443,7 +453,7 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_predicate": _predicate, "_predicate_binding": _predicate_binding,
         "_call": _call, "_conditional": _conditional, "_run_scoped": _run_scoped,
         "_print": _print, "_assign_ref": _assign_ref, "_assign_index": _assign_index, "_assign_get": _assign_get,
-        "_bad_target": _bad_target, "_check_items": _check_items, "len": len,
+        "_bad_target": _bad_target, "_check_items": _check_items, "len": len, "enumerate": enumerate,
     }
     exec(compile(module, "<ctk-prototype-compiled>", "exec"), namespace)
     function = namespace["_ctk_compiled_program"]
