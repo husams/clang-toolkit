@@ -48,3 +48,10 @@ def test_invalid_interpolation_is_reported(runtime, source):
     result = dispatch_result(runtime.client, source, runtime)
     assert not result.success
     assert runtime._scopes == []
+
+
+
+@pytest.mark.parametrize("body", ["x + 1", "{ on error 0; x + 1 }"])
+def test_inline_arguments_inside_compiled_interpolation(runtime, body):
+    submit(runtime, "let apply(operation, value) = operation(value)")
+    assert submit(runtime, f'"answer={{apply((x) = {body}, 41)}}"') == "answer=42"
