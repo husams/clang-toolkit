@@ -5,7 +5,7 @@ Baseline: cb02f8f6be0c7d1da57b61df2dd63c5d82e061e7 (merged bare references and r
 Worktree: codex/loop-control-indexed-iteration.
 
 - [x] Indexed foreach bindings in the standalone and combined parsers and both engines.
-- [ ] While and repeat until with strict conditions, loop control, scopes and shared limits.
+- [x] While and repeat until with strict conditions, loop control, scopes and shared limits.
 - [ ] Editor completion, highlighting, multiline input, help and user examples.
 - [ ] Both engine acceptance, real prompt/workspace console checks and full repository gates.
 - [ ] Review and delivery.
@@ -13,3 +13,5 @@ Worktree: codex/loop-control-indexed-iteration.
 Native ANTLR/C++ parity is a separate delivery, as specified by the proposal; its expression and mutation prerequisites remain pending.
 
 Indexed slice validation: 90 focused engine, indexed iteration and handler tests passed.
+
+Condition-loop slice: 233 focused loop, console, handler and engine cases passed, including nested loop values and pre-effect batch-boundary validation.

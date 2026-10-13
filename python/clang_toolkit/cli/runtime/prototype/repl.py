@@ -398,6 +398,11 @@ class ReplSession:
         return value
 
     def observe(self, context: Context, node: Node, value: Any) -> None:
+        if node.kind == "loop_iteration":
+            if not context.consume_depth and value is not None and self.last_tail not in {"let", "runnable", "assign", "print", "host_display"}:
+                self.record("display", value)
+                self.emitted = True
+            return
         tail = self.last_tail if node.kind in {"conditional", "block", "call", "recovery"} else node.kind
         self.last_tail = tail
         if id(node) not in self.top_statements:

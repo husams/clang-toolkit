@@ -37,9 +37,13 @@ parameter: CNAME ("=" expression)?
                   | closed_if_expr
                   | closed_unless_expr
                   | closed_foreach_expr
+                  | closed_while_expr
+                  | closed_repeat_expr
 ?open_expression: open_if_expr
                  | open_unless_expr
                  | open_foreach_expr
+                 | open_while_expr
+                 | open_repeat_expr
 
 closed_if_expr: "if" expression closed_conditional_body closed_if_else -> if_expr
 open_if_expr: "if" expression conditional_body -> if_expr
@@ -65,6 +69,13 @@ conditional_body: "do" statement -> single_body
 
 closed_foreach_expr.10: "foreach" CNAME ("," CNAME)? PRED_IN expression closed_body -> foreach_expr
 open_foreach_expr.10: "foreach" CNAME ("," CNAME)? PRED_IN expression open_body -> foreach_expr
+closed_while_expr.10: "while" expression closed_body -> while_expr
+open_while_expr.10: "while" expression open_body -> while_expr
+closed_repeat_expr.10: "repeat" repeat_body soft_newlines "until" closed_expression -> repeat_expr
+open_repeat_expr.10: "repeat" repeat_body soft_newlines "until" open_expression -> repeat_expr
+repeat_body: block -> block_body
+           | statement -> single_body
+
 closed_body: "do" closed_statement -> single_body
            | "do"? block -> block_body
 open_body: "do" open_statement -> single_body

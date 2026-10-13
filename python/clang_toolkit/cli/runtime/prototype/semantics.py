@@ -640,6 +640,8 @@ def eval_expr(ctx: Context, node: Any) -> Any:
                        lambda context: eval_block(context, node.children[1]))
     if kind == "foreach":
         return eval_foreach(ctx, node, ticked=True)
+    if kind in {"while", "repeat"}:
+        return eval_condition_loop(ctx, node, collect=True, ticked=True)
     if kind == "binary":
         op = str(node_value(node))
         left_node = _expr(node, 0, "lhs")
@@ -706,11 +708,11 @@ def eval_assign(ctx: Context, node: Any) -> Any:
     return new_value
 
 
-def eval_statement(ctx: Context, node: Any) -> Any:
+def eval_statement(ctx: Context, node: Any, *, value_context: bool = False) -> Any:
     kind = _kind(node)
     if kind == "observe":
         statement = child_values(node)[0]
-        value = eval_statement(ctx, statement)
+        value = eval_statement(ctx, statement, value_context=value_context)
         observe_statement(ctx, statement, value)
         return value
     if kind == "let":
@@ -739,6 +741,8 @@ def eval_statement(ctx: Context, node: Any) -> Any:
         return ctx.emit(value, node)
     if kind == "foreach":
         return eval_foreach(ctx, node)
+    if kind in {"while", "repeat"}:
+        return eval_condition_loop(ctx, node, collect=value_context)
     if kind == "block":
         return eval_block(ctx, node)
     if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "predicate", "unary", "host", "recovery"}:
@@ -746,7 +750,7 @@ def eval_statement(ctx: Context, node: Any) -> Any:
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 
 
-def eval_block(ctx: Context, node: Any, scoped: bool = True) -> Any:
+def eval_block(ctx: Context, node: Any, scoped: bool = True, *, value_context: bool = True) -> Any:
     from .control import cleanup, recover, split_handlers
 
     if scoped:
@@ -759,8 +763,9 @@ def eval_block(ctx: Context, node: Any, scoped: bool = True) -> Any:
         def body(context: Context) -> Any:
             context.tick(node)
             result = None
-            for statement in statements:
-                result = eval_statement(context, statement)
+            for index, statement in enumerate(statements):
+                result = eval_statement(context, statement,
+                                        value_context=value_context and index == len(statements) - 1)
             return result
         try:
             if "error" in handlers:
@@ -779,7 +784,7 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
 
     if not ticked:
         ctx.tick(node)
-    names = node_value(node)
+    names = node_value(node) if isinstance(node_value(node), tuple) else _name(node)
     iterable = eval_expr(ctx, _expr(node, 0, "iterable"))
     body = _expr(node, 1, "block")
     iterator = iterable_value(ctx, node, iterable)
@@ -798,6 +803,47 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
             continue
         finally:
             ctx.pop_scope()
+    return result
+
+
+def loop_condition(ctx: Context, node: Any, condition: Callable[[], Any]) -> bool:
+    ctx.tick(node)
+    return _as_bool(ctx, condition(), _expr(node, 0, "condition"))
+
+
+def complete_loop_iteration(ctx: Context, node: Any, result: list[Any] | None, value: Any) -> None:
+    if result is not None:
+        if len(result) >= ctx.max_items:
+            raise _error(ctx, node, f"{_kind(node)} result exceeds item limit", ExecutionLimitError)
+        result.append(value)
+    else:
+        observe_statement(ctx, Node("loop_iteration", line=node.line, column=node.column), value)
+
+
+def eval_condition_loop(ctx: Context, node: Any, *, collect: bool, ticked: bool = False) -> list[Any] | None:
+    from .control import LoopBreak, LoopContinue
+
+    if not ticked:
+        ctx.tick(node)
+    condition, body = _expr(node, 0, "condition"), _expr(node, 1, "block")
+    result: list[Any] | None = [] if collect else None
+    repeat = _kind(node) == "repeat"
+    while repeat or loop_condition(ctx, node, lambda: eval_expr(ctx, condition)):
+        ctx.tick(node)
+        ctx.push_scope()
+        completed = True
+        try:
+            value = eval_block(ctx, body, scoped=False, value_context=collect)
+        except LoopBreak:
+            break
+        except LoopContinue:
+            completed = False
+        finally:
+            ctx.pop_scope()
+        if completed:
+            complete_loop_iteration(ctx, node, result, value)
+        if repeat and loop_condition(ctx, node, lambda: eval_expr(ctx, condition)):
+            break
     return result
 
 
