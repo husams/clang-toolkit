@@ -63,10 +63,10 @@ class RunnableBlock:
 
 
 def define_runnable(context: Context, node: Any, executable: Callable[[Context], Any]) -> RunnableBlock:
-    from clang_toolkit.cli.matcher_catalog import NESTED_MATCHERS, ROOT_MATCHERS
+    from clang_toolkit.cli.matcher_catalog import SCRIPT_BUILTIN_MATCHERS
 
     name, parameters = node.value
-    if name in context.functions or name in set(ROOT_MATCHERS) | set(NESTED_MATCHERS) | {"glob", "flatten"}:
+    if name in context.functions or name in SCRIPT_BUILTIN_MATCHERS | {"glob", "flatten"}:
         raise _error(context, node, f"{name} is a built-in callable name")
     if len(set(parameters)) != len(parameters):
         raise _error(context, node, f"{name} has duplicate parameter names")

@@ -77,3 +77,10 @@ def test_invalid_redefinition_and_call_cleanup(runtime):
     assert runtime.bindings["value"] == 7
     assert runtime._scopes == []
     assert runtime._matcher_call_depth == 0
+
+
+def test_auxiliary_native_matchers_are_not_parsed_as_runnable_calls(runtime):
+    submit(runtime, 'let edges = cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base")))')
+    assert runtime.bindings["edges"].name == "cxxBaseSpecifier"
+    result = dispatch_result(runtime.client, 'let cxxBaseSpecifier() = { 1 }', runtime)
+    assert not result.success and "built-in callable" in result.output

@@ -17,7 +17,7 @@ from lark import Lark, Token, Tree
 from lark.exceptions import VisitError
 
 from .syntax import Node, _Builder, _validate_integer_ranges
-from clang_toolkit.cli.matcher_catalog import NESTED_MATCHERS, ROOT_MATCHERS
+from clang_toolkit.cli.matcher_catalog import SCRIPT_BUILTIN_MATCHERS
 
 _PROTOTYPE_GRAMMAR = Path(__file__).with_name("grammar.lark")
 _LEGACY_GRAMMAR = Path(__file__).resolve().parents[2] / "grammar.lark"
@@ -127,7 +127,7 @@ def _combined_grammar() -> str:
         'MEMBER_NAME: /(?!(?:hasField|fieldState|fieldOr|joinWith|unique|sort|filter|push|pop|delete|set|insert|remove|clear)\\s*\\()[A-Za-z_][A-Za-z0-9_]*/\nCNAME: /[A-Za-z_][A-Za-z0-9_]*/',
     )
     matcher_names = "|".join(re.escape(name) for name in sorted(
-        set(ROOT_MATCHERS) | set(NESTED_MATCHERS) | {"glob", "flatten"}))
+        SCRIPT_BUILTIN_MATCHERS | {"glob", "flatten"}))
     proto_source = proto_source.replace(
         'named_call: CNAME "(" arguments? ")"',
         'named_call: ROUTINE_NAME "(" arguments? ")"\n'

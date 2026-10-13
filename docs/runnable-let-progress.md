@@ -9,7 +9,7 @@ Branch: codex/runnable-let-python
 - [x] Python AST compiled bodies with lexical capture, aliases and checked calls.
 - [x] Combined console, matcher arguments, imports, interpolation and resources.
 - [x] Help, completion and real-console BDD verification.
-- [ ] Complete Python and C++ regression gates.
+- [x] Complete Python and C++ regression gates.
 
 Bodies must compile to Python AST and reuse compiled code across submissions.
 No project implementation changes are made in the main checkout.
@@ -20,5 +20,17 @@ captures survive calls, escaping closures, and redefinition.
 
 Console slice: prompt and workspace PTY scenarios pass with an isolated native
 server, dormant imported definitions, aliases, zero-argument calls, bare matcher
-parameters, brace interpolation and retained native results. Full regression
-gates are running. See runnable-let.md for the delivered syntax and boundaries.
+parameters, brace interpolation and retained native results. See runnable-let.md
+for the delivered syntax and boundaries.
+
+Final validation:
+
+- Python unit suite: 1,579 passed.
+- CMake dev build and all 360 CTest cases passed with isolated storage.
+- Full native E2E run: 144 passed; two inheritance cases exposed an auxiliary
+  matcher missing from the offline catalog. The grammar collision was fixed.
+- Final navigation and prompt/workspace E2E rerun: all 8 passed, including both
+  previously failing Unix/TCP inheritance cases and both runnable PTY scenarios.
+- No unresolved regression failures; git diff whitespace checks passed.
+
+Native ANTLR/durable batch parity remains outside this Python compiler delivery.
