@@ -25,13 +25,13 @@ _sym_db = _symbol_database.Default()
 from ...match.v1 import match_result_pb2 as match_dot_v1_dot_match__result__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n analysis/v1/traversal_node.proto\x12\x0f\x63tk.analysis.v1\x1a\x1bmatch/v1/match_result.proto\"u\n\rTraversalNode\x12\x19\n\x0cparent_index\x18\x01 \x01(\x04H\x00\x88\x01\x01\x12\r\n\x05\x64\x65pth\x18\x02 \x01(\r\x12)\n\x05value\x18\x03 \x01(\x0b\x32\x1a.ctk.match.v1.MatchBindingB\x0f\n\r_parent_indexb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n analysis/v1/traversal_node.proto\x12\x0f\x63tk.analysis.v1\x1a\x1bmatch/v1/match_result.proto\"\xa7\x01\n\rTraversalNode\x12\x19\n\x0cparent_index\x18\x01 \x01(\x04H\x00\x88\x01\x01\x12\r\n\x05\x64\x65pth\x18\x02 \x01(\r\x12)\n\x05value\x18\x03 \x01(\x0b\x32\x1a.ctk.match.v1.MatchBinding\x12\r\n\x05index\x18\x04 \x01(\x04\x12\x13\n\x0bnative_kind\x18\x05 \x01(\t\x12\x0c\n\x04leaf\x18\x06 \x01(\x08\x42\x0f\n\r_parent_indexb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'analysis.v1.traversal_node_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_TRAVERSALNODE']._serialized_start=82
-  _globals['_TRAVERSALNODE']._serialized_end=199
+  _globals['_TRAVERSALNODE']._serialized_start=83
+  _globals['_TRAVERSALNODE']._serialized_end=250
 # @@protoc_insertion_point(module_scope)

@@ -29,6 +29,31 @@ class CommandHelp:
 
 _ENTRIES = (
     CommandHelp(
+        "peek", "Inspect immediate native neighbours of a bound node.",
+        ("peek children|parents [MATCHER] in TARGET [nodes NUMBER]",),
+        ("TARGET is a retained binding, such as $rows[0].f.",
+         "Filters test each neighbour itself; children never searches grandchildren.",
+         "Standalone output streams rows; assignment retains an independent collection.",
+         "Rows expose .target and explicit matcher bindings. No current command is needed.",
+         "nodes counts examined candidates before filtering: default 10000, range 1..100000.",
+         "Native visitor children include implicit and type-location edges.",
+         "Parents preserve shared Decl/Stmt occurrences; auxiliary children retain their exact navigation parent.",
+         "MATCHER may be an inline expression or a saved matcher reference such as $base_edges.",
+         'cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base"))) filters base edges and binds their referenced classes in the same operation; .target remains the base edge.'),
+        ('let methods = peek children cxxMethodDecl() in $rows[0].record',
+         'peek parents in $calls[0].call'),
+    ),
+    CommandHelp(
+        "step", "Return a selected neighbour as a new retained node reference.",
+        ("step children|parents [MATCHER] [at INDEX] in TARGET [nodes NUMBER]",),
+        ("Without at, exactly one candidate is required; zero and ambiguity are errors.",
+         "INDEX is zero-based after filtering. The starting reference remains reusable.",
+         "Supports continued match, traverse, peek and step. No mutable current state.",
+         "Bare auxiliary bindings without native parent lookup fail explicitly; children selected by navigation retain their parent."),
+        ('let body = step children compoundStmt() in $functions[0].f',
+         'let parent = step parents in $body'),
+    ),
+    CommandHelp(
         "help",
         "Explain console syntax locally; no server is required.",
         ("help [command [subcommand]]", "command [subcommand]?"),
@@ -58,9 +83,9 @@ _ENTRIES = (
         "match",
         "Match native nodes and optionally retain the resulting rows.",
         (
-            "match MATCHER [in TARGET]",
-            "let rows = match MATCHER [in TARGET]",
-            "match MATCHER in TARGET do { STATEMENT; ... }",
+            "match MATCHER [in TARGET] [scope SCOPE]",
+            "let rows = match MATCHER [in TARGET] [scope SCOPE]",
+            "match MATCHER in TARGET [scope SCOPE] do { STATEMENT; ... }",
         ),
         (
             "Use `match` after `=` to assign query results; a bare matcher assignment constructs a matcher and accepts no `in` target.",
@@ -68,6 +93,7 @@ _ENTRIES = (
             "TARGET: quoted file path, directory or glob; File, Directory, file list, parsed tree, match value or binding selection.",
             "Directories recurse over C/C++/Objective-C source files; globs support absolute paths and **. Expansion uses the client's filesystem. Empty selections return an empty collection.",
             "Target variables must already exist; bind labels name bindings in the new results.",
+            "Explicit scope requires a retained binding selection: children tests immediate native children, self (or root_only) tests the bound node, and subtree tests it and eligible descendants. Omission preserves the binding's scope. Nested matcher constraints retain full AST context; earlier variables remain reusable.",
             'With do { ... }, run ordinary statements as each streamed row arrives. Every bind label becomes a local variable: .bind("func") exposes $func.node. Newlines or semicolons separate statements; # starts a comment.',
             "Each row gets a fresh local scope; outer variables are restored afterwards. Streamed bindings provide copied semantic fields; native continuation requires a completed retained result. Row work is serialized across concurrent file streams; row order follows arrival order. Limits: 10000 rows and 1000000 bytes of collected output.",
             "A missing `match` in this assignment form shows its insertion point and a corrected command.",
@@ -803,7 +829,7 @@ _ENTRIES = (
         ("cursor continue ID BIND MATCHER [row INDEX] [scope MODE] [revision NUMBER]",),
         (
             "ID/BIND: quoted response cursor ID and existing binding name.",
-            "row: zero-based unsigned index; omitted selects all rows. scope: subtree (default) or root_only.",
+            "row: zero-based unsigned index; omitted selects all rows. scope: subtree (default), root_only or children.",
             "revision: positive expected result revision; omitted sends no guard. Options may occur once.",
         ),
         (
@@ -829,17 +855,17 @@ _ENTRIES = (
     ),
     CommandHelp(
         "traverse",
-        "Visit a file's AST and return a typed traversal value.",
+        "Stream native AST visits from a path, parsed tree or binding.",
         (
-            "traverse PATH [depth NUMBER] [nodes NUMBER] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth NUMBER] [payload-nodes NUMBER]",
+            "traverse TARGET [depth NUMBER] [nodes NUMBER] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth NUMBER] [payload-nodes NUMBER]",
         ),
         (
-            "PATH: quoted source file or path/File reference. BOOL: true or false.",
+            "TARGET: quoted path, File, parsed tree or native binding reference. BOOL: true or false.",
             "depth: 0..256, default 64. nodes: 1..100000, default 10000.",
             "implicit/instantiations: false by default. Each option may occur once.",
             "projection: shallow by default; recursive includes nested semantic payloads. payload-depth: 1..64 (default 24); payload-nodes: 1..100000 (default 10000 per node payload). These limits are independent of traversal depth/nodes.",
             "main-file true restricts traversal to the main source file; default false includes header declarations.",
-            "Assign to a variable to use nodes and depth_limited as typed fields. A standalone command continues to print ProtoJSON.",
+            "Standalone commands stream each node as ProtoJSON, followed by completion metadata. Assignment explicitly collects nodes and depth_limited.",
             "Uses configured extra_args and the session directory.",
         ),
         (

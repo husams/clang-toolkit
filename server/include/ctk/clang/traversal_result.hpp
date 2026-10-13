@@ -7,5 +7,6 @@ struct TraversalResult {
   MatchCode code{MatchCode::Ok};
   std::string message;
   ctk::analysis::v1::TraverseResponse response;
+  std::uint64_t node_count{};
 };
 } // namespace ctk::clang_layer

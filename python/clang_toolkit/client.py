@@ -29,6 +29,7 @@ from clang_toolkit._generated.match.v1 import match_result_pb2
 from clang_toolkit._generated.match.v1 import match_stream_pb2
 from clang_toolkit._generated.match.v1 import resources_pb2
 from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2
+from clang_toolkit._generated.analysis.v1 import traverse_stream_pb2, traverse_request_pb2
 from clang_toolkit._generated.analysis.v1 import batch_pb2
 from clang_toolkit.batches import BatchRun, batch_run, start_batch_request
 from clang_toolkit.analysis_error import AnalysisError
@@ -564,7 +565,9 @@ class AsyncClient:
         row_count = 0
         succeeded = False
         try:
-            call = stub.StreamMatch(
+            stream_method = (getattr(stub, "StreamNavigate")
+                             if request.navigation_axis else stub.StreamMatch)
+            call = stream_method(
                 self._compilation_request(request), timeout=self.config.rpc_timeout
             )
             async for event in call:
@@ -573,6 +576,9 @@ class AsyncClient:
                     if completed is not None:
                         raise CursorError(grpc.StatusCode.DATA_LOSS,
                                           "match stream delivered a row after completion")
+                    if request.navigation_axis and "target" not in event.row.bindings:
+                        raise CursorError(grpc.StatusCode.DATA_LOSS,
+                                          "navigation stream row is missing its target")
                     row_bytes = event.row.SerializeToString()
                     store.append(row_bytes, binding_names=event.row.bindings)
                     row_count += 1
@@ -827,6 +833,57 @@ class AsyncClient:
         finally:
             self._end_value_operation()
 
+    async def peek(self, target: BindingSelection, *, axis: str = "children",
+                   query: MatcherInput | None = None, max_nodes: int = 10000,
+                   on_row: AsyncMatchRowCallback | None = None,
+                   scope: ResourceScope[AsyncClient] | str | None = None
+                   ) -> MatchValue[AsyncClient]:
+        """Stream direct neighbours into an independent retained collection."""
+        return await self._peek_with_lease(target, axis=axis, query=query,
+            max_nodes=max_nodes, on_row=on_row, scope=scope, lease=None)
+
+    async def _peek_with_lease(self, target: BindingSelection, *,
+                              axis: str = "children",
+                              query: MatcherInput | None = None,
+                              max_nodes: int = 10000,
+                              on_row: AsyncMatchRowCallback | None = None,
+                              scope: ResourceScope[AsyncClient] | str | None = None,
+                              lease: OperationLease | None = None
+                              ) -> MatchValue[AsyncClient]:
+        self._begin_value_operation(lease)
+        try:
+            request = _navigation_request(self, target, axis, query, max_nodes, scope)
+            completion, store = await self._stream_cursor_match(
+                request, on_row=on_row, source_session_id=target._owner.session_id)
+            return MatchValue._from_store(store, self._own_value(completion),
+                                          source_file=target.source_file)
+        finally:
+            self._end_value_operation()
+
+    async def step(self, target: BindingSelection, *, axis: str = "children",
+                   query: MatcherInput | None = None, at: int | None = None,
+                   max_nodes: int = 10000,
+                   scope: ResourceScope[AsyncClient] | str | None = None
+                   ) -> BindingSelection[AsyncClient]:
+        """Select one direct neighbour; reject absent or ambiguous selections."""
+        return await self._step_with_lease(target, axis=axis, query=query,
+            at=at, max_nodes=max_nodes, scope=scope)
+
+    async def _step_with_lease(self, target: BindingSelection, *,
+                              axis: str = "children",
+                              query: MatcherInput | None = None,
+                              at: int | None = None, max_nodes: int = 10000,
+                              scope: ResourceScope[AsyncClient] | str | None = None,
+                              lease: OperationLease | None = None
+                              ) -> BindingSelection[AsyncClient]:
+        rows = await self._peek_with_lease(target, axis=axis, query=query,
+            max_nodes=max_nodes, scope=scope, lease=lease)
+        try:
+            return _navigation_selection(rows, at)
+        except BaseException:
+            await rows.aclose()
+            raise
+
     async def execute(
         self, source: str, *, working_directory: str | Path | None = None,
         compile_arguments: Sequence[str] | None = None,
@@ -855,29 +912,106 @@ class AsyncClient:
             lease.close()
             self._end_value_operation()
 
-    async def traverse(
-        self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, *, working_directory: str | Path | None = None,
-        compile_arguments: Sequence[str] = (), visit_implicit_code: bool = False,
-        visit_template_instantiations: bool = False, max_depth: int | None = None,
-        max_nodes: int | None = None, projection: str = "shallow",
-        main_file_only: bool = False, payload_depth: int = 24,
-        payload_nodes: int = 10000, scope: ResourceScope[AsyncClient] | str | None = None,
-    ) -> traverse_response_pb2.TraverseResponse:
-        path, input_descriptor = _analysis_input(path)
-        request = traversal_request(path, working_directory=working_directory,
-            compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
-            visit_template_instantiations=visit_template_instantiations, max_depth=max_depth,
-            max_nodes=max_nodes, projection=projection, main_file_only=main_file_only,
-            payload_depth=payload_depth, payload_nodes=payload_nodes)
-        _apply_input_descriptor(request.file, input_descriptor)
-        request.resource_scope_id = _scope_id(scope)
+    async def traverse_stream(self, target: MatchTarget | Path, **kwargs: Any
+                              ) -> AsyncIterator[traverse_stream_pb2.TraverseStreamEvent]:
+        """Yield preorder visits immediately; require completion and terminal OK.
+
+        Visits are provisional until this iterator exhausts successfully. Close
+        the iterator when stopping early to cancel native work promptly.
+        """
+        request = _traversal_value_request(self, target, **kwargs)
+        async with aclosing(self._traverse_events(request)) as events:
+            async for event in events:
+                yield event
+
+    async def _traverse_events(self, request: traverse_request_pb2.TraverseRequest
+                              ) -> AsyncIterator[traverse_stream_pb2.TraverseStreamEvent]:
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
+        self._begin_value_operation()
+        call = None
+        count = 0
+        completed = False
+        consumed = False
+        depths: list[int] = []
         try:
-            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).Traverse(
+            call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamTraverse(
                 self._compilation_request(request), timeout=self.config.rpc_timeout)
+            async for event in call:
+                kind = event.WhichOneof("event")
+                if completed:
+                    raise AnalysisError(grpc.StatusCode.DATA_LOSS, "traversal event follows completion")
+                if kind == "node":
+                    node = event.node
+                    if node.index != count or node.depth > len(depths):
+                        raise AnalysisError(grpc.StatusCode.DATA_LOSS, "invalid traversal ordinal or depth")
+                    if node.depth == 0:
+                        if node.HasField("parent_index"):
+                            raise AnalysisError(grpc.StatusCode.DATA_LOSS, "traversal root has a parent")
+                        depths.clear()
+                    elif (not node.HasField("parent_index") or
+                          node.parent_index != depths[node.depth - 1]):
+                        raise AnalysisError(grpc.StatusCode.DATA_LOSS, "invalid traversal parent")
+                    depths[node.depth:] = [count]
+                    count += 1
+                elif kind == "completed":
+                    if event.completed.node_count != count:
+                        raise AnalysisError(grpc.StatusCode.DATA_LOSS, "traversal completion count mismatch")
+                    completed = True
+                else:
+                    raise AnalysisError(grpc.StatusCode.DATA_LOSS, "empty traversal event")
+                yield event
+            if not completed:
+                raise AnalysisError(grpc.StatusCode.DATA_LOSS, "traversal stream ended without completion")
+            status = call.code()
+            if inspect.isawaitable(status):
+                status = await status
+            if status != grpc.StatusCode.OK:
+                raise AnalysisError(status, "traversal stream did not finish successfully")
+            consumed = True
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
+        finally:
+            if call is not None and not consumed and not call.done():
+                call.cancel()
+            self._end_value_operation()
+
+    async def _stream_traverse_request(self, request: traverse_request_pb2.TraverseRequest,
+                                      *, on_node: Callable[..., Any] | None = None
+                                      ) -> traverse_stream_pb2.TraverseCompleted:
+        completed = None
+        async with aclosing(self._traverse_events(request)) as events:
+            async for event in events:
+                if event.WhichOneof("event") == "node":
+                    if on_node is not None:
+                        result = on_node(event.node)
+                        if inspect.isawaitable(result):
+                            await result
+                else:
+                    completed = event.completed
+        assert completed is not None
+        return completed
+
+    async def stream_traverse(self, target: MatchTarget | Path, *,
+                              on_node: Callable[..., Any], **kwargs: Any
+                              ) -> traverse_stream_pb2.TraverseCompleted:
+        """Consume each node with backpressure; return only completion metadata."""
+        request = _traversal_value_request(self, target, **kwargs)
+        return await self._stream_traverse_request(request, on_node=on_node)
+
+    async def traverse(self, target: MatchTarget | Path, **kwargs: Any
+                       ) -> traverse_response_pb2.TraverseResponse:
+        """Explicit compatibility collector; use stream_traverse for bounded memory."""
+        request = _traversal_value_request(self, target, **kwargs)
+        return await self._collect_traverse_request(request)
+
+    async def _collect_traverse_request(self, request: traverse_request_pb2.TraverseRequest
+                                        ) -> traverse_response_pb2.TraverseResponse:
+        response = traverse_response_pb2.TraverseResponse()
+        completed = await self._stream_traverse_request(request,
+            on_node=lambda node: response.nodes.add().CopyFrom(node))
+        response.depth_limited = completed.depth_limited
+        return response
 
     async def cfg(self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, function: str, *,
                   working_directory: str | Path | None = None,
@@ -1517,6 +1651,37 @@ class Client:
             source_file=_absolute_source_file(target, working_directory),
         )
 
+    def peek(self, target: BindingSelection, *, axis: str = "children",
+             query: MatcherInput | None = None, max_nodes: int = 10000,
+             on_row: MatchRowCallback | None = None,
+             scope: ResourceScope[Client] | str | None = None
+             ) -> MatchValue[Client]:
+        """Inspect direct neighbours without changing the starting reference."""
+        request = _navigation_request(self, target, axis, query, max_nodes, scope)
+        callback = None
+        if on_row is not None:
+            async def callback(row: match_result_pb2.MatchResult) -> None:
+                await _invoke_sync_callback(on_row, row)
+        completion, store = self._cursor_call(
+            "_stream_cursor_match", request, on_row=callback,
+            source_session_id=target._owner.session_id)
+        return MatchValue._from_store(store, self._own_value(completion),
+                                      source_file=target.source_file)
+
+    def step(self, target: BindingSelection, *, axis: str = "children",
+             query: MatcherInput | None = None, at: int | None = None,
+             max_nodes: int = 10000,
+             scope: ResourceScope[Client] | str | None = None
+             ) -> BindingSelection[Client]:
+        """Return a selected neighbour as a reusable native reference."""
+        rows = self.peek(target, axis=axis, query=query,
+                         max_nodes=max_nodes, scope=scope)
+        try:
+            return _navigation_selection(rows, at)
+        except BaseException:
+            rows.close()
+            raise
+
     def close(self) -> None:
         """Release every high-level retained value owned by this client."""
         errors: list[BaseException] = []
@@ -1691,12 +1856,20 @@ class Client:
                      ) -> match_service_pb2.PruneCachesResponse:
         return self._cursor_call("prune_caches", memory=memory, disk=disk)
 
-    def traverse(
-        self,
-        path: str | Path | FileHandle[Client] | InputDescriptor,
-        **kwargs: Any,
-    ) -> traverse_response_pb2.TraverseResponse:
-        return self._cursor_call("traverse", path, **kwargs)
+    def stream_traverse(self, target: MatchTarget | Path, *,
+                        on_node: Callable[..., None], **kwargs: Any
+                        ) -> traverse_stream_pb2.TraverseCompleted:
+        """Deliver visits one at a time without retaining their payloads."""
+        request = _traversal_value_request(self, target, **kwargs)
+        async def callback(node: Any) -> None:
+            await _invoke_sync_callback(on_node, node)
+        return self._cursor_call("_stream_traverse_request", request, on_node=callback)
+
+    def traverse(self, target: MatchTarget | Path, **kwargs: Any
+                 ) -> traverse_response_pb2.TraverseResponse:
+        """Compatibility collector; stream_traverse emits nodes before completion."""
+        request = _traversal_value_request(self, target, **kwargs)
+        return self._cursor_call("_collect_traverse_request", request)
 
     def bind_async_client(self, client: AsyncClient) -> None:
         """Attach the active CLI loop for commands submitted by worker threads."""
@@ -1990,6 +2163,41 @@ class _AsyncExpressionAdapter:
             traversal_mode=traversal_mode, on_row=callback if on_row is not None else None,
             lease=self.lease, scope=self.scope)
 
+    def peek(self, target: BindingSelection, *, on_row: MatchRowCallback | None = None,
+             **kwargs: Any) -> MatchValue[AsyncClient]:
+        async def callback(row: match_result_pb2.MatchResult) -> None:
+            assert on_row is not None
+            task = asyncio.current_task()
+            assert task is not None
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_row, row)
+            finally:
+                self._row_callbacks.discard(task)
+        kwargs.setdefault("scope", self.scope)
+        return self._call("_peek_with_lease", target, **kwargs,
+                          on_row=callback if on_row else None,
+                          lease=self.lease)
+
+    def step(self, target: BindingSelection, **kwargs: Any) -> BindingSelection[AsyncClient]:
+        kwargs.setdefault("scope", self.scope)
+        return self._call("_step_with_lease", target, **kwargs,
+                          lease=self.lease)
+
+    def stream_traverse(self, target: MatchTarget | Path, *, on_node: Callable[..., None],
+                        **kwargs: Any) -> traverse_stream_pb2.TraverseCompleted:
+        async def callback(node: Any) -> None:
+            task = asyncio.current_task()
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_node, node)
+            finally:
+                self._row_callbacks.discard(task)
+        return self._call("stream_traverse", target, on_node=callback, **kwargs)
+
+    def traverse(self, target: MatchTarget | Path, **kwargs: Any) -> traverse_response_pb2.TraverseResponse:
+        return self._call("traverse", target, **kwargs)
+
     def match(self, query: MatcherInput, *, files: Sequence[str] | None = None,
               **kwargs: Any) -> list[Any]:
         return self._call("match", query, files or (), **kwargs)
@@ -2008,6 +2216,57 @@ def _expression_runtime(owner: Client | AsyncClient, adapter: Any,
     if compile_arguments is not None:
         runtime.config_store.effective["extra_args"] = list(compile_arguments)
     return runtime
+
+
+def _traversal_value_request(client: Client | AsyncClient, target: MatchTarget | Path,
+                             *, scope: ResourceScope[Any] | str | None = None,
+                             working_directory: str | Path | None = None,
+                             compile_arguments: Sequence[str] = (), **kwargs: Any
+                             ) -> traverse_request_pb2.TraverseRequest:
+    selected = _value_request(client, "decl()", target,
+        working_directory=working_directory, compile_arguments=compile_arguments,
+        scope=scope)
+    # Reuse validation of visitor options without acquiring or reparsing a tree.
+    request = traversal_request("unused", **kwargs)
+    request.ClearField("file")
+    kind = selected.WhichOneof("target")
+    getattr(request, kind).CopyFrom(getattr(selected, kind))
+    request.resource_scope_id = selected.resource_scope_id
+    return request
+
+
+def _navigation_request(client: Client | AsyncClient, target: BindingSelection,
+                        axis: str, query: MatcherInput | None, max_nodes: int,
+                        scope: ResourceScope[Any] | str | None) -> match_service_pb2.MatchRequest:
+    if not isinstance(target, BindingSelection):
+        raise MatchValueError("navigation requires a retained native binding")
+    axes = {"children": match_service_pb2.NAVIGATION_AXIS_CHILDREN,
+            "parents": match_service_pb2.NAVIGATION_AXIS_PARENTS}
+    if axis not in axes:
+        raise ValueError("navigation axis must be children or parents")
+    if type(max_nodes) is not int or not 1 <= max_nodes <= 100000:
+        raise ValueError("navigation max_nodes must be 1..100000")
+    request = _value_request(client, query if query is not None else "decl()",
+                             target, scope=scope)
+    if query is None:
+        request.ClearField("query")
+    request.navigation_axis = axes[axis]
+    request.navigation_max_nodes = max_nodes
+    return request
+
+
+def _navigation_selection(rows: MatchValue, at: int | None) -> BindingSelection:
+    if at is not None and (type(at) is not int or at < 0):
+        raise MatchValueError("navigation index must be a zero-based integer")
+    if not len(rows):
+        raise MatchValueError("navigation found no candidates")
+    if at is None and len(rows) != 1:
+        raise MatchValueError(
+            f"navigation is ambiguous: {len(rows)} candidates; use at INDEX")
+    index = 0 if at is None else at
+    if index >= len(rows):
+        raise MatchValueError("navigation index is outside the candidate list")
+    return rows[index].binding("target")
 
 
 def _value_request(

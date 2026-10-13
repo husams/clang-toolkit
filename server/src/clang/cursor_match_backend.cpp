@@ -3,6 +3,7 @@
 #include "ctk/clang/tooling.hpp"
 #include "match_row_collector.hpp"
 #include "native_snapshot_owner.hpp"
+#include "native_navigation.hpp"
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/ASTMatchers/ASTMatchers.h>
 #include <clang/ASTMatchers/Dynamic/Diagnostics.h>
@@ -230,6 +231,25 @@ private:
                std::shared_ptr<const NativeBindingState> previous,
                const Checkpoint &checkpoint, const MatchLimits &limits,
                const RowSink *sink) {
+    if (request.navigation_axis() != NAVIGATION_AXIS_UNSPECIFIED) {
+      try {
+        return navigate_bindings(request, std::move(previous), checkpoint,
+                                 limits, sink);
+      } catch (const std::exception &error) {
+        return failure(exception_code(error), error.what());
+      }
+    }
+    if (request.has_binding() &&
+        request.binding().scope() == BINDING_MATCH_SCOPE_CHILDREN) {
+      try {
+        auto children = request;
+        children.set_navigation_axis(NAVIGATION_AXIS_CHILDREN);
+        return navigate_bindings(children, std::move(previous), checkpoint,
+                                 limits, sink, false);
+      } catch (const std::exception &error) {
+        return failure(exception_code(error), error.what());
+      }
+    }
     MatchExecution result;
     dynamic::Diagnostics diagnostics;
     llvm::StringRef text(request.query());

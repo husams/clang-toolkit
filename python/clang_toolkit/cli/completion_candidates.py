@@ -50,6 +50,9 @@ _REGEX_LITERALS = {
     "QUIT": "quit",
     "SCRIPT": "script",
     "TRAVERSE": "traverse",
+    "PEEK": "peek",
+    "STEP": "step",
+    "AT": "at",
     "EDGES": "edges",
     "OPTION": "option", "FUNCTIONS": "functions", "BLOCKS": "blocks", "ELEMENTS": "elements",
     "DEPTH": "depth",
@@ -146,6 +149,11 @@ def candidates_for(
     previous = context.prefix_tokens[-1].type if context.prefix_tokens else None
     if "NAME" in accepted and previous == "DOLLAR":
         names.extend((name, False, False, None) for name in references)
+    elif "NAME" in accepted and previous == "CURSOR_SCOPE":
+        options = ("children", "root_only", "subtree")
+        if not any(token.type == "CURSOR" for token in context.prefix_tokens):
+            options += ("self",)
+        names.extend((name, False, False, None) for name in options)
     elif "NAME" in accepted and previous in {"PRUNE", "AS"}:
         options = ("memory", "disk", "all") if previous == "PRUNE" else ("yaml", "json", "csv", "proto")
         format_command = next(

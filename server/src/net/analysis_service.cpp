@@ -74,6 +74,35 @@ grpc::Status AnalysisServiceAdapter::Traverse(
     response->Swap(&result.response);
   return match_status(result.code, result.message, *context);
 }
+grpc::Status AnalysisServiceAdapter::StreamTraverse(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::TraverseRequest *request,
+    grpc::ServerWriter<ctk::analysis::v1::TraverseStreamEvent> *writer) {
+  auto result = controller_.traverse_stream(
+      *request, [context] { return !context->IsCancelled(); },
+      [writer](const ctk::analysis::v1::TraversalNode &node,
+               std::string &message) {
+        ctk::analysis::v1::TraverseStreamEvent event;
+        event.mutable_node()->CopyFrom(node);
+        if (!writer->Write(event)) {
+          message = "AST traversal stream closed";
+          return ctk::clang_layer::MatchCode::Cancelled;
+        }
+        return ctk::clang_layer::MatchCode::Ok;
+      },
+      owner(*context));
+  if (result.code == ctk::clang_layer::MatchCode::Ok) {
+    ctk::analysis::v1::TraverseStreamEvent event;
+    event.mutable_completed()->set_node_count(result.node_count);
+    event.mutable_completed()->set_depth_limited(
+        result.response.depth_limited());
+    if (!writer->Write(event)) {
+      result.code = ctk::clang_layer::MatchCode::Cancelled;
+      result.message = "AST traversal stream closed before completion";
+    }
+  }
+  return match_status(result.code, result.message, *context);
+}
 grpc::Status
 AnalysisServiceAdapter::Cfg(grpc::ServerContext *context,
                             const ctk::analysis::v1::CfgRequest *request,

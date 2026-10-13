@@ -98,6 +98,7 @@ _COMMAND_VALUE_KINDS = frozenset(
         "session_close_retained", "server_status", "cache_status", "cache_prune",
         "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file",
         "callgraph", "callgraph_file", "help", "help_shortcut", "traverse", "script",
+        "peek", "step",
         "cursor_open", "cursor_continue", "cursor_restart", "cursor_close",
         "import_command", "file_open", "file_list", "file_info", "file_close",
         "file_refresh", "resource_status", "batch_statement", "durable_batch",
@@ -380,6 +381,15 @@ class Runtime:
             value = execute_traversal(self, statement)
             display = None if value_context else self._emit_output(render_graph(value))
             return value, display
+        if kind in {"peek", "step"}:
+            from .navigation import execute_navigation
+
+            value = execute_navigation(self, statement)
+            if value_context:
+                return value, None
+            display = (f"{len(value)} neighbours" if kind == "peek"
+                       else self._render_display_value(value))
+            return value, self._emit_output(display)
         if kind == "cfg_file":
             from .control_flow import execute_cfg
             from .graph_options import render_graph
@@ -1848,6 +1858,30 @@ class Runtime:
             original = source[matcher_node.meta.start_pos : matcher_node.meta.end_pos]
             if original and not self._has_dynamic_part(matcher_node):
                 text = original
+        scope_option = next((child for child in node.children
+                             if isinstance(child, Tree)
+                             and child.data == "match_scope"), None)
+        if scope_option is not None:
+            from clang_toolkit._generated.match.v1 import match_result_pb2 as scopes
+
+            scope_names = {
+                "children": scopes.BINDING_MATCH_SCOPE_CHILDREN,
+                "self": scopes.BINDING_MATCH_SCOPE_ROOT_ONLY,
+                "root_only": scopes.BINDING_MATCH_SCOPE_ROOT_ONLY,
+                "subtree": scopes.BINDING_MATCH_SCOPE_SUBTREE,
+            }
+            name = str(scope_option.children[1])
+            if name not in scope_names:
+                raise EvaluationError("match scope must be children, self, root_only or subtree")
+            scope = scope_names[name]
+            if isinstance(target, BindingSelection):
+                target = replace(target, scope=scope)
+            elif isinstance(target, NativeBindingCollection):
+                target = replace(target, selections=tuple(
+                    replace(item, scope=scope) if item is not None else None
+                    for item in target.selections))
+            else:
+                raise EvaluationError("match scope requires a retained binding selection")
         if target is not None:
             traversal = self.config_store.effective["traversal"]
             from clang_toolkit._generated.match.v1 import match_service_pb2 as pb

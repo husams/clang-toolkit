@@ -39,6 +39,9 @@ public:
                         const ctk::analysis::v1::TraverseRequest *,
                         ctk::analysis::v1::TraverseResponse *) override;
 
+  grpc::Status StreamTraverse(
+      grpc::ServerContext *, const ctk::analysis::v1::TraverseRequest *,
+      grpc::ServerWriter<ctk::analysis::v1::TraverseStreamEvent> *) override;
   grpc::Status Cfg(grpc::ServerContext *, const ctk::analysis::v1::CfgRequest *,
                    ctk::analysis::v1::CfgResponse *) override;
 

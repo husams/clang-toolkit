@@ -1,6 +1,6 @@
 ---
 name: ctk-script
-description: Write, run, explain, and debug clang-toolkit scripts using the compiled console DSL, legacy console DSL, or native server language. Use for .ctk files, parse/match/foreach workflows, binding-field extraction, expressions, and script or batch execution; use the SDK reasoning skill for Python API tasks.
+description: Write, run, explain, and debug clang-toolkit scripts using the compiled console DSL, legacy console DSL, or native server language. Use for .ctk files, parse/match/foreach workflows, native node navigation, inheritance queries, binding-field extraction, expressions, and script or batch execution; use the SDK reasoning skill for Python API tasks.
 ---
 
 # Write and use CTK scripts
@@ -12,6 +12,7 @@ Produce runnable CTK statements that answer the user's question and verify them 
 - **Console DSL:** `ctk` (including `uv run ctk`) defaults to the compiled engine. It supports arithmetic, Boolean logic, value-producing conditions, mutation, and value predicates. Read [console.md](references/console.md). `python -m clang_toolkit.cli.app` and `scripts/manual_console.sh` retain the legacy default; pass `--script-engine compiled` there when using the compiled syntax. `--script-engine tree` selects the reference evaluator, and `legacy` selects the previous parser.
 - **Named script arguments:** `ctk FILE.ctk x=value` runs the file and exposes the literal string as `$arg.x`; `--script`, `--execute`, and piped runs accept the same arguments.
 - **Text and CSV inputs:** `read` returns text lines or CSV records; trim strings explicitly with `.strip()`. See the complete input example in [console.md](references/console.md).
+- **Native node navigation and inheritance:** read [navigation.md](references/navigation.md) for `traverse` from any retained node, filtered `peek`/`step`, matcher scopes, direct base bindings, and streaming versus explicit collection.
 - **Native server DSL:** the console's `script "SOURCE" [in "TARGET"]`, SDK `run_script`, or a `background batch`/`durable batch` body. Read [native.md](references/native.md). This language uses explicit `emit` statements.
 - For multi-file discovery, batching, resource cleanup, and exports, also read [batches.md](references/batches.md).
 
@@ -39,4 +40,4 @@ Use `$row.f.qualified_name`, `$row.f.decl_name`, and other discovered direct pro
 
 Return the exact script and observed output or an explicit unverified boundary when details are requested. Follow the user's response-length preference. Parsing syntax or reading a manual is not live verification.
 
-Console guidance was refreshed on 2026-10-13 for the compiled entrypoint and its expression, control-flow, mutation, and predicate syntax. Native-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` when installed behavior differs.
+Console guidance was refreshed on 2026-10-13 for the compiled entrypoint, its expression/control-flow syntax, and native bound-node navigation. Native server-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` and server capabilities when installed behavior differs.

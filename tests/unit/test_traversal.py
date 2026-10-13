@@ -4,6 +4,7 @@ import json
 from unittest.mock import Mock
 import pytest
 from clang_toolkit._generated.analysis.v1 import traverse_response_pb2 as pb
+from clang_toolkit._generated.analysis.v1 import traverse_stream_pb2 as stream
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
 from clang_toolkit.client import Client
 from clang_toolkit.traversal import traversal_request
@@ -21,17 +22,21 @@ def test_explicit_depth_zero_and_native_options_preserve_presence(tmp_path):
     with pytest.raises(ValueError):
         traversal_request("fixture.cc", max_nodes=0)
 
-def test_traversal_cli_emits_typed_response_and_compiler_options(tmp_path):
+def test_traversal_cli_streams_nodes_and_compiler_options(tmp_path, capsys):
     client = Mock(spec=Client)
     response = pb.TraverseResponse(depth_limited=True)
     response.nodes.add(depth=0).value.node.translation_unit_decl.SetInParent()
-    client.traverse.return_value = response
+    def emit(*args, on_node, **kwargs):
+        on_node(response.nodes[0])
+        assert "translation_unit_decl" in capsys.readouterr().out
+        return stream.TraverseCompleted(node_count=1, depth_limited=True)
+    client.stream_traverse.side_effect = emit
     runtime = Runtime(client, cwd=tmp_path)
     output = runtime.execute('traverse "fixture.cc" depth 0 nodes 9 implicit true instantiations false')
     assert json.loads(output)["depth_limited"] is True
-    client.traverse.assert_called_once_with("fixture.cc", working_directory=tmp_path,
+    client.stream_traverse.assert_called_once_with("fixture.cc", working_directory=tmp_path,
         compile_arguments=[], max_depth=0, max_nodes=9, visit_implicit_code=True,
-        visit_template_instantiations=False)
+        visit_template_instantiations=False, on_node=client.stream_traverse.call_args.kwargs["on_node"])
 
 @pytest.mark.parametrize("options", ["nodes 0", "depth 257", "depth 1 depth 2"])
 def test_invalid_traversal_options_do_not_reach_server(tmp_path, options):

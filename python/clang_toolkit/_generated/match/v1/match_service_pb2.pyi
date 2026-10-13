@@ -20,12 +20,21 @@ class MatchTraversalMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     MATCH_TRAVERSAL_MODE_UNSPECIFIED: _ClassVar[MatchTraversalMode]
     MATCH_TRAVERSAL_MODE_AS_IS: _ClassVar[MatchTraversalMode]
     MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE: _ClassVar[MatchTraversalMode]
+
+class NavigationAxis(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    NAVIGATION_AXIS_UNSPECIFIED: _ClassVar[NavigationAxis]
+    NAVIGATION_AXIS_CHILDREN: _ClassVar[NavigationAxis]
+    NAVIGATION_AXIS_PARENTS: _ClassVar[NavigationAxis]
 MATCH_TRAVERSAL_MODE_UNSPECIFIED: MatchTraversalMode
 MATCH_TRAVERSAL_MODE_AS_IS: MatchTraversalMode
 MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE: MatchTraversalMode
+NAVIGATION_AXIS_UNSPECIFIED: NavigationAxis
+NAVIGATION_AXIS_CHILDREN: NavigationAxis
+NAVIGATION_AXIS_PARENTS: NavigationAxis
 
 class MatchRequest(_message.Message):
-    __slots__ = ("query", "file", "session", "binding", "file_handle", "traversal_mode", "preserve_source", "resource_scope_id")
+    __slots__ = ("query", "file", "session", "binding", "file_handle", "traversal_mode", "preserve_source", "resource_scope_id", "navigation_axis", "navigation_max_nodes")
     QUERY_FIELD_NUMBER: _ClassVar[int]
     FILE_FIELD_NUMBER: _ClassVar[int]
     SESSION_FIELD_NUMBER: _ClassVar[int]
@@ -34,6 +43,8 @@ class MatchRequest(_message.Message):
     TRAVERSAL_MODE_FIELD_NUMBER: _ClassVar[int]
     PRESERVE_SOURCE_FIELD_NUMBER: _ClassVar[int]
     RESOURCE_SCOPE_ID_FIELD_NUMBER: _ClassVar[int]
+    NAVIGATION_AXIS_FIELD_NUMBER: _ClassVar[int]
+    NAVIGATION_MAX_NODES_FIELD_NUMBER: _ClassVar[int]
     query: str
     file: FileMatchTarget
     session: SessionMatchTarget
@@ -42,7 +53,9 @@ class MatchRequest(_message.Message):
     traversal_mode: MatchTraversalMode
     preserve_source: bool
     resource_scope_id: str
-    def __init__(self, query: _Optional[str] = ..., file: _Optional[_Union[FileMatchTarget, _Mapping]] = ..., session: _Optional[_Union[SessionMatchTarget, _Mapping]] = ..., binding: _Optional[_Union[BindingMatchTarget, _Mapping]] = ..., file_handle: _Optional[_Union[_resources_pb2.FileHandleTarget, _Mapping]] = ..., traversal_mode: _Optional[_Union[MatchTraversalMode, str]] = ..., preserve_source: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ...) -> None: ...
+    navigation_axis: NavigationAxis
+    navigation_max_nodes: int
+    def __init__(self, query: _Optional[str] = ..., file: _Optional[_Union[FileMatchTarget, _Mapping]] = ..., session: _Optional[_Union[SessionMatchTarget, _Mapping]] = ..., binding: _Optional[_Union[BindingMatchTarget, _Mapping]] = ..., file_handle: _Optional[_Union[_resources_pb2.FileHandleTarget, _Mapping]] = ..., traversal_mode: _Optional[_Union[MatchTraversalMode, str]] = ..., preserve_source: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ..., navigation_axis: _Optional[_Union[NavigationAxis, str]] = ..., navigation_max_nodes: _Optional[int] = ...) -> None: ...
 
 class FileMatchTarget(_message.Message):
     __slots__ = ("file_path", "compile_arguments", "working_directory", "compilation_database", "expected_profile_id", "frozen_profile")

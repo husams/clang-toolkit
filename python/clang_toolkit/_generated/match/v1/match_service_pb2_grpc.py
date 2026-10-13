@@ -112,6 +112,11 @@ class MatchServiceStub:
                 request_serializer=match_dot_v1_dot_match__service__pb2.MatchRequest.SerializeToString,
                 response_deserializer=match_dot_v1_dot_match__stream__pb2.MatchStreamEvent.FromString,
                 _registered_method=True)
+        self.StreamNavigate = channel.unary_stream(
+                '/ctk.match.v1.MatchService/StreamNavigate',
+                request_serializer=match_dot_v1_dot_match__service__pb2.MatchRequest.SerializeToString,
+                response_deserializer=match_dot_v1_dot_match__stream__pb2.MatchStreamEvent.FromString,
+                _registered_method=True)
         self.CloseSession = channel.unary_unary(
                 '/ctk.match.v1.MatchService/CloseSession',
                 request_serializer=match_dot_v1_dot_match__service__pb2.CloseSessionRequest.SerializeToString,
@@ -254,6 +259,16 @@ class MatchServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamNavigate(self, request, context):
+        """Direct native neighbours of a retained binding. Creates an independent
+        result; rows bind "target" to the candidate and preserve explicit binds.
+        Empty query selects every kind; otherwise test each candidate itself.
+        Provisional rows require completion and terminal OK, as for StreamMatch.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def CloseSession(self, request, context):
         """Close uses the same caller ownership as Match and is serialized with it.
         It affects only a session belonging to that caller. A malformed session ID
@@ -366,6 +381,11 @@ def add_MatchServiceServicer_to_server(servicer, server):
             ),
             'StreamMatch': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamMatch,
+                    request_deserializer=match_dot_v1_dot_match__service__pb2.MatchRequest.FromString,
+                    response_serializer=match_dot_v1_dot_match__stream__pb2.MatchStreamEvent.SerializeToString,
+            ),
+            'StreamNavigate': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamNavigate,
                     request_deserializer=match_dot_v1_dot_match__service__pb2.MatchRequest.FromString,
                     response_serializer=match_dot_v1_dot_match__stream__pb2.MatchStreamEvent.SerializeToString,
             ),
@@ -798,6 +818,33 @@ class MatchService:
             request,
             target,
             '/ctk.match.v1.MatchService/StreamMatch',
+            match_dot_v1_dot_match__service__pb2.MatchRequest.SerializeToString,
+            match_dot_v1_dot_match__stream__pb2.MatchStreamEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamNavigate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/ctk.match.v1.MatchService/StreamNavigate',
             match_dot_v1_dot_match__service__pb2.MatchRequest.SerializeToString,
             match_dot_v1_dot_match__stream__pb2.MatchStreamEvent.FromString,
             options,

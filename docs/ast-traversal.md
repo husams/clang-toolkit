@@ -1,56 +1,84 @@
-# Standalone AST traversal
+# Native AST traversal
 
-`ctk.analysis.v1.AnalysisService.Traverse` runs Clang's `RecursiveASTVisitor`
-over a validated file snapshot. It returns declaration and statement occurrences
-in preorder, each with an owned typed `MatchBinding` value. Type information
-is embedded in the existing semantic payloads; this operation does not emit
-TypeLoc, source locations or native lookup handles.
+`traverse` walks native AST syntax in preorder. Its target can be a source path,
+opened file, pinned `ParsedTree`, or any retained `BindingSelection`; it does not
+run a matcher, reparse retained targets, or replace their bindings. `current` is
+unnecessary: the selected reference is already the root. This operation descends
+through native visitor edges. Immediate parent lookup uses `peek parents` and
+`step parents`; filtered base specifiers bind referenced classes through
+`peek children`. See `docs/node-navigation.md` for those operations. Dedicated
+inheritance axes remain proposals.
 
-The translation-unit record has depth zero and no parent index. Other records
-refer to an earlier record in the same response and have their parent's depth
-plus one. These indices describe visitor structure, not identities that can
-be looked up in a later request. Native visitor occurrences are retained,
-including revisits enabled by template instantiation traversal.
+```text
+let tree = parse "example.cc"
+let rows = match cxxRecordDecl(hasName("Leaf"), isDefinition()).bind("record") in $tree
+traverse $rows[0].record depth 4 nodes 10000 projection shallow
+traverse $tree depth 2
+```
+
+Standalone console commands emit one `TraversalNode` ProtoJSON object as each
+visit arrives, then `TraverseCompleted` metadata. This is a sequence of JSON
+objects, not one aggregate JSON document. Errors can follow provisional visits;
+only completion plus terminal RPC success establishes a successful traversal.
+`let graph = traverse ...` explicitly collects an inspectable compatibility
+value with `nodes` and `depth_limited`.
 
 ```python
 from clang_toolkit import Client
 
-result = Client(address="unix:///tmp/ctk.sock").traverse(
-    "example.cc", working_directory="/absolute/project",
-    compile_arguments=["-std=c++23"], max_depth=12,
-    visit_template_instantiations=True,
-)
-for item in result.nodes:
-    print(item.depth, item.value)
+with Client(address="unix:///tmp/ctk.sock") as client:
+    with client.parse("example.cc") as tree:
+        completed = client.stream_traverse(
+            tree, on_node=lambda node: print(node.index, node.native_kind),
+            max_depth=4, main_file_only=True,
+        )
+        print(completed.node_count, completed.depth_limited)
 ```
 
-`AsyncClient.traverse` provides the equivalent asynchronous API. Failures raise
-`AnalysisError` with the gRPC status. The formal CLI command is:
+`AsyncClient.stream_traverse` accepts a synchronous or asynchronous callback;
+`AsyncClient.traverse_stream` is an async event iterator. Use `contextlib.aclosing`
+when stopping the iterator early. Each callback is awaited before consuming the
+next event. Callback failure, early close, transport failure, cancellation and
+limits cancel or reject the stream. Clients verify ordinal, parent/depth
+structure, completion count and terminal status. No visit payloads are retained
+by the streaming APIs. `Client.traverse` and `AsyncClient.traverse` are explicit
+compatibility collectors over this same streaming RPC; unary `Traverse` remains
+available for old protocol clients and returns no partial tree on failure.
 
-```text
-traverse "example.cc" depth 12 nodes 10000 implicit false instantiations true
-```
+Each record carries an ordinal `index`, `native_kind`, depth and optional parent
+index. A binding spanning several rows produces a forest in row order: every
+root has depth zero and no parent, while indices continue across roots. Repeated
+occurrences are preserved. Depth and node limits apply across the whole visit.
 
-It uses the session working directory and compiler arguments and emits protobuf
-JSON. A string reference or a file from `glob` can also select the file.
+The visitor accepts all `DynTypedNode` families: declarations, statements,
+raw/qualified types, type locations, attributes, base specifiers, constructor
+initializers, template arguments and locations, template names, nested name
+specifiers and locations, OpenMP clauses, and supported-version concept or
+Objective-C protocol references. Native auxiliary values that require enclosing
+context (such as a lambda capture initializer) are explicitly emitted as
+`leaf=true`; they are not silently discarded. A native kind whose owned semantic
+schema is deferred carries `value.unsupported`. This does not prevent traversal
+of its available native children. A type's declaration and a base's referenced
+record are semantic relations, not visitor children.
 
-`visit_implicit_code` and `visit_template_instantiations` map directly to the
-native visitor's options. They are distinct from AST matcher's `AS_IS` and
-`IGNORE_UNLESS_SPELLED_IN_SOURCE` policies; implicit expression wrappers can
-still be visited with the default visitor policy. No matcher policy equivalence
-is claimed.
+`visit_implicit_code` and `visit_template_instantiations` map to the native
+visitor options, independently of matcher traversal policies. An explicitly
+selected root is emitted even when implicit or outside the main file; these
+filters apply to descendants. Type locations without a supported semantic schema
+remain explicitly unsupported. Main-file filtering uses declaration/statement
+expansion locations; it is not a universal source-location predicate on types.
 
-The default visitor depth is 64; explicit zero returns the translation-unit
-record alone. The response's `depth_limited` flag identifies deliberate pruning.
-The maximum configurable depth is 256. The default node count is 10,000, and
-the hard maximum is 100,000. Node limits, cancellation and complete wire-size
-limits return an error with no partial tree. Semantic child expansion inside
-each record retains the serializer's own completeness and expansion rules;
-the visitor depth limit controls the record structure.
+Root depth is zero. Default maximum depth is 64 (range 0..256); zero emits roots
+only and reports `depth_limited` when descendants were pruned. Default maximum
+nodes is 10,000 (range 1..100,000). Limits and cancellation can terminate a stream
+after visits, without completion. Semantic projection expansion has its own
+payload depth/node bounds and completeness metadata. Shallow projection is the
+Python/console default. The streaming byte budget applies per node event, while
+the compatibility unary response retains an aggregate byte budget.
 
-Traversal uses the snapshot's native execution lane and the same cache engine
-as retained matching in the server host. It shares a bounded operation executor with
-retained matching and CFG; the streaming-query executor remains separate. The existing transport send limit
-also bounds traversal responses before publication. A native snapshot stays
-owned until traversal and serialization finish; the returned protobuf values
-remain usable afterward.
+The server writes visits synchronously to gRPC, so transport backpressure slows
+the native visitor rather than filling a response vector. It shares the bounded
+operation executor and snapshot execution lane with matching. Caller ownership,
+expiry and expected revision are validated before retaining the native state;
+source cursor results and revision stay unchanged. Resource work pins the native
+snapshot through stream completion, including during source-cursor closure.

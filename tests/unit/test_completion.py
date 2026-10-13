@@ -112,15 +112,21 @@ def test_references_are_injected_and_fields_follow_dot():
 
 
 def test_bind_completion_and_strings_do_not_invent_values():
-    assert complete("match callExpr()") == [".bind", "do", "in"]
+    assert complete("match callExpr()") == [".bind", "do", "in", "scope"]
     assert complete("match callExpr().") == [".bind"]
     assert complete("match callExpr().bi") == [".bind"]
     assert complete("match callExpr().bind(") == []
-    assert complete('match callExpr().bind("capture")') == ["do", "in"]
+    assert complete('match callExpr().bind("capture")') == ["do", "in", "scope"]
     assert (
         complete('match hasName("function")', cursor=len('match hasName("func')) == []
     )
     assert complete('match hasName("unfinished') == []
+
+
+def test_explicit_match_scope_completes_native_scope_names():
+    assert complete("match callExpr() in $node scope ") == [
+        "children", "root_only", "self", "subtree"]
+    assert complete("match callExpr() in $node scope ch") == ["children"]
 
 
 def test_cursor_suffix_and_multiline_nested_context_are_preserved():

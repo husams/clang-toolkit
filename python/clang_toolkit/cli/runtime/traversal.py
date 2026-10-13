@@ -4,9 +4,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from pathlib import Path
 from .semantic import MessageView, view
-from .graph_options import graph_option
+from .graph_options import graph_option, render_graph
 from lark import Tree
 from .filesystem import File
+from clang_toolkit.match_values import ParsedTree, BindingSelection
+from clang_toolkit.resources import FileHandle, InputDescriptor
 
 if TYPE_CHECKING:
     from .evaluator import Runtime
@@ -18,8 +20,8 @@ def execute_traversal(runtime: Runtime, statement: Tree) -> MessageView:
     selected = runtime._evaluate(statement.children[1])
     if isinstance(selected, File):
         selected = selected.path
-    if not isinstance(selected, (str, Path)):
-        raise EvaluationError("traverse requires a file path")
+    if not isinstance(selected, (str, Path, ParsedTree, BindingSelection, FileHandle, InputDescriptor)):
+        raise EvaluationError("traverse requires a path, parsed tree or native binding")
     options: dict[str, int | bool] = {}
     for option in statement.children[2:]:
         if graph_option(option, options):
@@ -47,22 +49,21 @@ def execute_traversal(runtime: Runtime, statement: Tree) -> MessageView:
                     "max_depth must be 0..256; max_nodes must be 1..100000"
                 )
             options[key] = value
-    response = runtime._scoped_file_call(
-        selected,
-        lambda: runtime.client.traverse(
-            selected,
-            working_directory=runtime.cwd,
-            compile_arguments=runtime.config_store.effective["extra_args"],
-            **(
-                {"scope": runtime._active_resource_scope}
-                if runtime._active_resource_scope is not None
-                else {}
-            ),
-            **options,
-        ),
+    kwargs = dict(
+        working_directory=runtime.cwd,
+        compile_arguments=runtime.config_store.effective["extra_args"],
+        **({"scope": runtime._active_resource_scope}
+           if runtime._active_resource_scope is not None else {}),
+        **options,
     )
-    if runtime._active_resource_scope is not None:
-        from clang_toolkit.resources import require_complete
-
-        require_complete(response)
+    def run():
+        if runtime._value_context_depth:
+            # Assignment is an explicit request to collect an inspectable value.
+            return runtime.client.traverse(selected, **kwargs)
+        def emit(node):
+            text = runtime._emit_output(render_graph(view(node)))
+            if text:
+                print(text, flush=True)
+        return runtime.client.stream_traverse(selected, on_node=emit, **kwargs)
+    response = runtime._scoped_file_call(selected, run)
     return view(response)

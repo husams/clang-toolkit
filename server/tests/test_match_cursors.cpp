@@ -73,12 +73,345 @@ protected:
   MatchReply run(const MatchRequest &request, std::string owner = "owner") {
     return controller->match(owner, request, [] { return true; });
   }
+  MatchRequest navigation(const MatchResponse &old, std::string bind,
+                          NavigationAxis axis, std::string query = "") {
+    auto request = binding(old, std::move(bind), std::move(query));
+    request.set_navigation_axis(axis);
+    request.set_preserve_source(true);
+    request.mutable_binding()->set_match_index(0);
+    return request;
+  }
   MatchReply stream(const MatchRequest &request,
                     const MatchController::StreamSink &sink,
                     std::string owner = "owner") {
     return controller->stream_match(owner, request, [] { return true; }, sink);
   }
 };
+
+TEST_F(MatchCursors, ChildrenScopeMatchesOnlyDirectCandidatesWithNormalBindings) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto body_request = binding(source.response, "f", "compoundStmt().bind(\"body\")");
+  body_request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto body = fork(body_request);
+  ASSERT_EQ(body.code, MatchCode::Ok) << body.message;
+  ASSERT_EQ(body.response.results_size(), 1);
+  EXPECT_FALSE(body.response.results(0).bindings().contains("target"));
+  EXPECT_TRUE(body.response.results(0).bindings().at("root").node().has_compound_stmt());
+  auto request = binding(body.response, "body", "callExpr().bind(\"call\")");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto direct = fork(request);
+  ASSERT_EQ(direct.code, MatchCode::Ok) << direct.message;
+  EXPECT_EQ(direct.response.results_size(), 1);
+  EXPECT_EQ(fork(binding(body.response, "body", "callExpr()")).response.results_size(), 2);
+  request.set_query("returnStmt(hasDescendant(callExpr().bind(\"target\")))");
+  const auto nested = fork(request);
+  ASSERT_EQ(nested.code, MatchCode::Ok) << nested.message;
+  ASSERT_EQ(nested.response.results_size(), 1);
+  EXPECT_TRUE(nested.response.results(0).bindings().at("root").node().has_return_stmt());
+  EXPECT_TRUE(nested.response.results(0).bindings().at("target").node().has_call_expr());
+  body_request.set_query("functionDecl()");
+  EXPECT_EQ(fork(body_request).response.results_size(), 0);
+  EXPECT_EQ(fork(binding(source.response, "f", "callExpr()")).response.results_size(), 2);
+}
+
+TEST_F(MatchCursors, ChildrenScopeRetainsAuxiliaryParentForEachCandidateAlias) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  auto request = binding(source.response, "f", "typeLoc().bind(\"loc\")");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto types = fork(request);
+  ASSERT_EQ(types.code, MatchCode::Ok) << types.message;
+  ASSERT_EQ(types.response.results_size(), 1);
+  const auto up = run(navigation(types.response, "loc", NAVIGATION_AXIS_PARENTS));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  ASSERT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").symbol_identity(),
+            source.response.results(0).bindings().at("f").symbol_identity());
+}
+
+TEST_F(MatchCursors, ChildrenScopeMatchesTemplateArgumentLocationsWithoutPointerIdentity) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "template<class T> struct Holder {}; Holder<int> item;";
+  const auto source = run(file("varDecl(hasName(\"item\")).bind(\"v\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto type_request = binding(source.response, "v", "typeLoc().bind(\"loc\")");
+  type_request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto types = fork(type_request);
+  ASSERT_EQ(types.code, MatchCode::Ok) << types.message;
+  ASSERT_EQ(types.response.results_size(), 1);
+  auto request = binding(types.response, "loc", "templateArgumentLoc().bind(\"arg\")");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto arguments = fork(request);
+  ASSERT_EQ(arguments.code, MatchCode::Ok) << arguments.message;
+  ASSERT_EQ(arguments.response.results_size(), 1);
+  const auto up = run(navigation(arguments.response, "arg", NAVIGATION_AXIS_PARENTS));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  EXPECT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").SerializeAsString(),
+            types.response.results(0).bindings().at("loc").SerializeAsString());
+}
+
+TEST_F(MatchCursors, ChildrenScopeStreamsAndCancellationPreservesSource) {
+  const auto source = run(file("functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  auto request = binding(source.response, "f", "compoundStmt()");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  request.set_preserve_source(true);
+  std::vector<MatchStreamEvent> events;
+  const auto streamed = stream(request, [&](const MatchStreamEvent &event, std::string &) {
+    events.push_back(event);
+    return MatchCode::Ok;
+  });
+  ASSERT_EQ(streamed.code, MatchCode::Ok) << streamed.message;
+  ASSERT_EQ(events.size(), 2U);
+  EXPECT_TRUE(events.front().has_row());
+  EXPECT_TRUE(events.back().has_completed());
+  const auto cancelled = stream(request, [](const MatchStreamEvent &, std::string &) {
+    return MatchCode::Cancelled;
+  });
+  EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
+  EXPECT_EQ(fork(binding(source.response, "f", "callExpr()")).response.results_size(), 2);
+  request.mutable_binding()->set_expected_result_revision(source.response.result_revision() + 1);
+  EXPECT_EQ(run(request).code, MatchCode::Aborted);
+}
+
+TEST_F(MatchCursors, ChildrenScopeUsesRequestedMatcherTraversalPolicy) {
+  std::ofstream(directory.path() / "fixture.cc") << "struct Box { int run(){return 7;} };";
+  const auto source = run(file("cxxRecordDecl(hasName(\"Box\"), isDefinition()).bind(\"r\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto request = binding(source.response, "r", "cxxRecordDecl(isImplicit())");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  request.mutable_binding()->set_match_index(0);
+  const auto as_is = fork(request);
+  ASSERT_EQ(as_is.code, MatchCode::Ok) << as_is.message;
+  EXPECT_EQ(as_is.response.results_size(), 1);
+  request.set_traversal_mode(MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE);
+  const auto spelled = fork(request);
+  ASSERT_EQ(spelled.code, MatchCode::Ok) << spelled.message;
+  EXPECT_EQ(spelled.response.results_size(), 0);
+}
+
+TEST_F(MatchCursors, NavigationMatchesBaseEdgesAndRetainsReferencedClasses) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "struct Root {}; struct A : Root { int run(){return 7;} }; struct B {}; struct C {}; "
+         "using Alias = A; struct Leaf : Alias, B, C { struct Nested : C {}; };";
+  const auto source = run(file(
+      "cxxRecordDecl(hasName(\"Leaf\"), isDefinition()).bind(\"cls\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  const std::string query =
+      "cxxBaseSpecifier(hasType(qualType(hasUnqualifiedDesugaredType("
+      "recordType(hasDeclaration(cxxRecordDecl().bind(\"base\"))))))).bind(\"edge\")";
+  auto request = navigation(source.response, "cls", NAVIGATION_AXIS_CHILDREN, query);
+  const auto edges = run(request);
+  ASSERT_EQ(edges.code, MatchCode::Ok) << edges.message;
+  ASSERT_EQ(edges.response.results_size(), 3);
+  for (int index = 0; index < 3; ++index) {
+    const auto &bindings = edges.response.results(index).bindings();
+    EXPECT_TRUE(bindings.at("target").has_base_specifier());
+    EXPECT_TRUE(bindings.at("root").has_base_specifier());
+    EXPECT_TRUE(bindings.at("edge").has_base_specifier());
+    EXPECT_TRUE(bindings.at("base").node().has_cxx_record_decl());
+  }
+  const auto class_name = [](const MatchBinding &binding) {
+    return binding.node().cxx_record_decl().record().tag().type_declaration()
+        .named().qualified_name();
+  };
+  EXPECT_EQ(class_name(edges.response.results(0).bindings().at("base")), "A");
+  EXPECT_EQ(class_name(edges.response.results(1).bindings().at("base")), "B");
+  EXPECT_EQ(class_name(edges.response.results(2).bindings().at("base")), "C");
+  const auto up = run(navigation(edges.response, "edge", NAVIGATION_AXIS_PARENTS,
+                                  "cxxRecordDecl(hasName(\"Leaf\"))"));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  ASSERT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").symbol_identity(),
+            source.response.results(0).bindings().at("cls").symbol_identity());
+  const auto type = run(navigation(edges.response, "target", NAVIGATION_AXIS_CHILDREN,
+                                    "typeLoc()"));
+  ASSERT_EQ(type.code, MatchCode::Ok) << type.message;
+  ASSERT_EQ(type.response.results_size(), 1);
+  const auto type_up = run(navigation(type.response, "target", NAVIGATION_AXIS_PARENTS,
+                                       "cxxBaseSpecifier()"));
+  ASSERT_EQ(type_up.code, MatchCode::Ok) << type_up.message;
+  ASSERT_EQ(type_up.response.results_size(), 1);
+  EXPECT_TRUE(type_up.response.results(0).bindings().at("target").has_base_specifier());
+  const auto ancestor = run(navigation(edges.response, "base", NAVIGATION_AXIS_CHILDREN, query));
+  ASSERT_EQ(ancestor.code, MatchCode::Ok) << ancestor.message;
+  ASSERT_EQ(ancestor.response.results_size(), 1);
+  EXPECT_EQ(class_name(ancestor.response.results(0).bindings().at("base")), "Root");
+  request.set_query(
+      "cxxBaseSpecifier(hasType(qualType(hasUnqualifiedDesugaredType("
+      "recordType(hasDeclaration(cxxRecordDecl(hasDescendant(cxxMethodDecl("
+      "hasName(\"run\")))).bind(\"base\")))))))");
+  const auto nested = run(request);
+  ASSERT_EQ(nested.code, MatchCode::Ok) << nested.message;
+  ASSERT_EQ(nested.response.results_size(), 1);
+  EXPECT_EQ(class_name(nested.response.results(0).bindings().at("base")), "A");
+  request.set_query("cxxBaseSpecifier(hasType(cxxRecordDecl().bind(\"target\")))");
+  EXPECT_EQ(run(request).code, MatchCode::InvalidArgument);
+  request.set_query("cxxBaseSpecifier(hasType(cxxRecordDecl(hasName(\"B\"))))");
+  const auto filtered = run(request);
+  ASSERT_EQ(filtered.code, MatchCode::Ok) << filtered.message;
+  EXPECT_EQ(filtered.response.results_size(), 1);
+  request.set_query(query);
+  request.set_navigation_axis(NAVIGATION_AXIS_UNSPECIFIED);
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto scoped = run(request);
+  ASSERT_EQ(scoped.code, MatchCode::Ok) << scoped.message;
+  ASSERT_EQ(scoped.response.results_size(), 3);
+  EXPECT_FALSE(scoped.response.results(0).bindings().contains("target"));
+}
+
+TEST_F(MatchCursors, NavigationBaseEdgesStreamAndRespectCancellationAndLimits) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "struct A {}; struct B {}; struct Leaf : A, B {};";
+  const auto source = run(file(
+      "cxxRecordDecl(hasName(\"Leaf\"), isDefinition()).bind(\"cls\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto request = navigation(source.response, "cls", NAVIGATION_AXIS_CHILDREN,
+      "cxxBaseSpecifier(hasType(cxxRecordDecl().bind(\"base\")))");
+  std::vector<MatchStreamEvent> events;
+  const auto streamed = stream(request, [&](const MatchStreamEvent &event, std::string &) {
+    events.push_back(event);
+    return MatchCode::Ok;
+  });
+  ASSERT_EQ(streamed.code, MatchCode::Ok) << streamed.message;
+  ASSERT_EQ(events.size(), 3U);
+  EXPECT_TRUE(events[0].has_row());
+  EXPECT_TRUE(events[1].has_row());
+  EXPECT_TRUE(events[2].has_completed());
+  const auto cancelled = stream(request, [](const MatchStreamEvent &, std::string &) {
+    return MatchCode::Cancelled;
+  });
+  EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
+  request.set_navigation_max_nodes(1);
+  EXPECT_EQ(run(request).code, MatchCode::ResourceExhausted);
+  request.clear_navigation_max_nodes();
+  EXPECT_EQ(run(request).response.results_size(), 2);
+}
+
+TEST_F(MatchCursors, NavigationFiltersImmediateChildrenAndKeepsSource) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  const auto before = source.response;
+  const auto absent = run(navigation(before, "f", NAVIGATION_AXIS_CHILDREN,
+                                      "callExpr()"));
+  ASSERT_EQ(absent.code, MatchCode::Ok) << absent.message;
+  EXPECT_EQ(absent.response.results_size(), 0);
+  const auto body = run(navigation(before, "f", NAVIGATION_AXIS_CHILDREN,
+                                    "compoundStmt().bind(\"body\")"));
+  ASSERT_EQ(body.code, MatchCode::Ok) << body.message;
+  ASSERT_EQ(body.response.results_size(), 1);
+  EXPECT_TRUE(body.response.results(0).bindings().at("target")
+                  .node().has_compound_stmt());
+  EXPECT_TRUE(body.response.results(0).bindings().contains("body"));
+  const auto direct = run(navigation(body.response, "target",
+                                      NAVIGATION_AXIS_CHILDREN, "callExpr()"));
+  ASSERT_EQ(direct.code, MatchCode::Ok) << direct.message;
+  EXPECT_EQ(direct.response.results_size(), 1);
+  const auto all = run(navigation(body.response, "target",
+                                   NAVIGATION_AXIS_CHILDREN));
+  ASSERT_EQ(all.code, MatchCode::Ok) << all.message;
+  EXPECT_EQ(all.response.results_size(), 3);
+  const auto up = run(navigation(body.response, "target",
+                                  NAVIGATION_AXIS_PARENTS, "functionDecl()"));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  ASSERT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").symbol_identity(),
+            before.results(0).bindings().at("f").symbol_identity());
+  // Source guard and results still work after every independent operation.
+  const auto again = fork(binding(before, "f", "callExpr()"));
+  ASSERT_EQ(again.code, MatchCode::Ok) << again.message;
+  EXPECT_EQ(again.response.results_size(), 2);
+}
+
+TEST_F(MatchCursors, NavigationPeeksTypeChildrenAndReturnsThroughTheirEdge) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  const auto types = run(navigation(source.response, "f",
+                                     NAVIGATION_AXIS_CHILDREN, "typeLoc()"));
+  ASSERT_EQ(types.code, MatchCode::Ok) << types.message;
+  ASSERT_EQ(types.response.results_size(), 1);
+  const auto up = run(navigation(types.response, "target",
+                                  NAVIGATION_AXIS_PARENTS));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  ASSERT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").symbol_identity(),
+            source.response.results(0).bindings().at("f").symbol_identity());
+}
+
+TEST_F(MatchCursors, NavigationNestedBindingsCannotRedirectTarget) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  const auto invalid = run(navigation(
+      source.response, "f", NAVIGATION_AXIS_CHILDREN,
+      "compoundStmt(hasDescendant(integerLiteral().bind(\"target\")))"));
+  EXPECT_EQ(invalid.code, MatchCode::InvalidArgument);
+  const auto valid = run(navigation(
+      source.response, "f", NAVIGATION_AXIS_CHILDREN,
+      "compoundStmt(hasDescendant(integerLiteral().bind(\"nested\")))"));
+  ASSERT_EQ(valid.code, MatchCode::Ok) << valid.message;
+  ASSERT_EQ(valid.response.results_size(), 1);
+  EXPECT_TRUE(valid.response.results(0).bindings().at("target")
+                  .node().has_compound_stmt());
+  EXPECT_TRUE(valid.response.results(0).bindings().at("nested")
+                  .node().has_integer_literal());
+}
+
+TEST_F(MatchCursors, NavigationStreamLimitsCancellationAndMissingOwnership) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto request = navigation(source.response, "f", NAVIGATION_AXIS_CHILDREN);
+  std::vector<MatchStreamEvent> events;
+  request.set_navigation_max_nodes(1);
+  const auto limited = stream(request,
+      [&](const MatchStreamEvent &event, std::string &) {
+        events.push_back(event);
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(limited.code, MatchCode::ResourceExhausted);
+  ASSERT_EQ(events.size(), 1U);
+  EXPECT_TRUE(events[0].has_row());
+  request.clear_navigation_max_nodes();
+  const auto cancelled = stream(request,
+      [](const MatchStreamEvent &, std::string &) {
+        return MatchCode::Cancelled;
+      });
+  EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
+  EXPECT_EQ(run(request, "other-owner").code, MatchCode::NotFound);
+  request.mutable_binding()->set_expected_result_revision(
+      source.response.result_revision() + 1);
+  EXPECT_EQ(run(request).code, MatchCode::Aborted);
+  request.mutable_binding()->set_expected_result_revision(
+      source.response.result_revision());
+  const auto retry = run(request);
+  ASSERT_EQ(retry.code, MatchCode::Ok) << retry.message;
+  EXPECT_EQ(retry.response.results_size(), 2);
+  request.set_preserve_source(false);
+  EXPECT_EQ(run(request).code, MatchCode::InvalidArgument);
+  request.set_preserve_source(true);
+  request.set_navigation_axis(static_cast<NavigationAxis>(99));
+  EXPECT_EQ(run(request).code, MatchCode::InvalidArgument);
+}
+
+TEST_F(MatchCursors, NavigationEmptySelectionAndRootParentsAreEmpty) {
+  const auto empty = run(file("functionDecl(hasName(\"missing\")).bind(\"f\")"));
+  ASSERT_EQ(empty.code, MatchCode::Ok) << empty.message;
+  auto request = navigation(empty.response, "f", NAVIGATION_AXIS_CHILDREN);
+  request.mutable_binding()->clear_match_index();
+  const auto no_roots = run(request);
+  ASSERT_EQ(no_roots.code, MatchCode::Ok) << no_roots.message;
+  EXPECT_EQ(no_roots.response.results_size(), 0);
+  const auto tu = run(file("translationUnitDecl().bind(\"tu\")"));
+  ASSERT_EQ(tu.code, MatchCode::Ok) << tu.message;
+  const auto parents = run(navigation(tu.response, "tu", NAVIGATION_AXIS_PARENTS));
+  ASSERT_EQ(parents.code, MatchCode::Ok) << parents.message;
+  EXPECT_EQ(parents.response.results_size(), 0);
+}
 
 TEST_F(MatchCursors, StreamEmitsFullRowsThenCommitsThinContinuationState) {
   std::vector<MatchStreamEvent> events;

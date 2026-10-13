@@ -188,4 +188,115 @@ TEST_F(AstTraversal,
             MatchCode::ResourceExhausted);
 }
 } // namespace
+TEST_F(AstTraversal,
+       StreamingEmitsBeforeCompletionAndStopsAtConsumerBackpressure) {
+  std::size_t seen = 0;
+  auto result = controller.traverse_stream(
+      request, [] { return true; },
+      [&](const ctk::analysis::v1::TraversalNode &node, std::string &message) {
+        EXPECT_EQ(node.index(), seen);
+        EXPECT_FALSE(node.native_kind().empty());
+        ++seen;
+        if (seen == 3) {
+          message = "consumer stopped";
+          return MatchCode::Cancelled;
+        }
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(result.code, MatchCode::Cancelled);
+  EXPECT_EQ(seen, 3);
+  EXPECT_TRUE(result.response.nodes().empty());
+}
+TEST_F(AstTraversal, StreamingBoundsEachVisitInsteadOfTheirCombinedBytes) {
+  auto baseline = controller.traverse(request, [] { return true; });
+  ASSERT_EQ(baseline.code, MatchCode::Ok);
+  std::size_t largest = 0;
+  for (const auto &node : baseline.response.nodes())
+    largest = std::max(largest, node.ByteSizeLong());
+  CursorSettings settings;
+  settings.results.max_bytes = largest + 16;
+  TraversalController small(settings);
+  std::uint64_t count = 0;
+  auto streamed = small.traverse_stream(
+      request, [] { return true; },
+      [&](const auto &, std::string &) {
+        ++count;
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(streamed.code, MatchCode::Ok) << streamed.message;
+  EXPECT_EQ(count, static_cast<std::uint64_t>(baseline.response.nodes_size()));
+  EXPECT_EQ(streamed.node_count, count);
+  EXPECT_TRUE(streamed.response.nodes().empty());
+  EXPECT_EQ(small.traverse(request, [] { return true; }).code,
+            MatchCode::ResourceExhausted);
+}
+TEST_F(AstTraversal,
+       RetainedTreesDeclarationsStatementsAndTypesUsePinnedSnapshot) {
+  MatchController matches;
+  TraversalController retained({}, {}, {}, &matches);
+  ctk::match::v1::ParseRequest parse;
+  parse.set_file_path(request.file().file_path());
+  parse.set_working_directory(directory.path().string());
+  parse.add_compile_arguments("-std=c++20");
+  auto tree = matches.parse("owner", parse, [] { return true; });
+  ASSERT_EQ(tree.code, MatchCode::Ok) << tree.message;
+  ctk::analysis::v1::TraverseRequest selected;
+  selected.mutable_session()->set_session_id(tree.response.session_id());
+  selected.mutable_session()->set_expected_result_revision(
+      tree.response.result_revision());
+  selected.set_max_depth(0);
+  auto root = retained.traverse(selected, [] { return true; }, "owner");
+  ASSERT_EQ(root.code, MatchCode::Ok) << root.message;
+  EXPECT_EQ(root.response.nodes(0).native_kind(), "TranslationUnitDecl");
+  for (const auto &query :
+       {"functionDecl(hasName(\"f\")).bind(\"selected\")",
+        "integerLiteral().bind(\"selected\")",
+        "qualType(isInteger()).bind(\"selected\")",
+        "builtinType().bind(\"selected\")", "typeLoc().bind(\"selected\")"}) {
+    ctk::match::v1::MatchRequest match;
+    match.set_query(query);
+    match.mutable_session()->set_session_id(tree.response.session_id());
+    match.set_preserve_source(true);
+    auto rows = matches.match("owner", match, [] { return true; });
+    ASSERT_EQ(rows.code, MatchCode::Ok) << rows.message;
+    ASSERT_GT(rows.response.results_size(), 0) << query;
+    selected.Clear();
+    auto *binding = selected.mutable_binding();
+    binding->set_session_id(rows.response.session_id());
+    binding->set_expected_result_revision(rows.response.result_revision());
+    binding->set_bind("selected");
+    binding->set_match_index(0);
+    auto traversed = retained.traverse(selected, [] { return true; }, "owner");
+    ASSERT_EQ(traversed.code, MatchCode::Ok)
+        << query << ": " << traversed.message;
+    ASSERT_GT(traversed.response.nodes_size(), 0);
+    EXPECT_EQ(traversed.response.nodes(0).depth(), 0);
+    EXPECT_FALSE(traversed.response.nodes(0).has_parent_index());
+    EXPECT_EQ(retained.traverse(
+                          selected, [] { return true; }, "other")
+                  .code,
+              MatchCode::NotFound);
+    binding->set_expected_result_revision(rows.response.result_revision() + 1);
+    EXPECT_EQ(retained.traverse(
+                          selected, [] { return true; }, "owner")
+                  .code,
+              MatchCode::Aborted);
+    EXPECT_EQ(matches.close("owner", rows.response.session_id()).code,
+              MatchCode::Ok);
+  }
+  // Removing the source proves the retained traversal does not reacquire it.
+  std::filesystem::remove(directory.path() / "fixture.cc");
+  selected.Clear();
+  selected.mutable_session()->set_session_id(tree.response.session_id());
+  EXPECT_EQ(retained.traverse(
+                        selected, [] { return true; }, "owner")
+                .code,
+            MatchCode::Ok);
+  EXPECT_EQ(matches.close("owner", tree.response.session_id()).code,
+            MatchCode::Ok);
+  EXPECT_EQ(retained.traverse(
+                        selected, [] { return true; }, "owner")
+                .code,
+            MatchCode::NotFound);
+}
 } // namespace ctk::application

@@ -69,6 +69,12 @@ public:
                const ctk::match::v1::MatchRequest &request,
                const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
                const StreamSink &sink);
+  // Capture an immutable native state under the source cursor's operation
+  // lock. Ownership, expiry and revision are checked; matching is not rerun.
+  MatchReply native_state(
+      const std::string &owner, const ctk::match::v1::MatchRequest &target,
+      std::shared_ptr<const ctk::clang_layer::NativeBindingState> &state,
+      const std::string &work_token);
   MatchReply close(const std::string &owner, const std::string &id);
   ctk::match::v1::ListSessionsResponse list_sessions(const std::string &owner);
   MatchReply attach_session(const std::string &owner, const std::string &id,
@@ -90,6 +96,7 @@ public:
       const std::string &owner, const std::string &id,
       ctk::match::v1::ResourceScopeInfo &response);
   ctk::match::v1::ResourceStatusResponse resource_status();
+  std::shared_ptr<ResourceManager> resource_manager() const;
   void stop_admission();
 
 private:
