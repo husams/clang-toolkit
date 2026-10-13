@@ -333,6 +333,79 @@ def database_asts(database_results):
     assert not (root / "build/profile.d").exists()
 
 
+@given(parsers.parse("a header without a compilation entry selected by {selection}"),
+       target_fixture="header_database_project")
+def header_database_project(tmp_path: Path, selection: str):
+    import json
+
+    root, source, database, command, selection = database_project(tmp_path, selection)
+    header = source.with_suffix(".h")
+    header.write_text(source.read_text())
+    source.write_text('#include "profile.h"\n')
+    # Choosing the matching TU must win over the first database entry.
+    unrelated = {**command, "file": "../src/unrelated.cc",
+                 "arguments": ["clang++", "-DPROFILE=0", "../src/unrelated.cc"]}
+    database.write_text(json.dumps([unrelated, command]))
+    return root, header, database, unrelated, command, selection
+
+
+@when("I parse the header through both SDKs native scripts and the console",
+      target_fixture="header_database_results")
+def parse_header_database(server: RunningServer, header_database_project):
+    import json
+    import sys
+    from clang_toolkit import Client
+
+    root, header, database, unrelated, command, selection = header_database_project
+    selected = str(database) if selection == "explicit" else None
+    matcher = 'functionDecl(hasName("before"), isExpansionInMainFile()).bind("f")'
+    with Client(server.endpoint, compilation_database=selected) as client:
+        with client.parse(header, working_directory=root) as tree:
+            with client.match_in(matcher, tree) as rows:
+                assert len(rows) == 1
+        script = client.run_script(
+            f'let tree = parse "src/profile.h"; let rows = match {matcher} in $tree; emit rows;',
+            working_directory=root,
+        )
+        assert len(script.emissions[0].value.matches.rows) == 1
+    arguments = [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint]
+    if selected:
+        arguments += ["--compile-commands", selected]
+    console = subprocess.run(
+        arguments, cwd=root,
+        input=f'let tree = parse "src/profile.h"\nlet rows = match {matcher} in $tree\nprint $rows\nquit\n',
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        timeout=30, check=False,
+    )
+    assert console.returncode == 0, console.stdout
+
+    async def run():
+        async with AsyncClient(server.endpoint, compilation_database=selected) as client:
+            async with await client.parse(header, working_directory=root) as pinned:
+                async with await client.match_in(matcher, pinned) as before:
+                    first = len(before)
+                command["arguments"][3] = "-DPROFILE=22"
+                database.write_text(json.dumps([unrelated, command]))
+                async with await client.parse(header, working_directory=root) as updated:
+                    async with await client.match_in(
+                        'functionDecl(hasName("after"), isExpansionInMainFile()).bind("f")', updated,
+                    ) as after:
+                        refreshed = len(after)
+                async with await client.match_in(matcher, pinned) as retained:
+                    return first, refreshed, len(retained)
+
+    return asyncio.run(run()), console.stdout, root
+
+
+@then("the inferred options select header declarations and refresh after flag changes")
+def verify_header_database(header_database_results):
+    counts, console, root = header_database_results
+    assert counts == (1, 1, 1)
+    assert "before" in console and "error:" not in console
+    assert not (root / "build/profile.o").exists()
+    assert not (root / "build/profile.d").exists()
+
+
 @given("a C++ file controlled by a client compilation profile", target_fixture="profile_source")
 def client_profile_source(tmp_path: Path) -> Path:
     directory = tmp_path / "client-profile"

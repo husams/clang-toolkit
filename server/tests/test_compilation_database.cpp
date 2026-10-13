@@ -186,12 +186,129 @@ TEST(CompilationDatabase, ExplicitMissingFilesAndCommandsAreErrors) {
   std::ofstream(project.path() / "file.cc") << "int value;";
   FileInput input{"file.cc", {}, project.path().string(), "absent.json"};
   EXPECT_THROW(resolve_compilation_command(input), std::invalid_argument);
-  write_database(project.path() / "compile_commands.json", project.path(),
-                 "other.cc", {"clang++", "other.cc"});
+  std::ofstream(project.path() / "compile_commands.json") << "[]";
   input.compilation_database = project.path().string();
   EXPECT_THROW(resolve_compilation_command(input), std::invalid_argument);
   input.compilation_database.clear();
   EXPECT_EQ(resolve_compilation_command(input).path, input.path);
+}
+
+TEST(CompilationDatabase, HeaderInheritsNearbyTuFlagsAndKeepsHeaderAsMainFile) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-header"};
+  std::filesystem::create_directories(project.path() /
+                                      "build/include with spaces");
+  std::filesystem::create_directory(project.path() / "src");
+  std::ofstream(project.path() / "build/include with spaces/profile.hpp")
+      << "#define HEADER_VALUE 17\n";
+  std::ofstream(project.path() / "src/profile.h")
+      << "#include <profile.hpp>\nstatic_assert(HEADER_VALUE == 17 && PROFILE "
+         "== 23);\n"
+         "inline int from_header(){return PROFILE;}\n";
+  // Clang's filename inference does not require the donor TU to be readable.
+  write_database(project.path() / "build/compile_commands.json",
+                 project.path() / "build", "../src/profile.cc",
+                 {"clang++", "-std=c++20", "-Iinclude with spaces",
+                  "-DPROFILE=1", "-c", "../src/profile.cc", "-o", "profile.o",
+                  "-MMD", "-MF", "profile.d"});
+  FileInput input{
+      "src/profile.h", {"-UPROFILE", "-DPROFILE=23"}, project.path().string()};
+  EXPECT_EQ(match_count(make_query_engine(), input, "from_header"), 1);
+  input.compilation_database = "build";
+  const auto resolved = resolve_compilation_command(input);
+  EXPECT_EQ(resolved.path,
+            std::filesystem::weakly_canonical(project.path() / "src/profile.h")
+                .string());
+  EXPECT_EQ(
+      resolved.working_directory,
+      std::filesystem::weakly_canonical(project.path() / "build").string());
+  int count = 0;
+  const auto result = make_query_engine()->match(
+      input, "functionDecl(hasName(\"from_header\"), isExpansionInMainFile())",
+      [] { return true; }, [&](const auto &) { ++count; });
+  EXPECT_TRUE(result.ok) << result.message;
+  EXPECT_EQ(count, 1);
+  EXPECT_FALSE(std::filesystem::exists(project.path() / "build/profile.o"));
+  EXPECT_FALSE(std::filesystem::exists(project.path() / "build/profile.d"));
+}
+
+TEST(CompilationDatabase,
+     InferredHeaderFlagsRefreshWithDatabaseAndResponseFile) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-header-response"};
+  std::filesystem::create_directory(project.path() / "build");
+  std::ofstream(project.path() / "profile.hpp")
+      << "#if VALUE == 1\ninline int before(){return 1;}\n"
+         "#else\ninline int after(){return 2;}\n#endif\n";
+  const auto response = project.path() / "build/flags.rsp";
+  std::ofstream(response) << "-std=c++20 -DVALUE=1 -c -- ../profile.cc";
+  const auto database = project.path() / "build/compile_commands.json";
+  write_database(database, project.path() / "build", "../profile.cc",
+                 {"clang++", "@flags.rsp"});
+  FileInput input{"profile.hpp", {}, project.path().string()};
+  auto engine = make_query_engine();
+  EXPECT_EQ(match_count(engine, input, "before"), 1);
+  std::ofstream(response) << "-std=c++23 -DVALUE=22 -c -- ../profile.cc";
+  EXPECT_EQ(match_count(engine, input, "after"), 1);
+  EXPECT_EQ(match_count(engine, input, "before"), 0);
+  write_database(database, project.path() / "build", "../replacement.cc",
+                 {"clang++", "-std=c++20", "-DVALUE=1", "../replacement.cc"});
+  EXPECT_EQ(match_count(engine, input, "before"), 1);
+  std::ofstream(database) << "[invalid JSON";
+  EXPECT_THROW(resolve_compilation_command(input), std::invalid_argument);
+}
+
+TEST(CompilationDatabase, ExactHeaderEntryWinsOverInferredTu) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-exact-header"};
+  const auto header = project.path() / "profile.hpp";
+  std::ofstream(header)
+      << "static_assert(VALUE == 23); inline int exact(){return VALUE;}";
+  const auto database = project.path() / "compile_commands.json";
+  write_database(database, project.path(), "profile.cc",
+                 {"clang++", "-DVALUE=1", "profile.cc"});
+  // Add an authoritative header entry to the same database.
+  std::ifstream file(database);
+  std::string json((std::istreambuf_iterator<char>(file)), {});
+  google::protobuf::ListValue entries;
+  ASSERT_TRUE(google::protobuf::util::JsonStringToMessage(json, &entries).ok());
+  auto &fields =
+      *entries.add_values()->mutable_struct_value()->mutable_fields();
+  fields["directory"].set_string_value(project.path().string());
+  fields["file"].set_string_value("profile.hpp");
+  for (const auto *arg : {"clang++", "-std=c++20", "-DVALUE=23", "profile.hpp"})
+    fields["arguments"].mutable_list_value()->add_values()->set_string_value(
+        arg);
+  json.clear();
+  ASSERT_TRUE(google::protobuf::util::MessageToJsonString(entries, &json).ok());
+  std::ofstream(database) << json;
+  EXPECT_EQ(match_count(make_query_engine(),
+                        {header.string(), {}, project.path().string()},
+                        "exact"),
+            1);
+}
+
+TEST(CompilationDatabase, AmbiguousHeaderExtensionInheritsCLanguage) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-c-header"};
+  std::ofstream(project.path() / "profile.h")
+      << "#ifdef __cplusplus\n#error must_parse_as_c\n#endif\n"
+         "_Static_assert(VALUE == 17, \"profile\");\nint c_header(void);\n";
+  write_database(project.path() / "compile_commands.json", project.path(),
+                 "profile.c", {"clang", "-DVALUE=17", "profile.c"});
+  EXPECT_EQ(match_count(make_query_engine(),
+                        {"profile.h", {}, project.path().string()}, "c_header"),
+            1);
+}
+
+TEST(CompilationDatabase, CppHeaderDoesNotInheritIncompatibleCStandard) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-c-to-cpp-header"};
+  std::ofstream(project.path() / "profile.hpp")
+      << "template<class T> constexpr T value = T{17};\n"
+         "static_assert(value<int> == VALUE);\ninline int cpp_header(){return "
+         "VALUE;}\n";
+  write_database(project.path() / "compile_commands.json", project.path(),
+                 "profile.c", {"clang", "-std=c17", "-DVALUE=17", "profile.c"});
+  EXPECT_EQ(match_count(make_query_engine(),
+                        {"profile.hpp", {}, project.path().string()},
+                        "cpp_header"),
+            1);
 }
 
 TEST(CompilationDatabase, ParseFailureReportsMissingHeaderAndSourceLocation) {

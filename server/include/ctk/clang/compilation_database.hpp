@@ -4,7 +4,9 @@
 
 namespace ctk::clang_layer {
 // Resolve the selected native command before AST cache identity is computed.
-// Explicit overrides append to its flags. No discovered command preserves the
-// standalone-file defaults; an explicit database miss is an error.
+// Exact entries win; missing entries use Clang's TU command inference,
+// including language/standard adjustment for headers. Explicit overrides append
+// last. Without a usable command, automatic discovery preserves standalone
+// defaults; an explicit database miss is an error.
 FileInput resolve_compilation_command(const FileInput &input);
 } // namespace ctk::clang_layer
