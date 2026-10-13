@@ -12,8 +12,8 @@ step children|parents [MATCHER] [at INDEX] in TARGET [nodes NUMBER]
 match MATCHER in TARGET scope self|children|subtree
 ```
 
-TARGET is a retained binding such as `$rows[0].cls`. Matchers can be inline or
-saved references such as `$base_edges`. `peek` returns rows whose `.target` is the
+TARGET is a retained binding such as `rows[0].cls`. Matchers can be inline or
+saved references such as `base_edges`. `peek` returns rows whose `.target` is the
 immediate candidate and whose named bindings may refer to other nodes. `step`
 returns `.target`, requiring one row unless a zero-based `at` selects it. Empty,
 ambiguous, and out-of-range selections are errors; source references remain usable.
@@ -38,22 +38,22 @@ that supports navigation. The included fixture has one `demo::Leaf` definition.
 
 ```text
 let tree = parse "examples/multiple_inheritance_navigation.cc"
-let classes = match cxxRecordDecl(hasName("demo::Leaf"), isDefinition()).bind("cls") in $tree
-let leaf = $classes[0].cls
+let classes = match cxxRecordDecl(hasName("demo::Leaf"), isDefinition()).bind("cls") in tree
+let leaf = classes[0].cls
 let base_edges = cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base")))
-let bases = peek children $base_edges in $leaf
-foreach edge in $bases do { print $edge.base.decl_name; }
-let derived = step parents cxxRecordDecl() in $bases[0].target
-print $derived.decl_name
-let scoped = match $base_edges in $leaf scope children
-print $scoped.length
+let bases = peek children base_edges in leaf
+foreach edge in bases do { print edge.base.decl_name; }
+let derived = step parents cxxRecordDecl() in bases[0].target
+print derived.decl_name
+let scoped = match base_edges in leaf scope children
+print scoped.length
 ```
 
 Output: `demo::Left`, `demo::Right`, `demo::Leaf`, `2`. When adapting the script,
 establish that the class match is nonempty before indexing it.
 
 `.target` and automatic `.root` are `CXXBaseSpecifier` edges; `.base` is the
-referenced class declaration. Continue inheritance traversal from `$edge.base`.
+referenced class declaration. Continue inheritance traversal from `edge.base`.
 The class declaration is a semantic reference, not a containment child of its
 specifier. This expression needs neither metadata filtering nor a second match
 inside the loop. Whole-file and `scope self` matching still require Clang's
@@ -69,7 +69,7 @@ let base_edges = cxxBaseSpecifier(hasType(qualType(hasUnqualifiedDesugaredType(r
 `examples/multiple_inheritance_navigation.ctk` contains a complete ancestor walk:
 append retained `.base` references to the work queue, then deduplicate the final
 list by `symbol_identity`. Diamond inheritance can discover the same class twice.
-Dedicated `bases`/`derived` axes and `seek` remain proposals.
+The bundled `ancestors(target, className, maxDepth = 32)` returns a nested inheritance tree and breadth-first levels, preserving diamond paths and edge visibility/virtualness. See [utilities.md](utilities.md). Dedicated native `bases`/`derived` axes and `seek` remain proposals.
 
 ## Stream or retain deliberately
 
@@ -81,7 +81,7 @@ arrives; an assigned match retains native results.
 
 `traverse TARGET [depth NUMBER] [nodes NUMBER]` accepts a path, opened file, parsed
 tree, or any retained binding and streams native preorder visits. It includes the
-root at depth zero; `traverse $leaf depth 0` inspects that root only. It preserves
+root at depth zero; `traverse leaf depth 0` inspects that root only. It preserves
 the starting reference. Default depth is 64 (0..256), and default node budget is
 10000 (1..100000). Context-dependent auxiliary values may be explicit leaves.
 `let graph = traverse ...` explicitly collects semantic visit snapshots, which

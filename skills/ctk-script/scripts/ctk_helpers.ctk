@@ -1,0 +1,177 @@
+// Import-only library: definitions are dormant until called.
+let definedClass(name) = cxxRecordDecl(hasName(name), isDefinition(), unless(isImplicit()))
+let definedFunction(name) = functionDecl(hasName(name), isDefinition(), unless(isImplicit()))
+let methodsOfClass(name) = cxxMethodDecl(ofClass(cxxRecordDecl(hasName(name))), unless(isImplicit()))
+let publicMethodsOfClass(name) = cxxMethodDecl(ofClass(cxxRecordDecl(hasName(name))), isPublic(), unless(isImplicit()))
+let fieldsOfClass(name) = fieldDecl(hasDeclContext(cxxRecordDecl(hasName(name))))
+let derivedFrom(name) = cxxRecordDecl(isDefinition(), unless(isImplicit()), isDerivedFrom(name))
+let callsTo(name) = callExpr(callee(functionDecl(hasName(name))))
+let _ctkAllMethods(name) = cxxMethodDecl(ofClass(cxxRecordDecl(hasName(name))))
+let _ctkStaticFields(name) = varDecl(hasDeclContext(cxxRecordDecl(hasName(name))))
+let _ctkNestedClasses(name) = cxxRecordDecl(isDefinition(), unless(isImplicit()), hasDeclContext(cxxRecordDecl(hasName(name))))
+let _ctkParameterMatcher(name) = parmVarDecl(hasDeclContext(functionDecl(hasName(name))))
+let _ctkBaseMatcher() = cxxBaseSpecifier(optionally(hasType(qualType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl().bind("base"))))))))
+
+let _ctkSymbol(node) = {name: node.decl_name, id: node.symbol_identity, file: node.location.file, line: node.location.line}
+let _ctkClass(node) = {
+    let info = _ctkSymbol(node)
+    info["kind"] = node.tag_kind.name
+    info
+}
+let _ctkClasses(target, name) = {
+    let rows = match definedClass(name).bind("cls") in target
+    rows.unique("cls.symbol_identity")
+}
+let _ctkAccess(node) = {
+    let publicRows = match decl(isPublic()) in node scope self
+    let protectedRows = match decl(isProtected()) in node scope self
+    let privateRows = match decl(isPrivate()) in node scope self
+    if publicRows.length > 0 then "public" else if protectedRows.length > 0 then "protected" else if privateRows.length > 0 then "private" else "none"
+}
+let _ctkParameters(node) = {
+    let parameters = match _ctkParameterMatcher(node.decl_name).bind("p") in node
+    let defaults = match parmVarDecl(hasDefaultArgument()).bind("p") in node
+    let defaultIds = foreach parameter in defaults do parameter.p.symbol_identity
+    foreach parameter in parameters do {
+        let info = _ctkSymbol(parameter.p)
+        info["type"] = parameter.p.variable.declarator.declared_type.description.spelling
+        info["index"] = parameter.p.function_scope_index
+        info["has_default"] = parameter.p.symbol_identity in defaultIds
+        info
+    }
+}
+let _ctkBase(edge) = {
+    let resolved = edge.bindings has base
+    {type: edge.edge.type.description.spelling, access: if edge.edge.access.number == 2 then "public" else if edge.edge.access.number == 3 then "protected" else if edge.edge.access.number == 4 then "private" else "none", virtual: edge.edge.is_virtual, pack_expansion: edge.edge.is_pack_expansion, resolved: resolved, class: if resolved then _ctkSymbol(edge.base) else null}
+}
+let directBases(node) = {
+    let edges = peek children _ctkBaseMatcher().bind("edge") in node
+    foreach edge in edges do _ctkBase(edge)
+}
+let classFields(node) = {
+    let rows = match fieldsOfClass(node.decl_name).bind("f") in node
+    foreach row in rows do {
+        let field = _ctkSymbol(row.f)
+        field["type"] = row.f.declarator.declared_type.description.spelling
+        field["access"] = _ctkAccess(row.f)
+        field["mutable"] = row.f.is_mutable
+        field["bit_field"] = row.f.is_bit_field
+        field["anonymous_record"] = row.f.is_anonymous_struct_or_union
+        field
+    }
+}
+let classStaticFields(node) = {
+    let rows = match _ctkStaticFields(node.decl_name).bind("v") in node
+    foreach row in rows do {
+        let field = _ctkSymbol(row.v)
+        field["type"] = row.v.variable.declarator.declared_type.description.spelling
+        field["access"] = _ctkAccess(row.v)
+        field["constexpr"] = row.v.variable.is_constexpr
+        field
+    }
+}
+let classMethods(node, includeImplicit = false) = {
+    let rows = if includeImplicit then { match _ctkAllMethods(node.decl_name).bind("m") in node } else { match methodsOfClass(node.decl_name).bind("m") in node }
+    foreach row in rows do {
+        let method = _ctkSymbol(row.m)
+        let pure = match cxxMethodDecl(isPure()) in row.m scope self
+        let overrides = match cxxMethodDecl(isOverride()) in row.m scope self
+        method["kind"] = if row.m is CXXConstructorDecl then "constructor" else if row.m is CXXDestructorDecl then "destructor" else if row.m is CXXConversionDecl then "conversion" else "method"
+        method["type"] = row.m.declared_type.description.spelling
+        method["return_type"] = if method.kind == "constructor" or method.kind == "destructor" then null else row.m.return_type.description.spelling
+        method["access"] = _ctkAccess(row.m)
+        method["static"] = row.m.is_static
+        method["virtual"] = row.m.is_virtual
+        method["pure"] = pure.length > 0
+        method["override_written"] = overrides.length > 0
+        method["const"] = row.m.is_const
+        method["volatile"] = row.m.is_volatile
+        method["ref_qualifier"] = row.m.ref_qualifier.name
+        method["implicit"] = row.m.is_implicit
+        method["constexpr"] = row.m.is_constexpr
+        method["variadic"] = row.m.is_variadic
+        method["parameters"] = _ctkParameters(row.m)
+        method
+    }
+}
+let classInfo(target, className, includeImplicit = false) = {
+    let rows = _ctkClasses(target, className)
+    let candidates = foreach row in rows do _ctkClass(row.cls)
+    if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: candidates} else {
+        let node = rows[0].cls
+        let nested = match _ctkNestedClasses(node.decl_name).bind("cls") in node
+        {status: "ok", class: _ctkClass(node), fields: classFields(node), static_fields: classStaticFields(node), methods: classMethods(node, includeImplicit), bases: directBases(node), nested_classes: foreach row in nested do _ctkClass(row.cls)}
+    }
+}
+let ancestors(target, className, maxDepth = 32) = {
+    let rows = _ctkClasses(target, className)
+    let candidates = foreach row in rows do _ctkClass(row.cls)
+    if maxDepth < 0 then {status: "invalid_depth"} else if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: candidates} else {
+        let root = _ctkClass(rows[0].cls)
+        root["edge"] = null
+        root["bases"] = []
+        root["truncated"] = false
+        root["unresolved"] = false
+        root["cycle"] = false
+        let result = {status: "ok", tree: root, levels: [[_ctkClass(rows[0].cls)]], complete: true}
+        let queue = [{node: rows[0].cls, output: root, depth: 0, path: [root.id]}]
+        foreach frame in queue do {
+            let edges = peek children _ctkBaseMatcher().bind("edge") in frame.node
+            if frame.depth >= maxDepth then {
+                if not edges.isEmpty then { frame.output["truncated"] = true; result["complete"] = false }
+            } else {
+                foreach edge in edges do {
+                    let metadata = _ctkBase(edge)
+                    let child = if metadata.resolved then _ctkClass(edge.base) else {name: metadata.type, id: null, kind: null, file: null, line: null}
+                    child["edge"] = metadata
+                    child["bases"] = []
+                    child["truncated"] = false
+                    child["unresolved"] = not metadata.resolved
+                    child["cycle"] = if metadata.resolved then child.id in frame.path else false
+                    push frame.output.bases, child
+                    let depth = frame.depth + 1
+                    if result.levels.length <= depth then { push result.levels, [] }
+                    push result.levels[depth], {name: child.name, id: child.id, via: frame.output.name, edge: metadata}
+                    if child.unresolved or child.cycle then { result["complete"] = false } else {
+                        let definitions = _ctkClasses(target, child.name)
+                        let same = definitions.filter("cls.symbol_identity", child.id)
+                        if same.length != 1 then { child["unresolved"] = true; result["complete"] = false } else {
+                            let path = foreach id in frame.path do id
+                            push path, child.id
+                            push queue, {node: same[0].cls, output: child, depth: depth, path: path}
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+}
+
+// Plain-value helpers accept named or inline execution blocks.
+let mapValues(items, operation) = foreach item in items do operation(item)
+let filterValues(items, predicate) = {
+    let selected = []
+    foreach item in items do { if predicate(item) then { push selected, item } }
+    selected
+}
+let functionInfo(target, name) = {
+    let rows = match definedFunction(name).bind("f") in target
+    foreach row in rows do {
+        let info = _ctkSymbol(row.f)
+        info["type"] = row.f.declared_type.description.spelling
+        info["return_type"] = row.f.return_type.description.spelling
+        info["constexpr"] = row.f.is_constexpr
+        info["variadic"] = row.f.is_variadic
+        info["parameters"] = _ctkParameters(row.f)
+        info
+    }
+}
+let callSites(target, calleeName) = {
+    let rows = match callsTo(calleeName).bind("call") in target
+    foreach row in rows do {
+        let caller = row.call.call_site.fieldOr("caller_name", "")
+        let callerId = row.call.call_site.fieldOr("caller_symbol_identity", "")
+        {file: row.call.location.file, line: row.call.location.line, caller: if caller == "" then null else caller, caller_id: if callerId == "" then null else callerId, callee: row.call.call_site.static_callee_name, callee_id: row.call.call_site.static_callee_symbol_identity, dispatch: row.call.call_site.dispatch.name}
+    }
+}
