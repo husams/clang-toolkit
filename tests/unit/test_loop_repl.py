@@ -40,6 +40,17 @@ def test_page_examples_and_collected_values(runtime):
     assert runtime.bindings['numbered'] == [{"index": 0, "name": "alpha"}, {"index": 1, "name": "beta"}]
 
 
+
+@pytest.mark.parametrize('source, expected', [
+    ('let numbered(items) = foreach index, item in items do [index, item]; let values = numbered([4, 7])', [[0, 4], [1, 7]]),
+    ('let climb(x) = repeat x += 1 until x >= 3; let values = climb(0)', [1, 2, 3]),
+    ('let drain(x) = while x > 0 do x -= 1; let values = drain(3)', [2, 1, 0]),
+])
+def test_expression_runnable_loop_values(runtime, source, expected):
+    assert submit(runtime, source) == ''
+    assert runtime.bindings['values'] == expected
+
+
 def test_standalone_body_values_display_without_aggregate(runtime):
     assert submit(runtime, 'let x = 0; while x < 3 do { x += 1; x }') == '1\n2\n3'
     assert submit(runtime, 'let x = 0; repeat { x += 1; x } until x >= 3') == '1\n2\n3'
