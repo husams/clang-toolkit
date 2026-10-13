@@ -12,6 +12,24 @@ announce()
 print "answer={answer}"
 ```
 
+Braces are optional for a single expression. The expression is dormant until
+called and its value is the result. Calls, defaults and conditionals use the
+same Python compiler, lexical scopes and execution limits as brace bodies.
+
+```ctk
+let add(l, r = 1) = l + r
+let inc(x) = add(x, 1)
+let add_if(l, h) = if l < h then l + h else 0
+let ready() = true
+inc(4)
+add_if(2, 5)
+```
+
+These calls return `5` and `7`. Use braces for multiple statements or prefix
+handlers; expression bodies can use `EXPR on error FALLBACK`. Existing direct
+built-in matcher definitions keep their template behavior; wrappers calling a
+custom matcher use ordinary runnable calls and can still return matchers.
+
 Defaults are optional trailing parameters. An omitted default is evaluated once
 per call, left to right, after supplied arguments, in the definition's lexical
 call frame. It can use earlier parameters. Mutable defaults are fresh values;

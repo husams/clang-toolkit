@@ -54,7 +54,7 @@ def _repl_fixture(
         encoding="utf-8",
     )
     (tmp_path / "runnables.ctk").write_text(
-        'let twice(value) = { value * 2 }\n'
+        'let twice(value) = value * 2\n'
         'let alias = twice\n'
         'let announce() = { print "RUNNABLE_DORMANT_MARKER" }\n'
         'let named(name) = functionDecl(hasName(name))\n'
@@ -259,6 +259,15 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         runnables += submit(
             'let ready() = { "RUNNABLE_NO_PARAMS" }\nready()',
             "RUNNABLE_NO_PARAMS",
+        )
+        runnables += submit(
+            'let add(l, r = 1) = l + r\n'
+            'let inc(x) = add(x, 1)\n'
+            'let constant(x) = add(1, 2)\n'
+            'let add_if(l, h) = if l < h then l + h else 0\n'
+            'let ready() = true\n'
+            'print "EXPRESSION_{inc(4)}_{constant(9)}_{add_if(2, 5)}_{add_if(5, 2)}_{add(2)}_{ready()}"',
+            "EXPRESSION_5_3_7_0_3_true",
         )
 
         handlers = submit(
