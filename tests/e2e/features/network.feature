@@ -49,6 +49,17 @@ Feature: gRPC network client
       | automatic |
       | explicit  |
 
+  Scenario Outline: Headers inherit TU compiler options from a compilation database
+    Given a query server using unix
+    And a header without a compilation entry selected by <selection>
+    When I parse the header through both SDKs native scripts and the console
+    Then the inferred options select header declarations and refresh after flag changes
+
+    Examples:
+      | selection |
+      | automatic |
+      | explicit  |
+
   Scenario Outline: Native parse blocks inherit client compilation profiles without a default file
     Given a query server using <transport>
     And a C++ file controlled by a client compilation profile

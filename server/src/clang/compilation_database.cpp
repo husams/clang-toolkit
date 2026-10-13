@@ -14,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace ctk::clang_layer {
 namespace {
@@ -110,6 +111,57 @@ std::string signature(const fs::path &path) {
          ":" + std::to_string(fs::file_size(path));
 }
 
+// Keep exact lookups in SQLite. Clang's inference index needs only the file
+// names; fetch the chosen TU's first command without re-reading the JSON file.
+class IndexedCompilationDatabase final
+    : public clang::tooling::CompilationDatabase {
+public:
+  IndexedCompilationDatabase(sqlite3 *database, std::string path)
+      : database_(database), path_(std::move(path)) {}
+
+  std::vector<std::string> getAllFiles() const override {
+    Statement files(database_,
+                    "SELECT DISTINCT file FROM compilation_commands WHERE "
+                    "database_path=? ORDER BY file");
+    files.bind(1, path_);
+    std::vector<std::string> result;
+    while (files.step())
+      result.push_back(files.text(0));
+    return result;
+  }
+
+  std::vector<clang::tooling::CompileCommand>
+  getCompileCommands(llvm::StringRef source) const override {
+    Statement command(
+        database_, "SELECT directory,arguments FROM compilation_commands "
+                   "WHERE database_path=? AND file=? ORDER BY ordinal LIMIT 1");
+    command.bind(1, path_);
+    command.bind(2, source.str());
+    if (!command.step())
+      return {};
+    auto parsed = llvm::json::parse(command.text(1));
+    if (!parsed)
+      throw std::runtime_error("invalid cached compilation command: " +
+                               llvm::toString(parsed.takeError()));
+    auto *arguments = parsed->getAsArray();
+    if (!arguments)
+      throw std::runtime_error("invalid cached compilation arguments");
+    std::vector<std::string> argv;
+    for (const auto &argument : *arguments) {
+      auto text = argument.getAsString();
+      if (!text)
+        throw std::runtime_error("invalid cached compiler argument");
+      argv.push_back(text->str());
+    }
+    return {clang::tooling::CompileCommand(command.text(0), source,
+                                           std::move(argv), "")};
+  }
+
+private:
+  sqlite3 *database_;
+  std::string path_;
+};
+
 class CompilationIndex {
 public:
   CompilationIndex() {
@@ -144,29 +196,32 @@ public:
     }
     if (stale)
       refresh(path);
-    Statement command(
-        database_.get(),
-        "SELECT directory,arguments FROM compilation_commands WHERE "
-        "database_path=? AND file=? ORDER BY ordinal LIMIT 1");
-    command.bind(1, path.string());
-    command.bind(2, source.string());
-    if (!command.step())
-      return std::nullopt;
-    FileInput result{source.string(), {}, command.text(0)};
-    auto parsed = llvm::json::parse(command.text(1));
-    if (!parsed)
-      throw std::runtime_error("invalid cached compilation command: " +
-                               llvm::toString(parsed.takeError()));
-    auto *arguments = parsed->getAsArray();
-    if (!arguments)
-      throw std::runtime_error("invalid cached compilation arguments");
-    for (const auto &argument : *arguments) {
-      auto text = argument.getAsString();
-      if (!text)
-        throw std::runtime_error("invalid cached compiler argument");
-      result.compile_arguments.push_back(text->str());
+    IndexedCompilationDatabase exact(database_.get(), path.string());
+    auto commands = exact.getCompileCommands(source.string());
+    if (commands.empty()) {
+      auto &inferred = inferred_[path.string()];
+      if (!inferred.database || inferred.signature != stamp) {
+        // This is the JSON database plugin used by clang-query: expand response
+        // files before transferring -x/-std and replacing input/output
+        // operands. The filesystem has private CWD state, and expansion runs on
+        // each lookup so response-file changes also change the effective
+        // profile.
+        inferred.database = clang::tooling::inferTargetAndDriverMode(
+            clang::tooling::inferMissingCompileCommands(
+                clang::tooling::expandResponseFiles(
+                    std::make_unique<IndexedCompilationDatabase>(
+                        database_.get(), path.string()),
+                    llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(
+                        llvm::vfs::createPhysicalFileSystem().release()))));
+        inferred.signature = stamp;
+      }
+      commands = inferred.database->getCompileCommands(source.string());
     }
-    return result;
+    if (commands.empty())
+      return std::nullopt;
+    auto &command = commands.front();
+    return FileInput{source.string(), std::move(command.CommandLine),
+                     std::move(command.Directory)};
   }
 
 private:
@@ -230,6 +285,7 @@ private:
       publish.bind(2, before);
       publish.step();
       execute("COMMIT");
+      inferred_.erase(path.string());
     } catch (...) {
       sqlite3_exec(database_.get(), "ROLLBACK", nullptr, nullptr, nullptr);
       throw;
@@ -238,6 +294,11 @@ private:
   std::mutex mutex_;
   std::unique_ptr<sqlite3, decltype(&sqlite3_close)> database_{nullptr,
                                                                sqlite3_close};
+  struct InferredDatabase {
+    std::string signature;
+    std::unique_ptr<clang::tooling::CompilationDatabase> database;
+  };
+  std::unordered_map<std::string, InferredDatabase> inferred_;
 };
 
 } // namespace
@@ -263,8 +324,10 @@ FileInput resolve_compilation_command(const FileInput &input) {
   }
   auto raw = std::move(command->compile_arguments);
   command->compile_arguments.clear();
-  // The AST builder expands response files on its private captured filesystem.
-  // Remove the driver, source and build output; append request overrides last.
+  // Exact commands retain response files for the AST builder's captured
+  // filesystem; inferred commands have already expanded them. Remove the
+  // driver here; the builder strips source/output operands. Append overrides
+  // last, before any input separator.
   std::size_t first = 1;
   const auto driver = fs::path(raw.front()).filename().string();
   if (driver == "ccache" || driver == "sccache" || driver == "distcc")

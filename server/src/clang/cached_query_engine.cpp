@@ -220,7 +220,21 @@ std::vector<std::string> effective_arguments(const FileInput &file) {
     arguments.emplace_back("-x");
     arguments.emplace_back("c++");
   }
-  if (std::none_of(file.compile_arguments.begin(), file.compile_arguments.end(),
+  // An inferred .h command can explicitly select C or Objective-C. Let Clang
+  // use that language's default standard instead of injecting a C++ standard.
+  std::string language;
+  for (std::size_t i = 0; i < file.compile_arguments.size(); ++i) {
+    const auto &arg = file.compile_arguments[i];
+    if (arg == "--")
+      break;
+    if (arg == "-x" && i + 1 < file.compile_arguments.size())
+      language = file.compile_arguments[++i];
+    else if (arg.starts_with("-x"))
+      language = arg.substr(2);
+  }
+  if (language != "c" && language != "c-header" && language != "objective-c" &&
+      language != "objective-c-header" &&
+      std::none_of(file.compile_arguments.begin(), file.compile_arguments.end(),
                    [](const auto &arg) { return arg.starts_with("-std="); }))
     arguments.emplace_back("-std=c++20");
 #ifdef CTK_CLANG_RESOURCE_DIR
