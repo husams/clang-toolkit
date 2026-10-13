@@ -8,6 +8,9 @@ program: separators? statement (separators statement)* separators?
 
 ?statement: closed_statement | open_statement
 ?closed_statement: let_stmt
+                  | runnable_definition
+                  | handler_stmt
+                  | flow_stmt
                   | print_stmt
                   | assign_stmt
                   | closed_expression
@@ -21,6 +24,10 @@ open_let_stmt.10: "let" CNAME "=" open_expression -> let_stmt
 print_stmt.10: "print" closed_expression
 open_print_stmt.10: "print" open_expression -> print_stmt
 assign_stmt: target ASSIGN_OP closed_expression
+
+runnable_definition.20: "let" CNAME "(" parameters? ")" "=" block
+parameters: separators? parameter ("," separators? parameter)* ","? separators?
+parameter: CNAME ("=" expression)?
 
 ?expression: closed_expression | open_expression
 ?closed_expression: conditional
@@ -62,8 +69,17 @@ open_body: "do" open_statement -> single_body
 block: "{" block_contents? "}"
 block_contents: separators? statement (separators statement)* separators?
 
-?conditional: or_expr
-            | or_expr soft_newlines "?" soft_newlines conditional soft_newlines ":" soft_newlines conditional
+handler_stmt.30: "on" "error" handler_action -> error_handler
+               | "on" "exit" handler_action -> exit_handler
+?handler_action: handler_block | conditional | flow_stmt
+handler_block.30: block
+flow_stmt.30: "break" -> break_stmt
+            | "continue" -> continue_stmt
+
+?conditional: recoverable recovery_tail? -> recovery_expr
+recovery_tail: "on" "error" handler_action
+?recoverable: or_expr
+            | or_expr soft_newlines "?" soft_newlines conditional soft_newlines ":" soft_newlines conditional -> conditional
 ?or_expr: and_expr (soft_newlines PRED_OR soft_newlines and_expr)*
 ?and_expr: not_expr (soft_newlines PRED_AND soft_newlines not_expr)*
 ?not_expr: PRED_NOT soft_newlines not_expr  -> not_expr
@@ -96,7 +112,7 @@ target: reference target_part*
 ?target_part: "." CNAME       -> target_member_part
            | index_expression
 
-reference: "$" CNAME
+reference: "$"? CNAME
 
 ?atom: literal
      | reference

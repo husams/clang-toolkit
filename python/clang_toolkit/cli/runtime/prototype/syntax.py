@@ -90,6 +90,63 @@ class _Builder(Transformer[Any, Any]):
         line, column = self._location(meta, items)
         return Node("print", children=(items[0],), line=line, column=column)
 
+    def parameter(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("parameter", str(items[0]), _nodes(items), line, column)
+
+    def parameters(self, meta: Any, items: list[Any]) -> tuple[Node, ...]:
+        return _nodes(items)
+
+    def runnable_definition(self, meta: Any, items: list[Any]) -> Node:
+        name = str(items[0])
+        specs = next((item for item in items if isinstance(item, tuple)), ())
+        parameters = tuple(item.value for item in specs)
+        if len(set(parameters)) != len(parameters):
+            raise ValueError(f"{name} has duplicate parameter names")
+        default_seen = False
+        for item in specs:
+            if item.children:
+                default_seen = True
+            elif default_seen:
+                raise ValueError(f"{name}: required parameters must precede defaults")
+        body = next(item for item in items if isinstance(item, Node))
+        defaults = tuple(item for item in specs if item.children)
+        line, column = self._location(meta, items)
+        return Node("runnable", (name, parameters), (body, *defaults), line, column)
+
+    def error_handler(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("handler", "error", (self._action_block(items[0]),), line, column)
+
+    def exit_handler(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("handler", "exit", (self._action_block(items[0]),), line, column)
+
+    def handler_block(self, meta: Any, items: list[Any]) -> Node:
+        return items[0]
+
+    def break_stmt(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("flow", "break", (), line, column)
+
+    def continue_stmt(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("flow", "continue", (), line, column)
+
+    @staticmethod
+    def _action_block(node: Node) -> Node:
+        return node if node.kind == "block" else Node("block", children=(node,), line=node.line, column=node.column)
+
+    def recovery_tail(self, meta: Any, items: list[Any]) -> Node:
+        return self._action_block(items[0])
+
+    def recovery_expr(self, meta: Any, items: list[Any]) -> Node:
+        nodes = _nodes(items)
+        if len(nodes) == 1:
+            return nodes[0]
+        line, column = self._location(meta, items)
+        return Node("recovery", children=nodes, line=line, column=column)
+
     def foreach_expr(self, meta: Any, items: list[Any]) -> Node:
         name = next(item for item in items if isinstance(item, Token) and item.type == "CNAME")
         iterable, block = [item for item in items if isinstance(item, Node)]
@@ -457,6 +514,7 @@ def parse(source: str) -> Node:
     try:
         result = _Builder().transform(tree)
         _validate_integer_ranges(result)
+        _validate_control_scope(result)
         return result
     except VisitError as error:
         # Transformer failures are normally wrapped by Lark.  Range and
@@ -505,3 +563,42 @@ def _static_integer(node: Node) -> int | None:
         if value is not None:
             return value if node.value == "+" else -value
     return None
+
+
+def _validate_control_scope(node: Node, *, loops: int = 0) -> None:
+    """Validate handler placement and loop control before any effects run."""
+    if node.kind == "handler":
+        raise ValueError(f"on {node.value} is only valid at the beginning of a block (line {node.line})")
+    if node.kind == "flow":
+        if not loops:
+            raise ValueError(f"{node.value} requires an enclosing foreach (line {node.line})")
+        return
+    if node.kind == "runnable":
+        loops = 0
+    if node.kind == "foreach":
+        _validate_control_scope(node.children[0], loops=loops)
+        _validate_control_scope(node.children[1], loops=loops + 1)
+        return
+    if node.kind == "block":
+        started = False
+        handlers = set()
+        for child in node.children:
+            if child.kind == "handler":
+                if started or child.value in handlers:
+                    raise ValueError(f"on {child.value} must appear once at the beginning of a block (line {child.line})")
+                handlers.add(child.value)
+                _validate_control_scope(child.children[0], loops=loops)
+            else:
+                started = True
+                _validate_control_scope(child, loops=loops)
+        return
+    if node.kind == "host":
+        def visit_host(tree: Any) -> None:
+            for child in getattr(tree, "children", ()):
+                if isinstance(child, Node):
+                    _validate_control_scope(child, loops=loops)
+                else:
+                    visit_host(child)
+        visit_host(node.value[0])
+    for child in node.children:
+        _validate_control_scope(child, loops=loops)

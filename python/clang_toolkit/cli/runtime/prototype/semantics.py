@@ -75,6 +75,12 @@ class Context:
         self.statement_observer = statement_observer
         self.output: list[Any] = []
         self.consume_depth = 0
+        self.call_depth = 0
+        self.cleanup_depth = 0
+        self.cleanup_steps = 0
+        self.source = ""
+        self.source_name = "<console>"
+        self.string_templates: dict[str, Any] = {}
         self.steps = 0
         self.step_count = 0
         self.current_location: tuple[int | None, int | None] = (None, None)
@@ -139,6 +145,15 @@ class Context:
         if node is not None:
             self.current_location = (getattr(node, "line", None), getattr(node, "column", None))
             self.location = self.current_location
+        if self.cleanup_depth:
+            reserve = self.steps >= self.max_steps or (self.cancel_hook is not None and self.cancel_hook())
+            self.steps += 1
+            self.step_count = self.steps
+            if reserve:
+                self.cleanup_steps += 1
+                if self.cleanup_steps > 10_000:
+                    raise _error(self, node, "cleanup step limit exceeded", ExecutionLimitError)
+            return
         if self.cancel_hook is not None and self.cancel_hook():
             raise _error(self, node, "execution cancelled", CancelledError)
         self.steps += 1
@@ -607,18 +622,22 @@ def eval_expr(ctx: Context, node: Any) -> Any:
         return host_value(ctx, node)
     if kind == "call":
         name = _name(node)
-        function = ctx.functions.get(name)
-        if function is None:
-            raise _error(ctx, node, f"unregistered host function {name!r}")
-        args = [eval_expr(ctx, arg) for arg in child_values(node)]
+        from .runnables import invoke_named
+
         try:
-            return function(*args)
+            return invoke_named(ctx, node, name,
+                                lambda: [eval_expr(ctx, arg) for arg in child_values(node)])
         except PrototypeError as error:
             if _location(node) and _location(node) not in str(error):
                 raise _error(ctx, node, str(error), type(error)) from error
             raise
         except Exception as error:
             raise _error(ctx, node, f"host function {name!r} failed: {error}") from error
+    if kind == "recovery":
+        from .control import recover
+
+        return recover(ctx, lambda context: eval_expr(context, node.children[0]),
+                       lambda context: eval_block(context, node.children[1]))
     if kind == "foreach":
         return eval_foreach(ctx, node, ticked=True)
     if kind == "binary":
@@ -699,6 +718,19 @@ def eval_statement(ctx: Context, node: Any) -> Any:
         name = _name(node)
         value = eval_expr(ctx, _expr(node, 0, "expr"))
         return ctx.define(name, value)
+    if kind == "runnable":
+        from .runnables import define_runnable
+
+        ctx.tick(node)
+        return define_runnable(ctx, node,
+                               lambda context: eval_block(context, child_values(node)[0], scoped=False),
+                               tuple(lambda context, spec=default: eval_block(context, spec, scoped=False)
+                                     for default in child_values(node)[1:]))
+    if kind == "flow":
+        from .control import LoopBreak, LoopContinue
+
+        ctx.tick(node)
+        raise LoopBreak() if node.value == "break" else LoopContinue()
     if kind == "assign":
         return eval_assign(ctx, node)
     if kind == "print":
@@ -709,29 +741,42 @@ def eval_statement(ctx: Context, node: Any) -> Any:
         return eval_foreach(ctx, node)
     if kind == "block":
         return eval_block(ctx, node)
-    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "predicate", "unary", "host"}:
+    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "predicate", "unary", "host", "recovery"}:
         return eval_expr(ctx, node)
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 
 
 def eval_block(ctx: Context, node: Any, scoped: bool = True) -> Any:
-    ctx.tick(node)
+    from .control import cleanup, recover, split_handlers
+
     if scoped:
         ctx.push_scope()
     try:
-        result = None
         statements = child(node, "statements", 0, ()) if isinstance(children(node), Mapping) else child_values(node)
         if not isinstance(statements, (tuple, list)):
             statements = (statements,)
-        for statement in statements:
-            result = eval_statement(ctx, statement)
-        return result
+        handlers, statements = split_handlers(tuple(statements))
+        def body(context: Context) -> Any:
+            context.tick(node)
+            result = None
+            for statement in statements:
+                result = eval_statement(context, statement)
+            return result
+        try:
+            if "error" in handlers:
+                return recover(ctx, body, lambda context: eval_block(context, handlers["error"], scoped=False))
+            return body(ctx)
+        finally:
+            if "exit" in handlers:
+                cleanup(ctx, lambda context: eval_block(context, handlers["exit"], scoped=False))
     finally:
         if scoped:
             ctx.pop_scope()
 
 
 def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
+    from .control import LoopBreak, LoopContinue
+
     if not ticked:
         ctx.tick(node)
     name = _name(node)
@@ -746,6 +791,10 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
         ctx.push_scope({name: item})
         try:
             result.append(eval_block(ctx, body, scoped=False))
+        except LoopBreak:
+            break
+        except LoopContinue:
+            continue
         finally:
             ctx.pop_scope()
     return result

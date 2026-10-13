@@ -53,6 +53,14 @@ def _repl_fixture(
         "struct Sample {};\n",
         encoding="utf-8",
     )
+    (tmp_path / "runnables.ctk").write_text(
+        'let twice(value) = { value * 2 }\n'
+        'let alias = twice\n'
+        'let announce() = { print "RUNNABLE_DORMANT_MARKER" }\n'
+        'let named(name) = functionDecl(hasName(name))\n'
+        'let find(path, name) = { match named(name).bind("f") in path }\n',
+        encoding="utf-8",
+    )
     return {"server": server, "source": source, "ui": ui}
 
 
@@ -169,7 +177,16 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         (tmp_path / f"prototype-repl-{ui}-screen.txt").write_text(visible)
         raise AssertionError(f"{ui} REPL did not show {marker!r}:\n{visible}")
 
+    acknowledgement = 0
+
     def submit(text: str, marker: str, *, success: bool = True) -> str:
+        nonlocal acknowledgement
+        if success and not marker:
+            # Ready can still describe the previous submission until the UI
+            # processes the run key. Wait for newly evaluated output instead.
+            acknowledgement += 1
+            text += f'\nprint "PTY_ACK_{{{acknowledgement}}}"'
+            marker = f"PTY_ACK_{acknowledgement}"
         # Match the real multiline paste gesture. The workspace uses Ctrl+Enter;
         # the prompt accepts with Enter after bracketed paste. Prompt mode uses
         # the normal Enter key once all pasted lines have arrived.
@@ -225,6 +242,64 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         screenshot = submit("let x = 1", "")
         screenshot += submit("let y = if $x > 0 then $x * 10 else 1", "")
         screenshot += submit('print "SCREENSHOT_${y}"', "SCREENSHOT_10")
+
+        runnables = submit(
+            'import "runnables.ctk"\n'
+            'let answer = alias(21)\n'
+            'let checked = foreach value in [1, 2] do twice(value)\n'
+            'print "RUNNABLE_{answer}_{checked[1]}"',
+            "RUNNABLE_42_4",
+        )
+        assert "RUNNABLE_DORMANT_MARKER" not in runnables
+        runnables += submit(
+            f'let selected = find("{source.name}", "caller")\n'
+            'print "RUNNABLE_MATCH_{selected.length}"',
+            "RUNNABLE_MATCH_1",
+        )
+        runnables += submit(
+            'let ready() = { "RUNNABLE_NO_PARAMS" }\nready()',
+            "RUNNABLE_NO_PARAMS",
+        )
+
+        handlers = submit(
+            'let cleanup_count = [0]\n'
+            'let divide(lhs, rhs = 1) = {\n'
+            '  on error 0\n'
+            '  on exit { cleanup_count[0] += 1 }\n'
+            '  lhs / rhs\n'
+            '}\n'
+            'let normal = divide(10)\n'
+            'let handled = divide(10, 0)\n'
+            'let fallback = (1 / 0) on error { 7 }\n'
+            'let continued = foreach item in [2, 0, 5] do {\n'
+            '  on error continue\n'
+            '  on exit { cleanup_count[0] += 1 }\n'
+            '  10 / item\n'
+            '}\n'
+            'let stopped = foreach item in [2, 0, 5] do {\n'
+            '  on error { break }\n'
+            '  10 / item\n'
+            '}\n'
+            'let handler_ok = normal == 10 and handled == 0 and fallback == 7\n'
+            'let loops_ok = continued.length == 2 and stopped.length == 1\n'
+            'let handler_result = handler_ok and loops_ok\n'
+            'print "HANDLERS_{handler_result}_{cleanup_count[0]}"',
+            "HANDLERS_true_5",
+        )
+        handlers += submit(
+            'let owned(path, divisor = 1) = {\n'
+            '  on error 0\n'
+            '  on exit { file close opened }\n'
+            '  file open path into opened\n'
+            '  10 / divisor\n'
+            '}\n'
+            f'let opened_ok = owned("{source.name}")\n'
+            f'let opened_failed = owned("{source.name}", 0)\n'
+            'print "HANDLER_NATIVE_{opened_ok == 10}_{opened_failed}"',
+            "HANDLER_NATIVE_true_0",
+        )
+        with Client(server.endpoint) as observer:
+            assert observer.resource_status().explicit_file_leases == 0
 
         # ctk() keeps native analysis inside the interactive compiled runtime;
         # its returned MatchRows are consumed by a conditional collected loop.
@@ -316,6 +391,8 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             "ui": ui,
             "result": result,
             "screenshot": screenshot,
+            "runnables": runnables,
+            "handlers": handlers,
             "native": native,
             "predicates": predicates,
             "lazy": lazy,
@@ -349,6 +426,11 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     assert evidence["ui"] in {"prompt", "workspace"}
     assert "SETUP_146" in evidence["result"] and "MUTATION_703" in evidence["result"]
     assert "SCREENSHOT_10" in evidence["screenshot"]
+    assert "RUNNABLE_42_4" in evidence["runnables"]
+    assert "RUNNABLE_MATCH_1" in evidence["runnables"]
+    assert "RUNNABLE_NO_PARAMS" in evidence["runnables"]
+    assert "HANDLERS_true_5" in evidence["handlers"]
+    assert "HANDLER_NATIVE_true_0" in evidence["handlers"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]
     assert "MULTILINE_MATCHER_1" in evidence["native"]
     assert "PREDICATES_11111" in evidence["predicates"]

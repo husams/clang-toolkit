@@ -17,6 +17,7 @@ from lark import Lark, Token, Tree
 from lark.exceptions import VisitError
 
 from .syntax import Node, _Builder, _validate_integer_ranges
+from clang_toolkit.cli.matcher_catalog import SCRIPT_BUILTIN_MATCHERS
 
 _PROTOTYPE_GRAMMAR = Path(__file__).with_name("grammar.lark")
 _LEGACY_GRAMMAR = Path(__file__).resolve().parents[2] / "grammar.lark"
@@ -125,9 +126,12 @@ def _combined_grammar() -> str:
         'CNAME: /[A-Za-z_][A-Za-z0-9_]*/',
         'MEMBER_NAME: /(?!(?:hasField|fieldState|fieldOr|joinWith|unique|sort|filter|push|pop|delete|set|insert|remove|clear)\\s*\\()[A-Za-z_][A-Za-z0-9_]*/\nCNAME: /[A-Za-z_][A-Za-z0-9_]*/',
     )
+    matcher_names = "|".join(re.escape(name) for name in sorted(
+        SCRIPT_BUILTIN_MATCHERS | {"glob", "flatten"}))
     proto_source = proto_source.replace(
         'named_call: CNAME "(" arguments? ")"',
-        'named_call: UTILITY_NAME "(" arguments? ")"\nUTILITY_NAME.10: /(?:len|range|ctk)(?=\\s*\\()/ ',
+        'named_call: ROUTINE_NAME "(" arguments? ")"\n'
+        + r'ROUTINE_NAME.20: /(?!(?:' + matcher_names + r')\s*\()[A-Za-z_][A-Za-z0-9_]*(?=\s*\()/',
     )
     # Leave command syntax in the released grammar; expose native commands as
     # opaque leaves while ordinary assignments/displays/loops use prototype IR.
@@ -157,7 +161,7 @@ def _combined_grammar() -> str:
         "?proto_postfix: proto_atom proto_postfix_part*\n              | proto_host_atom\n",
     )
     proto_source = proto_source.replace(
-        "proto_named_call: PROTO_UTILITY_NAME",
+        "proto_named_call: PROTO_ROUTINE_NAME",
         """?proto_host_atom: legacy_reference LEGACY_DOT legacy_method_call -> host_expression
                 | legacy_root_matcher -> host_expression
                 | legacy_command_expression -> host_expression
@@ -173,7 +177,7 @@ def _combined_grammar() -> str:
                 | legacy_flatten_expression -> host_expression
                 | legacy_bare_access -> host_expression
 
-proto_named_call: PROTO_UTILITY_NAME""",
+proto_named_call: PROTO_ROUTINE_NAME""",
     )
     return "\n".join(
         (
@@ -188,6 +192,16 @@ proto_named_call: PROTO_UTILITY_NAME""",
 _host_newlines: _HOST_NEWLINE*
 _HOST_NEWLINE: /\r?\n/
 
+%override legacy_reference: LEGACY_DOLLAR? LEGACY_NAME (LEGACY_DOT legacy_property_name | LEGACY_DOT legacy_method_call | LEGACY_LSQB legacy_index_expression LEGACY_RSQB)*
+
+%override legacy_batch_statement: LEGACY_BATCH LEGACY_NAME LEGACY_IN legacy_reference legacy_batch_grouping legacy_batch_option* LEGACY_DO proto_block -> compiled_batch_statement
+               | (LEGACY_DURABLE | LEGACY_BACKGROUND) LEGACY_BATCH LEGACY_NAME LEGACY_IN legacy_reference legacy_batch_grouping legacy_durable_batch_option* LEGACY_DO legacy_statement_block -> durable_batch
+               | LEGACY_BATCH LEGACY_STATUS legacy_reference -> batch_status
+               | LEGACY_BATCH LEGACY_CANCEL legacy_reference -> batch_cancel
+               | LEGACY_BATCH LEGACY_RESUME legacy_reference -> batch_resume
+               | LEGACY_BATCH LEGACY_RETRY legacy_reference -> batch_retry
+               | LEGACY_BATCH LEGACY_PROMOTE legacy_reference -> batch_promote
+
 %override legacy_matcher_definition: LEGACY_LET LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_parameters] _host_newlines LEGACY_RPAR LEGACY_EQUAL legacy_root_expression
 %override legacy_parameters: LEGACY_NAME (_host_newlines LEGACY_COMMA _host_newlines LEGACY_NAME)*
 %override legacy_root_matcher: LEGACY_ROOT_MATCHER_NAME LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
@@ -200,7 +214,7 @@ _HOST_NEWLINE: /\r?\n/
             """
 repl_start: proto_start
 editor_start: (legacy_editor_token | proto_editor_token)*
-proto_editor_token: PROTO_UTILITY_NAME | PROTO_ASSIGN_OP | PROTO_COMPARE_OP | PROTO_ADD_OP | PROTO_MUL_OP | PROTO_UNARY_OP | PROTO_FLOAT | PROTO_INT | PROTO_STRING | PROTO_PREDICATE_STRING | PROTO_PRED_AND | PROTO_PRED_OR | PROTO_MEMBER_NAME | PROTO_CNAME | PROTO_NEWLINE
+proto_editor_token: PROTO_ROUTINE_NAME | PROTO_ASSIGN_OP | PROTO_COMPARE_OP | PROTO_ADD_OP | PROTO_MUL_OP | PROTO_UNARY_OP | PROTO_FLOAT | PROTO_INT | PROTO_STRING | PROTO_PREDICATE_STRING | PROTO_PRED_AND | PROTO_PRED_OR | PROTO_MEMBER_NAME | PROTO_CNAME | PROTO_NEWLINE
 """,
         )
     )
@@ -236,11 +250,17 @@ def _normalize_host_tree(tree: Tree[Any]) -> Tree[Any]:
         else child
         for child in tree.children
     ]
+    if str(tree.data) == "reference" and children and str(children[0]) != "$":
+        children.insert(0, Token.new_borrow_pos("DOLLAR", "$", children[0]))
     return Tree(tree.data, children, meta=tree.meta)
 
 
 class _CombinedBuilder(_Builder):
     def __default__(self, data: str, children: list[Any], meta: Any) -> Any:
+        if data == "compiled_batch_statement":
+            children = [Tree("statement_block", [item], meta=meta)
+                        if isinstance(item, Node) else item for item in children]
+            return _normalize_host_tree(Tree("batch_statement", children, meta=meta))
         if data == "proto_string_literal":
             token = next(item for item in children if isinstance(item, Token))
             string_token = Token.new_borrow_pos("STRING", str(token), token)
@@ -309,6 +329,9 @@ def parse(source: str) -> Node:
         if not isinstance(result, Node):
             raise TypeError("combined REPL parser did not produce a prototype node")
         _validate_integer_ranges(result)
+        from .syntax import _validate_control_scope
+
+        _validate_control_scope(result)
         _validate_host_control_scope(result)
         return result
     except VisitError as error:

@@ -95,7 +95,7 @@ def test_failed_preload_restores_library_bindings_and_stops_later_files(runtime)
     (library_dir / "20-later.ctk").write_text("let later = true", encoding="utf-8")
     runtime.bindings["existing"] = 7
 
-    with pytest.raises(EvaluationError, match=r"10-invalid.ctk:2:.*unknown variable: missing"):
+    with pytest.raises(EvaluationError, match=r"10-invalid.ctk:2:.*(?:undefined binding 'missing'|unknown variable: missing)"):
         preload_libraries(runtime, library_dir)
 
     assert runtime.bindings == {"existing": 7}
