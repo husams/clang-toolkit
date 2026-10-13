@@ -35,6 +35,7 @@ not resume the failed statement. The exit handler runs after success, recovery,
 or failure, while body locals remain in scope. Its result is ignored. A handler
 failure propagates and can be caught by an enclosing body or call-site fallback.
 A call-site fallback handles only errors that escape the called body; it is lazy.
+A call-site fallback block has its own local scope, like other expression blocks.
 Defaults and argument failures occur before entering the runnable body, so use
 a call-site fallback to recover from those failures.
 

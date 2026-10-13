@@ -264,7 +264,9 @@ class _Lowerer:
             expr = self.call("_call", context, nref, ast.Constant(_name(node)), self.lambda0(ast.List(args, ast.Load())))
         elif kind == "recovery":
             body = ast.Lambda(ast.arguments([], [ast.arg("context")], None, [], [], None, []), self.emit_expr(child_values(node)[0]))
-            fallback = ast.Name(self.emit_block_function(child_values(node)[1]), ast.Load())
+            fallback_fn = ast.Name(self.emit_block_function(child_values(node)[1]), ast.Load())
+            fallback = ast.Lambda(ast.arguments([], [ast.arg("context")], None, [], [], None, []),
+                                  self.call("_run_scoped", context, fallback_fn))
             expr = self.call("_recover", context, body, fallback)
         elif kind == "foreach":
             return self.call(self.emit_foreach_function(node), context)

@@ -158,3 +158,9 @@ def test_cancellation_during_cleanup_is_reported_after_cleanup(execute):
     with pytest.raises(CancelledError, match="cancelled"):
         execute("let f() = { on exit stop(); 7 }; f()", context)
     assert context.cleanup_depth == context.call_depth == 0
+
+
+def test_call_site_fallback_block_has_ordinary_block_scope(execute):
+    value, context = execute("let outer = 1; let answer = 1 / 0 on error { let local = 7; outer += 1; local }; [answer, outer, local is defined]")
+    assert value == [7, 2, False]
+    assert "local" not in context.bindings

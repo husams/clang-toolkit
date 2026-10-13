@@ -637,7 +637,7 @@ def eval_expr(ctx: Context, node: Any) -> Any:
         from .control import recover
 
         return recover(ctx, lambda context: eval_expr(context, node.children[0]),
-                       lambda context: eval_block(context, node.children[1], scoped=False))
+                       lambda context: eval_block(context, node.children[1]))
     if kind == "foreach":
         return eval_foreach(ctx, node, ticked=True)
     if kind == "binary":
