@@ -153,10 +153,19 @@ class _Builder(Transformer[Any, Any]):
         return Node("recovery", children=nodes, line=line, column=column)
 
     def foreach_expr(self, meta: Any, items: list[Any]) -> Node:
-        name = next(item for item in items if isinstance(item, Token) and item.type == "CNAME")
+        name = next(str(item) for item in items if isinstance(item, Token) and item.type == "CNAME")
         iterable, block = [item for item in items if isinstance(item, Node)]
         line, column = self._location(meta, items)
-        return Node("foreach", value=str(name), children=(iterable, block), line=line, column=column)
+        return Node("foreach", value=name, children=(iterable, block), line=line, column=column)
+
+    def while_expr(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("while", children=_nodes(items), line=line, column=column)
+
+    def repeat_expr(self, meta: Any, items: list[Any]) -> Node:
+        body, condition = _nodes(items)
+        line, column = self._location(meta, items)
+        return Node("repeat", children=(condition, body), line=line, column=column)
 
     def assign_stmt(self, meta: Any, items: list[Any]) -> Node:
         target, operator, expression = items
@@ -576,11 +585,11 @@ def _validate_control_scope(node: Node, *, loops: int = 0) -> None:
         raise ValueError(f"on {node.value} is only valid at the beginning of a block (line {node.line})")
     if node.kind == "flow":
         if not loops:
-            raise ValueError(f"{node.value} requires an enclosing foreach (line {node.line})")
+            raise ValueError(f"{node.value} requires an enclosing foreach, while or repeat loop (line {node.line}, column {node.column})")
         return
     if node.kind in {"runnable", "inline_runnable"}:
         loops = 0
-    if node.kind == "foreach":
+    if node.kind in {"foreach", "while", "repeat"}:
         _validate_control_scope(node.children[0], loops=loops)
         _validate_control_scope(node.children[1], loops=loops + 1)
         return
@@ -598,12 +607,14 @@ def _validate_control_scope(node: Node, *, loops: int = 0) -> None:
                 _validate_control_scope(child, loops=loops)
         return
     if node.kind == "host":
-        def visit_host(tree: Any) -> None:
+        def visit_host(tree: Any, host_loops: int) -> None:
+            if str(getattr(tree, "data", "")) in {"batch_statement", "durable_batch"}:
+                host_loops = 0
             for child in getattr(tree, "children", ()):
                 if isinstance(child, Node):
-                    _validate_control_scope(child, loops=loops)
+                    _validate_control_scope(child, loops=host_loops)
                 else:
-                    visit_host(child)
-        visit_host(node.value[0])
+                    visit_host(child, host_loops)
+        visit_host(node.value[0], loops)
     for child in node.children:
         _validate_control_scope(child, loops=loops)

@@ -86,6 +86,7 @@ class Context:
         self.current_location: tuple[int | None, int | None] = (None, None)
         self.location: tuple[int | None, int | None] = self.current_location
         self._scopes: list[dict[str, Any]] = [self.bindings]
+        self._loop_indices: dict[int, dict[str, int]] = {}
         self.functions.setdefault("len", lambda value: _bounded_len(value, self.max_items))
         self.functions.setdefault("range", lambda *args: _bounded_range(args, self.max_items))
 
@@ -96,12 +97,23 @@ class Context:
     def push_scope(self, initial: Mapping[str, Any] | None = None) -> None:
         self._scopes.append(dict(initial or {}))
 
+    def push_loop_scope(self, name: str, item: Any, ordinal: int) -> None:
+        self.push_scope({name: item})
+        self._loop_indices[id(self._scopes[-1])] = {name: ordinal}
+
+    def loop_index(self, name: str) -> int | None:
+        scope = self.lookup_scope(name)
+        return self._loop_indices.get(id(scope), {}).get(name)
+
     def pop_scope(self) -> dict[str, Any]:
         if len(self._scopes) == 1:
             raise RuntimeError("cannot pop the root execution scope")
-        return self._scopes.pop()
+        scope = self._scopes.pop()
+        self._loop_indices.pop(id(scope), None)
+        return scope
 
     def define(self, name: str, value: Any) -> Any:
+        self._loop_indices.get(id(self._scopes[-1]), {}).pop(name, None)
         self._scopes[-1][name] = value
         return value
 
@@ -466,6 +478,25 @@ def property_value(value: Any, name: str) -> Any:
         raise
 
 
+def binding_property_value(ctx: Context, base: Any, value: Any, name: str) -> Any:
+    """Resolve metadata on the lexical binding without wrapping its value."""
+    if _kind(base) == "ref":
+        ordinal = ctx.loop_index(_name(base))
+        if ordinal is not None:
+            if name == "index":
+                return ordinal
+            if name == "value":
+                return value
+    return property_value(value, name)
+
+
+def validate_loop_property_target(ctx: Context, target: Any) -> None:
+    base = _expr(target, 0, "base")
+    name = str(node_value(target))
+    if _kind(base) == "ref" and name in {"index", "value"} and ctx.loop_index(_name(base)) is not None:
+        raise _error(ctx, target, f"loop metadata {name!r} is read-only")
+
+
 def index_value(value: Any, key: Any, ctx: Context, node: Any) -> Any:
     if type(key) is bool:
         raise _error(ctx, node, "boolean is not a valid index")
@@ -522,6 +553,7 @@ def _resolve_target(ctx: Context, target: Any, operator: str) -> tuple[Callable[
             raise _error(ctx, target, f"cannot assign undefined binding {name!r}")
         return lambda: scope[name], lambda value: scope.__setitem__(name, value)
     if kind == "get":
+        validate_loop_property_target(ctx, target)
         base = eval_expr(ctx, _expr(target, 0, "base"))
         key = str(node_value(target, child(target, "property", None)))
         if not isinstance(base, dict):
@@ -609,7 +641,7 @@ def eval_expr(ctx: Context, node: Any) -> Any:
         value = eval_expr(ctx, base)
         name = str(node_value(node, child(node, "property", None)))
         try:
-            return property_value(value, name)
+            return binding_property_value(ctx, base, value, name)
         except PrototypeError:
             raise
         except Exception as error:
@@ -647,6 +679,8 @@ def eval_expr(ctx: Context, node: Any) -> Any:
                        lambda context: eval_block(context, node.children[1]))
     if kind == "foreach":
         return eval_foreach(ctx, node, ticked=True)
+    if kind in {"while", "repeat"}:
+        return eval_condition_loop(ctx, node, collect=True, ticked=True)
     if kind == "binary":
         op = str(node_value(node))
         left_node = _expr(node, 0, "lhs")
@@ -713,11 +747,11 @@ def eval_assign(ctx: Context, node: Any) -> Any:
     return new_value
 
 
-def eval_statement(ctx: Context, node: Any) -> Any:
+def eval_statement(ctx: Context, node: Any, *, value_context: bool = False) -> Any:
     kind = _kind(node)
     if kind == "observe":
         statement = child_values(node)[0]
-        value = eval_statement(ctx, statement)
+        value = eval_statement(ctx, statement, value_context=value_context)
         observe_statement(ctx, statement, value)
         return value
     if kind == "let":
@@ -746,6 +780,8 @@ def eval_statement(ctx: Context, node: Any) -> Any:
         return ctx.emit(value, node)
     if kind == "foreach":
         return eval_foreach(ctx, node)
+    if kind in {"while", "repeat"}:
+        return eval_condition_loop(ctx, node, collect=value_context)
     if kind == "block":
         return eval_block(ctx, node)
     if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "predicate", "unary", "host", "recovery", "inline_runnable"}:
@@ -753,7 +789,7 @@ def eval_statement(ctx: Context, node: Any) -> Any:
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 
 
-def eval_block(ctx: Context, node: Any, scoped: bool = True) -> Any:
+def eval_block(ctx: Context, node: Any, scoped: bool = True, *, value_context: bool = True) -> Any:
     from .control import cleanup, recover, split_handlers
 
     if scoped:
@@ -766,8 +802,9 @@ def eval_block(ctx: Context, node: Any, scoped: bool = True) -> Any:
         def body(context: Context) -> Any:
             context.tick(node)
             result = None
-            for statement in statements:
-                result = eval_statement(context, statement)
+            for index, statement in enumerate(statements):
+                result = eval_statement(context, statement,
+                                        value_context=value_context and index == len(statements) - 1)
             return result
         try:
             if "error" in handlers:
@@ -791,11 +828,11 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
     body = _expr(node, 1, "block")
     iterator = iterable_value(ctx, node, iterable)
     result: list[Any] = []
-    for item in iterator:
+    for ordinal, item in enumerate(iterator):
         if len(result) >= ctx.max_items:
             raise _error(ctx, node, "foreach result exceeds item limit", ExecutionLimitError)
         ctx.tick(node)
-        ctx.push_scope({name: item})
+        ctx.push_loop_scope(name, item, ordinal)
         try:
             result.append(eval_block(ctx, body, scoped=False))
         except LoopBreak:
@@ -804,6 +841,47 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
             continue
         finally:
             ctx.pop_scope()
+    return result
+
+
+def loop_condition(ctx: Context, node: Any, condition: Callable[[], Any]) -> bool:
+    ctx.tick(node)
+    return _as_bool(ctx, condition(), _expr(node, 0, "condition"))
+
+
+def complete_loop_iteration(ctx: Context, node: Any, result: list[Any] | None, value: Any) -> None:
+    if result is not None:
+        if len(result) >= ctx.max_items:
+            raise _error(ctx, node, f"{_kind(node)} result exceeds item limit", ExecutionLimitError)
+        result.append(value)
+    else:
+        observe_statement(ctx, Node("loop_iteration", line=node.line, column=node.column), value)
+
+
+def eval_condition_loop(ctx: Context, node: Any, *, collect: bool, ticked: bool = False) -> list[Any] | None:
+    from .control import LoopBreak, LoopContinue
+
+    if not ticked:
+        ctx.tick(node)
+    condition, body = _expr(node, 0, "condition"), _expr(node, 1, "block")
+    result: list[Any] | None = [] if collect else None
+    repeat = _kind(node) == "repeat"
+    while repeat or loop_condition(ctx, node, lambda: eval_expr(ctx, condition)):
+        ctx.tick(node)
+        ctx.push_scope()
+        completed = True
+        try:
+            value = eval_block(ctx, body, scoped=False, value_context=collect)
+        except LoopBreak:
+            break
+        except LoopContinue:
+            completed = False
+        finally:
+            ctx.pop_scope()
+        if completed:
+            complete_loop_iteration(ctx, node, result, value)
+        if repeat and loop_condition(ctx, node, lambda: eval_expr(ctx, condition)):
+            break
     return result
 
 

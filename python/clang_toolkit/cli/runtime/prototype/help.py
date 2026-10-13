@@ -64,7 +64,7 @@ Omitted defaults run per call, left to right, with earlier parameters in scope.
 Optional handlers come first: on error EXPR or { STATEMENTS }; on exit EXPR or { STATEMENTS }.
 Errors return the error handler value; exit cleanup runs after success or failure
 and ignores its value. Call-site EXPR on error EXPR or { STATEMENTS } is lazy.
-In foreach bodies, on error break stops the nearest loop; on error continue skips
+In loop bodies, on error break stops the nearest loop; on error continue skips
 the failed iteration. Cleanup runs first. Limits and cancellation cannot be recovered.
 Each call has fresh parameters and locals and returns its final statement value;
 an empty body returns null. Captures use the definition's lexical environment.
@@ -95,26 +95,58 @@ Libraries accept let definitions and imports; preloads register dormant bodies.
 """
 
 
+_LOOPS = """Console loops
+  foreach item in items do BODY
+  item.index   Read-only zero-based visit ordinal inside foreach.
+  item.value   Underlying item, bypassing reserved index/value names.
+  while CONDITION do BODY
+  repeat BODY until CONDITION
+  break
+  continue
+BODY is one statement or a brace block. While accepts optional do before braces.
+The index belongs to the loop binding; aliases and returned items carry no metadata.
+Use item.value.index for a record field. The source runs once and stays live.
+While tests before the body; repeat runs once, then stops when until is true.
+Conditions require Boolean values. Break exits the nearest scripting loop.
+Continue skips the remaining body; repeat still checks its until condition.
+Consumed loops collect completed body values; skipped and broken bodies add none.
+Standalone while/repeat display body values without an unused result list.
+Iteration locals are scoped; mutation updates the nearest existing binding.
+Exit handlers clean up before break, continue, errors and cancellation.
+Control cannot cross runnable or isolated batch boundaries. All loops share
+execution limits and cancellation. These forms belong to the console dialect.
+Examples:
+  let x = 0
+  let samples = repeat x += 1 until x >= 3
+  while x > 0 do x -= 1
+"""
+_LOOP_TOPICS = {"loops", "foreach", "while", "repeat", "break", "continue"}
+
+
 def render_help(statement: Any) -> str:
     topic = legacy_help.help_topic(statement)
+    if topic in _LOOP_TOPICS:
+        return _LOOPS.rstrip()
     if topic == "predicates":
         return _PLAIN.rstrip()
     if topic in {"let", "runnables", "functions"}:
         return _LET.rstrip()
     result = legacy_help.render_help(statement).replace("$", "")
     if not topic:
-        result += "\nUse help let for runnable bodies and help predicates for value tests."
+        result += "\nUse help loops for iteration, help let for runnable bodies and help predicates for value tests."
     return result
 
 
 def render_help_markdown(statement: Any) -> str:
     topic = legacy_help.help_topic(statement)
+    if topic in _LOOP_TOPICS:
+        return "# Console loops\n\n```text\n" + _LOOPS.rstrip() + "\n```"
     if topic == "predicates":
         return _MARKDOWN.rstrip()
     if topic in {"let", "runnables", "functions"}:
         return "# Let values and runnable bodies\n\n```text\n" + _LET.rstrip() + "\n```"
     result = legacy_help.render_help_markdown(statement).replace("$", "")
     if not topic:
-        result += "\n\nUse `help let` for runnable bodies and `help predicates` for value tests."
+        result += "\n\nUse `help loops` for iteration, `help let` for runnable bodies and `help predicates` for value tests."
     return result
 

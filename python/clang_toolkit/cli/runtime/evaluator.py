@@ -1639,6 +1639,9 @@ class Runtime:
             return min(len(data), limit)
         return min(len(render(value).encode("utf-8")), limit)
 
+    def _reference_property(self, name: str, value: Any, field: str, *, root: bool) -> Any:
+        return property_value(value, field)
+
     def _reference(self, node: Tree) -> Any:
         children = node.children
         name = str(children[1])
@@ -1730,7 +1733,7 @@ class Runtime:
         else:
             value = self._resolve_name(name)
         row_context: int | None = None
-        for operation, field, argument, segment, line, column in steps:
+        for step, (operation, field, argument, segment, line, column) in enumerate(steps):
             previous = value
             try:
                 if operation == "method":
@@ -1742,7 +1745,7 @@ class Runtime:
                 elif operation == "index":
                     value = index_value(value, field)
                 else:
-                    value = property_value(value, field)
+                    value = self._reference_property(name, value, field, root=step == 0)
                 if (
                     operation == "index"
                     and isinstance(previous, MatchValue)

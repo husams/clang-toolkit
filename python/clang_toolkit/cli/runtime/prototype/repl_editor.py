@@ -16,7 +16,8 @@ from prompt_toolkit.validation import ValidationError, Validator
 
 from clang_toolkit.cli.highlight import TOKEN_STYLES
 from clang_toolkit.cli.input_state import InputState
-from clang_toolkit.cli.runtime.prototype.repl_language import grammar_text, parser
+from clang_toolkit.cli.runtime.prototype.repl_language import grammar_text, parser, parse
+from clang_toolkit.cli.runtime.prototype.syntax import Node
 
 _CLOSERS = {"(": ")", "[": "]", "{": "}"}
 _OPENERS = frozenset(_CLOSERS)
@@ -31,6 +32,9 @@ _KEYWORDS = frozenset(
         "else",
         "false",
         "foreach",
+        "while",
+        "repeat",
+        "until",
         "on",
         "error",
         "exit",
@@ -258,6 +262,46 @@ class PrototypeReplLexer(Lexer):
         return lambda lineno: lines[lineno] if 0 <= lineno < len(lines) else []
 
 
+def _completing_loop_binding(source: str, name: str, position: int) -> bool:
+    """Inspect a completed draft to offer metadata only on visible loop bindings."""
+    location = _position(source, position)
+    state = input_state(source)
+    try:
+        program = parse(source + "".join(_CLOSERS[value] for value in reversed(state.stack)))
+    except (UnexpectedInput, ValueError):
+        return False
+
+    def visit(node: Node, bindings: set[str]) -> bool | None:
+        if node.kind == "get" and node.value == "index":
+            base = node.children[0]
+            if base.kind == "ref" and base.value == name and (base.line, base.column) == location:
+                return name in bindings
+        if node.kind == "foreach":
+            found = visit(node.children[0], bindings)
+            return found if found is not None else visit(node.children[1], bindings | {node.value})
+        if node.kind in {"program", "block"}:
+            bindings = set(bindings)
+            for statement in node.children:
+                found = visit(statement, bindings)
+                if found is not None:
+                    return found
+                statement = statement.children[0] if statement.kind == "observe" else statement
+                if statement.kind in {"let", "runnable"}:
+                    binding = statement.value[0] if statement.kind == "runnable" else statement.value
+                    bindings.discard(binding)
+            return None
+        if node.kind == "runnable":
+            bindings = bindings - set(node.value[1])
+        for child in node.children:
+            if isinstance(child, Node):
+                found = visit(child, bindings)
+                if found is not None:
+                    return found
+        return None
+
+    return visit(program, set()) is True
+
+
 class PrototypeCompleter(Completer):
     """Keep legacy suggestions and add the compact prototype keyword set."""
 
@@ -288,6 +332,13 @@ class PrototypeCompleter(Completer):
         functions = functions() if callable(functions) else functions or ()
         if before[:match.start()].endswith("."):
             field = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\[[0-9]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*)\.[A-Za-z_0-9]*$", before)
+            if field and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", field.group(1)):
+                draft = before[:match.start()] + "index"
+                if _completing_loop_binding(draft, field.group(1), field.start(1)):
+                    for name in ("index", "value"):
+                        if name.startswith(partial) and name not in known:
+                            yield Completion(name, start_position=-len(partial), display_meta="loop binding")
+                            known.add(name)
             resolver = getattr(self.base, "_field_resolver", None)
             suggestions = resolver(field.group(1)) if field and resolver else ()
             for item in suggestions:

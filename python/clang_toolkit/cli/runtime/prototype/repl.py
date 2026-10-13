@@ -143,6 +143,17 @@ class PrototypeRuntime(Runtime):
             self._prototype_operands[key] = executable
         return executable(context)
 
+    def _reference_property(self, name: str, value: Any, field: str, *, root: bool) -> Any:
+        context = self._prototype_context
+        if root and context is not None:
+            ordinal = context.loop_index(name)
+            if ordinal is not None:
+                if field == "index":
+                    return ordinal
+                if field == "value":
+                    return value
+        return super()._reference_property(name, value, field, root=root)
+
     def _has_dynamic_part(self, node: Tree) -> bool:
         if node.data == "matcher" and self._prototype_context is not None:
             present, value = self._prototype_context.binding_state(str(node.children[0]))
@@ -398,6 +409,11 @@ class ReplSession:
         return value
 
     def observe(self, context: Context, node: Node, value: Any) -> None:
+        if node.kind == "loop_iteration":
+            if not context.consume_depth and value is not None and self.last_tail not in {"let", "runnable", "assign", "print", "host_display"}:
+                self.record("display", value)
+                self.emitted = True
+            return
         tail = self.last_tail if node.kind in {"conditional", "block", "call", "recovery"} else node.kind
         self.last_tail = tail
         if id(node) not in self.top_statements:

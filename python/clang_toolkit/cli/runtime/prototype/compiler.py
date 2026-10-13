@@ -9,7 +9,8 @@ from typing import Any, Callable
 from .semantics import (
     Context, ExecutionLimitError, Node, PrototypeError, _as_bool, _binary,
     _ensure_dict_capacity, _ensure_insertable, _error, _finite, _int, _kind, _name, _unary, child, children,
-    child_values, consumed_value, host_value, index_value, iterable_value, observe_statement, property_value,
+    child_values, consumed_value, host_value, index_value, iterable_value, observe_statement,
+    loop_condition, complete_loop_iteration, binding_property_value, validate_loop_property_target,
     _static_predicate_name, _predicate, _predicate_binding,
 )
 from .runnables import create_runnable, define_runnable, invoke_named
@@ -61,7 +62,7 @@ def _make_dict(context: Context, node: Any, count: int, thunk: Callable[[], list
 def _get(context: Context, node: Any, base_thunk: Callable[[], Any], name: str) -> Any:
     base = base_thunk()
     try:
-        return property_value(base, name)
+        return binding_property_value(context, child(node, "base", 0), base, name)
     except Exception as error:
         raise _error(context, node, f"property {name!r} is unavailable on {type(base).__name__}: {error}") from error
 
@@ -162,6 +163,7 @@ def _assign_index(context: Context, node: Any, target_node: Any, operator: str, 
 
 
 def _assign_get(context: Context, node: Any, target_node: Any, operator: str, base: Any, key: str, value: Callable[[], Any]) -> Any:
+    validate_loop_property_target(context, target_node)
     if not isinstance(base, dict):
         raise _error(context, node, "dot assignment requires a mutable dictionary")
     if operator != "=" and key not in base:
@@ -272,6 +274,8 @@ class _Lowerer:
             expr = self.call("_recover", context, body, fallback)
         elif kind == "foreach":
             return self.call(self.emit_foreach_function(node), context)
+        elif kind in {"while", "repeat"}:
+            return self.call(self.emit_condition_loop_function(node), context)
         elif kind == "binary":
             op = str(getattr(node, "value", None))
             left, right = child(node, "lhs", 0), child(node, "rhs", 1)
@@ -334,7 +338,7 @@ class _Lowerer:
             return self.call("_assign_get", context, nref, self.node_ref(target), ast.Constant(operator), self.emit_expr(child(target, "base", 0)), ast.Constant(str(getattr(target, "value", None))), self.lambda0(self.emit_expr(value)))
         return self.call("_bad_target", context, self.node_ref(target))
 
-    def emit_block_function(self, block: Any) -> str:
+    def emit_block_function(self, block: Any, *, value_context: bool = True) -> str:
         name = f"_block_{self.counter}"
         self.counter += 1
         values = child(block, "statements", 0, ()) if isinstance(children(block), Mapping) else child_values(block)
@@ -342,8 +346,9 @@ class _Lowerer:
         handlers, statements = split_handlers(statements)
         context = ast.Name("context", ast.Load())
         body = [ast.Expr(self.call("_tick", context, self.node_ref(block))), ast.Assign([ast.Name("last", ast.Store())], ast.Constant(None))]
-        for statement in statements:
-            body.extend(self.emit_stmt(statement))
+        for index, statement in enumerate(statements):
+            body.extend(self.emit_stmt(statement,
+                                       value_context=value_context and index == len(statements) - 1))
         if handlers:
             catches = []
             if "error" in handlers:
@@ -367,10 +372,13 @@ class _Lowerer:
         item, iterable_name, results = f"_item_{index}", f"_iter_{index}", f"_results_{index}"
         body_fn = self.emit_block_function(block)
         context = ast.Name("context", ast.Load())
+        ordinal = f"_ordinal_{index}"
+        target = ast.Tuple([ast.Name(ordinal, ast.Store()), ast.Name(item, ast.Store())], ast.Store())
+        source = self.call("enumerate", ast.Name(iterable_name, ast.Load()))
         body = [
             ast.Expr(self.call("_check_items", context, self.node_ref(node), self.call("len", ast.Name(results, ast.Load())))),
             ast.Expr(self.call("_tick", context, self.node_ref(node))),
-            ast.Expr(ast.Call(ast.Attribute(context, "push_scope", ast.Load()), [ast.Dict([ast.Constant(str(getattr(node, "value", "")))], [ast.Name(item, ast.Load())])], [])),
+            ast.Expr(ast.Call(ast.Attribute(context, "push_loop_scope", ast.Load()), [ast.Constant(_name(node)), ast.Name(item, ast.Load()), ast.Name(ordinal, ast.Load())], [])),
             ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))],
                     [ast.ExceptHandler(ast.Name("_LoopBreak", ast.Load()), None, [ast.Break()]),
                      ast.ExceptHandler(ast.Name("_LoopContinue", ast.Load()), None, [ast.Continue()])],
@@ -381,7 +389,7 @@ class _Lowerer:
             ast.Expr(self.call("_tick", context, self.node_ref(node))),
             ast.Assign([ast.Name(iterable_name, ast.Store())], self.call("_iterable", context, self.node_ref(node), self.emit_expr(iterable))),
             ast.Assign([ast.Name(results, ast.Store())], ast.List([], ast.Load())),
-            ast.For(ast.Name(item, ast.Store()), ast.Name(iterable_name, ast.Load()), body, []),
+            ast.For(target, source, body, []),
             ast.Assign([ast.Name("last", ast.Store())], ast.Name(results, ast.Load())),
         ]
 
@@ -392,17 +400,57 @@ class _Lowerer:
         self.functions.append(ast.FunctionDef(name, ast.arguments([], [ast.arg("context")], None, [], [], None, []), body, []))
         return name
 
-    def emit_stmt(self, node: Any) -> list[ast.stmt]:
+    def emit_condition_loop(self, node: Any, *, collect: bool) -> list[ast.stmt]:
+        index = self.counter
+        self.counter += 1
+        results, completed = f"_results_{index}", f"_completed_{index}"
+        context, nref = ast.Name("context", ast.Load()), self.node_ref(node)
+        body_fn = self.emit_block_function(child(node, "block", 1), value_context=collect)
+        condition = self.call("_loop_condition", context, nref,
+                              self.lambda0(self.emit_expr(child(node, "condition", 0))))
+        body = [
+            ast.Expr(self.call("_tick", context, nref)),
+            ast.Expr(ast.Call(ast.Attribute(context, "push_scope", ast.Load()), [], [])),
+            ast.Assign([ast.Name(completed, ast.Store())], ast.Constant(True)),
+            ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))],
+                    [ast.ExceptHandler(ast.Name("_LoopBreak", ast.Load()), None, [ast.Break()]),
+                     ast.ExceptHandler(ast.Name("_LoopContinue", ast.Load()), None,
+                                       [ast.Assign([ast.Name(completed, ast.Store())], ast.Constant(False))])],
+                    [], [ast.Expr(ast.Call(ast.Attribute(context, "pop_scope", ast.Load()), [], []))]),
+            ast.If(ast.Name(completed, ast.Load()),
+                   [ast.Expr(self.call("_complete_loop_iteration", context, nref,
+                                       ast.Name(results, ast.Load()), ast.Name("last", ast.Load())))], []),
+        ]
+        repeat = _kind(node) == "repeat"
+        if repeat:
+            body.append(ast.If(condition, [ast.Break()], []))
+        return [
+            ast.Expr(self.call("_tick", context, nref)),
+            ast.Assign([ast.Name(results, ast.Store())], ast.List([], ast.Load()) if collect else ast.Constant(None)),
+            ast.While(ast.Constant(True) if repeat else condition, body, []),
+            ast.Assign([ast.Name("last", ast.Store())], ast.Name(results, ast.Load())),
+        ]
+
+    def emit_condition_loop_function(self, node: Any) -> str:
+        name = f"_loop_{self.counter}"
+        self.counter += 1
+        body = [*self.emit_condition_loop(node, collect=True), ast.Return(ast.Name("last", ast.Load()))]
+        self.functions.append(ast.FunctionDef(name, ast.arguments([], [ast.arg("context")], None, [], [], None, []), body, []))
+        return name
+
+    def emit_stmt(self, node: Any, *, value_context: bool = False) -> list[ast.stmt]:
         kind = _kind(node)
         context, nref = ast.Name("context", ast.Load()), self.node_ref(node)
         if kind == "observe":
             statement = child_values(node)[0]
-            return [*self.emit_stmt(statement), ast.Expr(self.call("_observe", context, self.node_ref(statement), ast.Name("last", ast.Load())))]
+            return [*self.emit_stmt(statement, value_context=value_context), ast.Expr(self.call("_observe", context, self.node_ref(statement), ast.Name("last", ast.Load())))]
         if kind == "flow":
             signal = "_LoopBreak" if node.value == "break" else "_LoopContinue"
             return [ast.Expr(self.call("_tick", context, nref)), ast.Raise(self.call(signal))]
         if kind == "foreach":
             return self.emit_foreach(node)
+        if kind in {"while", "repeat"}:
+            return self.emit_condition_loop(node, collect=value_context)
         if kind == "block":
             return [ast.Assign([ast.Name("last", ast.Store())], self.call("_run_scoped", context, ast.Name(self.emit_block_function(node), ast.Load())))]
         if kind == "let":
@@ -449,7 +497,8 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_predicate": _predicate, "_predicate_binding": _predicate_binding,
         "_call": _call, "_conditional": _conditional, "_run_scoped": _run_scoped,
         "_print": _print, "_assign_ref": _assign_ref, "_assign_index": _assign_index, "_assign_get": _assign_get,
-        "_bad_target": _bad_target, "_check_items": _check_items, "len": len,
+        "_loop_condition": loop_condition, "_complete_loop_iteration": complete_loop_iteration,
+        "_bad_target": _bad_target, "_check_items": _check_items, "len": len, "enumerate": enumerate,
     }
     exec(compile(module, "<ctk-prototype-compiled>", "exec"), namespace)
     function = namespace["_ctk_compiled_program"]

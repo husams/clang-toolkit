@@ -113,7 +113,7 @@ def test_compiler_lowers_control_flow_and_does_not_dispatch_tree(monkeypatch):
         Node("foreach", "item", (Node("list", children=(lit(1), lit(2), lit(3))), body)),
     )
     compiled = compile_program(p)
-    assert "for _item_" in compiled.__ctk_source__
+    assert "for _ordinal_" in compiled.__ctk_source__
     assert "eval_statement" not in compiled.__ctk_source__
     monkeypatch.setattr("clang_toolkit.cli.runtime.prototype.semantics.eval_expr", lambda *_: (_ for _ in ()).throw(AssertionError("tree dispatch")))
     monkeypatch.setattr("clang_toolkit.cli.runtime.prototype.semantics.eval_statement", lambda *_: (_ for _ in ()).throw(AssertionError("tree dispatch")))

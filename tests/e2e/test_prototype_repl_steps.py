@@ -359,6 +359,30 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             "MULTILINE_MATCHER_1",
         )
 
+        loops = submit(
+            'let loop_names = ["alpha", "beta", "gamma"]\n'
+            'let numbered = foreach name in loop_names do ({index: name.index, name: name})\n'
+            'let filtered = foreach name in loop_names do {\n'
+            '  if name.index == 1 then continue\n'
+            '  name.index\n'
+            '}\n'
+            'let remaining = 13\n'
+            'while remaining > 10 do remaining -= 1\n'
+            'let attempts = 0\n'
+            'let completed = repeat {\n'
+            '  attempts += 1\n'
+            '  if attempts < 3 then continue\n'
+            '  attempts\n'
+            '}\nuntil attempts >= 3\n'
+            'let stopping = while true do { break }\n'
+            'let visit_rows = foreach row in functions do ({index: row.index, name: row.f.decl_name})\n'
+            'let index_ok = numbered[2].index == 2 and numbered[2].name == "gamma" and filtered[1] == 2\n'
+            'let repeat_ok = attempts == 3 and completed.length == 1 and completed[0] == 3\n'
+            'let native_index_ok = visit_rows[0].index == 0 and visit_rows[0].name == "caller"\n'
+            'print "LOOPS_{index_ok and repeat_ok and native_index_ok}_{remaining}_{stopping.length}"',
+            "LOOPS_true_10_0",
+        )
+
         predicates = submit(
             'let data = {a: null, disabled: false}\n'
             'let present = $data has a\n'
@@ -387,12 +411,9 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         cancellation = ""
         cancel_recovery = ""
         if ui == "workspace":
-            loop = (
-                "foreach outer in range(10000) do "
-                "foreach inner in range(10000) do $outer + $inner"
-            )
+            loop = "while true do continue"
             os.write(master, ("\x1b[200~" + loop + "\x1b[201~").encode())
-            read_until("$outer + $inner")
+            read_until("while true do continue")
             os.write(master, b"\x1b[27;5;13~")
             read_until("Running")
             os.write(master, b"\x03")
@@ -422,6 +443,7 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             "screenshot": screenshot,
             "runnables": runnables,
             "handlers": handlers,
+            "loops": loops,
             "native": native,
             "predicates": predicates,
             "lazy": lazy,
@@ -461,6 +483,7 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     assert "EXPRESSION_5_3_7_0_3_true" in evidence["runnables"]
     assert "INLINE_6_0_1_15" in evidence["runnables"]
     assert "HANDLERS_true_5" in evidence["handlers"]
+    assert "LOOPS_true_10_0" in evidence["loops"]
     assert "HANDLER_NATIVE_true_0" in evidence["handlers"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]
     assert "MULTILINE_MATCHER_1" in evidence["native"]
