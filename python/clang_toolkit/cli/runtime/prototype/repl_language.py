@@ -106,12 +106,12 @@ def _combined_grammar() -> str:
     proto_source = _PROTOTYPE_GRAMMAR.read_text(encoding="utf-8")
     # A dollar sign is optional on the iterator to retain existing CTK style.
     proto_source = proto_source.replace(
-        'closed_foreach_expr.10: "foreach" CNAME ("," CNAME)? PRED_IN',
-        'closed_foreach_expr.10: "foreach" "$"? CNAME ("," "$"? CNAME)? PRED_IN',
+        'closed_foreach_expr.10: "foreach" CNAME PRED_IN',
+        'closed_foreach_expr.10: "foreach" "$"? CNAME PRED_IN',
     )
     proto_source = proto_source.replace(
-        'open_foreach_expr.10: "foreach" CNAME ("," CNAME)? PRED_IN',
-        'open_foreach_expr.10: "foreach" "$"? CNAME ("," "$"? CNAME)? PRED_IN',
+        'open_foreach_expr.10: "foreach" CNAME PRED_IN',
+        'open_foreach_expr.10: "foreach" "$"? CNAME PRED_IN',
     )
     # Let and print priorities are defined by the standalone grammar.
     proto_source = proto_source.replace(

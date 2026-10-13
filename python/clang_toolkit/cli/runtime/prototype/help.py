@@ -90,13 +90,15 @@ Libraries accept let definitions and imports; preloads register dormant bodies.
 
 _LOOPS = """Console loops
   foreach item in items do BODY
-  foreach index, item in items do BODY
+  item.index   Read-only zero-based visit ordinal inside foreach.
+  item.value   Underlying item, bypassing reserved index/value names.
   while CONDITION do BODY
   repeat BODY until CONDITION
   break
   continue
 BODY is one statement or a brace block. While accepts optional do before braces.
-The index is a zero-based visit ordinal; the source runs once and stays live.
+The index belongs to the loop binding; aliases and returned items carry no metadata.
+Use item.value.index for a record field. The source runs once and stays live.
 While tests before the body; repeat runs once, then stops when until is true.
 Conditions require Boolean values. Break exits the nearest scripting loop.
 Continue skips the remaining body; repeat still checks its until condition.

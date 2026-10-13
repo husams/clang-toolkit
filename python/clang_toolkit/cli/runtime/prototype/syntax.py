@@ -148,13 +148,10 @@ class _Builder(Transformer[Any, Any]):
         return Node("recovery", children=nodes, line=line, column=column)
 
     def foreach_expr(self, meta: Any, items: list[Any]) -> Node:
-        names = tuple(str(item) for item in items if isinstance(item, Token) and item.type == "CNAME")
+        name = next(str(item) for item in items if isinstance(item, Token) and item.type == "CNAME")
         iterable, block = [item for item in items if isinstance(item, Node)]
         line, column = self._location(meta, items)
-        if len(set(names)) != len(names):
-            raise ValueError(f"duplicate foreach binding names at line {line}, column {column}")
-        binding = names[0] if len(names) == 1 else names
-        return Node("foreach", value=binding, children=(iterable, block), line=line, column=column)
+        return Node("foreach", value=name, children=(iterable, block), line=line, column=column)
 
     def while_expr(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)

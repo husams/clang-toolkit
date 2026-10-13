@@ -9,8 +9,8 @@ from typing import Any, Callable
 from .semantics import (
     Context, ExecutionLimitError, Node, PrototypeError, _as_bool, _binary,
     _ensure_dict_capacity, _ensure_insertable, _error, _finite, _int, _kind, _name, _unary, child, children,
-    child_values, consumed_value, host_value, index_value, iterable_value, observe_statement, property_value,
-    loop_condition, complete_loop_iteration,
+    child_values, consumed_value, host_value, index_value, iterable_value, observe_statement,
+    loop_condition, complete_loop_iteration, binding_property_value, validate_loop_property_target,
     _static_predicate_name, _predicate, _predicate_binding,
 )
 from .runnables import define_runnable, invoke_named
@@ -62,7 +62,7 @@ def _make_dict(context: Context, node: Any, count: int, thunk: Callable[[], list
 def _get(context: Context, node: Any, base_thunk: Callable[[], Any], name: str) -> Any:
     base = base_thunk()
     try:
-        return property_value(base, name)
+        return binding_property_value(context, child(node, "base", 0), base, name)
     except Exception as error:
         raise _error(context, node, f"property {name!r} is unavailable on {type(base).__name__}: {error}") from error
 
@@ -163,6 +163,7 @@ def _assign_index(context: Context, node: Any, target_node: Any, operator: str, 
 
 
 def _assign_get(context: Context, node: Any, target_node: Any, operator: str, base: Any, key: str, value: Callable[[], Any]) -> Any:
+    validate_loop_property_target(context, target_node)
     if not isinstance(base, dict):
         raise _error(context, node, "dot assignment requires a mutable dictionary")
     if operator != "=" and key not in base:
@@ -362,20 +363,13 @@ class _Lowerer:
         item, iterable_name, results = f"_item_{index}", f"_iter_{index}", f"_results_{index}"
         body_fn = self.emit_block_function(block)
         context = ast.Name("context", ast.Load())
-        names = getattr(node, "value", "")
-        if isinstance(names, tuple):
-            ordinal = f"_ordinal_{index}"
-            target = ast.Tuple([ast.Name(ordinal, ast.Store()), ast.Name(item, ast.Store())], ast.Store())
-            source = self.call("enumerate", ast.Name(iterable_name, ast.Load()))
-            bindings = ast.Dict([ast.Constant(name) for name in names],
-                                [ast.Name(ordinal, ast.Load()), ast.Name(item, ast.Load())])
-        else:
-            target, source = ast.Name(item, ast.Store()), ast.Name(iterable_name, ast.Load())
-            bindings = ast.Dict([ast.Constant(str(names))], [ast.Name(item, ast.Load())])
+        ordinal = f"_ordinal_{index}"
+        target = ast.Tuple([ast.Name(ordinal, ast.Store()), ast.Name(item, ast.Store())], ast.Store())
+        source = self.call("enumerate", ast.Name(iterable_name, ast.Load()))
         body = [
             ast.Expr(self.call("_check_items", context, self.node_ref(node), self.call("len", ast.Name(results, ast.Load())))),
             ast.Expr(self.call("_tick", context, self.node_ref(node))),
-            ast.Expr(ast.Call(ast.Attribute(context, "push_scope", ast.Load()), [bindings], [])),
+            ast.Expr(ast.Call(ast.Attribute(context, "push_loop_scope", ast.Load()), [ast.Constant(_name(node)), ast.Name(item, ast.Load()), ast.Name(ordinal, ast.Load())], [])),
             ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))],
                     [ast.ExceptHandler(ast.Name("_LoopBreak", ast.Load()), None, [ast.Break()]),
                      ast.ExceptHandler(ast.Name("_LoopContinue", ast.Load()), None, [ast.Continue()])],

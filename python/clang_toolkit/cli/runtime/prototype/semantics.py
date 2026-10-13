@@ -86,6 +86,7 @@ class Context:
         self.current_location: tuple[int | None, int | None] = (None, None)
         self.location: tuple[int | None, int | None] = self.current_location
         self._scopes: list[dict[str, Any]] = [self.bindings]
+        self._loop_indices: dict[int, dict[str, int]] = {}
         self.functions.setdefault("len", lambda value: _bounded_len(value, self.max_items))
         self.functions.setdefault("range", lambda *args: _bounded_range(args, self.max_items))
 
@@ -96,12 +97,23 @@ class Context:
     def push_scope(self, initial: Mapping[str, Any] | None = None) -> None:
         self._scopes.append(dict(initial or {}))
 
+    def push_loop_scope(self, name: str, item: Any, ordinal: int) -> None:
+        self.push_scope({name: item})
+        self._loop_indices[id(self._scopes[-1])] = {name: ordinal}
+
+    def loop_index(self, name: str) -> int | None:
+        scope = self.lookup_scope(name)
+        return self._loop_indices.get(id(scope), {}).get(name)
+
     def pop_scope(self) -> dict[str, Any]:
         if len(self._scopes) == 1:
             raise RuntimeError("cannot pop the root execution scope")
-        return self._scopes.pop()
+        scope = self._scopes.pop()
+        self._loop_indices.pop(id(scope), None)
+        return scope
 
     def define(self, name: str, value: Any) -> Any:
+        self._loop_indices.get(id(self._scopes[-1]), {}).pop(name, None)
         self._scopes[-1][name] = value
         return value
 
@@ -466,6 +478,25 @@ def property_value(value: Any, name: str) -> Any:
         raise
 
 
+def binding_property_value(ctx: Context, base: Any, value: Any, name: str) -> Any:
+    """Resolve metadata on the lexical binding without wrapping its value."""
+    if _kind(base) == "ref":
+        ordinal = ctx.loop_index(_name(base))
+        if ordinal is not None:
+            if name == "index":
+                return ordinal
+            if name == "value":
+                return value
+    return property_value(value, name)
+
+
+def validate_loop_property_target(ctx: Context, target: Any) -> None:
+    base = _expr(target, 0, "base")
+    name = str(node_value(target))
+    if _kind(base) == "ref" and name in {"index", "value"} and ctx.loop_index(_name(base)) is not None:
+        raise _error(ctx, target, f"loop metadata {name!r} is read-only")
+
+
 def index_value(value: Any, key: Any, ctx: Context, node: Any) -> Any:
     if type(key) is bool:
         raise _error(ctx, node, "boolean is not a valid index")
@@ -522,6 +553,7 @@ def _resolve_target(ctx: Context, target: Any, operator: str) -> tuple[Callable[
             raise _error(ctx, target, f"cannot assign undefined binding {name!r}")
         return lambda: scope[name], lambda value: scope.__setitem__(name, value)
     if kind == "get":
+        validate_loop_property_target(ctx, target)
         base = eval_expr(ctx, _expr(target, 0, "base"))
         key = str(node_value(target, child(target, "property", None)))
         if not isinstance(base, dict):
@@ -609,7 +641,7 @@ def eval_expr(ctx: Context, node: Any) -> Any:
         value = eval_expr(ctx, base)
         name = str(node_value(node, child(node, "property", None)))
         try:
-            return property_value(value, name)
+            return binding_property_value(ctx, base, value, name)
         except PrototypeError:
             raise
         except Exception as error:
@@ -784,7 +816,7 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
 
     if not ticked:
         ctx.tick(node)
-    names = node_value(node) if isinstance(node_value(node), tuple) else _name(node)
+    name = _name(node)
     iterable = eval_expr(ctx, _expr(node, 0, "iterable"))
     body = _expr(node, 1, "block")
     iterator = iterable_value(ctx, node, iterable)
@@ -793,8 +825,7 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
         if len(result) >= ctx.max_items:
             raise _error(ctx, node, "foreach result exceeds item limit", ExecutionLimitError)
         ctx.tick(node)
-        bindings = {names[0]: ordinal, names[1]: item} if isinstance(names, tuple) else {names: item}
-        ctx.push_scope(bindings)
+        ctx.push_loop_scope(name, item, ordinal)
         try:
             result.append(eval_block(ctx, body, scoped=False))
         except LoopBreak:

@@ -143,6 +143,17 @@ class PrototypeRuntime(Runtime):
             self._prototype_operands[key] = executable
         return executable(context)
 
+    def _reference_property(self, name: str, value: Any, field: str, *, root: bool) -> Any:
+        context = self._prototype_context
+        if root and context is not None:
+            ordinal = context.loop_index(name)
+            if ordinal is not None:
+                if field == "index":
+                    return ordinal
+                if field == "value":
+                    return value
+        return super()._reference_property(name, value, field, root=root)
+
     def _has_dynamic_part(self, node: Tree) -> bool:
         if node.data == "matcher" and self._prototype_context is not None:
             present, value = self._prototype_context.binding_state(str(node.children[0]))

@@ -344,10 +344,10 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
 
         loops = submit(
             'let loop_names = ["alpha", "beta", "gamma"]\n'
-            'let numbered = foreach index, name in loop_names do ({index: index, name: name})\n'
-            'let filtered = foreach index, name in loop_names do {\n'
-            '  if index == 1 then continue\n'
-            '  index\n'
+            'let numbered = foreach name in loop_names do ({index: name.index, name: name})\n'
+            'let filtered = foreach name in loop_names do {\n'
+            '  if name.index == 1 then continue\n'
+            '  name.index\n'
             '}\n'
             'let remaining = 13\n'
             'while remaining > 10 do remaining -= 1\n'
@@ -358,7 +358,7 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             '  attempts\n'
             '}\nuntil attempts >= 3\n'
             'let stopping = while true do { break }\n'
-            'let visit_rows = foreach index, row in functions do ({index: index, name: row.f.decl_name})\n'
+            'let visit_rows = foreach row in functions do ({index: row.index, name: row.f.decl_name})\n'
             'let index_ok = numbered[2].index == 2 and numbered[2].name == "gamma" and filtered[1] == 2\n'
             'let repeat_ok = attempts == 3 and completed.length == 1 and completed[0] == 3\n'
             'let native_index_ok = visit_rows[0].index == 0 and visit_rows[0].name == "caller"\n'

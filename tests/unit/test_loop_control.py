@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from lark import UnexpectedInput
 
 from clang_toolkit.cli.runtime.prototype.compiler import compile_program
 from clang_toolkit.cli.runtime.prototype.repl_language import parse as parse_repl
@@ -23,13 +24,13 @@ def execute(request):
 
 
 @pytest.mark.parametrize("source, expected", [
-    ('foreach index, item in [] do item', []),
-    ('foreach index, item in ["alpha"] do ({index: index, item: item})', [{"index": 0, "item": "alpha"}]),
-    ('foreach index, item in [2, 4, 6] do { if index == 1 then continue; [index, item] }', [[0, 2], [2, 6]]),
-    ('foreach index, item in [2, 4, 6] do { if index == 1 then break; [index, item] }', [[0, 2]]),
-    ('foreach index, item in [2, 4] do { index = 99; index }', [99, 99]),
-    ('foreach index, item in {a: 1, b: 2} do [index, item]', [[0, "a"], [1, "b"]]),
-    ('foreach i, outer in [1, 2] do foreach j, inner in [3, 4] do [i, j, outer, inner]', [[[0, 0, 1, 3], [0, 1, 1, 4]], [[1, 0, 2, 3], [1, 1, 2, 4]]]),
+    ('foreach item in [] do item', []),
+    ('foreach item in ["alpha"] do ({index: item.index, item: item})', [{"index": 0, "item": "alpha"}]),
+    ('foreach item in [2, 4, 6] do { if item.index == 1 then continue; [item.index, item] }', [[0, 2], [2, 6]]),
+    ('foreach item in [2, 4, 6] do { if item.index == 1 then break; [item.index, item] }', [[0, 2]]),
+    ('foreach item in [2, 4] do { item = 99; [item.index, item] }', [[0, 99], [1, 99]]),
+    ('foreach item in {a: 1, b: 2} do [item.index, item]', [[0, "a"], [1, "b"]]),
+    ('foreach outer in [1, 2] do foreach inner in [3, 4] do [outer.index, inner.index, outer, inner]', [[[0, 0, 1, 3], [0, 1, 1, 4]], [[1, 0, 2, 3], [1, 1, 2, 4]]]),
 ])
 def test_indexed_iteration(execute, source, expected):
     result, _ = execute(source)
@@ -46,31 +47,31 @@ def test_indexed_source_runs_once_and_keeps_live_iterator(execute):
         if len(values) < 3:
             values.append(len(values) + 1)
     context = Context(functions={"source": source, "grow": append})
-    result, _ = execute('foreach index, item in source() do { grow(); [index, item] }', context)
+    result, _ = execute('foreach item in source() do { grow(); [item.index, item] }', context)
     assert result == [[0, 1], [1, 2], [2, 3]]
     assert calls == ["source"]
 
 
 def test_indexed_source_rebinding_and_shadowing(execute):
-    result, context = execute('let items = [1, 2]; let index = 7; let item = 8; let result = foreach index, item in items do { items = [9]; [index, item] }; [result, index, item]')
+    result, context = execute('let items = [1, 2]; let index = 7; let item = 8; let result = foreach item in items do { items = [9]; [item.index, item] }; [result, index, item]')
     assert result == [[[0, 1], [1, 2]], 7, 8]
     assert context.bindings["items"] == [9]
 
 
 @pytest.mark.parametrize("parser", [parse, parse_repl])
-def test_duplicate_bindings_fail_before_effects(execute, parser):
+def test_comma_bindings_are_rejected_before_effects(execute, parser):
     context = Context(functions={"side": lambda: pytest.fail("effect ran")})
-    with pytest.raises(ValueError, match="duplicate foreach binding.*line 1"):
-        execute('side(); foreach item, item in [1] do item', context, parser)
+    with pytest.raises(UnexpectedInput):
+        execute('side(); foreach index, item in [1] do item', context, parser)
 
 
 def test_repl_indexed_legacy_iterator_compatibility(execute):
-    result, _ = execute('foreach $index, $item in [1, 2] do [index, item]', parser=parse_repl)
+    result, _ = execute('foreach $item in [1, 2] do [item.index, item]', parser=parse_repl)
     assert result == [[0, 1], [1, 2]]
 
 
 def test_indexed_engines_share_steps():
-    program = parse('foreach index, item in [1, 2] do [index, item]')
+    program = parse('foreach item in [1, 2] do [item.index, item]')
     interpreted, compiled = Context(), Context()
     assert evaluate(program, interpreted) == compile_program(program)(compiled)
     assert interpreted.steps == compiled.steps
@@ -227,3 +228,69 @@ def test_compiled_condition_loops_do_not_dispatch_tree(monkeypatch):
 def test_nested_loop_values_are_consumed_by_final_body_statement(execute, source, expected):
     value, _ = execute(source)
     assert value == expected
+
+
+@pytest.mark.parametrize("parser", [parse, parse_repl])
+@pytest.mark.parametrize("source, expected", [
+    ('foreach item in [{index: 42, value: 7}] do [item.index, item.value.index, item.value.value, item]',
+     [[0, 42, 7, {"index": 42, "value": 7}]]),
+    ('foreach item in [{index: 42}] do { let alias = item; [item.index, alias.index] }', [[0, 42]]),
+    ('let identity(value) = value; foreach item in [{index: 42}] do identity(item).index', [42]),
+    ('foreach outer in [4, 5] do foreach inner in [6, 7] do [outer.index, inner.index]',
+     [[[0, 0], [0, 1]], [[1, 0], [1, 1]]]),
+    ('foreach item in [4, 5] do { let nested = foreach item in [6, 7] do item.index; [item.index, nested] }',
+     [[0, [0, 1]], [1, [0, 1]]]),
+    ('foreach item in [{index: 42}] do { if true then { let item = {index: 9}; print item.index }; item.index }', [0]),
+    ('foreach item in [{index: 42}] do { item.value.index += 1; [item.index, item.value.index] }', [[0, 43]]),
+    ('foreach item in [4, 5] do { item = {index: 9}; [item.index, item.value.index] }', [[0, 9], [1, 9]]),
+    ('foreach item in [{index: 42}] do { let item = {index: 9}; item.index }', [9]),
+    ('let items = foreach item in [4, 5] do item; items', [4, 5]),
+])
+def test_loop_metadata_is_lexical_and_values_stay_plain(execute, parser, source, expected):
+    result, context = execute(source, parser=parser)
+    assert result == expected
+    assert context._loop_indices == {}
+
+
+@pytest.mark.parametrize("source", [
+    'foreach item in [4] do { let alias = item; alias.index }',
+    'foreach item in [4] do item; item.index',
+    'let identity(value) = value; foreach item in [4] do identity(item).index',
+])
+def test_loop_metadata_does_not_escape_its_binding(execute, source):
+    context = Context()
+    with pytest.raises(EvaluationError):
+        execute(source, context)
+    assert context._loop_indices == {}
+    assert context.scopes == (context.bindings,)
+
+
+@pytest.mark.parametrize("property_name", ["index", "value"])
+@pytest.mark.parametrize("operator", ["=", "+="])
+def test_loop_metadata_is_read_only_before_rhs_effects(execute, property_name, operator):
+    record = {"index": 42, "value": 7}
+    context = Context(bindings={"items": [record]}, functions={"side": lambda: pytest.fail("rhs ran")})
+    with pytest.raises(EvaluationError, match="loop metadata .* is read-only.*line 1"):
+        execute(f'foreach item in items do item.{property_name} {operator} side()', context)
+    assert record == {"index": 42, "value": 7}
+    assert context._loop_indices == {}
+    assert context.scopes == (context.bindings,)
+
+
+def test_loop_metadata_is_available_to_exit_handler(execute):
+    cleaned = []
+    context = Context(functions={"clean": lambda ordinal, value: cleaned.append((ordinal, value))})
+    result, _ = execute('foreach item in [4, 5] do { on exit clean(item.index, item); continue }', context)
+    assert result == []
+    assert cleaned == [(0, 4), (1, 5)]
+    assert context._loop_indices == {}
+
+
+def test_loop_metadata_cancellation_unwinds_and_preserves_target(execute):
+    context = Context(bindings={"saved": 99}, max_steps=40)
+    context.cancel_hook = lambda: context.steps >= 30
+    with pytest.raises(CancelledError):
+        execute('saved = foreach item in [1, 2, 3] do repeat continue until false', context)
+    assert context.bindings["saved"] == 99
+    assert context._loop_indices == {}
+    assert context.scopes == (context.bindings,)

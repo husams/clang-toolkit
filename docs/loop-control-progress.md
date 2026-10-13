@@ -22,3 +22,9 @@ Integrated Python gate: 1,844 unit tests passed; all 34 loop console checks also
 Native build passed. All 360 registered native tests passed with an isolated CTK_STORAGE_ROOT for each test. A shared-storage parallel run caused cache-hit assertion interference, so the final gate used independent roots.
 
 Full end-to-end gate: 143 scenarios passed, including the real prompt/workspace loop scenarios and workspace cancellation/recovery. The three dependency scenarios failed only because this checkout had no local build compiler-path file; all three passed when CTK_TEST_CLANG pointed to the existing native build compiler. All 146 scenarios are therefore verified.
+
+Page revision 2 follow-up: replace experimental comma bindings with scoped
+`item.index` and the `item.value` escape, including read-only metadata, rebinding,
+shadowing, aliases, host references and cleanup. Console and repository
+verification for this revision is in progress. Focused metadata, loop, console
+and editor coverage: 269 checks passed; Ruff and patch checks passed.

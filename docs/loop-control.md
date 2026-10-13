@@ -7,7 +7,7 @@ Use `help loops` in either console view.
 
 ```text
 let names = ["alpha", "beta", "gamma"]
-let numbered = foreach index, name in names do ({index: index, name: name})
+let numbered = foreach name in names do ({index: name.index, name: name})
 print numbered
 
 let x = 13
@@ -25,12 +25,19 @@ repeat {
 } until attempts >= 3
 ```
 
-The index is the zero-based visit ordinal. It advances even on `continue` and
-does not change when the body assigns its local index. The source runs once;
-list growth remains visible through the existing live iterator. Rebinding the
-source does not replace the iterator. Dictionary iteration still yields keys,
-so the pair is an ordinal and key, not key/value unpacking. Native match values
-keep their existing ownership and `source_match_index` provenance.
+`item.index` is a read-only, zero-based visit ordinal belonging to the active
+loop binding. Assigning the item variable preserves its index; declaring a new
+binding shadows it. Ordinary item operations still use the original value.
+`item.value` bypasses reserved metadata: use `item.value.index` or
+`item.value.value` for a record's own fields. Aliases, arguments, collected and
+exported items contain the underlying value without loop metadata. Nested loops
+retain their own binding indices.
+
+The index advances even on `continue`. The source runs once; list growth remains
+visible through the existing live iterator. Rebinding the source does not
+replace that iterator. Dictionary iteration yields keys with traversal ordinals.
+Native match values retain ownership and `source_match_index` provenance, which
+is independent of the loop ordinal.
 
 Bodies can be one statement or a brace block. `while` accepts the same optional
 `do` before braces as `foreach`; use `do` for a single statement. `repeat` always
@@ -41,7 +48,7 @@ clauses attach to the nearest unfinished `repeat`.
 
 `break` exits the nearest enclosing loop. `continue` skips the rest of its body;
 in `repeat`, it still evaluates the trailing condition. Invalid control outside
-a loop, duplicate iterator names, and control crossing a runnable or isolated
+a loop and control crossing a runnable or isolated
 batch boundary fail before submission effects. An inner loop can use its own
 control within those boundaries.
 
