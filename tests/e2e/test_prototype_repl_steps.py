@@ -177,7 +177,16 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         (tmp_path / f"prototype-repl-{ui}-screen.txt").write_text(visible)
         raise AssertionError(f"{ui} REPL did not show {marker!r}:\n{visible}")
 
+    acknowledgement = 0
+
     def submit(text: str, marker: str, *, success: bool = True) -> str:
+        nonlocal acknowledgement
+        if success and not marker:
+            # Ready can still describe the previous submission until the UI
+            # processes the run key. Wait for newly evaluated output instead.
+            acknowledgement += 1
+            text += f'\nprint "PTY_ACK_{{{acknowledgement}}}"'
+            marker = f"PTY_ACK_{acknowledgement}"
         # Match the real multiline paste gesture. The workspace uses Ctrl+Enter;
         # the prompt accepts with Enter after bracketed paste. Prompt mode uses
         # the normal Enter key once all pasted lines have arrived.

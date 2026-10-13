@@ -40,4 +40,21 @@ Native ANTLR/durable batch parity remains outside this Python compiler delivery.
 - [x] Defaults evaluated per omitted argument in the lexical call frame.
 - [x] Optional prefix error/exit handlers and call-site fallbacks compiled to Python.
 - [x] Loop break/continue after cleanup, shared budgets and resource guards.
-- [ ] Console/import/batch integration, help, documentation and regression gates.
+- [x] Console/import/batch integration, help, documentation and regression gates.
+
+Extension validation:
+
+- Final Python unit suite: 1,654 passed.
+- Native dev build passed; all 360 CTest cases passed with isolated storage
+  (1,219.97 seconds).
+- Full native E2E run: 145 passed; one workspace PTY scenario raced while
+  submitting its next draft, before reaching the new handler examples.
+- The PTY harness now waits for a unique evaluated acknowledgement on otherwise
+  silent submissions. The final prompt/workspace rerun passed both scenarios,
+  including default parameters, expression/block fallbacks, prefix handlers,
+  break/continue, native file cleanup, and final zero resource counters.
+- A call-site fallback scope leak found during review was fixed and covered in
+  both engines; the final unit suite includes the regression.
+- No unresolved regression failures. Main checkout remains unchanged.
+
+Extension commits: 9b6470a (defaults), 821338a (handlers), 8dcbe01 (fallback scope).
