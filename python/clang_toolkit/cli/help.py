@@ -7,6 +7,9 @@ from dataclasses import dataclass, replace
 from lark import Tree
 from clang_toolkit._generated.analysis.v1.cfg_options_pb2 import CfgOptions
 from clang_toolkit.cli.language import parser
+from clang_toolkit.cli.matcher_catalog import (
+    LLVM_VERSION, MATCHER_METADATA, REFERENCE_SOURCE, REFERENCE_URL, ROOT_MATCHERS,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,37 @@ class CommandHelp:
         sections.append("Examples:")
         sections.extend(f"  {line}" for line in self.examples)
         return "\n".join(sections)
+
+
+MATCHER_HELP = {
+    name: CommandHelp(
+        name,
+        f"{kind.capitalize()} matcher. {summary}",
+        signatures,
+        (
+            f"Kind: {kind} matcher (LLVM {LLVM_VERSION}).",
+            "Signatures show the accepted argument types and matched node types; overloads are listed separately.",
+            (
+                "Can start a match expression; optional inner matchers constrain the same node."
+                if name in ROOT_MATCHERS else
+                "Use inside a compatible node matcher or a saved matcher expression; this name is not a root completion."
+            ),
+            "Strings are quoted; inner matchers use parentheses. The native server validates types and arguments.",
+            f"Reference: {REFERENCE_URL}#{anchor}",
+            f"Source: {REFERENCE_SOURCE} (bundled; help works offline).",
+        ),
+        documentation,
+    )
+    for name, (kind, summary, signatures, documentation, anchor) in MATCHER_METADATA.items()
+}
+
+
+def help_entry(topic: str) -> CommandHelp | None:
+    """Resolve commands and all bundled Clang matchers through one help surface."""
+    entry = COMMAND_HELP.get(topic) or MATCHER_HELP.get(topic)
+    if entry is None and topic.startswith("matchers "):
+        entry = MATCHER_HELP.get(topic.removeprefix("matchers "))
+    return entry
 
 
 _ENTRIES = (
@@ -56,13 +90,25 @@ _ENTRIES = (
     CommandHelp(
         "help",
         "Explain console syntax locally; no server is required.",
-        ("help [command [subcommand]]", "command [subcommand]?"),
+        ("help [command [subcommand]]", "command [subcommand]?", "help MATCHER", "MATCHER?"),
         (
             "No topic: list commands. A topic: purpose, usage, arguments and examples.",
+            "Clang matcher help includes category, overloads, argument/node types and reference examples; help matchers lists the categories.",
             "Help and errors always appear in the console, regardless of output routing.",
             "Every syntax error explains the expected input and marks its location with a caret; unknown commands suggest help.",
         ),
-        ("help match", "parse?", "help cursor open", "cursor open?"),
+        ("help match", "parse?", "help cursor open", "cursor open?", "help functionDecl", "hasName?"),
+    ),
+    CommandHelp(
+        "matchers", "Browse all bundled Clang matchers by category.",
+        ("help matchers [node|narrowing|traversal]", "help MATCHER", "MATCHER?"),
+        (
+            f"LLVM {LLVM_VERSION}: {len(MATCHER_HELP)} registered matcher names with offline help.",
+            "Node matchers select an AST node kind; narrowing matchers test attributes; traversal matchers follow related nodes.",
+            "Completion hints identify the kind and describe the matcher in root, nested and assignment contexts.",
+            "The matcher reference includes C++ source snippets alongside matcher examples.",
+        ),
+        ("help matchers node", "help matchers narrowing", "help matchers traversal", "help hasDescendant"),
     ),
     CommandHelp(
         "parse",
@@ -1073,6 +1119,16 @@ COMMAND_HELP["set user"] = replace(
     ),
 )
 COMMANDS = tuple(entry.topic for entry in _ENTRIES if " " not in entry.topic)
+for _kind in ("node", "narrowing", "traversal"):
+    COMMAND_HELP[f"matchers {_kind}"] = CommandHelp(
+        f"matchers {_kind}", f"Browse {_kind} matchers from LLVM {LLVM_VERSION}.",
+        (f"help matchers {_kind}", "help MATCHER", "MATCHER?"),
+        tuple(
+            f"{name}: {metadata[1]}"
+            for name, metadata in MATCHER_METADATA.items() if metadata[0] == _kind
+        ),
+        ("help functionDecl", "help hasName", "help hasDescendant"),
+    )
 
 
 def help_topic(statement: Tree) -> str:
@@ -1099,8 +1155,9 @@ def render_help_markdown(statement: Tree) -> str:
                 f"- **{name}** — {COMMAND_HELP[name].purpose}" for name in COMMANDS
             )
             + "\n\nUse `help COMMAND` or `COMMAND?` for usage and examples."
+            + "\n\nUse `help matchers` to browse Clang matchers, or `help functionDecl` / `functionDecl?` for one matcher."
         )
-    entry = COMMAND_HELP.get(topic)
+    entry = help_entry(topic)
     if entry is None:
         return render_help(statement)
     return "\n\n".join(
@@ -1112,7 +1169,8 @@ def render_help_markdown(statement: Tree) -> str:
             "### Arguments, options and defaults",
             "\n".join(f"- {argument}" for argument in entry.arguments),
             "### Examples",
-            "```ctk\n" + "\n".join(entry.examples) + "\n```",
+            ("```text\n" if entry.topic in MATCHER_HELP else "```ctk\n")
+            + "\n\n".join(entry.examples) + "\n```",
         )
     )
 
@@ -1130,10 +1188,13 @@ def render_help(statement: Tree) -> str:
             "Multiword topics: help cursor open / cursor open?; help session add / session add?."
         )
         lines.append(
+            "Clang matchers: help matchers; help functionDecl / functionDecl?; help matchers narrowing."
+        )
+        lines.append(
             "Examples using PATH need an existing source file; CURSOR_ID placeholders come from cursor open."
         )
         return "\n".join(lines)
-    entry = COMMAND_HELP.get(topic)
+    entry = help_entry(topic)
     if entry is None:
         return f"unknown help topic: {topic}; use help to list commands"
     return entry.render()
@@ -1147,6 +1208,11 @@ def reference_markdown() -> str:
         "Use `help COMMAND` or `COMMAND?` in the console. Multiword topics work too:",
         "`help cursor open` and `cursor open?` are equivalent. Help is local and remains",
         "visible when command output is redirected. Bare `help` lists all forms.",
+        "",
+        "All bundled Clang matchers also have local help: `help functionDecl`,",
+        "`hasName?`, or `help hasDescendant`. Use `help matchers` and",
+        "`help matchers node|narrowing|traversal` to browse by kind. Matcher help",
+        "includes LLVM reference descriptions, overload signatures and examples.",
         "",
         "Uppercase words are placeholders; brackets denote optional syntax. Examples",
         "use the checked-in `examples/parse_match.cc` fixture. Run them from the repository",

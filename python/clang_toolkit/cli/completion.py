@@ -12,9 +12,9 @@ from prompt_toolkit.document import Document
 from clang_toolkit.cli.completion_candidates import candidates_for
 from clang_toolkit.cli.completion_context import accepted_after, has_field_argument
 from clang_toolkit.cli.completion_cursor import cursor_context
-from clang_toolkit.cli.matcher_catalog import NESTED_MATCHERS, ROOT_MATCHERS
+from clang_toolkit.cli.matcher_catalog import NESTED_MATCHERS, ROOT_MATCHERS, matcher_hint
 from clang_toolkit.cli.path_completion import path_completions
-from clang_toolkit.cli.help import COMMAND_HELP
+from clang_toolkit.cli.help import COMMAND_HELP, MATCHER_HELP
 
 
 class ReplCompleter(Completer):
@@ -40,6 +40,7 @@ class ReplCompleter(Completer):
             roots = ROOT_MATCHERS
         self._nested_matchers = tuple(dict.fromkeys(nested))
         self._root_matchers = tuple(dict.fromkeys(roots))
+        self._matcher_names = frozenset((*self._nested_matchers, *self._root_matchers))
         self._matcher_functions = matcher_functions
         self._references = references
         self._field_resolver = field_resolver
@@ -94,21 +95,31 @@ class ReplCompleter(Completer):
         # Completed commands should remain editable history drafts. An implicit
         # optional keyword menu makes Up/Down insert a continuation instead.
         # Explicit Tab and typing whitespace still offer those continuations.
-        if (complete_event is not None and not complete_event.completion_requested
-                and "$END" in accepted and source[:cursor]
-                and not source[cursor - 1].isspace()):
+        if (
+            complete_event is not None
+            and not complete_event.completion_requested
+            and "$END" in accepted
+            and source[:cursor]
+            and not source[cursor - 1].isspace()
+        ):
             return
         if "HELP_WORD" in accepted:
             prefix = " ".join(str(token) for token in context.prefix_tokens[1:])
-            for topic in COMMAND_HELP:
+            topics = {**COMMAND_HELP, **MATCHER_HELP}
+            if prefix == "matchers":
+                topics.update(
+                    {f"matchers {name}": entry for name, entry in MATCHER_HELP.items()}
+                )
+            for topic, entry in topics.items():
                 if prefix:
                     if not topic.startswith(prefix + " "):
                         continue
                     topic = topic[len(prefix) + 1 :]
                 if topic.startswith(context.partial):
                     yield Completion(
-                        topic, start_position=-len(context.partial),
-                        display_meta=COMMAND_HELP[(prefix + " " + topic).strip()].purpose,
+                        topic,
+                        start_position=-len(context.partial),
+                        display_meta=matcher_hint(entry.topic) or entry.purpose,
                     )
             return
         current_references = (
@@ -129,13 +140,23 @@ class ReplCompleter(Completer):
             source[:cursor],
             self._field_resolver,
         ):
+            metadata = item.display_meta
+            if metadata is None:
+                name = item.display.removesuffix("(")
+                if name in functions:
+                    metadata = "saved matcher function"
+                elif (
+                    {"ROOT_MATCHER_NAME", "MATCHER_NAME"} & accepted
+                    and name in self._matcher_names
+                ):
+                    metadata = matcher_hint(name) or "AST matcher"
+                elif item.display in COMMAND_HELP:
+                    metadata = COMMAND_HELP[item.display].purpose
+                else:
+                    metadata = "language keyword"
             yield Completion(
                 item.text,
                 start_position=item.start_position,
                 display=item.display,
-                display_meta=item.display_meta or (
-                    COMMAND_HELP[item.display].purpose
-                    if item.display in COMMAND_HELP else
-                    "AST matcher" if item.display.endswith("(") else "language keyword"
-                ),
+                display_meta=metadata,
             )
