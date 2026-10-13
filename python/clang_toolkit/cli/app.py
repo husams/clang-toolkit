@@ -26,7 +26,7 @@ from clang_toolkit.cli.batch import batch_requirements, execute_batch
 from clang_toolkit.cli.runtime.batch_execution import BatchInterrupted
 from clang_toolkit.cli.prompt import PersistentPromptHistory, create_session
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
-from clang_toolkit.cli.runtime.imports import script_source
+from clang_toolkit.cli.runtime.imports import preload_libraries, script_source
 from clang_toolkit.cli.runtime.config import ConfigError
 from clang_toolkit.cli.runtime.collections import snapshot_collections
 from clang_toolkit.cli.runtime.history import HistoryError, HistoryStore
@@ -456,6 +456,10 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
         "--ui", choices=("prompt", "workspace"),
         help="interactive presentation (default: workspace; prompt uses the basic console)",
     )
+    parser.add_argument(
+        "--lib-dir", metavar="DIR",
+        help="preload .ctk libraries from DIR in filename order (default: ~/.ctk/lib)",
+    )
     parser.add_argument("-c", "--cofing", "--config-path", dest="config_path")
     parser.add_argument("--print-config", action="store_true")
     parser.add_argument("--query", help="run one query expression")
@@ -576,6 +580,7 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
                 compilation_options["compilation_database"] = (
                     runtime.config_store.effective["compile_commands"]
                 )
+            preload_libraries(runtime, args.lib_dir)
             if args.script_engine == "legacy":
                 requirements = batch_requirements(batch_source)
             else:
@@ -734,6 +739,9 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
             for output in result.outputs:
                 print(output)
             return 1 if result.exit_code or session_errors else 0
+        except EvaluationError as exc:
+            print(f"error: {exc}")
+            return 1
         finally:
             if runtime is not None:
                 await asyncio.to_thread(runtime.close)
@@ -745,6 +753,14 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
     runtime = None
     try:
         runtime = _runtime_for_engine(client, args.script_engine, history=history_store)
+        if args.compile_commands is not None:
+            runtime.config_store.effective["compile_commands"] = args.compile_commands
+        if runtime.config_store.effective["compile_commands"] is not None:
+            compilation_options["compilation_database"] = runtime.config_store.effective[
+                "compile_commands"
+            ]
+        if args.query is None or args.background:
+            preload_libraries(runtime, args.lib_dir)
         session = create_session(
             references=runtime.completion_references,
             field_resolver=runtime.completion_suggestions,
@@ -754,18 +770,12 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
             cwd=runtime.cwd,
             script_engine=args.script_engine,
         )
-    except (ConfigError, OutputError) as exc:
+    except (ConfigError, OutputError, EvaluationError) as exc:
         print(f"error: {exc}")
         if runtime is not None:
             runtime.close()
         client.close()
         return 1
-    if args.compile_commands is not None:
-        runtime.config_store.effective["compile_commands"] = args.compile_commands
-    if runtime.config_store.effective["compile_commands"] is not None:
-        compilation_options["compilation_database"] = runtime.config_store.effective[
-            "compile_commands"
-        ]
     query_session = None
     session_reader = None
     exit_code = 0

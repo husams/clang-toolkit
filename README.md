@@ -103,6 +103,13 @@ uv run ctk
 
 The default CTK console includes menus, panels, and multiline editing; see the [console guide](docs/console-workspace.md). Use `uv run ctk --ui prompt` for the basic prompt.
 
+Interactive consoles and console-script runs preload the top-level `.ctk` libraries
+in `~/.ctk/lib` in filename order. Override the directory with `ctk --lib-dir DIR`.
+Libraries use the same definitions-only rules as `import`, with nested imports
+resolved relative to their library. Preloaded definitions share the console's
+bindings and are available for completion. A missing default directory is empty;
+an unreadable library or an invalid explicit directory stops startup with an error.
+
 To run a saved script and exit, pass its filename and named arguments:
 
 ```sh

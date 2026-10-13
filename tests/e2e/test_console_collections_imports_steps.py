@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from pytest_bdd import given, scenarios, then, when
+from pytest_bdd import given, parsers, scenarios, then, when
 
 from tests.e2e.test_network_steps import _launch_server
 
@@ -112,6 +112,18 @@ def run_libraries(collection_fixture):
         "print $counts['found']", "print $rows[0].f.value.node.qualified_name",
     ]), encoding="utf-8")
     return _run(collection_fixture, "--script", str(script))
+
+
+@when(parsers.parse("I run the {engine} console with a configured library directory"), target_fixture="library_output")
+def run_preloaded_libraries(collection_fixture, engine: str):
+    _, source, scripts, _ = collection_fixture
+    return _run(
+        collection_fixture, "--script-engine", engine, "--lib-dir", str(scripts / "lib"),
+        "--execute", "\n".join([
+            f'let rows = match named($selected) in "{source}"',
+            "print $rows.length", "print $rows[0].f.qualified_name",
+        ]),
+    )
 
 
 @then("the imported matcher and variables work against native results")

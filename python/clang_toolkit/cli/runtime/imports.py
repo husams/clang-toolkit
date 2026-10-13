@@ -81,12 +81,41 @@ def execute_import(runtime: Runtime, statement: Tree) -> str:
         from .evaluator import EvaluationError
         raise EvaluationError("import requires a quoted library path")
     requested = runtime._string(raw_path)
+    stack = getattr(runtime, "_import_stack", None)
+    base = stack[-1].parent if stack else runtime.cwd
+    return _load_library(runtime, (base / requested).resolve())
+
+
+def preload_libraries(runtime: Runtime, directory: str | Path | None = None) -> None:
+    """Import top-level .ctk files in filename order before console execution."""
+    from .evaluator import EvaluationError
+
+    requested = (
+        Path(directory).expanduser()
+        if directory is not None else Path.home() / ".ctk" / "lib"
+    )
+    path = (runtime.cwd / requested).resolve()
+    try:
+        libraries = sorted(
+            item for item in path.iterdir() if item.suffix == ".ctk" and item.is_file()
+        )
+    except FileNotFoundError as exc:
+        if directory is None:
+            return
+        raise EvaluationError(f"cannot read library directory {path}: {exc}") from exc
+    except OSError as exc:
+        raise EvaluationError(f"cannot read library directory {path}: {exc}") from exc
+
+    for library in libraries:
+        _load_library(runtime, library.resolve())
+
+
+def _load_library(runtime: Runtime, path: Path) -> str:
+    """Share import validation, relative dependencies and rollback with preloads."""
     stack: list[Path] | None = getattr(runtime, "_import_stack", None)
     if stack is None:
         stack = []
         runtime._import_stack = stack
-    base = stack[-1].parent if stack else runtime.cwd
-    path = (base / requested).resolve()
     if path in stack:
         chain = " -> ".join(str(item) for item in (*stack, path))
         from .evaluator import EvaluationError

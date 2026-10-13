@@ -269,6 +269,8 @@ _ENTRIES = (
             "A relative path is resolved from the importing library; a top-level import uses the --script source directory or runtime working directory.",
             "Libraries may contain top-level let assignments, parameterized matcher definitions and nested imports. Definitions become visible in the current runtime.",
             "Imports share the current runtime; there are no namespaces or separate exports. Import cycles are rejected.",
+            "Interactive consoles and console-script runs preload top-level `.ctk` files from `~/.ctk/lib` in filename order; `ctk --lib-dir DIR` selects another directory, expanding `~` and resolving relative paths from the session directory. Subdirectories are available through explicit nested imports. Later definitions replace earlier bindings, just as repeated imports do. Preloads do not add command-history entries.",
+            "A missing default directory is empty. An invalid explicit directory or a failed import reports its path and stops startup before interactive input or the user's script runs.",
         ),
         ('import "lib/module.ctk"',),
     ),
