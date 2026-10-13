@@ -90,6 +90,18 @@ class _Builder(Transformer[Any, Any]):
         line, column = self._location(meta, items)
         return Node("print", children=(items[0],), line=line, column=column)
 
+    def parameters(self, meta: Any, items: list[Any]) -> tuple[str, ...]:
+        return tuple(str(item) for item in items if isinstance(item, Token))
+
+    def runnable_definition(self, meta: Any, items: list[Any]) -> Node:
+        name = str(items[0])
+        parameters = next((item for item in items if isinstance(item, tuple)), ())
+        if len(set(parameters)) != len(parameters):
+            raise ValueError(f"{name} has duplicate parameter names")
+        body = next(item for item in items if isinstance(item, Node))
+        line, column = self._location(meta, items)
+        return Node("runnable", (name, parameters), (body,), line, column)
+
     def foreach_expr(self, meta: Any, items: list[Any]) -> Node:
         name = next(item for item in items if isinstance(item, Token) and item.type == "CNAME")
         iterable, block = [item for item in items if isinstance(item, Node)]

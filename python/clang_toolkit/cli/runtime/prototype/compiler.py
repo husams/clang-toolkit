@@ -12,6 +12,7 @@ from .semantics import (
     child_values, consumed_value, host_value, index_value, iterable_value, observe_statement, property_value,
     _static_predicate_name, _predicate, _predicate_binding,
 )
+from .runnables import define_runnable, invoke_named
 
 
 def _tick(context: Context, node: Any) -> None:
@@ -82,11 +83,8 @@ def _logical(context: Context, node: Any, operator: str, left: Callable[[], Any]
 
 
 def _call(context: Context, node: Any, name: str, args: Callable[[], list[Any]]) -> Any:
-    function = context.functions.get(name)
-    if function is None:
-        raise _error(context, node, f"unregistered host function {name!r}")
     try:
-        return function(*args())
+        return invoke_named(context, node, name, args)
     except PrototypeError as error:
         if getattr(node, "line", None) is not None and f"line {getattr(node, 'line')}" not in str(error):
             raise _error(context, node, str(error), type(error)) from error
@@ -373,13 +371,16 @@ class _Lowerer:
             return [ast.Assign([ast.Name("last", ast.Store())], self.call("_run_scoped", context, ast.Name(self.emit_block_function(node), ast.Load())))]
         if kind == "let":
             expr = self.call("_define", context, ast.Constant(_name(node)), self.emit_expr(child(node, "expr", 0)))
+        elif kind == "runnable":
+            body = self.emit_block_function(child_values(node)[0])
+            expr = self.call("_define_runnable", context, nref, ast.Name(body, ast.Load()))
         elif kind == "assign":
             expr = self.emit_assignment(node)
         elif kind == "print":
             expr = self.call("_print", context, self.lambda0(self.emit_expr(child(node, "expr", 0))), nref)
         else:
             expr = self.emit_expr(node)
-        prefix = [ast.Expr(self.call("_tick", context, nref))] if kind in {"let", "assign", "print"} else []
+        prefix = [ast.Expr(self.call("_tick", context, nref))] if kind in {"let", "runnable", "assign", "print"} else []
         return [*prefix, ast.Assign([ast.Name("last", ast.Store())], expr)]
 
     def module(self) -> ast.Module:
@@ -405,6 +406,7 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_tick": _tick, "_value": _value, "_literal": _literal,
         "_host": host_value, "_observe": observe_statement, "_consume": consumed_value,
         "_lookup": _lookup, "_define": _define, "_make_list": _make_list,
+        "_define_runnable": define_runnable,
         "_make_dict": _make_dict, "_get": _get, "_index": _index, "_iterable": _iterable,
         "_logical": _logical, "_binary": _binary, "_unary": _unary,
         "_predicate": _predicate, "_predicate_binding": _predicate_binding,

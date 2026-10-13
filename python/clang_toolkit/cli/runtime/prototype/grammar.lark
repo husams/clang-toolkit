@@ -8,6 +8,7 @@ program: separators? statement (separators statement)* separators?
 
 ?statement: closed_statement | open_statement
 ?closed_statement: let_stmt
+                  | runnable_definition
                   | print_stmt
                   | assign_stmt
                   | closed_expression
@@ -21,6 +22,9 @@ open_let_stmt.10: "let" CNAME "=" open_expression -> let_stmt
 print_stmt.10: "print" closed_expression
 open_print_stmt.10: "print" open_expression -> print_stmt
 assign_stmt: target ASSIGN_OP closed_expression
+
+runnable_definition.20: "let" CNAME "(" parameters? ")" "=" block
+parameters: separators? CNAME ("," separators? CNAME)* ","? separators?
 
 ?expression: closed_expression | open_expression
 ?closed_expression: conditional
@@ -96,7 +100,7 @@ target: reference target_part*
 ?target_part: "." CNAME       -> target_member_part
            | index_expression
 
-reference: "$" CNAME
+reference: "$"? CNAME
 
 ?atom: literal
      | reference

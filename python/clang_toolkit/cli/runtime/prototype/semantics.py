@@ -75,6 +75,8 @@ class Context:
         self.statement_observer = statement_observer
         self.output: list[Any] = []
         self.consume_depth = 0
+        self.call_depth = 0
+        self.source = ""
         self.steps = 0
         self.step_count = 0
         self.current_location: tuple[int | None, int | None] = (None, None)
@@ -607,12 +609,11 @@ def eval_expr(ctx: Context, node: Any) -> Any:
         return host_value(ctx, node)
     if kind == "call":
         name = _name(node)
-        function = ctx.functions.get(name)
-        if function is None:
-            raise _error(ctx, node, f"unregistered host function {name!r}")
-        args = [eval_expr(ctx, arg) for arg in child_values(node)]
+        from .runnables import invoke_named
+
         try:
-            return function(*args)
+            return invoke_named(ctx, node, name,
+                                lambda: [eval_expr(ctx, arg) for arg in child_values(node)])
         except PrototypeError as error:
             if _location(node) and _location(node) not in str(error):
                 raise _error(ctx, node, str(error), type(error)) from error
@@ -699,6 +700,12 @@ def eval_statement(ctx: Context, node: Any) -> Any:
         name = _name(node)
         value = eval_expr(ctx, _expr(node, 0, "expr"))
         return ctx.define(name, value)
+    if kind == "runnable":
+        from .runnables import define_runnable
+
+        ctx.tick(node)
+        return define_runnable(ctx, node,
+                               lambda context: eval_block(context, child_values(node)[0], scoped=False))
     if kind == "assign":
         return eval_assign(ctx, node)
     if kind == "print":
