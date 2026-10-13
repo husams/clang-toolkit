@@ -7,6 +7,7 @@ import pytest
 
 from clang_toolkit.cli.app import dispatch_result
 from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+from clang_toolkit.cli.runtime.values import matcher_text
 from clang_toolkit.client import Client
 
 
@@ -38,6 +39,49 @@ def test_multiline_groups_and_ternary_in_dictionary(runtime):
     assert outcome.success
     assert runtime.bindings["report"] == {"count": 14, "label": "large"}
     assert '"count": 14' in outcome.output
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_multiline_matcher_assignment_preserves_statement_boundaries(runtime, newline):
+    source = newline.join([
+        "let class = recordDecl(",
+        "    isExpansionInMainFile(),",
+        "    unless(isImplicit())",
+        ")",
+        'print "MATCHER_READY"',
+    ])
+    outcome = submit(runtime, source)
+    assert outcome.success, outcome.output
+    assert matcher_text(runtime.bindings["class"]) == (
+        "recordDecl(isExpansionInMainFile(), unless(isImplicit()))"
+    )
+    assert outcome.output == "MATCHER_READY"
+
+
+def test_multiline_matcher_definition_nested_arguments_and_binding(runtime):
+    outcome = submit(runtime, '''let named(
+    name
+) = recordDecl(
+    # Keep comments and blank lines inside the matcher.
+    hasName(
+        $name
+    )
+
+    , unless(
+        isImplicit(
+        )
+    )
+).bind(
+    "record"
+)
+let selected = named(
+    "Sample"
+)
+''')
+    assert outcome.success, outcome.output
+    assert matcher_text(runtime.bindings["selected"]) == (
+        'recordDecl(hasName("Sample"), unless(isImplicit())).bind("record")'
+    )
 
 
 def test_prints_before_failure_survive_and_failed_target_is_atomic(runtime):
