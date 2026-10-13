@@ -84,3 +84,26 @@ handling and the Python compiler; no evaluator or native API changes were needed
 
 Automatic approval review rejected creating a separate follow-up PR without fresh
 user authorization. The extension remains on its feature branch; main is unchanged.
+
+## Inline execution blocks extension
+
+Branch: codex/inline-execution-blocks, based on merged PR #21 (5d85b0a).
+
+- [x] Inline `(parameters) = expression` and `(parameters) = { statements }` syntax.
+- [x] Dormant lexical runnable values and Python AST compilation for both bodies.
+- [x] Defaults, handlers, control boundaries and reachable batch callback checks.
+- [x] Full Python unit and E2E checks, including both real terminal console UIs.
+- [x] Complete native regression suite.
+
+Implementation stays in the requested worktree; publication is outside this request.
+
+Validation: 1,783 unit tests passed; all 360 native CTest cases passed sequentially
+with isolated storage (1,463.14 seconds); all 146 E2E cases passed, including
+inline expressions, default parameters, error/exit handlers and returned closures
+in both prompt and workspace UIs. Native dev build, Ruff and whitespace checks passed.
+
+Review confirmed both inline body forms lower to retained Python functions through
+the existing runnable compiler, without tree statement or expression dispatch.
+Imports retain compiled closures after submission-cache eviction; interpolation
+accepts inline arguments; native matcher values and foreground batch callback
+admission retain their existing contracts. No unresolved regression failures remain.

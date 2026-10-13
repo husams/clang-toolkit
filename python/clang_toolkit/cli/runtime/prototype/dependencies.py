@@ -28,6 +28,9 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
     def resolve(node: Any, environment: dict[str, Any]) -> Any:
         if isinstance(node, Node) and node.kind in {"consume", "observe"}:
             return resolve(node.children[0], environment)
+        if isinstance(node, Node) and node.kind == "inline_runnable":
+            name, parameters = node.value
+            return _Definition(name, parameters, node.children[0], environment, node.children[1:])
         if isinstance(node, Node) and node.kind == "ref":
             return environment.get(node.value)
         return None
@@ -60,6 +63,8 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
 
     def visit(node: Any, environment: dict[str, Any]) -> Iterator[Tree]:
         if isinstance(node, Node):
+            if node.kind == "inline_runnable":
+                return
             if node.kind == "runnable":
                 name, parameters = node.value
                 environment[name] = _Definition(name, parameters, node.children[0], environment, node.children[1:])

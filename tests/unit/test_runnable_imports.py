@@ -105,3 +105,19 @@ def test_imported_expression_bodies_retain_code_and_lexical_scope(runtime):
                              "let answer = [add(3), inc(4), add_if(2, 5)]", runtime)
     assert result.success, result.output
     assert runtime.bindings["answer"] == [5, 5, 7]
+
+
+
+def test_imported_inline_closures_retain_python_code_and_library_location(runtime):
+    (runtime.cwd / "inline.ctk").write_text(
+        'let make(base) = (x = base) = x + base\n'
+        'let operation = make(21)\n'
+        'let divide = (x) = { 1 / x }\n')
+    result = dispatch_result(runtime.client, 'import "inline.ctk"', runtime)
+    assert result.success, result.output
+    for value in range(65):
+        assert dispatch_result(runtime.client, f"let unused = {value}", runtime).success
+    assert dispatch_result(runtime.client, "operation()", runtime).output == "42"
+    error = dispatch_result(runtime.client, "divide(0)", runtime)
+    assert not error.success and "inline.ctk" in error.output
+    assert "defined at line 3" in error.output

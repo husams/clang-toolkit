@@ -74,12 +74,20 @@ def define_runnable(context: Context, node: Any, executable: Callable[[Context],
     name, parameters = node.value
     if name in context.functions or name in SCRIPT_BUILTIN_MATCHERS | {"glob", "flatten"}:
         raise _error(context, node, f"{name} is a built-in callable name")
+    value = create_runnable(context, node, executable, defaults)
+    context.define(name, value)
+    return value
+
+
+def create_runnable(context: Context, node: Any, executable: Callable[[Context], Any],
+                    defaults: tuple[Callable[[Context], Any], ...] = ()) -> RunnableBlock:
+    """Create a dormant lexical callable without adding a binding."""
+    name, parameters = node.value
     if len(set(parameters)) != len(parameters):
         raise _error(context, node, f"{name} has duplicate parameter names")
     value = RunnableBlock(name, parameters, node.children[0], executable,
                           context.scopes, context.source, context.string_templates,
                           (node.line, node.column), context.source_name, defaults, node.children[1:])
-    context.define(name, value)
     return value
 
 

@@ -59,3 +59,15 @@ def test_help_uses_let_bare_names_and_compiled_body_contract(tmp_path):
         assert "$" not in dispatch_result(runtime.client, "help match", runtime).output
     finally:
         runtime.close()
+
+
+
+@pytest.mark.parametrize("source", [
+    "apply((x) = x + 1, 5)",
+    "apply((x) = { on error 0; x + 1 }, 5)",
+    "let make(base) = (x = base) = x + base",
+])
+def test_inline_editor_accepts_complete_bodies(source):
+    assert ''.join(str(token) for token in lex(source)) == source
+    assert not input_state(source).needs_more
+    assert input_state("apply((x) = {\n x + 1").needs_more

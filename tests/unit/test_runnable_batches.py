@@ -122,3 +122,33 @@ def test_batch_expression_bodies_use_frozen_captures_and_inspect_calls(runtime):
                              'let bad = batch chunk in inputs size 1 progress off do { wrapped() }', runtime)
     assert not result.success and "foreground" in result.output
     assert len(runtime.client.scopes) == scopes
+
+
+@pytest.mark.parametrize("action", [
+    "() = { background functionDecl() }",
+    "() = ctk(\"resource status\")",
+    "() = { on exit { background functionDecl() }; 1 }",
+    "(x = ctk(\"resource status\")) = x",
+])
+def test_inline_reachable_bodies_are_checked_before_batch_admission(runtime, action):
+    submit(runtime, "let apply(operation) = operation()")
+    result = dispatch_result(runtime.client,
+                             f"let bad = batch chunk in inputs size 1 progress off do {{ apply({action}) }}", runtime)
+    assert not result.success and "foreground" in result.output
+    assert runtime.client.scopes == []
+
+
+def test_inline_dormant_bodies_are_ignored_and_defaults_follow_callbacks(runtime):
+    session = runtime._prototype_session
+    assert not session.requirements('let dormant = () = { background functionDecl() }').background_query
+    assert not session.requirements('let ignore(f) = 7; ignore(() = { background functionDecl() })').background_query
+    assert session.requirements('let apply(f = () = { background functionDecl() }) = f(); apply()').background_query
+
+
+def test_inline_batch_callbacks_capture_each_group_snapshot(runtime):
+    submit(runtime, 'let state = [0]; let apply(f) = f()')
+    submit(runtime, 'let report = batch chunk in inputs size 1 progress off do { '
+                    'apply(() = { on exit { state[0] += 1 }; len(chunk.inputs) + state[0] }) }')
+    assert runtime.bindings["report"]["results"] == [1, 1]
+    assert runtime.bindings["state"] == [0]
+    assert all(scope.released for scope in runtime.client.scopes)

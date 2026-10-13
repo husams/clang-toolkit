@@ -98,7 +98,12 @@ class _Builder(Transformer[Any, Any]):
         return _nodes(items)
 
     def runnable_definition(self, meta: Any, items: list[Any]) -> Node:
-        name = str(items[0])
+        return self._runnable(meta, items[1:], str(items[0]), "runnable")
+
+    def inline_runnable(self, meta: Any, items: list[Any]) -> Node:
+        return self._runnable(meta, items, "<inline>", "inline_runnable")
+
+    def _runnable(self, meta: Any, items: list[Any], name: str, kind: str) -> Node:
         specs = next((item for item in items if isinstance(item, tuple)), ())
         parameters = tuple(item.value for item in specs)
         if len(set(parameters)) != len(parameters):
@@ -112,7 +117,7 @@ class _Builder(Transformer[Any, Any]):
         body = self._action_block(next(item for item in items if isinstance(item, Node)))
         defaults = tuple(item for item in specs if item.children)
         line, column = self._location(meta, items)
-        return Node("runnable", (name, parameters), (body, *defaults), line, column)
+        return Node(kind, (name, parameters), (body, *defaults), line, column)
 
     def error_handler(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)
@@ -573,7 +578,7 @@ def _validate_control_scope(node: Node, *, loops: int = 0) -> None:
         if not loops:
             raise ValueError(f"{node.value} requires an enclosing foreach (line {node.line})")
         return
-    if node.kind == "runnable":
+    if node.kind in {"runnable", "inline_runnable"}:
         loops = 0
     if node.kind == "foreach":
         _validate_control_scope(node.children[0], loops=loops)

@@ -51,11 +51,15 @@ Usage:
   let NAME(PARAM, OPTIONAL = EXPR, ...) = { STATEMENTS }
   let NAME() = { STATEMENTS }
   NAME(ARG, ...)
+  NAME((PARAM, OPTIONAL = EXPR, ...) = EXPR, ...)
+  NAME((PARAM, OPTIONAL = EXPR, ...) = { STATEMENTS }, ...)
 References use bare names, fields and zero-based indexes: rows[0].f.
 Double quotes interpolate checked expressions: "answer={value * 2}".
 Use {{ and }} for literal braces; single quotes keep literal text.
 Definitions are dormant. Expression and brace bodies compile to Python AST functions once.
 An expression body returns its value; braces are optional for a single expression.
+Inline (PARAM, ...) = EXPR or { STATEMENTS } creates a callable without a name.
+Inline bodies support the same defaults, handlers and lexical captures.
 Omitted defaults run per call, left to right, with earlier parameters in scope.
 Optional handlers come first: on error EXPR or { STATEMENTS }; on exit EXPR or { STATEMENTS }.
 Errors return the error handler value; exit cleanup runs after success or failure
@@ -73,6 +77,9 @@ Runnable values cannot be exported or retained as batch results.
 Examples:
   let add(l, r) = l + r
   let inc(x) = add(x, 1)
+  let apply(operation, value) = operation(value)
+  apply((x) = x + 1, 5)
+  apply((x) = { on error 0; x + 1 }, 5)
   let add_if(l, h) = if l < h then l + h else 0
   let twice(value) = { value * 2 }
   let scale(value, factor = 2) = { value * factor }

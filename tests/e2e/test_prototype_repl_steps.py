@@ -273,6 +273,23 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             "EXPRESSION_5_3_7_0_3_true",
         )
 
+
+        runnables += submit(
+            'let apply(operation, value) = operation(value)\n'
+            'let inline_cleanup = [0]\n'
+            'let inline_expression = apply((x, extra = 1) = x + extra, 5)\n'
+            'let inline_block = apply((x) = {\n'
+            '  on error 0\n'
+            '  on exit { inline_cleanup[0] += 1 }\n'
+            '  10 / x\n'
+            '}, 0)\n'
+            'let make_adder(base) = (value) = base + value\n'
+            'let add_ten = make_adder(10)\n'
+            'let inline_closure = add_ten(5)\n'
+            'print "INLINE_{inline_expression}_{inline_block}_{inline_cleanup[0]}_{inline_closure}"',
+            "INLINE_6_0_1_15",
+        )
+
         handlers = submit(
             'let cleanup_count = [0]\n'
             'let divide(lhs, rhs = 1) = {\n'
@@ -442,6 +459,7 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     assert "RUNNABLE_MATCH_1" in evidence["runnables"]
     assert "RUNNABLE_NO_PARAMS" in evidence["runnables"]
     assert "EXPRESSION_5_3_7_0_3_true" in evidence["runnables"]
+    assert "INLINE_6_0_1_15" in evidence["runnables"]
     assert "HANDLERS_true_5" in evidence["handlers"]
     assert "HANDLER_NATIVE_true_0" in evidence["handlers"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]

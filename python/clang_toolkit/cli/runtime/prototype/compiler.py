@@ -12,7 +12,7 @@ from .semantics import (
     child_values, consumed_value, host_value, index_value, iterable_value, observe_statement, property_value,
     _static_predicate_name, _predicate, _predicate_binding,
 )
-from .runnables import define_runnable, invoke_named
+from .runnables import create_runnable, define_runnable, invoke_named
 from .control import FATAL_ERRORS, LoopBreak, LoopContinue, cleanup, recover, split_handlers
 
 
@@ -259,6 +259,8 @@ class _Lowerer:
             expr = self.call("_consume", context, self.lambda0(self.emit_expr(child_values(node)[0])))
         elif kind == "host":
             expr = self.call("_host", context, nref)
+        elif kind == "inline_runnable":
+            expr = self.emit_runnable(node, "_create_runnable")
         elif kind == "call":
             args = [self.emit_expr(x) for x in child_values(node)]
             expr = self.call("_call", context, nref, ast.Constant(_name(node)), self.lambda0(ast.List(args, ast.Load())))
@@ -312,6 +314,13 @@ class _Lowerer:
         else:
             raise ValueError(f"unknown expression node {kind!r}")
         return self.ticked(node, expr)
+
+    def emit_runnable(self, node: Any, helper: str) -> ast.expr:
+        body = self.emit_block_function(child_values(node)[0])
+        defaults = ast.Tuple([ast.Name(self.emit_block_function(default), ast.Load())
+                              for default in child_values(node)[1:]], ast.Load())
+        return self.call(helper, ast.Name("context", ast.Load()), self.node_ref(node),
+                         ast.Name(body, ast.Load()), defaults)
 
     def emit_assignment(self, node: Any) -> ast.expr:
         target, value = child(node, "target", 0), child(node, "expr", 1)
@@ -399,10 +408,7 @@ class _Lowerer:
         if kind == "let":
             expr = self.call("_define", context, ast.Constant(_name(node)), self.emit_expr(child(node, "expr", 0)))
         elif kind == "runnable":
-            body = self.emit_block_function(child_values(node)[0])
-            defaults = ast.Tuple([ast.Name(self.emit_block_function(default), ast.Load())
-                                  for default in child_values(node)[1:]], ast.Load())
-            expr = self.call("_define_runnable", context, nref, ast.Name(body, ast.Load()), defaults)
+            expr = self.emit_runnable(node, "_define_runnable")
         elif kind == "assign":
             expr = self.emit_assignment(node)
         elif kind == "print":
@@ -435,7 +441,7 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_tick": _tick, "_value": _value, "_literal": _literal,
         "_host": host_value, "_observe": observe_statement, "_consume": consumed_value,
         "_lookup": _lookup, "_define": _define, "_make_list": _make_list,
-        "_define_runnable": define_runnable,
+        "_define_runnable": define_runnable, "_create_runnable": create_runnable,
         "_recover": recover, "_cleanup": cleanup, "_FatalErrors": FATAL_ERRORS,
         "_Exception": Exception, "_LoopBreak": LoopBreak, "_LoopContinue": LoopContinue,
         "_make_dict": _make_dict, "_get": _get, "_index": _index, "_iterable": _iterable,
