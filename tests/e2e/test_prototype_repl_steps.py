@@ -181,12 +181,14 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
 
     def submit(text: str, marker: str, *, success: bool = True) -> str:
         nonlocal acknowledgement
-        if success and not marker:
-            # Ready can still describe the previous submission until the UI
-            # processes the run key. Wait for newly evaluated output instead.
+        acknowledgement_marker = ""
+        if success:
+            # A literal marker can already be visible in the pasted draft,
+            # alongside the previous Ready status. Require evaluated output
+            # at the end of every successful submission before sending more.
             acknowledgement += 1
             text += f'\nprint "PTY_ACK_{{{acknowledgement}}}"'
-            marker = f"PTY_ACK_{acknowledgement}"
+            acknowledgement_marker = f"PTY_ACK_{acknowledgement}"
         # Match the real multiline paste gesture. The workspace uses Ctrl+Enter;
         # the prompt accepts with Enter after bracketed paste. Prompt mode uses
         # the normal Enter key once all pasted lines have arrived.
@@ -195,10 +197,11 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         final_fragment = text.splitlines()[-1][-18:]
         visible = read_until(final_fragment)
         os.write(master, sequence.encode())
-        if marker:
-            visible = read_until(marker, idle=success)
-        elif success:
-            visible = read_until("", idle=True)
+        if success:
+            visible = read_until(acknowledgement_marker, idle=True)
+            assert not marker or marker in visible, visible
+        elif marker:
+            visible = read_until(marker)
         return visible or "\n".join(screen.display)
 
     def wait_for_exit(timeout: float = 10) -> int:
@@ -438,6 +441,7 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     assert "RUNNABLE_42_4" in evidence["runnables"]
     assert "RUNNABLE_MATCH_1" in evidence["runnables"]
     assert "RUNNABLE_NO_PARAMS" in evidence["runnables"]
+    assert "EXPRESSION_5_3_7_0_3_true" in evidence["runnables"]
     assert "HANDLERS_true_5" in evidence["handlers"]
     assert "HANDLER_NATIVE_true_0" in evidence["handlers"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]

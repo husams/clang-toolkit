@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import pytest
-
 from unittest.mock import Mock
 
+import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 

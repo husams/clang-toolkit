@@ -58,3 +58,29 @@ Extension validation:
 - No unresolved regression failures. Main checkout remains unchanged.
 
 Extension commits: 9b6470a (defaults), 821338a (handlers), 8dcbe01 (fallback scope).
+
+## Expression bodies extension
+
+Branch: codex/runnable-expression-bodies, based on merged PR #20 (cb02f8f).
+
+- [x] Arithmetic, calls, references, defaults and conditional expression bodies.
+- [x] Shared runnable IR and Python AST compilation without tree dispatch.
+- [x] Existing built-in matcher templates, imports, batches, help and editor.
+- [x] Both real terminal console UIs accept the new syntax.
+- [x] Complete E2E suite and final delivery record.
+
+Validation: 1,676 unit tests passed; both prompt/workspace terminal
+scenarios passed; native dev build passed. All 360 native tests were exercised:
+353 passed in the parallel run, and the seven storage-cache checks passed on
+their sequential isolated-storage rerun. Ruff and whitespace checks passed.
+The full E2E run passed 145 cases and exposed one workspace PTY harness race:
+literal input was mistaken for evaluated output while the prior command was
+still running. Every successful submission now waits for a unique evaluated
+acknowledgement. Both affected prompt/workspace cases passed in the final rerun
+(45.11 seconds), including expression bodies and native resource cleanup.
+No unresolved regression failures remain.
+Review confirmed expression bodies reuse existing call frames, limits, error
+handling and the Python compiler; no evaluator or native API changes were needed.
+
+Automatic approval review rejected creating a separate follow-up PR without fresh
+user authorization. The extension remains on its feature branch; main is unchanged.
