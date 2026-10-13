@@ -1,0 +1,378 @@
+{
+  "python": "3.14.0rc2",
+  "platform": "macOS-26.1-arm64-arm-64bit-Mach-O",
+  "method": "Same source, AST, checked operations and budgets; fresh state per run. Cached parser construction; parse and compile reported separately. Registered host callback is local, not a network or Clang benchmark.",
+  "repeats": 7,
+  "matrices": {
+    "1000": {
+      "arithmetic": {
+        "first_parse_ms": 9.995667,
+        "first_compile_ms": 1.27175,
+        "parse": {
+          "median_ms": 9.769625,
+          "min_ms": 9.408084,
+          "max_ms": 13.674541
+        },
+        "compile": {
+          "median_ms": 0.488292,
+          "min_ms": 0.447125,
+          "max_ms": 0.705125
+        },
+        "engines": {
+          "tree": {
+            "first_execution_ms": 3.535209,
+            "execution": {
+              "median_ms": 3.241583,
+              "min_ms": 3.191542,
+              "max_ms": 3.483958
+            },
+            "parse_and_execute": {
+              "median_ms": 12.97825,
+              "min_ms": 12.874708,
+              "max_ms": 13.046792
+            }
+          },
+          "compiled": {
+            "first_execution_ms": 1.948417,
+            "execution": {
+              "median_ms": 1.937583,
+              "min_ms": 1.916875,
+              "max_ms": 2.128958
+            },
+            "parse_and_execute": {
+              "median_ms": 12.162208,
+              "min_ms": 12.066584,
+              "max_ms": 13.25625
+            }
+          }
+        },
+        "tree_over_compiled_execution_ratio": 1.673003427466075,
+        "checked_steps": 6007,
+        "result": 1498500
+      },
+      "conditional": {
+        "first_parse_ms": 11.33975,
+        "first_compile_ms": 0.786084,
+        "parse": {
+          "median_ms": 11.960042,
+          "min_ms": 11.784292,
+          "max_ms": 13.15625
+        },
+        "compile": {
+          "median_ms": 1.042542,
+          "min_ms": 0.695083,
+          "max_ms": 1.851791
+        },
+        "engines": {
+          "tree": {
+            "first_execution_ms": 5.623875,
+            "execution": {
+              "median_ms": 6.06475,
+              "min_ms": 5.533625,
+              "max_ms": 7.330167
+            },
+            "parse_and_execute": {
+              "median_ms": 17.829667,
+              "min_ms": 17.252125,
+              "max_ms": 28.443125
+            }
+          },
+          "compiled": {
+            "first_execution_ms": 3.52525,
+            "execution": {
+              "median_ms": 3.347083,
+              "min_ms": 3.314417,
+              "max_ms": 3.738458
+            },
+            "parse_and_execute": {
+              "median_ms": 17.352417,
+              "min_ms": 16.17,
+              "max_ms": 21.059417
+            }
+          }
+        },
+        "tree_over_compiled_execution_ratio": 1.8119508837994158,
+        "checked_steps": 11007,
+        "result": 2000
+      },
+      "structured": {
+        "first_parse_ms": 23.729875,
+        "first_compile_ms": 1.242875,
+        "parse": {
+          "median_ms": 18.764542,
+          "min_ms": 18.174875,
+          "max_ms": 23.44125
+        },
+        "compile": {
+          "median_ms": 1.641333,
+          "min_ms": 1.037917,
+          "max_ms": 2.177458
+        },
+        "engines": {
+          "tree": {
+            "first_execution_ms": 8.708209,
+            "execution": {
+              "median_ms": 8.212125,
+              "min_ms": 7.91125,
+              "max_ms": 9.047708
+            },
+            "parse_and_execute": {
+              "median_ms": 27.588042,
+              "min_ms": 25.938625,
+              "max_ms": 30.824083
+            }
+          },
+          "compiled": {
+            "first_execution_ms": 5.317667,
+            "execution": {
+              "median_ms": 4.561709,
+              "min_ms": 4.208917,
+              "max_ms": 7.9395
+            },
+            "parse_and_execute": {
+              "median_ms": 23.673667,
+              "min_ms": 23.231708,
+              "max_ms": 31.359833
+            }
+          }
+        },
+        "tree_over_compiled_execution_ratio": 1.8002299138327327,
+        "checked_steps": 15012,
+        "result": {
+          "length": 1000,
+          "last": 2997
+        }
+      },
+      "registered_host": {
+        "first_parse_ms": 13.772667,
+        "first_compile_ms": 0.569958,
+        "parse": {
+          "median_ms": 11.771583,
+          "min_ms": 10.250625,
+          "max_ms": 13.383583
+        },
+        "compile": {
+          "median_ms": 0.521792,
+          "min_ms": 0.470584,
+          "max_ms": 0.881666
+        },
+        "engines": {
+          "tree": {
+            "first_execution_ms": 2.721792,
+            "execution": {
+              "median_ms": 2.65525,
+              "min_ms": 2.634583,
+              "max_ms": 2.96125
+            },
+            "parse_and_execute": {
+              "median_ms": 13.014166,
+              "min_ms": 12.78625,
+              "max_ms": 13.264917
+            }
+          },
+          "compiled": {
+            "first_execution_ms": 1.52675,
+            "execution": {
+              "median_ms": 1.508,
+              "min_ms": 1.499708,
+              "max_ms": 1.6845
+            },
+            "parse_and_execute": {
+              "median_ms": 12.415708,
+              "min_ms": 12.029375,
+              "max_ms": 14.426542
+            }
+          }
+        },
+        "tree_over_compiled_execution_ratio": 1.7607758620689655,
+        "checked_steps": 5007,
+        "result": 499500
+      }
+    },
+    "10000": {
+      "arithmetic": {
+        "first_parse_ms": 10.773916,
+        "first_compile_ms": 0.584667,
+        "parse": {
+          "median_ms": 9.853875,
+          "min_ms": 9.782542,
+          "max_ms": 10.019209
+        },
+        "compile": {
+          "median_ms": 0.492,
+          "min_ms": 0.440667,
+          "max_ms": 0.768791
+        },
+        "engines": {
+          "tree": {
+            "first_execution_ms": 34.88125,
+            "execution": {
+              "median_ms": 34.667292,
+              "min_ms": 33.969375,
+              "max_ms": 47.419833
+            },
+            "parse_and_execute": {
+              "median_ms": 43.416417,
+              "min_ms": 43.195042,
+              "max_ms": 44.154833
+            }
+          },
+          "compiled": {
+            "first_execution_ms": 19.68425,
+            "execution": {
+              "median_ms": 19.66825,
+              "min_ms": 19.54475,
+              "max_ms": 19.954791
+            },
+            "parse_and_execute": {
+              "median_ms": 32.659875,
+              "min_ms": 30.713083,
+              "max_ms": 33.852875
+            }
+          }
+        },
+        "tree_over_compiled_execution_ratio": 1.7626017566382368,
+        "checked_steps": 60007,
+        "result": 149985000
+      },
+      "conditional": {
+        "first_parse_ms": 11.393375,
+        "first_compile_ms": 0.694291,
+        "parse": {
+          "median_ms": 11.79375,
+          "min_ms": 11.439583,
+          "max_ms": 14.353209
+        },
+        "compile": {
+          "median_ms": 0.784167,
+          "min_ms": 0.651083,
+          "max_ms": 1.520125
+        },
+        "engines": {
+          "tree": {
+            "first_execution_ms": 57.988042,
+            "execution": {
+              "median_ms": 58.178084,
+              "min_ms": 57.141833,
+              "max_ms": 58.531791
+            },
+            "parse_and_execute": {
+              "median_ms": 71.359125,
+              "min_ms": 68.988375,
+              "max_ms": 71.9645
+            }
+          },
+          "compiled": {
+            "first_execution_ms": 33.309666,
+            "execution": {
+              "median_ms": 33.023542,
+              "min_ms": 32.771583,
+              "max_ms": 34.340458
+            },
+            "parse_and_execute": {
+              "median_ms": 45.872625,
+              "min_ms": 45.463958,
+              "max_ms": 49.48675
+            }
+          }
+        },
+        "tree_over_compiled_execution_ratio": 1.761715445302627,
+        "checked_steps": 110007,
+        "result": 20000
+      },
+      "structured": {
+        "first_parse_ms": 24.424166,
+        "first_compile_ms": 1.114459,
+        "parse": {
+          "median_ms": 26.49225,
+          "min_ms": 21.521583,
+          "max_ms": 56.226334
+        },
+        "compile": {
+          "median_ms": 1.345292,
+          "min_ms": 1.175958,
+          "max_ms": 1.538292
+        },
+        "engines": {
+          "tree": {
+            "first_execution_ms": 77.770083,
+            "execution": {
+              "median_ms": 78.841958,
+              "min_ms": 77.466833,
+              "max_ms": 80.508166
+            },
+            "parse_and_execute": {
+              "median_ms": 112.970292,
+              "min_ms": 108.632584,
+              "max_ms": 130.861
+            }
+          },
+          "compiled": {
+            "first_execution_ms": 47.617333,
+            "execution": {
+              "median_ms": 47.700417,
+              "min_ms": 44.022792,
+              "max_ms": 49.697917
+            },
+            "parse_and_execute": {
+              "median_ms": 72.853541,
+              "min_ms": 64.946167,
+              "max_ms": 75.263542
+            }
+          }
+        },
+        "tree_over_compiled_execution_ratio": 1.6528567873945421,
+        "checked_steps": 150012,
+        "result": {
+          "length": 10000,
+          "last": 29997
+        }
+      },
+      "registered_host": {
+        "first_parse_ms": 12.012,
+        "first_compile_ms": 0.679583,
+        "parse": {
+          "median_ms": 15.730708,
+          "min_ms": 13.632,
+          "max_ms": 20.533084
+        },
+        "compile": {
+          "median_ms": 0.678,
+          "min_ms": 0.442334,
+          "max_ms": 0.918333
+        },
+        "engines": {
+          "tree": {
+            "first_execution_ms": 29.932833,
+            "execution": {
+              "median_ms": 28.6295,
+              "min_ms": 27.720458,
+              "max_ms": 29.797166
+            },
+            "parse_and_execute": {
+              "median_ms": 49.052084,
+              "min_ms": 41.585542,
+              "max_ms": 52.93775
+            }
+          },
+          "compiled": {
+            "first_execution_ms": 16.141417,
+            "execution": {
+              "median_ms": 16.278083,
+              "min_ms": 16.102542,
+              "max_ms": 16.752084
+            },
+            "parse_and_execute": {
+              "median_ms": 35.589459,
+              "min_ms": 29.278,
+              "max_ms": 55.750291
+            }
+          }
+        },
+        "tree_over_compiled_execution_ratio": 1.7587758951714403,
+        "checked_steps": 50007,
+        "result": 49995000
+      }
+    }
+  }
+}

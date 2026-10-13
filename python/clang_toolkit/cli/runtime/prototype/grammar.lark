@@ -1,0 +1,161 @@
+// Standalone experimental scripting grammar.  This is deliberately separate
+// from the released console grammar.
+
+start: program
+
+program: separators? statement (separators statement)* separators?
+        |                  -> empty_program
+
+?statement: closed_statement | open_statement
+?closed_statement: let_stmt
+                  | print_stmt
+                  | assign_stmt
+                  | closed_expression
+?open_statement: open_let_stmt
+               | open_print_stmt
+               | target ASSIGN_OP open_expression -> assign_stmt
+               | open_expression
+
+let_stmt.10: "let" CNAME "=" closed_expression
+open_let_stmt.10: "let" CNAME "=" open_expression -> let_stmt
+print_stmt.10: "print" closed_expression
+open_print_stmt.10: "print" open_expression -> print_stmt
+assign_stmt: target ASSIGN_OP closed_expression
+
+?expression: closed_expression | open_expression
+?closed_expression: conditional
+                  | closed_if_expr
+                  | closed_unless_expr
+                  | closed_foreach_expr
+?open_expression: open_if_expr
+                 | open_unless_expr
+                 | open_foreach_expr
+
+closed_if_expr: "if" expression closed_conditional_body closed_if_else -> if_expr
+open_if_expr: "if" expression conditional_body -> if_expr
+            | "if" expression closed_conditional_body open_if_else -> if_expr
+closed_unless_expr: "unless" expression closed_conditional_body closed_if_else -> unless_expr
+open_unless_expr: "unless" expression conditional_body -> unless_expr
+                | "unless" expression closed_conditional_body open_if_else -> unless_expr
+closed_if_else: separators? "else" closed_else_body -> if_else
+open_if_else: separators? "else" open_else_body -> if_else
+closed_else_body: "do" closed_statement -> single_else_body
+                | "do"? block -> block_else_body
+                | closed_statement -> statement_else_body
+open_else_body: "do" open_statement -> single_else_body
+              | open_statement -> statement_else_body
+closed_conditional_body: "do" closed_statement -> single_body
+                       | "then" closed_statement -> single_body
+                       | "do"? block -> block_body
+                       | "then" block -> block_body
+conditional_body: "do" statement -> single_body
+                | "then" statement -> single_body
+                | "do"? block -> block_body
+                | "then" block -> block_body
+
+closed_foreach_expr.10: "foreach" CNAME PRED_IN expression closed_body -> foreach_expr
+open_foreach_expr.10: "foreach" CNAME PRED_IN expression open_body -> foreach_expr
+closed_body: "do" closed_statement -> single_body
+           | "do"? block -> block_body
+open_body: "do" open_statement -> single_body
+
+block: "{" block_contents? "}"
+block_contents: separators? statement (separators statement)* separators?
+
+?conditional: or_expr
+            | or_expr soft_newlines "?" soft_newlines conditional soft_newlines ":" soft_newlines conditional
+?or_expr: and_expr (soft_newlines PRED_OR soft_newlines and_expr)*
+?and_expr: not_expr (soft_newlines PRED_AND soft_newlines not_expr)*
+?not_expr: PRED_NOT soft_newlines not_expr  -> not_expr
+         | comparison
+comparison: additive comparison_tail?
+?comparison_tail: soft_newlines COMPARE_OP soft_newlines additive -> comparison_tail
+                | soft_newlines PRED_HAS soft_newlines has_key -> has_tail
+                | soft_newlines PRED_DOES soft_newlines PRED_NOT soft_newlines PRED_HAVE soft_newlines has_key -> does_not_have_tail
+                | soft_newlines PRED_IN soft_newlines additive -> in_tail
+                | soft_newlines PRED_NOT soft_newlines PRED_IN soft_newlines additive -> not_in_tail
+                | soft_newlines PRED_IS soft_newlines PRED_NOT soft_newlines PRED_DEFINED -> is_not_defined_tail
+                | soft_newlines PRED_IS soft_newlines PRED_DEFINED -> is_defined_tail
+                | soft_newlines PRED_IS soft_newlines PRED_NOT soft_newlines PRED_SET -> is_not_set_tail
+                | soft_newlines PRED_IS soft_newlines PRED_SET -> is_set_tail
+                | soft_newlines PRED_IS soft_newlines PRED_NOT soft_newlines CNAME -> is_not_kind_tail
+                | soft_newlines PRED_IS soft_newlines CNAME -> is_kind_tail
+?has_key: CNAME -> bare_key
+        | PREDICATE_STRING -> predicate_string_literal
+        | grouped_expression
+?additive: multiplicative (soft_newlines ADD_OP soft_newlines multiplicative)*
+?multiplicative: unary (soft_newlines MUL_OP soft_newlines unary)*
+?unary: UNARY_OP unary       -> unary_expr
+      | postfix
+?postfix: atom postfix_part*
+
+?postfix_part: soft_newlines "." soft_newlines CNAME -> member_part
+             | index_expression
+
+target: reference target_part*
+?target_part: "." CNAME       -> target_member_part
+           | index_expression
+
+reference: "$" CNAME
+
+?atom: literal
+     | reference
+     | named_call
+     | list_literal
+     | dict_literal
+     | grouped_expression
+
+named_call: CNAME "(" arguments? ")"
+arguments: separators? expression ("," separators? expression)* ","? separators?
+
+index_expression: "[" separators? expression separators? "]"
+
+grouped_expression: "(" inner_expression ")"
+inner_expression: separators? expression separators?
+
+list_literal: "[" list_items? "]"
+list_items: separators? expression ("," separators? expression)* ","? separators?
+
+dict_literal: "{" dict_items? "}"
+dict_items: separators? dict_item ("," separators? dict_item)* ","? separators?
+dict_item: key ":" expression
+?key: STRING
+    | CNAME
+
+literal: INT       -> integer_literal
+        | FLOAT     -> float_literal
+        | STRING    -> string_literal
+        | "true"    -> true_literal
+        | "false"   -> false_literal
+        | "null"    -> null_literal
+
+separators: separator+
+?separator: NEWLINE | ";"
+soft_newlines: NEWLINE*
+
+ASSIGN_OP: "=" | "+=" | "-=" | "*=" | "/=" | "%="
+COMPARE_OP: "==" | "!=" | "<=" | ">=" | "<" | ">"
+ADD_OP: "+" | "-"
+MUL_OP: "*" | "/" | "%"
+UNARY_OP: "+" | "-"
+
+FLOAT: /(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+/
+INT: /[0-9]+/
+STRING: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/
+PREDICATE_STRING: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/
+CNAME: /[A-Za-z_][A-Za-z0-9_]*/
+PRED_HAS: /(?<![A-Za-z0-9_])has(?![A-Za-z0-9_])/
+PRED_DOES: /(?<![A-Za-z0-9_])does(?![A-Za-z0-9_])/
+PRED_HAVE: /(?<![A-Za-z0-9_])have(?![A-Za-z0-9_])/
+PRED_IN: /(?<![A-Za-z0-9_])in(?![A-Za-z0-9_])/
+PRED_IS: /(?<![A-Za-z0-9_])is(?![A-Za-z0-9_])/
+PRED_NOT: /(?<![A-Za-z0-9_])not(?![A-Za-z0-9_])/
+PRED_DEFINED: /(?<![A-Za-z0-9_])defined(?![A-Za-z0-9_])/
+PRED_SET: /(?<![A-Za-z0-9_])set(?![A-Za-z0-9_])/
+PRED_AND: /(?<![A-Za-z0-9_])and(?![A-Za-z0-9_])/
+PRED_OR: /(?<![A-Za-z0-9_])or(?![A-Za-z0-9_])/
+NEWLINE: /\r?\n/
+
+%import common.WS_INLINE
+%ignore WS_INLINE
+%ignore /\/\/[^\r\n]*/

@@ -1,0 +1,9 @@
+let status = ctk("server status")
+let ready = $status.active_sessions >= 0
+let summary = {
+    ready: $ready,
+    label: $ready ? "available" : "unavailable",
+    sessions: $status.active_sessions
+}
+let skipped = false and (ctk("file open \"this-branch-must-not-run.cc\"").length > 0)
+print $summary

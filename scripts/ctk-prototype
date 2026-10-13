@@ -1,0 +1,6 @@
+#!/bin/sh
+# Launch this isolated checkout with the compiled scripting REPL.
+set -eu
+prototype_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export CTK_REPO="$prototype_root"
+exec ctk --script-engine compiled "$@"
