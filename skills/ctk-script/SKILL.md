@@ -1,6 +1,6 @@
 ---
 name: ctk-script
-description: Write, run, explain, and debug clang-toolkit scripts using the compiled console DSL, legacy console DSL, or native server language. Use for .ctk files, parse/match/foreach workflows, native node navigation, inheritance queries, binding-field extraction, expressions, indexed foreach with .index, while, repeat until, break/continue, and script or batch execution; use the SDK reasoning skill for Python API tasks.
+description: Write, run, explain, and debug clang-toolkit scripts using the compiled console DSL, legacy console DSL, or native server language. Use for .ctk files, parse/match/foreach workflows, native node navigation, inheritance queries, binding-field extraction, named or inline executable blocks, classInfo, ancestor trees, ready-made matchers, indexed foreach with .index, while, repeat until, break/continue, and script or batch execution; use the SDK reasoning skill for Python API tasks.
 ---
 
 # Write and use CTK scripts
@@ -11,7 +11,9 @@ Produce runnable CTK statements that answer the user's question and verify them 
 
 - **Console DSL:** `ctk` (including `uv run ctk`) defaults to the compiled engine. It supports arithmetic, Boolean logic, value-producing conditions, mutation, value predicates, and loop control. Read [console.md](references/console.md). `python -m clang_toolkit.cli.app` and `scripts/manual_console.sh` retain the legacy default; pass `--script-engine compiled` there when using the compiled syntax. `--script-engine tree` selects the reference evaluator, and `legacy` selects the previous parser.
 - **Loops and indexes:** use `foreach item in items do BODY` and access its zero-based ordinal as `item.index`; use `item.value` for colliding data fields. Read [loops.md](references/loops.md) for complete executable examples, `while`, `repeat … until`, `break`, `continue`, and collection/scope rules.
-- **Named script arguments:** `ctk FILE.ctk x=value` runs the file and exposes the literal string as `$arg.x`; `--script`, `--execute`, and piped runs accept the same arguments.
+- **Executable blocks:** read [runnables.md](references/runnables.md) for `let name(params) = expression`, brace bodies, inline `(params) = body`, defaults, closures, optional `on error`/`on exit`, and `break`/`continue`. Both body forms compile to Python; invoke through a bound name.
+- **Ready-made utilities:** read [utilities.md](references/utilities.md), then import [ctk_helpers.ctk](scripts/ctk_helpers.ctk) using its resolved absolute skill path. It supplies `ancestors`, `classInfo`, member/function/call summaries, collection callbacks and reusable matchers. These are imported functions, not server commands.
+- **Named script arguments:** `ctk FILE.ctk x=value` runs the file and exposes the literal string as `arg.x`; `--script`, `--execute`, and piped runs accept the same arguments.
 - **Text and CSV inputs:** `read` returns text lines or CSV records; trim strings explicitly with `.strip()`. See the complete input example in [console.md](references/console.md).
 - **Native node navigation and inheritance:** read [navigation.md](references/navigation.md) for `traverse` from any retained node, filtered `peek`/`step`, matcher scopes, direct base bindings, and streaming versus explicit collection.
 - **Native server DSL:** the console's `script "SOURCE" [in "TARGET"]`, SDK `run_script`, or a `background batch`/`durable batch` body. Read [native.md](references/native.md). This language uses explicit `emit` statements.
@@ -29,7 +31,7 @@ Verify in small steps: one target, one matcher, row count, one binding's fields,
 
 The interactive console accepts whole scripts with newline/semicolon-separated top-level statements, just like `--script` or `--execute`. In the workspace, paste the script and press Ctrl+Enter or Ctrl+J; use Alt+Enter or Shift+Enter to type additional lines. Execution stops at the first error or exit, and history keeps the whole submission once. For a multi-file continuation, `source_match_index` is local to the originating file's match result, not a global index into the combined parent collection; use `source_file` and per-file parents for attribution.
 
-Use `$row.f.qualified_name`, `$row.f.decl_name`, and other discovered direct properties. Preserve explicit bindings and implicit `root`. Keep headers included unless the user requests main-file-only analysis. Query AST children through follow-up matching rather than treating unrequested fields as empty.
+Use `row.f.qualified_name`, `row.f.decl_name`, and other discovered direct properties. Preserve explicit bindings and implicit `root`. Keep headers included unless the user requests main-file-only analysis. Query AST children through follow-up matching rather than treating unrequested fields as empty.
 
 ## Evidence and boundaries
 
@@ -41,4 +43,4 @@ Use `$row.f.qualified_name`, `$row.f.decl_name`, and other discovered direct pro
 
 Return the exact script and observed output or an explicit unverified boundary when details are requested. Follow the user's response-length preference. Parsing syntax or reading a manual is not live verification.
 
-Console guidance was refreshed on 2026-10-13 for the compiled entrypoint, its expression/control-flow syntax, indexed loop bindings, while/repeat and loop control, and native bound-node navigation. Native server-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` and server capabilities when installed behavior differs.
+Console guidance and bundled libraries were verified on 2026-10-13 against the compiled engine with named/inline runnables and indexed foreach, while/repeat and loop control. Use bare names, `//` comments and `{expression}` interpolation in new console scripts. Native server-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` and server capabilities when installed behavior differs.

@@ -8,7 +8,7 @@ script "emit count(match(\"functionDecl(isDefinition())\"));" in "/project/src/w
 script 'let functions = match functionDecl(isDefinition()).bind("f"); emit count(functions);' in "/project/src/widget.cpp"
 ```
 
-This submits ANTLR server source; `--script FILE` executes the console DSL. Build inner source before escaping its outer string; escape native `$` references as `\$` inside the outer double-quoted console string to prevent console interpolation. Avoid multiple shell quoting layers.
+This submits ANTLR server source; `--script FILE` executes the console DSL. Build inner source before escaping its outer string. Compiled console double quotes interpolate expressions in braces; use a single-quoted outer string for native source containing blocks or dictionaries. Avoid multiple shell quoting layers.
 
 Prefer native expression-form matchers inside a single-quoted outer console string, as in the third example, when possible. The outer string still decodes escape sequences: single quotes suppress interpolation but do not remove the need to escape nested matcher-string quotes correctly.
 
@@ -29,16 +29,16 @@ This requires a request target. Public SDK execution is `client.run_script(sourc
 - Assignments, emissions, and expression statements end with `;`. Comments use `//`.
 - Strings are double-quoted with JSON escapes. Console interpolation and single quotes are not native string syntax.
 - `let` declares immutable lexical bindings. Duplicate names in one scope fail; inner shadowing is allowed.
-- References accept identifiers or `$name`. Lists, objects, member/index access and grouped expressions are supported.
-- Legacy loops: `foreach item in items { emit item; }`. Value loops: `foreach item in $items do { $item; }`, with a semicolon when used as an expression statement.
+- References use bare identifiers; old prefixed references remain compatible. Lists, objects, member/index access and grouped expressions are supported.
+- Legacy loops: `foreach item in items { emit item; }`. Value loops: `foreach item in items do { item; }`, with a semicolon when used as an expression statement.
 - Use `emit` to return values. Final expressions are not automatically emitted by ordinary requests. `collect_final` explicitly adds the detached final value as `__final__`.
-- Member syntax does not guarantee console semantic conveniences or methods. Verify native field support separately; `count`, `row`, and `continue` are established row operations.
+- Python-compiled runnable definitions, inline callbacks, defaults and handlers belong to the console engine and are not added to this server language. Member syntax does not guarantee console semantic conveniences or methods. Verify native field support separately; `count`, `row`, and `continue` are established row operations.
 
 ```text
 let settings = {answer: 42, labels: ["first", "second"]};
-let labels = foreach label in $settings.labels do { $label; };
-emit $settings.answer;
-emit $labels[1];
+let labels = foreach label in settings.labels do { label; };
+emit settings.answer;
+emit labels[1];
 ```
 
 Native expressions also accept `parse "PATH"`, `match functionDecl().bind("f") in TARGET`, and `in TREE { ... yield VALUE; }`. This does not make all console commands available on the server.
