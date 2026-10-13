@@ -88,6 +88,88 @@ protected:
   }
 };
 
+TEST_F(MatchCursors, ChildrenScopeMatchesOnlyDirectCandidatesWithNormalBindings) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto body_request = binding(source.response, "f", "compoundStmt().bind(\"body\")");
+  body_request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto body = fork(body_request);
+  ASSERT_EQ(body.code, MatchCode::Ok) << body.message;
+  ASSERT_EQ(body.response.results_size(), 1);
+  EXPECT_FALSE(body.response.results(0).bindings().contains("target"));
+  EXPECT_TRUE(body.response.results(0).bindings().at("root").node().has_compound_stmt());
+  auto request = binding(body.response, "body", "callExpr().bind(\"call\")");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto direct = fork(request);
+  ASSERT_EQ(direct.code, MatchCode::Ok) << direct.message;
+  EXPECT_EQ(direct.response.results_size(), 1);
+  EXPECT_EQ(fork(binding(body.response, "body", "callExpr()")).response.results_size(), 2);
+  request.set_query("returnStmt(hasDescendant(callExpr().bind(\"target\")))");
+  const auto nested = fork(request);
+  ASSERT_EQ(nested.code, MatchCode::Ok) << nested.message;
+  ASSERT_EQ(nested.response.results_size(), 1);
+  EXPECT_TRUE(nested.response.results(0).bindings().at("root").node().has_return_stmt());
+  EXPECT_TRUE(nested.response.results(0).bindings().at("target").node().has_call_expr());
+  body_request.set_query("functionDecl()");
+  EXPECT_EQ(fork(body_request).response.results_size(), 0);
+  EXPECT_EQ(fork(binding(source.response, "f", "callExpr()")).response.results_size(), 2);
+}
+
+TEST_F(MatchCursors, ChildrenScopeRetainsAuxiliaryParentForEachCandidateAlias) {
+  const auto source = run(file(
+      "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  auto request = binding(source.response, "f", "typeLoc().bind(\"loc\")");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto types = fork(request);
+  ASSERT_EQ(types.code, MatchCode::Ok) << types.message;
+  ASSERT_EQ(types.response.results_size(), 1);
+  const auto up = run(navigation(types.response, "loc", NAVIGATION_AXIS_PARENTS));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  ASSERT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").symbol_identity(),
+            source.response.results(0).bindings().at("f").symbol_identity());
+}
+
+TEST_F(MatchCursors, ChildrenScopeStreamsAndCancellationPreservesSource) {
+  const auto source = run(file("functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  auto request = binding(source.response, "f", "compoundStmt()");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  request.set_preserve_source(true);
+  std::vector<MatchStreamEvent> events;
+  const auto streamed = stream(request, [&](const MatchStreamEvent &event, std::string &) {
+    events.push_back(event);
+    return MatchCode::Ok;
+  });
+  ASSERT_EQ(streamed.code, MatchCode::Ok) << streamed.message;
+  ASSERT_EQ(events.size(), 2U);
+  EXPECT_TRUE(events.front().has_row());
+  EXPECT_TRUE(events.back().has_completed());
+  const auto cancelled = stream(request, [](const MatchStreamEvent &, std::string &) {
+    return MatchCode::Cancelled;
+  });
+  EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
+  EXPECT_EQ(fork(binding(source.response, "f", "callExpr()")).response.results_size(), 2);
+  request.mutable_binding()->set_expected_result_revision(source.response.result_revision() + 1);
+  EXPECT_EQ(run(request).code, MatchCode::Aborted);
+}
+
+TEST_F(MatchCursors, ChildrenScopeUsesRequestedMatcherTraversalPolicy) {
+  std::ofstream(directory.path() / "fixture.cc") << "struct Box { int run(){return 7;} };";
+  const auto source = run(file("cxxRecordDecl(hasName(\"Box\"), isDefinition()).bind(\"r\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto request = binding(source.response, "r", "cxxRecordDecl(isImplicit())");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  request.mutable_binding()->set_match_index(0);
+  const auto as_is = fork(request);
+  ASSERT_EQ(as_is.code, MatchCode::Ok) << as_is.message;
+  EXPECT_EQ(as_is.response.results_size(), 1);
+  request.set_traversal_mode(MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE);
+  const auto spelled = fork(request);
+  ASSERT_EQ(spelled.code, MatchCode::Ok) << spelled.message;
+  EXPECT_EQ(spelled.response.results_size(), 0);
+}
+
 TEST_F(MatchCursors, NavigationFiltersImmediateChildrenAndKeepsSource) {
   const auto source = run(file(
       "functionDecl(hasName(\"alpha\")).bind(\"f\")"));

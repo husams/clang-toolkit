@@ -15,7 +15,7 @@ assignment: LET NAME EQUAL value_expression
 matcher_definition: LET NAME LPAR [parameters] RPAR EQUAL root_expression
 parameters: NAME (COMMA NAME)*
 
-?command_expression: MATCH root_expression [IN path_value_expression] [DO statement_block] -> match
+?command_expression: MATCH root_expression [IN path_value_expression] [match_scope] [DO statement_block] -> match
         | BACKGROUND root_expression [IN path_value_expression] -> background
         | PRINT value_expression [TO output_path [MODE (REPLACE | APPEND)]] -> print
         | INSPECT reference              -> inspect
@@ -76,6 +76,8 @@ help_topic: HELP_WORD+
 cursor_option: ROW NUMBER -> cursor_row
              | CURSOR_SCOPE NAME -> cursor_scope
              | REVISION NUMBER -> cursor_revision
+
+match_scope: CURSOR_SCOPE NAME
 
 call_graph_option: NODES NUMBER -> call_graph_nodes
                  | EDGES NUMBER -> call_graph_edges

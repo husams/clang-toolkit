@@ -92,9 +92,9 @@ let tree = parse "examples/parse_match.cc"
 Match native nodes and optionally retain the resulting rows.
 
 ```text
-match MATCHER [in TARGET]
-let rows = match MATCHER [in TARGET]
-match MATCHER in TARGET do { STATEMENT; ... }
+match MATCHER [in TARGET] [scope SCOPE]
+let rows = match MATCHER [in TARGET] [scope SCOPE]
+match MATCHER in TARGET [scope SCOPE] do { STATEMENT; ... }
 ```
 
 - Use `match` after `=` to assign query results; a bare matcher assignment constructs a matcher and accepts no `in` target.
@@ -102,6 +102,7 @@ match MATCHER in TARGET do { STATEMENT; ... }
 - TARGET: quoted file path, directory or glob; File, Directory, file list, parsed tree, match value or binding selection.
 - Directories recurse over C/C++/Objective-C source files; globs support absolute paths and **. Expansion uses the client's filesystem. Empty selections return an empty collection.
 - Target variables must already exist; bind labels name bindings in the new results.
+- Explicit scope requires a retained binding selection: children tests immediate native children, self (or root_only) tests the bound node, and subtree tests it and eligible descendants. Omission preserves the binding's scope. Nested matcher constraints retain full AST context; earlier variables remain reusable.
 - With do { ... }, run ordinary statements as each streamed row arrives. Every bind label becomes a local variable: .bind("func") exposes $func.node. Newlines or semicolons separate statements; # starts a comment.
 - Each row gets a fresh local scope; outer variables are restored afterwards. Streamed bindings provide copied semantic fields; native continuation requires a completed retained result. Row work is serialized across concurrent file streams; row order follows arrival order. Limits: 10000 rows and 1000000 bytes of collected output.
 - A missing `match` in this assignment form shows its insertion point and a corrected command.
@@ -1091,7 +1092,7 @@ cursor continue ID BIND MATCHER [row INDEX] [scope MODE] [revision NUMBER]
 ```
 
 - ID/BIND: quoted response cursor ID and existing binding name.
-- row: zero-based unsigned index; omitted selects all rows. scope: subtree (default) or root_only.
+- row: zero-based unsigned index; omitted selects all rows. scope: subtree (default), root_only or children.
 - revision: positive expected result revision; omitted sends no guard. Options may occur once.
 
 ```text

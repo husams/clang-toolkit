@@ -1,0 +1,20 @@
+let tree = parse "examples/bound_node_navigation.cc"
+let records = match cxxRecordDecl(hasName("Box"), isDefinition()).bind("record") in $tree
+let box = $records[0].record
+let immediate = match cxxMethodDecl().bind("method") in $box scope children
+print $immediate.length
+let all_methods = match cxxMethodDecl().bind("method") in $box
+print $all_methods.length
+let method = $immediate[0].method
+let bodies = match compoundStmt().bind("body") in $method scope children
+let body = $bodies[0].body
+let returns = match returnStmt().bind("statement") in $body scope children
+print $returns.length
+let excluded = match integerLiteral().bind("n") in $method scope children
+print $excluded.length
+let literals = match integerLiteral().bind("n") in $method
+print $literals.length
+match cxxMethodDecl().bind("method") in $box scope children do { print $method.decl_name; }
+let same = match cxxMethodDecl() in $method scope self
+print $same.length
+print $immediate.length

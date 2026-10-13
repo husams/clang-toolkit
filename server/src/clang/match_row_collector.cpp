@@ -28,6 +28,7 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
   }
   MatchResult row;
   CapturedBindingState::Row native;
+  CapturedBindingState::Row parents;
   if (source_row)
     row.set_source_match_index(*source_row);
   if (target_node) {
@@ -57,6 +58,10 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
     }
     if (serialized)
       serialization::helpers::write_match_metadata(node, value, context);
+    value.add_supported_scopes(ctk::match::v1::BINDING_MATCH_SCOPE_CHILDREN);
+    if (target_parent && candidate_node &&
+        ((target_node && name == "target") || node == *candidate_node))
+      parents.emplace(name, *target_parent);
     native.emplace(name, node);
   }
   const auto size = row.ByteSizeLong();
@@ -93,6 +98,6 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
     result_.rows.push_back(std::move(row));
   }
   state_.append(std::move(native));
-  state_.navigation_parents.push_back(target_parent);
+  state_.navigation_parents.push_back(std::move(parents));
 }
 } // namespace ctk::clang_layer

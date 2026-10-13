@@ -8,3 +8,13 @@ Feature: Navigate from retained bound nodes
       | transport |
       | unix      |
       | tcp       |
+
+  Scenario Outline: Match scope children uses native immediate candidates
+    Given a navigation server using <transport>
+    When I match immediate children with an explicit scope
+    Then scoped matches stream and preserve named native bindings
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |

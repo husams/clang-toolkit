@@ -30,6 +30,7 @@ def execute_cursor(runtime: Runtime, statement: Tree) -> Any:
     query = matcher_text(matcher)
     options: dict[str, int] = {}
     scope_names = {
+        "children": match_result_pb2.BINDING_MATCH_SCOPE_CHILDREN,
         "root_only": match_result_pb2.BINDING_MATCH_SCOPE_ROOT_ONLY,
         "subtree": match_result_pb2.BINDING_MATCH_SCOPE_SUBTREE,
     }
@@ -46,7 +47,7 @@ def execute_cursor(runtime: Runtime, statement: Tree) -> Any:
             raise EvaluationError(f"duplicate cursor option {key}")
         if key == "scope":
             if text not in scope_names:
-                raise EvaluationError("scope must be root_only or subtree")
+                raise EvaluationError("scope must be root_only, subtree or children")
             value = scope_names[text]
         else:
             if not text.isdigit() or int(text) > 2**64 - 1:

@@ -10,6 +10,7 @@ import pytest
 from pytest_bdd import given, when, then, scenarios, parsers
 from clang_toolkit import AsyncClient, Client, MatchValueError
 from clang_toolkit.cursors import CursorError
+from clang_toolkit._generated.match.v1 import match_result_pb2 as scopes
 from tests.e2e.test_network_steps import _launch_server
 
 pytestmark = pytest.mark.e2e
@@ -89,3 +90,46 @@ def navigate(navigation_server, tmp_path):
 @then("immediate filtering, streaming, continued matching and source ownership hold")
 def navigation_holds(navigation_result):
     assert navigation_result
+
+
+@when("I match immediate children with an explicit scope", target_fixture="children_result")
+def match_children(navigation_server, tmp_path):
+    root = Path(__file__).parents[2]
+    path = tmp_path / "children.cc"
+    path.write_text((root / "examples/bound_node_navigation.cc").read_text())
+    script = (root / "examples/match_children_scope.ctk").read_text().replace(
+        '"examples/bound_node_navigation.cc"', f'"{path}"')
+    cli = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server",
+         navigation_server.endpoint, "--execute", script], text=True,
+        capture_output=True, timeout=60,
+        env={**os.environ, "PYTHONPATH": str(root / "python")})
+    assert cli.returncode == 0, cli.stdout + cli.stderr
+    assert cli.stdout.splitlines() == ["2", "3", "1", "0", "1", "Box::run", "Box::other", "1", "2"]
+    with Client(navigation_server.endpoint) as client:
+        tree = client.parse(path)
+        rows = client.match_in('cxxRecordDecl(hasName("Box"), isDefinition()).bind("r")', tree)
+        box = rows[0].binding("r", scope=scopes.BINDING_MATCH_SCOPE_CHILDREN)
+        provisional = []
+        methods = client.match_in('cxxMethodDecl().bind("m")', box, on_row=provisional.append)
+        assert len(provisional) == len(methods) == 2
+        assert all(set(row.bindings) == {"m", "root"} for row in methods)
+        method = methods[0].binding("m", scope=scopes.BINDING_MATCH_SCOPE_CHILDREN)
+        assert len(client.match_in("integerLiteral()", method)) == 0
+        path.unlink()
+        assert len(client.match_in("compoundStmt()", method)) == 1
+        assert len(client.match_in("cxxMethodDecl()", box)) == 2
+    async def run():
+        path.write_text("int compute(){return 7;}")
+        async with AsyncClient(navigation_server.endpoint) as client:
+            await client.execute(f'let tree = parse "{path}"')
+            await client.execute('let funcs = match functionDecl().bind("f") in $tree')
+            result = await client.execute('match compoundStmt().bind("body") in $funcs[0].f scope children')
+            assert len(result) == 1
+    asyncio.run(run())
+    return True
+
+
+@then("scoped matches stream and preserve named native bindings")
+def children_hold(children_result):
+    assert children_result

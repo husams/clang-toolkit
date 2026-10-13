@@ -53,3 +53,31 @@ does not preserve native identity.
 MatchRequest has an additive navigation axis and examined-node budget.
 StreamNavigate uses the existing row/completion streaming contract.
 Clients require a server supporting the new RPC.
+
+## Match immediate children
+
+`match MATCHER in $binding scope children` uses the same native depth-one child
+walker through the ordinary streaming match RPC. It excludes the bound node and
+grandchildren as outer candidates. Nested constraints such as `hasDescendant`
+still inspect their normal relationships in the pinned AST context. Rows retain
+the usual automatic `root` and explicit matcher bindings; this form adds no
+`target` binding and reserves no matcher binding name.
+
+Explicit scope requires a retained binding or aggregate binding selection. First
+match a file or parsed tree to bind the desired root, then apply the scope to that
+binding. `scope self` (alias `root_only`) and `scope subtree` expose the existing
+native scopes. Omitting scope preserves the binding's original scope. Selection,
+caller ownership and revision checks remain unchanged; scopes do not mutate the
+source binding. Auxiliary immediate candidates retain their visitor parent for
+each binding naming that candidate, so subsequent parent navigation works.
+
+The child walker examines at most 10000 neighbours across selected source rows;
+configured row, byte and retention limits also apply. Matching uses the requested
+Clang matcher traversal policy against native visitor-edge candidates. Standalone
+`match ... scope children do { ... }` runs its body for streamed provisional rows
+with the same completion/failure contract as other match blocks.
+
+The complete console example is `examples/match_children_scope.ctk`. It compares
+two immediate methods with three recursively found methods (including the nested
+class), excludes descendant literals from a method's immediate candidates, and
+continues matching from the saved bindings.

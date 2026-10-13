@@ -1858,6 +1858,30 @@ class Runtime:
             original = source[matcher_node.meta.start_pos : matcher_node.meta.end_pos]
             if original and not self._has_dynamic_part(matcher_node):
                 text = original
+        scope_option = next((child for child in node.children
+                             if isinstance(child, Tree)
+                             and child.data == "match_scope"), None)
+        if scope_option is not None:
+            from clang_toolkit._generated.match.v1 import match_result_pb2 as scopes
+
+            scope_names = {
+                "children": scopes.BINDING_MATCH_SCOPE_CHILDREN,
+                "self": scopes.BINDING_MATCH_SCOPE_ROOT_ONLY,
+                "root_only": scopes.BINDING_MATCH_SCOPE_ROOT_ONLY,
+                "subtree": scopes.BINDING_MATCH_SCOPE_SUBTREE,
+            }
+            name = str(scope_option.children[1])
+            if name not in scope_names:
+                raise EvaluationError("match scope must be children, self, root_only or subtree")
+            scope = scope_names[name]
+            if isinstance(target, BindingSelection):
+                target = replace(target, scope=scope)
+            elif isinstance(target, NativeBindingCollection):
+                target = replace(target, selections=tuple(
+                    replace(item, scope=scope) if item is not None else None
+                    for item in target.selections))
+            else:
+                raise EvaluationError("match scope requires a retained binding selection")
         if target is not None:
             traversal = self.config_store.effective["traversal"]
             from clang_toolkit._generated.match.v1 import match_service_pb2 as pb

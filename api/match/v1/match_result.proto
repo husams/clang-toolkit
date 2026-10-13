@@ -15,12 +15,16 @@ enum BindingMatchScope {
   // Test the bound node and eligible descendants. Supported only for Decl
   // and Stmt roots and top-level Decl/Stmt matcher categories. Expr is a Stmt.
   BINDING_MATCH_SCOPE_SUBTREE = 2;
+  // Test immediate native visitor children only, excluding the selected root.
+  // Matcher relationship predicates still use the full retained AST context.
+  BINDING_MATCH_SCOPE_CHILDREN = 3;
 }
 
 // One named value copied from a native BoundNodes tuple.
 // supported_scopes describes continuation capabilities for this value:
-// Decl/Stmt support ROOT_ONLY and SUBTREE; Type/QualType support ROOT_ONLY;
-// Base specifiers and unsupported values support no scope.
+// Decl/Stmt support ROOT_ONLY and SUBTREE; Type/QualType support ROOT_ONLY.
+// Retained native bindings additionally support CHILDREN, including auxiliary
+// values whose children are available through the native traversal visitor.
 // No native pointer or node ID is sent.
 // Match values contain immediate facts about each bound node. Child AST values
 // are omitted with UNREQUESTED availability; query the retained binding to

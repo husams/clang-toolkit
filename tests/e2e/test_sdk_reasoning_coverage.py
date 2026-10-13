@@ -11,6 +11,7 @@ from pytest_bdd import given, scenarios, then, when
 from clang_toolkit import AsyncClient, Client, CfgOptions, Matcher
 from clang_toolkit._generated.analysis.v1 import cfg_element_pb2
 from clang_toolkit._generated.ast.v1 import common_pb2
+from clang_toolkit._generated.match.v1 import match_result_pb2 as scopes
 from test_network_steps import RunningServer, _launch_server
 
 pytestmark = pytest.mark.e2e
@@ -156,7 +157,10 @@ def _check_match_facts(client, source: Path):
         assert base.base_specifier.access == common_pb2.ACCESS_SPECIFIER_PUBLIC
         assert not base.base_specifier.is_virtual
         assert not base.base_specifier.is_pack_expansion
-        assert not base.supported_scopes
+        assert list(base.supported_scopes) == [scopes.BINDING_MATCH_SCOPE_CHILDREN]
+        with client.match_in('typeLoc().bind("loc")', rows[0].binding(
+                "base", scope=scopes.BINDING_MATCH_SCOPE_CHILDREN)) as children:
+            assert len(children) == 1
         assert base.location.valid
         assert base.location.file == str(source.resolve())
         assert base.range.expansion_begin.valid
@@ -318,7 +322,13 @@ async def _check_match_facts_async(client: AsyncClient, source: Path):
         assert base.base_specifier.access == common_pb2.ACCESS_SPECIFIER_PUBLIC
         assert not base.base_specifier.is_virtual
         assert not base.base_specifier.is_pack_expansion
-        assert not base.supported_scopes
+        assert list(base.supported_scopes) == [scopes.BINDING_MATCH_SCOPE_CHILDREN]
+        children = await client.match_in('typeLoc().bind("loc")', rows[0].binding(
+            "base", scope=scopes.BINDING_MATCH_SCOPE_CHILDREN))
+        try:
+            assert len(children) == 1
+        finally:
+            await children.aclose()
         assert base.location.valid
         assert base.location.file == str(source.resolve())
         assert base.range.expansion_begin.valid

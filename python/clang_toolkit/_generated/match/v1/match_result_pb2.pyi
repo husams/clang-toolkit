@@ -16,6 +16,7 @@ class BindingMatchScope(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     BINDING_MATCH_SCOPE_UNSPECIFIED: _ClassVar[BindingMatchScope]
     BINDING_MATCH_SCOPE_ROOT_ONLY: _ClassVar[BindingMatchScope]
     BINDING_MATCH_SCOPE_SUBTREE: _ClassVar[BindingMatchScope]
+    BINDING_MATCH_SCOPE_CHILDREN: _ClassVar[BindingMatchScope]
 
 class CallDispatch(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -26,6 +27,7 @@ class CallDispatch(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 BINDING_MATCH_SCOPE_UNSPECIFIED: BindingMatchScope
 BINDING_MATCH_SCOPE_ROOT_ONLY: BindingMatchScope
 BINDING_MATCH_SCOPE_SUBTREE: BindingMatchScope
+BINDING_MATCH_SCOPE_CHILDREN: BindingMatchScope
 CALL_DISPATCH_UNSPECIFIED: CallDispatch
 CALL_DISPATCH_DIRECT: CallDispatch
 CALL_DISPATCH_INDIRECT: CallDispatch

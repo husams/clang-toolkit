@@ -104,6 +104,30 @@ def owned_client(monkeypatch):
     client.close()
 
 
+def test_explicit_match_children_scope_preserves_binding_and_uses_stream_match(owned_client, tmp_path):
+    client, requests, _ = owned_client
+    runtime = Runtime(client, cwd=tmp_path)
+    source = client.match_in('functionDecl().bind("f")', "example.cc")[0].binding("f")
+    runtime.bindings["node"] = source
+    assert runtime.execute('let children = match callExpr().bind("call") in $node scope children') == ""
+    request = requests[-1][1][0]
+    assert request.binding.scope == results.BINDING_MATCH_SCOPE_CHILDREN
+    assert request.binding.session_id == source._owner.session_id
+    assert request.binding.expected_result_revision == source._owner.revision
+    assert request.preserve_source and not request.navigation_axis
+    assert source.scope == results.BINDING_MATCH_SCOPE_SUBTREE
+    assert not source._owner.closed
+    runtime.execute('let self = match functionDecl() in $node scope self')
+    assert requests[-1][1][0].binding.scope == results.BINDING_MATCH_SCOPE_ROOT_ONLY
+    runtime.execute('let all = match callExpr() in $node scope subtree')
+    assert requests[-1][1][0].binding.scope == results.BINDING_MATCH_SCOPE_SUBTREE
+    for command in ['match callExpr() in $node scope ancestors',
+                    'match callExpr() in "example.cc" scope children']:
+        with pytest.raises(EvaluationError, match="match scope"):
+            runtime.execute(command)
+    runtime.close()
+
+
 def test_parse_and_independent_matches_preserve_tree_and_compilation_context(owned_client, tmp_path):
     client, requests, closed = owned_client
     tree = client.parse("example.cc", working_directory=tmp_path,

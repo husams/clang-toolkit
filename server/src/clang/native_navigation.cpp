@@ -22,7 +22,7 @@ MatchExecution navigate_bindings(
     const MatchRequest &request,
     std::shared_ptr<const NativeBindingState> previous,
     const IMatchBackend::Checkpoint &checkpoint, const MatchLimits &limits,
-    const IMatchBackend::RowSink *sink) {
+    const IMatchBackend::RowSink *sink, bool retain_target) {
   const auto old =
       std::dynamic_pointer_cast<const CapturedBindingState>(previous);
   if (!old || !old->snapshot())
@@ -34,6 +34,8 @@ MatchExecution navigate_bindings(
   if (!owner || !owner->unit)
     return failure(MatchCode::Internal, "invalid native snapshot owner");
   auto &context = owner->unit->getASTContext();
+  const bool source_spelled = !retain_target && request.traversal_mode() ==
+      MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE;
   MatchExecution result;
   auto state = std::make_shared<CapturedBindingState>(snapshot);
   RowCollector callback(result, *state, checkpoint, limits, sink);
@@ -46,7 +48,9 @@ MatchExecution navigate_bindings(
       return failure(MatchCode::InvalidArgument, diagnostics.toStringFull());
     if (auto root = query->tryBind("root"))
       query = std::move(root);
-    if (!finder.addDynamicMatcher(query->withTraversalKind(clang::TK_AsIs),
+    const auto traversal = source_spelled
+        ? clang::TK_IgnoreUnlessSpelledInSource : clang::TK_AsIs;
+    if (!finder.addDynamicMatcher(query->withTraversalKind(traversal),
                                   &callback))
       return failure(MatchCode::InvalidArgument,
                      "matcher is not a top-level AST matcher");
@@ -66,7 +70,9 @@ MatchExecution navigate_bindings(
       result.message = "navigation node limit exceeded";
       return false;
     }
-    callback.target_node = candidate;
+    callback.candidate_node = candidate;
+    if (retain_target)
+      callback.target_node = candidate;
     if (request.query().empty())
       callback.emit({}, context);
     else
@@ -88,8 +94,8 @@ MatchExecution navigate_bindings(
       callback.target_parent = root;
       ctk::analysis::v1::TraverseRequest options;
       options.set_max_depth(1);
-      options.set_visit_implicit_code(true);
-      options.set_visit_template_instantiations(true);
+      options.set_visit_implicit_code(!source_spelled);
+      options.set_visit_template_instantiations(!source_spelled);
       // One additional visit for the starting node, which is not a candidate.
       options.set_max_nodes(100001);
       TraversalResult walked;
@@ -114,11 +120,10 @@ MatchExecution navigate_bindings(
         for (const auto &parent : context.getParents(root))
           if (!visit(parent))
             break;
-      } else if (target.bind() == "target" &&
-                 index < old->navigation_parents.size() &&
-                 old->navigation_parents[index]) {
+      } else if (index < old->navigation_parents.size() &&
+                 old->navigation_parents[index].contains(target.bind())) {
         // Non-memoizable native value nodes retain their exact visitor edge.
-        visit(*old->navigation_parents[index]);
+        visit(old->navigation_parents[index].at(target.bind()));
       } else if (root.get<clang::Type>() || root.get<clang::TypeLoc>() ||
                  root.get<clang::NestedNameSpecifier>() ||
                  root.get<clang::NestedNameSpecifierLoc>()) {

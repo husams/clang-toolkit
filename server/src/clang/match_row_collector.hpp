@@ -15,6 +15,7 @@ public:
                const IMatchBackend::RowSink *sink = nullptr);
   std::optional<std::uint64_t> source_row;
   std::optional<clang::DynTypedNode> target_node;
+  std::optional<clang::DynTypedNode> candidate_node;
   std::optional<clang::DynTypedNode> target_parent;
   void emit(const CapturedBindingState::Row &, clang::ASTContext &);
   void run(const MatchFinder::MatchResult &found) override;

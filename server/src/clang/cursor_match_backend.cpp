@@ -239,6 +239,17 @@ private:
         return failure(exception_code(error), error.what());
       }
     }
+    if (request.has_binding() &&
+        request.binding().scope() == BINDING_MATCH_SCOPE_CHILDREN) {
+      try {
+        auto children = request;
+        children.set_navigation_axis(NAVIGATION_AXIS_CHILDREN);
+        return navigate_bindings(children, std::move(previous), checkpoint,
+                                 limits, sink, false);
+      } catch (const std::exception &error) {
+        return failure(exception_code(error), error.what());
+      }
+    }
     MatchExecution result;
     dynamic::Diagnostics diagnostics;
     llvm::StringRef text(request.query());
