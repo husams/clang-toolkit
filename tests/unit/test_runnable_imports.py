@@ -90,3 +90,18 @@ def test_imported_defaults_and_handlers_retain_compiled_code(runtime):
         assert dispatch_result(runtime.client, f"let unused = {value}", runtime).success
     assert dispatch_result(runtime.client, "let answer = [divide(10), divide(10, 0)]", runtime).success
     assert runtime.bindings["answer"] == [10, 0]
+
+
+def test_imported_expression_bodies_retain_code_and_lexical_scope(runtime):
+    (runtime.cwd / "expressions.ctk").write_text(
+        "let offset = 2\nlet add(l, r = offset) = l + r\n"
+        "let inc(x) = add(x, 1)\n"
+        "let add_if(l, h) = if l < h then add(l, h) else 0\n"
+    )
+    assert dispatch_result(runtime.client, 'import "expressions.ctk"', runtime).success
+    for value in range(65):
+        assert dispatch_result(runtime.client, f"let unused = {value}", runtime).success
+    result = dispatch_result(runtime.client,
+                             "let answer = [add(3), inc(4), add_if(2, 5)]", runtime)
+    assert result.success, result.output
+    assert runtime.bindings["answer"] == [5, 5, 7]

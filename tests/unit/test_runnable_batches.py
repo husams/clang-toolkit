@@ -110,3 +110,15 @@ def test_batch_groups_run_handlers_and_defaults_in_frozen_scopes(runtime):
     assert runtime.bindings["report"]["results"] == [7, 7]
     assert runtime.bindings["state"] == [0]
     assert all(scope.released for scope in runtime.client.scopes)
+
+
+def test_batch_expression_bodies_use_frozen_captures_and_inspect_calls(runtime):
+    submit(runtime, 'let offset = 2; let count(items, extra = offset) = len(items.inputs) + extra')
+    submit(runtime, 'let report = batch chunk in inputs size 1 progress off do { count(chunk) }')
+    assert runtime.bindings["report"]["results"] == [3, 3]
+    submit(runtime, 'let unsafe() = ctk("resource status"); let wrapped() = unsafe()')
+    scopes = len(runtime.client.scopes)
+    result = dispatch_result(runtime.client,
+                             'let bad = batch chunk in inputs size 1 progress off do { wrapped() }', runtime)
+    assert not result.success and "foreground" in result.output
+    assert len(runtime.client.scopes) == scopes

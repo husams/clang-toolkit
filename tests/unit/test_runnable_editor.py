@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
+import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
@@ -36,6 +37,16 @@ def test_runnable_multiline_editor_is_lossless_and_requests_completion():
     assert ''.join(str(token) for token in lex(source)) == source
     assert not input_state(source).needs_more
     assert input_state('let scale(value, factor) = {\n value * factor').needs_more
+
+
+@pytest.mark.parametrize("source", [
+    "let add(l, r) = l + r",
+    "let inc(x) = add(x, 1)",
+    "let add_if(l, h) = if l < h then l + h else 0",
+])
+def test_expression_body_editor_accepts_complete_definitions(source):
+    assert ''.join(str(token) for token in lex(source)) == source
+    assert not input_state(source).needs_more
 
 
 def test_help_uses_let_bare_names_and_compiled_body_contract(tmp_path):

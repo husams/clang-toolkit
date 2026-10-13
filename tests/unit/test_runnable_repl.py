@@ -6,6 +6,8 @@ import pytest
 
 from clang_toolkit.cli.app import dispatch_result
 from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+from clang_toolkit.cli.runtime.prototype.runnables import RunnableBlock
+from clang_toolkit.cli.runtime.matcher_functions import MatcherFunction
 from clang_toolkit.cli.runtime.values import MatchSet
 from clang_toolkit.client import Client
 
@@ -98,3 +100,23 @@ def test_handlers_defaults_and_cleanup_display_across_submissions(runtime):
 
 def test_loop_handlers_accept_native_host_actions(runtime):
     assert submit(runtime, 'let events = []; let values = foreach item in [1, 0, 2] do { on error continue; on exit { events.push(item) }; 10 / item }; print "{values.length}:{events.length}"') == "2:3"
+
+
+def test_expression_definitions_and_calls_across_submissions(runtime):
+    assert submit(runtime, "let add (l, r = 1) = l + r") == ""
+    assert submit(runtime, "let inc(x) = add(x, 1); let constant(x) = add(1, 2)") == ""
+    assert submit(runtime, "let identity(x) = x; let add_if(l, h) = if l < h then l + h else 0") == ""
+    assert all(isinstance(runtime.bindings[name], RunnableBlock)
+               for name in ("add", "inc", "constant", "identity", "add_if"))
+    assert submit(runtime, '[add(2), inc(4), constant(9), identity(7), add_if(2, 5), add_if(5, 2)]') == "3\n5\n3\n7\n7\n0"
+    assert submit(runtime, 'let divide(x) = (10 / x) on error 0; divide(0)') == "0"
+
+
+def test_expression_runnables_preserve_builtin_matcher_templates(runtime):
+    submit(runtime, 'let named(name) = functionDecl(hasName(name))')
+    assert isinstance(runtime.bindings["named"], MatcherFunction)
+    submit(runtime, 'let wrapped(name) = named(name)')
+    assert isinstance(runtime.bindings["wrapped"], RunnableBlock)
+    runtime.client.match = Mock(return_value=[])
+    submit(runtime, 'let rows = match wrapped("Sample").bind("root")')
+    assert runtime.client.match.call_args.args[0] == 'functionDecl(hasName("Sample")).bind("root")'

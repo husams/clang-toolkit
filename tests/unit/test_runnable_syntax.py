@@ -23,3 +23,17 @@ def test_bare_references_assignment_and_keys():
 def test_duplicate_parameters_fail_before_execution():
     with pytest.raises(ValueError, match="duplicate parameter"):
         parse("let f(value, value) = { value }")
+
+
+@pytest.mark.parametrize("expression, kind", [
+    ("l + r", "binary"),
+    ("add(1, 2)", "call"),
+    ("if l < r then l + r else 0", "conditional"),
+    ("if l < r then l + r", "conditional"),
+])
+def test_expression_body_uses_the_same_runnable_ir(expression, kind):
+    node = parse(f"let f(l, r = 1) = {expression}").children[0]
+    assert node.kind == "runnable"
+    assert node.children[0].kind == "block"
+    assert node.children[0].children[0].kind == kind
+    assert node.children[0].children[0].column > node.column

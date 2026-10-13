@@ -126,6 +126,7 @@ def _combined_grammar() -> str:
         'CNAME: /[A-Za-z_][A-Za-z0-9_]*/',
         'MEMBER_NAME: /(?!(?:hasField|fieldState|fieldOr|joinWith|unique|sort|filter|push|pop|delete|set|insert|remove|clear)\\s*\\()[A-Za-z_][A-Za-z0-9_]*/\nCNAME: /[A-Za-z_][A-Za-z0-9_]*/',
     )
+    builtin_matcher_names = "|".join(re.escape(name) for name in sorted(SCRIPT_BUILTIN_MATCHERS))
     matcher_names = "|".join(re.escape(name) for name in sorted(
         SCRIPT_BUILTIN_MATCHERS | {"glob", "flatten"}))
     proto_source = proto_source.replace(
@@ -202,7 +203,8 @@ _HOST_NEWLINE: /\r?\n/
                | LEGACY_BATCH LEGACY_RETRY legacy_reference -> batch_retry
                | LEGACY_BATCH LEGACY_PROMOTE legacy_reference -> batch_promote
 
-%override legacy_matcher_definition: LEGACY_LET LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_parameters] _host_newlines LEGACY_RPAR LEGACY_EQUAL legacy_root_expression
+%override legacy_matcher_definition.30: LEGACY_LET LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_parameters] _host_newlines LEGACY_RPAR LEGACY_EQUAL legacy_definition_matcher
+legacy_definition_matcher: LEGACY_DEFINITION_MATCHER_NAME LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
 %override legacy_parameters: LEGACY_NAME (_host_newlines LEGACY_COMMA _host_newlines LEGACY_NAME)*
 %override legacy_root_matcher: LEGACY_ROOT_MATCHER_NAME LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
 %override legacy_nested_matcher: LEGACY_MATCHER_NAME _host_newlines LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
@@ -211,6 +213,7 @@ _HOST_NEWLINE: /\r?\n/
 %override legacy_target_matcher: LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_target_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
 %override legacy_target_arguments: legacy_target_expression (_host_newlines LEGACY_COMMA _host_newlines legacy_target_expression)*
 """,
+            'LEGACY_DEFINITION_MATCHER_NAME: /(?:' + builtin_matcher_names + r')(?=\s*\()/',
             """
 repl_start: proto_start
 editor_start: (legacy_editor_token | proto_editor_token)*

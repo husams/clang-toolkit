@@ -109,7 +109,7 @@ class _Builder(Transformer[Any, Any]):
                 default_seen = True
             elif default_seen:
                 raise ValueError(f"{name}: required parameters must precede defaults")
-        body = next(item for item in items if isinstance(item, Node))
+        body = self._action_block(next(item for item in items if isinstance(item, Node)))
         defaults = tuple(item for item in specs if item.children)
         line, column = self._location(meta, items)
         return Node("runnable", (name, parameters), (body, *defaults), line, column)
