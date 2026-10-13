@@ -11,6 +11,26 @@ namespace ctk::clang_layer {
 using namespace ctk::match::v1;
 using namespace clang::ast_matchers;
 namespace {
+// MatchFinder's public entry points do not accept CXXBaseSpecifier matchers.
+// Dispatch through an exact Decl match to reuse Clang's native matcher context,
+// then evaluate the query on the selected base edge. This dispatch does not
+// enumerate the translation unit; nested predicates keep their native semantics.
+class BaseCandidateMatcher final : public internal::MatcherInterface<clang::Decl> {
+public:
+  BaseCandidateMatcher(internal::DynTypedMatcher query,
+                       const std::optional<clang::DynTypedNode> &candidate)
+      : query_(std::move(query)), candidate_(candidate) {}
+
+  bool matches(const clang::Decl &, internal::ASTMatchFinder *finder,
+               internal::BoundNodesTreeBuilder *builder) const override {
+    return candidate_ && query_.matches(*candidate_, finder, builder);
+  }
+
+private:
+  internal::DynTypedMatcher query_;
+  const std::optional<clang::DynTypedNode> &candidate_;
+};
+
 MatchExecution failure(MatchCode code, std::string message) {
   MatchExecution result;
   result.code = code;
@@ -40,6 +60,7 @@ MatchExecution navigate_bindings(
   auto state = std::make_shared<CapturedBindingState>(snapshot);
   RowCollector callback(result, *state, checkpoint, limits, sink);
   MatchFinder finder;
+  bool base_candidate = false;
   if (!request.query().empty()) {
     dynamic::Diagnostics diagnostics;
     llvm::StringRef text(request.query());
@@ -50,10 +71,16 @@ MatchExecution navigate_bindings(
       query = std::move(root);
     const auto traversal = source_spelled
         ? clang::TK_IgnoreUnlessSpelledInSource : clang::TK_AsIs;
-    if (!finder.addDynamicMatcher(query->withTraversalKind(traversal),
-                                  &callback))
-      return failure(MatchCode::InvalidArgument,
-                     "matcher is not a top-level AST matcher");
+    auto native_query = query->withTraversalKind(traversal);
+    if (!finder.addDynamicMatcher(native_query, &callback)) {
+      if (!native_query.canConvertTo<clang::CXXBaseSpecifier>())
+        return failure(MatchCode::InvalidArgument,
+                       "matcher is not a supported navigation matcher");
+      finder.addMatcher(internal::Matcher<clang::Decl>(new BaseCandidateMatcher(
+                            std::move(native_query), callback.candidate_node)),
+                        &callback);
+      base_candidate = true;
+    }
   }
   std::size_t examined = 0;
   const auto maximum = request.has_navigation_max_nodes()
@@ -75,6 +102,8 @@ MatchExecution navigate_bindings(
       callback.target_node = candidate;
     if (request.query().empty())
       callback.emit({}, context);
+    else if (base_candidate)
+      finder.match(*context.getTranslationUnitDecl(), context);
     else
       finder.match(candidate, context);
     return result.code == MatchCode::Ok;

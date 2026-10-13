@@ -81,3 +81,35 @@ The complete console example is `examples/match_children_scope.ctk`. It compares
 two immediate methods with three recursively found methods (including the nested
 class), excludes descendant literals from a method's immediate candidates, and
 continues matching from the saved bindings.
+
+## Direct base classes
+
+Filter native base edges and bind their referenced classes in one navigation
+expression:
+
+    let base_edges = cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base")))
+    let bases = peek children $base_edges in $leaf
+    foreach edge in $bases do { print $edge.base.decl_name; }
+
+Each row's `target` and automatic `root` are the immediate `CXXBaseSpecifier`;
+`base` is its referenced class declaration. Continue inheritance navigation from
+`$edge.base`, or move to the containing derived class with
+`step parents cxxRecordDecl() in $edge.target`. A filtered `step children` selects
+the base specifier itself, as it does for other candidate kinds.
+
+The same matcher works with `match ... scope children`, retaining `root` and
+named bindings without adding `target`. Standalone `peek` streams each matching
+row; assignment waits for successful completion before exposing retained native
+references for subsequent navigation. No metadata filtering or second match is
+needed. This extends immediate navigation; whole-file and `scope self` matching
+still require Clang's supported top-level matcher categories.
+
+For a base written through a type alias, Clang's plain
+`hasType(cxxRecordDecl(...))` does not desugar the alias. Use this native matcher
+when aliases must also resolve:
+
+    let base_edges = cxxBaseSpecifier(hasType(qualType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl().bind("base")))))))
+
+`examples/multiple_inheritance_navigation.ctk` contains the complete diamond
+inheritance walk. It queues retained `base` bindings and deduplicates the final
+ancestor list by class identity.

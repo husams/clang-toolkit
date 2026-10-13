@@ -192,6 +192,104 @@ TEST_F(MatchCursors, ChildrenScopeUsesRequestedMatcherTraversalPolicy) {
   EXPECT_EQ(spelled.response.results_size(), 0);
 }
 
+TEST_F(MatchCursors, NavigationMatchesBaseEdgesAndRetainsReferencedClasses) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "struct Root {}; struct A : Root { int run(){return 7;} }; struct B {}; struct C {}; "
+         "using Alias = A; struct Leaf : Alias, B, C { struct Nested : C {}; };";
+  const auto source = run(file(
+      "cxxRecordDecl(hasName(\"Leaf\"), isDefinition()).bind(\"cls\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  const std::string query =
+      "cxxBaseSpecifier(hasType(qualType(hasUnqualifiedDesugaredType("
+      "recordType(hasDeclaration(cxxRecordDecl().bind(\"base\"))))))).bind(\"edge\")";
+  auto request = navigation(source.response, "cls", NAVIGATION_AXIS_CHILDREN, query);
+  const auto edges = run(request);
+  ASSERT_EQ(edges.code, MatchCode::Ok) << edges.message;
+  ASSERT_EQ(edges.response.results_size(), 3);
+  for (int index = 0; index < 3; ++index) {
+    const auto &bindings = edges.response.results(index).bindings();
+    EXPECT_TRUE(bindings.at("target").has_base_specifier());
+    EXPECT_TRUE(bindings.at("root").has_base_specifier());
+    EXPECT_TRUE(bindings.at("edge").has_base_specifier());
+    EXPECT_TRUE(bindings.at("base").node().has_cxx_record_decl());
+  }
+  const auto class_name = [](const MatchBinding &binding) {
+    return binding.node().cxx_record_decl().record().tag().type_declaration()
+        .named().qualified_name();
+  };
+  EXPECT_EQ(class_name(edges.response.results(0).bindings().at("base")), "A");
+  EXPECT_EQ(class_name(edges.response.results(1).bindings().at("base")), "B");
+  EXPECT_EQ(class_name(edges.response.results(2).bindings().at("base")), "C");
+  const auto up = run(navigation(edges.response, "edge", NAVIGATION_AXIS_PARENTS,
+                                  "cxxRecordDecl(hasName(\"Leaf\"))"));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  ASSERT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").symbol_identity(),
+            source.response.results(0).bindings().at("cls").symbol_identity());
+  const auto type = run(navigation(edges.response, "target", NAVIGATION_AXIS_CHILDREN,
+                                    "typeLoc()"));
+  ASSERT_EQ(type.code, MatchCode::Ok) << type.message;
+  ASSERT_EQ(type.response.results_size(), 1);
+  const auto type_up = run(navigation(type.response, "target", NAVIGATION_AXIS_PARENTS,
+                                       "cxxBaseSpecifier()"));
+  ASSERT_EQ(type_up.code, MatchCode::Ok) << type_up.message;
+  ASSERT_EQ(type_up.response.results_size(), 1);
+  EXPECT_TRUE(type_up.response.results(0).bindings().at("target").has_base_specifier());
+  const auto ancestor = run(navigation(edges.response, "base", NAVIGATION_AXIS_CHILDREN, query));
+  ASSERT_EQ(ancestor.code, MatchCode::Ok) << ancestor.message;
+  ASSERT_EQ(ancestor.response.results_size(), 1);
+  EXPECT_EQ(class_name(ancestor.response.results(0).bindings().at("base")), "Root");
+  request.set_query(
+      "cxxBaseSpecifier(hasType(qualType(hasUnqualifiedDesugaredType("
+      "recordType(hasDeclaration(cxxRecordDecl(hasDescendant(cxxMethodDecl("
+      "hasName(\"run\")))).bind(\"base\")))))))");
+  const auto nested = run(request);
+  ASSERT_EQ(nested.code, MatchCode::Ok) << nested.message;
+  ASSERT_EQ(nested.response.results_size(), 1);
+  EXPECT_EQ(class_name(nested.response.results(0).bindings().at("base")), "A");
+  request.set_query("cxxBaseSpecifier(hasType(cxxRecordDecl().bind(\"target\")))");
+  EXPECT_EQ(run(request).code, MatchCode::InvalidArgument);
+  request.set_query("cxxBaseSpecifier(hasType(cxxRecordDecl(hasName(\"B\"))))");
+  const auto filtered = run(request);
+  ASSERT_EQ(filtered.code, MatchCode::Ok) << filtered.message;
+  EXPECT_EQ(filtered.response.results_size(), 1);
+  request.set_query(query);
+  request.set_navigation_axis(NAVIGATION_AXIS_UNSPECIFIED);
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto scoped = run(request);
+  ASSERT_EQ(scoped.code, MatchCode::Ok) << scoped.message;
+  ASSERT_EQ(scoped.response.results_size(), 3);
+  EXPECT_FALSE(scoped.response.results(0).bindings().contains("target"));
+}
+
+TEST_F(MatchCursors, NavigationBaseEdgesStreamAndRespectCancellationAndLimits) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "struct A {}; struct B {}; struct Leaf : A, B {};";
+  const auto source = run(file(
+      "cxxRecordDecl(hasName(\"Leaf\"), isDefinition()).bind(\"cls\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto request = navigation(source.response, "cls", NAVIGATION_AXIS_CHILDREN,
+      "cxxBaseSpecifier(hasType(cxxRecordDecl().bind(\"base\")))");
+  std::vector<MatchStreamEvent> events;
+  const auto streamed = stream(request, [&](const MatchStreamEvent &event, std::string &) {
+    events.push_back(event);
+    return MatchCode::Ok;
+  });
+  ASSERT_EQ(streamed.code, MatchCode::Ok) << streamed.message;
+  ASSERT_EQ(events.size(), 3U);
+  EXPECT_TRUE(events[0].has_row());
+  EXPECT_TRUE(events[1].has_row());
+  EXPECT_TRUE(events[2].has_completed());
+  const auto cancelled = stream(request, [](const MatchStreamEvent &, std::string &) {
+    return MatchCode::Cancelled;
+  });
+  EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
+  request.set_navigation_max_nodes(1);
+  EXPECT_EQ(run(request).code, MatchCode::ResourceExhausted);
+  request.clear_navigation_max_nodes();
+  EXPECT_EQ(run(request).response.results_size(), 2);
+}
+
 TEST_F(MatchCursors, NavigationFiltersImmediateChildrenAndKeepsSource) {
   const auto source = run(file(
       "functionDecl(hasName(\"alpha\")).bind(\"f\")"));

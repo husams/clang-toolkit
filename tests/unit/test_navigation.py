@@ -119,6 +119,23 @@ def test_navigation_rejects_rows_without_a_retained_target(monkeypatch):
     assert events.cancelled
 
 
+def test_console_navigation_reuses_matcher_variables(selected_client, tmp_path):
+    client, source, requests, _ = selected_client
+    runtime = Runtime(client, cwd=tmp_path)
+    runtime.bindings["node"] = source
+    runtime.execute('let edges = cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base")))')
+    runtime.execute("let selected = peek children $edges in $node")
+    assert requests[-1].query == 'cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base")))'
+    assert requests[-1].binding.session_id == "source"
+    runtime.execute("let moved = step parents $edges at 0 in $node")
+    assert requests[-1].query == requests[-2].query
+    assert requests[-1].navigation_axis == pb.NAVIGATION_AXIS_PARENTS
+    runtime.execute("let invalid = 7")
+    with pytest.raises(EvaluationError, match="matcher expression"):
+        runtime.execute("peek children $invalid in $node")
+    runtime.close()
+
+
 def test_async_navigation_uses_stream_rpc_and_waits_for_completion(monkeypatch):
     value = row("target")
     observed = []

@@ -9,6 +9,16 @@ Feature: Navigate from retained bound nodes
       | unix      |
       | tcp       |
 
+  Scenario Outline: Inheritance navigation filters base edges directly
+    Given a navigation server using <transport>
+    When I navigate base specifiers and their bound class declarations
+    Then inheritance results stream and the simpler console example finds the diamond
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
   Scenario Outline: Match scope children uses native immediate candidates
     Given a navigation server using <transport>
     When I match immediate children with an explicit scope

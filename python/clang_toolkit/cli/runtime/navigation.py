@@ -22,9 +22,10 @@ def execute_navigation(runtime: Runtime, statement: Tree) -> Any:
     at = None
     max_nodes = 10000
     seen_limit = False
+    after_in = False
     for index, child in enumerate(statement.children[2:], start=2):
         if isinstance(child, Tree):
-            if child.data == "reference":
+            if child.data == "reference" and after_in:
                 target = runtime._evaluate(child)
             elif child.data == "navigation_nodes":
                 if seen_limit:
@@ -39,11 +40,14 @@ def execute_navigation(runtime: Runtime, statement: Tree) -> Any:
                 if not isinstance(matcher, MatcherExpr):
                     raise EvaluationError("navigation requires a matcher expression")
                 query = matcher_text(matcher)
-        elif isinstance(child, Token) and child.type == "AT":
-            raw = str(statement.children[index + 1])
-            if not raw.isdigit():
-                raise EvaluationError("navigation index must be a zero-based integer")
-            at = int(raw)
+        elif isinstance(child, Token):
+            if child.type == "IN":
+                after_in = True
+            elif child.type == "AT":
+                raw = str(statement.children[index + 1])
+                if not raw.isdigit():
+                    raise EvaluationError("navigation index must be a zero-based integer")
+                at = int(raw)
     if not isinstance(target, BindingSelection):
         raise EvaluationError("navigation requires a retained native binding")
     options = dict(axis=axis, query=query, max_nodes=max_nodes)

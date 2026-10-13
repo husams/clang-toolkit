@@ -93,6 +93,8 @@ message MatchRequest {
   // requires a Decl or Stmt matcher category for SUBTREE scope. Query and
   // exactly one target are required; missing fields or unknown enum values
   // are INVALID_ARGUMENT.
+  // Navigation and CHILDREN scope also accept CXXBaseSpecifier matchers;
+  // their nested named bindings can retain referenced class declarations.
   string query = 1;
   oneof target {
     FileMatchTarget file = 2;

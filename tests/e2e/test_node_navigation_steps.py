@@ -133,3 +133,55 @@ def match_children(navigation_server, tmp_path):
 @then("scoped matches stream and preserve named native bindings")
 def children_hold(children_result):
     assert children_result
+
+
+@when("I navigate base specifiers and their bound class declarations", target_fixture="inheritance_result")
+def navigate_inheritance(navigation_server, tmp_path):
+    root = Path(__file__).parents[2]
+    path = tmp_path / "inheritance.cc"
+    path.write_text((root / "examples/multiple_inheritance_navigation.cc").read_text())
+    script = (root / "examples/multiple_inheritance_navigation.ctk").read_text().replace(
+        '"examples/multiple_inheritance_navigation.cc"', f'"{path}"')
+    cli = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server",
+         navigation_server.endpoint, "--execute", script], text=True,
+        capture_output=True, timeout=60,
+        env={**os.environ, "PYTHONPATH": str(root / "python")})
+    assert cli.returncode == 0, cli.stdout + cli.stderr
+    assert cli.stdout.splitlines() == [
+        "demo::Left", "demo::Right", "demo::Root", "demo::Root",
+        "Unique base classes:", "demo::Left", "demo::Right", "demo::Root",
+        "3", "demo::Leaf"]
+    query = 'cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base")))'
+    with Client(navigation_server.endpoint) as client:
+        tree = client.parse(path)
+        rows = client.match_in('cxxRecordDecl(hasName("demo::Leaf"), isDefinition()).bind("cls")', tree)
+        leaf = rows[0].binding("cls")
+        provisional = []
+        edges = client.peek(leaf, query=query, on_row=provisional.append)
+        assert len(provisional) == len(edges) == 2
+        assert all(row.bindings["target"].HasField("base_specifier") for row in provisional)
+        assert [edge.binding("base").decl_name for edge in edges] == ["demo::Left", "demo::Right"]
+        assert client.step(edges[0].binding("target"), axis="parents").decl_name == "demo::Leaf"
+        loc = client.step(edges[0].binding("target"), query="typeLoc()")
+        assert client.step(loc, axis="parents", query="cxxBaseSpecifier()").value.HasField("base_specifier")
+        assert len(client.peek(leaf, query='cxxBaseSpecifier(isVirtual())')) == 0
+        path.unlink()
+        roots = client.peek(edges[0].binding("base"), query=query)
+        assert roots[0].binding("base").decl_name == "demo::Root"
+        scoped = client.match_in(query, rows[0].binding("cls", scope=scopes.BINDING_MATCH_SCOPE_CHILDREN))
+        assert len(scoped) == 2 and all("target" not in row.bindings for row in scoped)
+    async def run():
+        path.write_text("struct A {}; struct B {}; struct Leaf : A, B {};")
+        async with AsyncClient(navigation_server.endpoint) as client:
+            await client.execute(f'let tree = parse "{path}"')
+            await client.execute('let rows = match cxxRecordDecl(hasName("Leaf"), isDefinition()).bind("cls") in $tree')
+            result = await client.execute(f'peek children {query} in $rows[0].cls')
+            assert len(result) == 2
+    asyncio.run(run())
+    return True
+
+
+@then("inheritance results stream and the simpler console example finds the diamond")
+def inheritance_holds(inheritance_result):
+    assert inheritance_result

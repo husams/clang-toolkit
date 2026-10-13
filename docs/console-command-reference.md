@@ -24,6 +24,8 @@ peek children|parents [MATCHER] in TARGET [nodes NUMBER]
 - nodes counts examined candidates before filtering: default 10000, range 1..100000.
 - Native visitor children include implicit and type-location edges.
 - Parents preserve shared Decl/Stmt occurrences; auxiliary children retain their exact navigation parent.
+- MATCHER may be an inline expression or a saved matcher reference such as $base_edges.
+- cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base"))) filters base edges and binds their referenced classes in the same operation; .target remains the base edge.
 
 ```text
 let methods = peek children cxxMethodDecl() in $rows[0].record

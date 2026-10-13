@@ -1,0 +1,29 @@
+# Follow inheritance from a retained class binding, without current.
+# Run from the isolated worktree root.
+let tree = parse "examples/multiple_inheritance_navigation.cc"
+let records = match cxxRecordDecl(hasName("demo::Leaf"), isDefinition()).bind("cls") in $tree
+let leaf = $records[0].cls
+
+# Select direct base edges and bind their referenced class declarations together.
+let base_edges = cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base")))
+let queue = [$leaf]
+let found = []
+
+# foreach observes nodes appended to this list during the walk.
+foreach cls in $queue do {
+  let bases = peek children $base_edges in $cls;
+  foreach edge in $bases do {
+    push queue, $edge.base;
+    push found, {id: $edge.base.symbol_identity, name: $edge.base.decl_name};
+    print $edge.base.decl_name;
+  };
+}
+
+# A diamond discovers Root twice; deduplicate class identities in the result.
+let ancestors = $found.unique("id")
+print "Unique base classes:"
+foreach ancestor in $ancestors do { print $ancestor.name; }
+print $ancestors.length
+
+# The original starting reference remains usable.
+print $leaf.decl_name
