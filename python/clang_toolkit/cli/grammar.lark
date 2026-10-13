@@ -71,7 +71,7 @@ parameters: NAME (COMMA NAME)*
                    | PUSH collection_ref WITH value_expression -> push_command
                    | DELETE collection_ref -> delete_command
 
-help_topic: HELP_WORD+
+help_topic: (HELP_WORD | TO)+
 
 cursor_option: ROW NUMBER -> cursor_row
              | CURSOR_SCOPE NAME -> cursor_scope

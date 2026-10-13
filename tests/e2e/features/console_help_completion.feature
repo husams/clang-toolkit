@@ -19,6 +19,21 @@ Feature: Detailed help and contextual filesystem completion
       | cursor open?     | cursor open PATH      |
       | help in          | in parse PATH         |
       | yield?           | yield VALUE           |
+      | help functionDecl | functionDecl(Matcher  |
+      | hasName?         | hasName(StringRef     |
+      | help hasDescendant | hasDescendant(Matcher |
+      | help matchers    | registered matcher names |
+
+  Scenario Outline: Matcher completion shows its category
+    Given an offline interactive console
+    When I complete matcher prefix "<prefix>" through the prompt
+    Then matcher completion is "<completed>" with kind "<kind>"
+
+    Examples:
+      | prefix                          | completed                               | kind      |
+      | match functionD                 | match functionDecl(                     | node      |
+      | match functionDecl(hasNam       | match functionDecl(hasName(             | narrowing |
+      | match functionDecl(hasDescend   | match functionDecl(hasDescendant(       | traversal |
 
   Scenario: Unknown help topic is local
     Given an offline interactive console

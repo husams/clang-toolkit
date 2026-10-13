@@ -51,7 +51,7 @@ def test_completion_descriptions_cover_commands_matchers_and_help() -> None:
     completer = ReplCompleter()
     for source, display, expected in [
         ("ma", "match", "Match native"),
-        ("match functionD", "functionDecl(", "AST matcher"),
+        ("match functionD", "functionDecl(", "node matcher"),
         ("help mat", "match", "Match native"),
     ]:
         results = list(

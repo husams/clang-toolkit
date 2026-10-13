@@ -510,7 +510,16 @@ class WorkspaceConsole:
             mouse_support=True,
             color_depth=ColorDepth.DEPTH_8_BIT,
             before_render=lambda app: self.context.update(
-                self.buffer.text or self.last_source, str(self.files.root)
+                self.buffer.document.text_before_cursor
+                if self.buffer.text
+                else self.last_source,
+                str(self.files.root),
+                completion=(
+                    self.buffer.complete_state.current_completion.display_text
+                    if self.buffer.complete_state
+                    and self.buffer.complete_state.current_completion
+                    else None
+                ),
             ),
             refresh_interval=0.25,
             input=input,

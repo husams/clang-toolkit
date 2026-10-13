@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from ._matcher_catalog_generated import (
     LLVM_VERSION,
+    MATCHER_METADATA,
     NESTED_MATCHERS,
+    REFERENCE_SOURCE,
+    REFERENCE_URL,
     ROOT_MATCHERS,
 )
 
@@ -77,11 +80,26 @@ VALIDATION_NESTED_MATCHERS: tuple[str, ...] = tuple(
 # Backwards-compatible alias for callers that imported the earlier catalog.
 DEFAULT_MATCHERS = NESTED_MATCHERS
 
+def matcher_hint(name: str) -> str | None:
+    """Show the reference category and a short description in completion menus."""
+    metadata = MATCHER_METADATA.get(name)
+    if metadata is None:
+        return None
+    kind, summary, *_ = metadata
+    if len(summary) > 100:
+        summary = summary[:97].rsplit(" ", 1)[0] + "…"
+    return f"{kind} matcher · {summary}"
+
+
 __all__ = [
     "DEFAULT_MATCHERS",
     "LLVM_VERSION",
+    "MATCHER_METADATA",
     "NESTED_MATCHERS",
     "ROOT_MATCHERS",
+    "REFERENCE_SOURCE",
+    "REFERENCE_URL",
     "VALIDATION_NESTED_MATCHERS",
     "VALIDATION_ROOT_MATCHERS",
+    "matcher_hint",
 ]

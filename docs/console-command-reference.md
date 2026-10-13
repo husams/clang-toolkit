@@ -4,6 +4,11 @@ Use `help COMMAND` or `COMMAND?` in the console. Multiword topics work too:
 `help cursor open` and `cursor open?` are equivalent. Help is local and remains
 visible when command output is redirected. Bare `help` lists all forms.
 
+All bundled Clang matchers also have local help: `help functionDecl`,
+`hasName?`, or `help hasDescendant`. Use `help matchers` and
+`help matchers node|narrowing|traversal` to browse by kind. Matcher help
+includes LLVM reference descriptions, overload signatures and examples.
+
 Uppercase words are placeholders; brackets denote optional syntax. Examples
 use the checked-in `examples/parse_match.cc` fixture. Run them from the repository
 root with a native server for analysis operations. Use returned cursor IDs in
@@ -57,9 +62,12 @@ Explain console syntax locally; no server is required.
 ```text
 help [command [subcommand]]
 command [subcommand]?
+help MATCHER
+MATCHER?
 ```
 
 - No topic: list commands. A topic: purpose, usage, arguments and examples.
+- Clang matcher help includes category, overloads, argument/node types and reference examples; help matchers lists the categories.
 - Help and errors always appear in the console, regardless of output routing.
 - Every syntax error explains the expected input and marks its location with a caret; unknown commands suggest help.
 
@@ -68,6 +76,30 @@ help match
 parse?
 help cursor open
 cursor open?
+help functionDecl
+hasName?
+```
+
+## matchers
+
+Browse all bundled Clang matchers by category.
+
+```text
+help matchers [node|narrowing|traversal]
+help MATCHER
+MATCHER?
+```
+
+- LLVM 22.1.8: 483 registered matcher names with offline help.
+- Node matchers select an AST node kind; narrowing matchers test attributes; traversal matchers follow related nodes.
+- Completion hints identify the kind and describe the matcher in root, nested and assignment contexts.
+- The matcher reference includes C++ source snippets alongside matcher examples.
+
+```text
+help matchers node
+help matchers narrowing
+help matchers traversal
+help hasDescendant
 ```
 
 ## parse
@@ -1483,4 +1515,538 @@ set user extra_args ["-std=c++20"]
 set user files to glob("examples/*.cc")
 set user output to "results.txt"
 set user output to stdout
+```
+
+## matchers node
+
+Browse node matchers from LLVM 22.1.8.
+
+```text
+help matchers node
+help MATCHER
+MATCHER?
+```
+
+- accessSpecDecl: Matches C++ access specifier declarations.
+- addrLabelExpr: Matches address of label statements (GNU extension).
+- arrayInitIndexExpr: The arrayInitIndexExpr consists of two subexpressions: a common expression (the source array) that is evaluated once up-front, and a per-element initializer that runs once for each array element. Within the per-element initializer, the current index may be obtained via an ArrayInitIndexExpr.
+- arrayInitLoopExpr: Matches a loop initializing the elements of an array in a number of contexts: * in the implicit copy/move constructor for a class with an array member * when a lambda-expression captures an array by value * when a decomposition declaration decomposes an array
+- arraySubscriptExpr: Matches array subscript expressions.
+- arrayType: Matches all kinds of arrays.
+- arrayTypeLoc: Matches `ArrayTypeLoc`s.
+- asmStmt: Matches asm statements.
+- atomicExpr: Matches atomic builtins. Example matches __atomic_load_n(ptr, 1) void foo() { int *ptr; __atomic_load_n(ptr, 1); }
+- atomicType: Matches atomic types.
+- attr: Matches attributes. Attributes may be attached with a variety of different syntaxes (including keywords, C++11 attributes, GNU ``__attribute``` and MSVC `__declspec``, and ``#pragma``s). They may also be implicit.
+- autoType: Matches types nodes representing C++11 auto types.
+- autoreleasePoolStmt: Matches an Objective-C autorelease pool statement.
+- binaryConditionalOperator: Matches binary conditional operator expressions (GNU extension).
+- binaryOperator: Matches binary operator expressions.
+- bindingDecl: Matches binding declarations Example matches foo and bar (matcher = bindingDecl()
+- blockDecl: Matches block declarations.
+- blockExpr: Matches a reference to a block.
+- blockPointerType: Matches block pointer types, i.e. types syntactically represented as "void (^)(int)".
+- breakStmt: Matches break statements.
+- builtinType: Matches builtin Types.
+- cStyleCastExpr: Matches a C-style cast expression.
+- callExpr: Matches call expressions.
+- caseStmt: Matches case statements inside switch statements.
+- castExpr: Matches any cast nodes of Clang's AST.
+- characterLiteral: Matches character literals (also matches wchar_t).
+- chooseExpr: Matches GNU __builtin_choose_expr.
+- classTemplateDecl: Matches C++ class template declarations.
+- classTemplatePartialSpecializationDecl: Matches C++ class template partial specializations.
+- classTemplateSpecializationDecl: Matches C++ class template specializations.
+- coawaitExpr: Matches co_await expressions.
+- complexType: Matches C99 complex types.
+- compoundLiteralExpr: Matches compound (i.e. non-scalar) literals
+- compoundStmt: Matches compound statements.
+- conceptDecl: Matches concept declarations.
+- conditionalOperator: Matches conditional operator expressions.
+- constantArrayType: Matches C arrays with a specified constant size.
+- constantExpr: Matches a constant expression wrapper.
+- continueStmt: Matches continue statements.
+- convertVectorExpr: Matches builtin function __builtin_convertvector.
+- coreturnStmt: Matches co_return statements.
+- coroutineBodyStmt: Matches coroutine body statements.
+- coyieldExpr: Matches co_yield expressions.
+- cudaKernelCallExpr: Matches CUDA kernel call expression.
+- cxxBindTemporaryExpr: Matches nodes where temporaries are created.
+- cxxBoolLiteral: Matches bool literals.
+- cxxCatchStmt: Matches catch statements.
+- cxxConstCastExpr: Matches a const_cast expression.
+- cxxConstructExpr: Matches constructor call expressions (including implicit ones).
+- cxxConstructorDecl: Matches C++ constructor declarations.
+- cxxConversionDecl: Matches conversion operator declarations.
+- cxxCtorInitializer: Matches constructor initializers.
+- cxxDeductionGuideDecl: Matches user-defined and implicitly generated deduction guide.
+- cxxDefaultArgExpr: Matches the value of a default argument at the call site.
+- cxxDeleteExpr: Matches delete expressions.
+- cxxDependentScopeMemberExpr: Matches member expressions where the actual member referenced could not be resolved because the base expression or the member name was dependent.
+- cxxDestructorDecl: Matches explicit C++ destructor declarations.
+- cxxDynamicCastExpr: Matches a dynamic_cast expression.
+- cxxFoldExpr: Matches C++17 fold expressions.
+- cxxForRangeStmt: Matches range-based for statements.
+- cxxFunctionalCastExpr: Matches functional cast expressions
+- cxxMemberCallExpr: Matches member call expressions.
+- cxxMethodDecl: Matches method declarations.
+- cxxNewExpr: Matches new expressions.
+- cxxNoexceptExpr: Matches noexcept expressions.
+- cxxNullPtrLiteralExpr: Matches nullptr literal.
+- cxxOperatorCallExpr: Matches overloaded operator calls.
+- cxxRecordDecl: Matches C++ class declarations.
+- cxxReinterpretCastExpr: Matches a reinterpret_cast expression.
+- cxxRewrittenBinaryOperator: Matches rewritten binary operators
+- cxxStaticCastExpr: Matches a C++ static_cast expression.
+- cxxStdInitializerListExpr: Matches C++ initializer list expressions.
+- cxxTemporaryObjectExpr: Matches functional cast expressions having N != 1 arguments
+- cxxThisExpr: Matches implicit and explicit this expressions.
+- cxxThrowExpr: Matches throw expressions.
+- cxxTryStmt: Matches try statements.
+- cxxUnresolvedConstructExpr: Matches unresolved constructor call expressions.
+- decayedType: Matches decayed type Example matches i[] in declaration of f. (matcher = valueDecl(hasType(decayedType(hasDecayedType(pointerType()))))) Example matches i[1]. (matcher = expr(hasType(decayedType(hasDecayedType(pointerType()))))) void f(int i[]) { i[1] = 0; }
+- decl: Matches declarations.
+- declRefExpr: Matches expressions that refer to declarations.
+- declStmt: Matches declaration statements.
+- declaratorDecl: Matches declarator declarations (field, variable, function and non-type template parameter declarations).
+- decltypeType: Matches types nodes representing C++11 decltype(<expr>) types.
+- decompositionDecl: Matches decomposition-declarations.
+- deducedTemplateSpecializationType: Matches C++17 deduced template specialization types, e.g. deduced class template types.
+- defaultStmt: Matches default statements inside switch statements.
+- dependentCoawaitExpr: Matches co_await expressions where the type of the promise is dependent
+- dependentNameType: Matches a dependent name type
+- dependentScopeDeclRefExpr: Matches expressions that refer to dependent scope declarations.
+- dependentSizedArrayType: Matches C++ arrays whose size is a value-dependent expression.
+- dependentSizedExtVectorType: Matches C++ extended vector type where either the type or size is dependent.
+- designatedInitExpr: Matches C99 designated initializer expressions [C99 6.7.8].
+- doStmt: Matches do statements.
+- enumConstantDecl: Matches enum constants.
+- enumDecl: Matches enum declarations.
+- enumType: Matches enum types.
+- explicitCastExpr: Matches explicit cast expressions.
+- exportDecl: Matches any export declaration.
+- expr: Matches expressions.
+- exprWithCleanups: Matches expressions that introduce cleanups to be run at the end of the sub-expression's evaluation.
+- fieldDecl: Matches field declarations.
+- fileScopeAsmDecl: Matches top level asm declarations.
+- fixedPointLiteral: Matches fixed-point literals eg. 0.5r, 0.5hr, 0.5lr, 0.5uhr, 0.5ur, 0.5ulr 1.0k, 1.0hk, 1.0lk, 1.0uhk, 1.0uk, 1.0ulk Exponents 1.0e10k Hexadecimal numbers 0x0.2p2r
+- floatLiteral: Matches float literals of all sizes / encodings, e.g. 1.0, 1.0f, 1.0L and 1e10.
+- forStmt: Matches for statements.
+- friendDecl: Matches friend declarations.
+- functionDecl: Matches function declarations.
+- functionProtoType: Matches FunctionProtoType nodes.
+- functionTemplateDecl: Matches C++ function template declarations.
+- functionType: Matches FunctionType nodes.
+- genericSelectionExpr: Matches C11 _Generic expression.
+- gnuNullExpr: Matches GNU __null expression.
+- gotoStmt: Matches goto statements.
+- ifStmt: Matches if statements.
+- imaginaryLiteral: Matches imaginary literals, which are based on integer and floating point literals e.g.: 1i, 1.0i
+- implicitCastExpr: Matches the implicit cast nodes of Clang's AST.
+- implicitValueInitExpr: Matches implicit initializers of init list expressions.
+- incompleteArrayType: Matches C arrays with unspecified size.
+- indirectFieldDecl: Matches indirect field declarations.
+- initListExpr: Matches init list expressions.
+- injectedClassNameType: Matches injected class name types.
+- integerLiteral: Matches integer literals of all sizes / encodings, e.g. 1, 1L, 0x1 and 1U.
+- lValueReferenceType: Matches lvalue reference types.
+- labelDecl: Matches a declaration of label.
+- labelStmt: Matches label statements.
+- lambdaExpr: Matches lambda expressions.
+- linkageSpecDecl: Matches a declaration of a linkage specification.
+- macroQualifiedType: Matches qualified types when the qualifier is applied via a macro.
+- materializeTemporaryExpr: Matches nodes where temporaries are materialized.
+- memberExpr: Matches member expressions.
+- memberPointerType: Matches member pointer types. Given struct A { int i; } A::* ptr = A::i; memberPointerType() matches "A::* ptr"
+- namedDecl: Matches a declaration of anything that could have a name.
+- namespaceAliasDecl: Matches a declaration of a namespace alias.
+- namespaceDecl: Matches a declaration of a namespace.
+- nestedNameSpecifier: Matches nested name specifiers.
+- nestedNameSpecifierLoc: Same as nestedNameSpecifier but matches NestedNameSpecifierLoc.
+- nonTypeTemplateParmDecl: Matches non-type template parameter declarations.
+- nullStmt: Matches null statements.
+- objcCatchStmt: Matches Objective-C @catch statements.
+- objcCategoryDecl: Matches Objective-C category declarations.
+- objcCategoryImplDecl: Matches Objective-C category definitions.
+- objcFinallyStmt: Matches Objective-C @finally statements.
+- objcImplementationDecl: Matches Objective-C implementation declarations.
+- objcInterfaceDecl: Matches Objective-C interface declarations.
+- objcIvarDecl: Matches Objective-C instance variable declarations.
+- objcIvarRefExpr: Matches a reference to an ObjCIvar.
+- objcMessageExpr: Matches ObjectiveC Message invocation expressions.
+- objcMethodDecl: Matches Objective-C method declarations.
+- objcObjectPointerType: Matches an Objective-C object pointer type, which is different from a pointer type, despite being syntactically similar.
+- objcPropertyDecl: Matches Objective-C property declarations.
+- objcProtocolDecl: Matches Objective-C protocol declarations.
+- objcStringLiteral: Matches ObjectiveC String literal expressions.
+- objcThrowStmt: Matches Objective-C statements.
+- objcTryStmt: Matches Objective-C @try statements.
+- ompExecutableDirective: Matches any ``#pragma omp`` executable directive.
+- opaqueValueExpr: Matches opaque value expressions. They are used as helpers to reference another expressions and can be met in BinaryConditionalOperators, for example.
+- parenExpr: Matches parentheses used in expressions.
+- parenListExpr: Matches paren list expressions. ParenListExprs don't have a predefined type and are used for late parsing. In the final AST, they can be met in template declarations.
+- parenType: Matches ParenType nodes.
+- parmVarDecl: Matches parameter variable declarations.
+- pointerType: Matches pointer types, but does not match Objective-C object pointer types.
+- pointerTypeLoc: Matches pointer `TypeLoc`s.
+- predefinedExpr: Matches predefined identifier expressions [C99 6.4.2.2].
+- qualType: Matches QualTypes in the clang AST.
+- qualifiedTypeLoc: Matches `QualifiedTypeLoc`s in the clang AST.
+- rValueReferenceType: Matches rvalue reference types.
+- recordDecl: Matches class, struct, and union declarations.
+- recordType: Matches record types (e.g. structs, classes).
+- referenceType: Matches both lvalue and rvalue reference types.
+- referenceTypeLoc: Matches reference `TypeLoc`s.
+- returnStmt: Matches return statements.
+- staticAssertDecl: Matches a C++ static_assert declaration.
+- stmt: Matches statements.
+- stmtExpr: Matches statement expression (GNU extension).
+- stringLiteral: Matches string literals (also matches wide string literals).
+- substNonTypeTemplateParmExpr: Matches substitutions of non-type template parameters.
+- substTemplateTypeParmType: Matches types that represent the result of substituting a type for a template type parameter.
+- switchCase: Matches case and default statements inside switch statements.
+- switchStmt: Matches switch statements.
+- tagDecl: Matches tag declarations.
+- tagType: Matches tag types (record and enum types).
+- templateSpecializationType: Matches template specialization types.
+- templateSpecializationTypeLoc: Matches template specialization `TypeLoc`s.
+- templateTemplateParmDecl: Matches template template parameter declarations.
+- templateTypeParmDecl: Matches template type parameter declarations.
+- templateTypeParmType: Matches template type parameter types.
+- translationUnitDecl: Matches the top declaration context.
+- type: Matches Types in the clang AST.
+- typeAliasDecl: Matches type alias declarations.
+- typeAliasTemplateDecl: Matches type alias template declarations.
+- typeLoc: Matches TypeLocs in the clang AST.
+- typedefDecl: Matches typedef declarations.
+- typedefNameDecl: Matches typedef name declarations.
+- typedefType: Matches typedef types.
+- unaryExprOrTypeTraitExpr: Matches sizeof (C99), alignof (C++11) and vec_step (OpenCL)
+- unaryOperator: Matches unary operator expressions.
+- unaryTransformType: Matches types nodes representing unary type transformations.
+- unresolvedLookupExpr: Matches reference to a name that can be looked up during parsing but could not be resolved to a specific declaration.
+- unresolvedMemberExpr: Matches unresolved member expressions.
+- unresolvedUsingTypenameDecl: Matches unresolved using value declarations that involve the typename.
+- unresolvedUsingValueDecl: Matches unresolved using value declarations.
+- userDefinedLiteral: Matches user defined literal operator call.
+- usingDecl: Matches using declarations.
+- usingDirectiveDecl: Matches using namespace declarations.
+- usingEnumDecl: Matches using-enum declarations.
+- usingShadowDecl: Matches shadow declarations introduced into a scope by a (resolved) using declaration.
+- usingType: Matches types specified through a using declaration.
+- valueDecl: Matches any value declaration.
+- varDecl: Matches variable declarations.
+- variableArrayType: Matches C arrays with a specified size that is not an integer-constant-expression.
+- whileStmt: Matches while statements.
+
+```text
+help functionDecl
+help hasName
+help hasDescendant
+```
+
+## matchers narrowing
+
+Browse narrowing matchers from LLVM 22.1.8.
+
+```text
+help matchers narrowing
+help MATCHER
+MATCHER?
+```
+
+- allOf: Matches if all given matchers match.
+- anyOf: Matches if any of the given matchers matches.
+- anything: Matches any node.
+- argumentCountAtLeast: Checks that a call expression or a constructor call expression has at least the specified number of arguments (including absent default arguments).
+- argumentCountIs: Checks that a call expression or a constructor call expression has a specific number of arguments (including absent default arguments).
+- asString: Matches if the matched type is represented by the given string.
+- booleanType: Matches type bool.
+- declCountIs: Matches declaration statements that contain a specific number of declarations.
+- declaresSameEntityAsBoundNode: Matches a declaration if it declares the same entity as the node previously bound to ID.
+- designatorCountIs: Matches designated initializer expressions that contain a specific number of designators.
+- equals: Matches literals that are equal to the given value of type ValueT.
+- equalsBoundNode: Matches if a node equals a previously bound node.
+- hasAnyName: Matches NamedDecl nodes that have any of the specified names.
+- hasAnyOperatorName: Matches operator expressions (binary or unary) that have any of the specified names.
+- hasAnyOverloadedOperatorName: Matches overloaded operator names.
+- hasAnySelector: Matches when at least one of the supplied string equals to the Selector.getAsString()
+- hasAttr: Matches declaration that has a given attribute.
+- hasAutomaticStorageDuration: Matches a variable declaration that has automatic storage duration.
+- hasBitWidth: Matches non-static data members that are bit-fields of the specified bit width.
+- hasCastKind: Matches casts that has a given cast kind.
+- hasDefaultArgument: Matches a declaration that has default arguments.
+- hasDefinition: Matches a class declaration that is defined.
+- hasDependentName: Matches the dependent name of a DependentScopeDeclRefExpr or DependentNameType
+- hasDynamicExceptionSpec: Matches functions that have a dynamic exception specification.
+- hasExternalFormalLinkage: Matches a declaration that has external formal linkage.
+- hasGlobalStorage: Matches a variable declaration that does not have local storage.
+- hasKeywordSelector: Matches when the selector is a keyword selector
+- hasLocalQualifiers: Matches QualType nodes that have local CV-qualifiers attached to the node, not hidden within a typedef.
+- hasLocalStorage: Matches a variable declaration that has function scope and is a non-static local variable.
+- hasMemberName: Matches template-dependent, but known, member names.
+- hasName: Matches NamedDecl nodes that have the specified name.
+- hasNullSelector: Matches when the selector is the empty selector
+- hasOperatorName: Matches the operator Name of operator expressions and fold expressions (binary or unary).
+- hasOverloadedOperatorName: Matches overloaded operator names.
+- hasSelector: Matches when BaseName == Selector.getAsString()
+- hasSize: Matches nodes that have the specified size.
+- hasStaticStorageDuration: Matches a variable declaration that has static storage duration. It includes the variable declared at namespace scope and those declared with "static" and "extern" storage class specifiers.
+- hasThreadStorageDuration: Matches a variable declaration that has thread storage duration.
+- hasTrailingReturn: Matches a function declared with a trailing return type.
+- hasUnarySelector: Matches when the selector is a Unary Selector
+- isAllowedToContainClauseKind: Matches if the OpenMP directive is allowed to contain the specified OpenMP clause kind.
+- isAnonymous: Matches anonymous namespace declarations.
+- isAnyCharacter: Matches QualType nodes that are of character type.
+- isAnyPointer: Matches QualType nodes that are of any pointer type; this includes the Objective-C object pointer type, which is different despite being syntactically similar.
+- isArray: Matches array new expressions.
+- isArrow: Matches member expressions that are called with '->' as opposed to '.'.
+- isAssignmentOperator: Matches all kinds of assignment operators.
+- isAtPosition: Matches the ParmVarDecl nodes that are at the N'th position in the parameter list. The parameter list could be that of either a block, function, or objc-method.
+- isBaseInitializer: Matches a constructor initializer if it is initializing a base, as opposed to a member.
+- isBinaryFold: Matches binary fold expressions, i.e. fold expressions with an initializer.
+- isBitField: Matches non-static data members that are bit-fields.
+- isCatchAll: Matches a C++ catch statement that has a catch-all handler.
+- isClass: Matches TagDecl object that are spelled with "class."
+- isClassMessage: Returns true when the Objective-C message is sent to a class.
+- isClassMethod: Returns true when the Objective-C method declaration is a class method.
+- isComparisonOperator: Matches comparison operators.
+- isConst: Matches if the given method declaration is const.
+- isConstQualified: Matches QualType nodes that are const-qualified, i.e., that include "top-level" const.
+- isConsteval: Matches consteval function declarations and if consteval/if ! consteval statements.
+- isConstexpr: Matches constexpr variable and function declarations, and if constexpr.
+- isConstinit: Matches constinit variable declarations.
+- isCopyAssignmentOperator: Matches if the given method declaration declares a copy assignment operator.
+- isCopyConstructor: Matches constructor declarations that are copy constructors.
+- isDefaultConstructor: Matches constructor declarations that are default constructors.
+- isDefaulted: Matches defaulted function declarations.
+- isDefinition: Matches if a declaration has a body attached.
+- isDelegatingConstructor: Matches constructors that delegate to another constructor.
+- isDeleted: Matches deleted function declarations.
+- isDerivedFrom: Overloaded method as shortcut for isDerivedFrom(hasName(...)).
+- isDirectlyDerivedFrom: Overloaded method as shortcut for isDirectlyDerivedFrom(hasName(...)).
+- isEnum: Matches TagDecl object that are spelled with "enum."
+- isExceptionVariable: Matches a variable declaration that is an exception variable from a C++ catch block, or an Objective-C statement.
+- isExpandedFromMacro: Matches statements that are (transitively) expanded from the named macro. Does not match if only part of the statement is expanded from that macro or if different parts of the statement are expanded from different appearances of the macro.
+- isExpansionInFileMatching: Matches AST nodes that were expanded within files whose name is partially matching a given regex.
+- isExpansionInMainFile: Matches AST nodes that were expanded within the main-file.
+- isExpansionInSystemHeader: Matches AST nodes that were expanded within system-header-files.
+- isExplicit: Matches constructor, conversion function, and deduction guide declarations that have an explicit specifier if this explicit specifier is resolved to true.
+- isExplicitObjectMemberFunction: Matches if the given method declaration declares a member function with an explicit object parameter.
+- isExplicitTemplateSpecialization: Matches explicit template specializations of function, class, or static member variable template instantiations.
+- isExternC: Matches extern "C" function or variable declarations.
+- isFinal: Matches if the given method or class declaration is final.
+- isImplicit: Matches an entity that has been implicitly added by the compiler (e.g. implicit default/copy constructors).
+- isInAnonymousNamespace: Matches declarations in an anonymous namespace.
+- isInStdNamespace: Matches declarations in the namespace `std`, but not in nested namespaces.
+- isInTemplateInstantiation: Matches statements inside of a template instantiation.
+- isInitCapture: Matches a variable serving as the implicit variable for a lambda init- capture.
+- isInline: Matches functions, variables and namespace declarations that are marked with the inline keyword.
+- isInstanceMessage: Returns true when the Objective-C message is sent to an instance.
+- isInstanceMethod: Returns true when the Objective-C method declaration is an instance method.
+- isInstantiated: Matches declarations that are template instantiations or are inside template instantiations.
+- isInstantiationDependent: Matches expressions that are instantiation-dependent even if it is neither type- nor value-dependent.
+- isInteger: Matches QualType nodes that are of integer type.
+- isLambda: Matches the generated class of lambda expressions.
+- isLeftFold: Matches left-folding fold expressions.
+- isListInitialization: Matches a constructor call expression which uses list initialization.
+- isMain: Determines whether the function is "main", which is the entry point into an executable program.
+- isMemberInitializer: Matches a constructor initializer if it is initializing a member, as opposed to a base.
+- isMoveAssignmentOperator: Matches if the given method declaration declares a move assignment operator.
+- isMoveConstructor: Matches constructor declarations that are move constructors.
+- isNoReturn: Matches FunctionDecls that have a noreturn attribute.
+- isNoThrow: Matches functions that have a non-throwing exception specification.
+- isOverride: Matches if the given method declaration overrides another method.
+- isPrivate: Matches private C++ declarations and C++ base specifiers that specify private inheritance.
+- isProtected: Matches protected C++ declarations and C++ base specifiers that specify protected inheritance.
+- isPublic: Matches public C++ declarations and C++ base specifiers that specify public inheritance.
+- isPure: Matches if the given method declaration is pure.
+- isRightFold: Matches right-folding fold expressions.
+- isSameOrDerivedFrom: Overloaded method as shortcut for isSameOrDerivedFrom(hasName(...)).
+- isScoped: Matches C++11 scoped enum declaration.
+- isSignedInteger: Matches QualType nodes that are of signed integer type.
+- isStandaloneDirective: Matches standalone OpenMP directives, i.e., directives that can't have a structured block.
+- isStaticLocal: Matches a static variable with local scope.
+- isStaticStorageClass: Matches variable/function declarations that have "static" storage class specifier ("static" keyword) written in the source.
+- isStruct: Matches TagDecl object that are spelled with "struct."
+- isTemplateInstantiation: Matches template instantiations of function, class, or static member variable template instantiations.
+- isTypeDependent: Matches expressions that are type-dependent because the template type is not yet instantiated.
+- isUnaryFold: Matches unary fold expressions, i.e. fold expressions without an initializer.
+- isUnion: Matches TagDecl object that are spelled with "union."
+- isUnsignedInteger: Matches QualType nodes that are of unsigned integer type.
+- isUserProvided: Matches method declarations that are user-provided.
+- isValueDependent: Matches expression that are value-dependent because they contain a non-type template parameter.
+- isVariadic: Matches if a function declaration is variadic.
+- isVirtual: Matches declarations of virtual methods and C++ base specifiers that specify virtual inheritance.
+- isVirtualAsWritten: Matches if the given method declaration has an explicit "virtual".
+- isVolatileQualified: Matches QualType nodes that are volatile-qualified, i.e., that include "top-level" volatile.
+- isWeak: Matches weak function declarations.
+- isWritten: Matches a constructor initializer if it is explicitly written in code (as opposed to implicitly added by the compiler).
+- mapAnyOf: Matches any of the NodeMatchers with InnerMatchers nested within
+- matchesName: Matches NamedDecl nodes whose fully qualified names contain a substring matched by the given RegExp.
+- matchesSelector: Matches ObjC selectors whose name contains a substring matched by the given RegExp. matcher = objCMessageExpr(matchesSelector("loadHTMLStringmatches the outer message expr in the code below, but NOT the message invocation for self.bodyView. [self.bodyView loadHTMLString:html baseURL:NULL];
+- memberHasSameNameAsBoundNode: Matches template-dependent, but known, member names against an already-bound node
+- nullPointerConstant: Matches expressions that resolve to a null pointer constant, such as GNU's __null, C++11's nullptr, or C's NULL macro.
+- numSelectorArgs: Matches when the selector has the specified number of arguments
+- ofKind: Matches unary expressions of a certain kind.
+- parameterCountIs: Matches FunctionDecls and FunctionProtoTypes that have a specific parameter count.
+- realFloatingPointType: Matches any real floating-point type (float, double, long double).
+- requiresZeroInitialization: Matches a constructor call expression which requires zero initialization.
+- statementCountIs: Checks that a compound statement contains a specific number of child statements.
+- templateArgumentCountIs: Matches if the number of template arguments equals N.
+- unless: Matches if the provided matcher does not match.
+- usesADL: Matches call expressions which were resolved using ADL.
+- voidType: Matches type void.
+
+```text
+help functionDecl
+help hasName
+help hasDescendant
+```
+
+## matchers traversal
+
+Browse traversal matchers from LLVM 22.1.8.
+
+```text
+help matchers traversal
+help MATCHER
+MATCHER?
+```
+
+- alignOfExpr: Same as unaryExprOrTypeTraitExpr, but only matching alignof.
+- binaryOperation: Matches nodes which can be used with binary operators.
+- callee: Matches if the call or fold expression's callee expression matches.
+- containsDeclaration: Matches the n'th declaration of a declaration statement.
+- eachOf: Matches if any of the given matchers matches.
+- forCallable: Matches declaration of the function, method, or block the statement belongs to.
+- forDecomposition: Matches the DecompositionDecl the binding belongs to.
+- forEach: Matches AST nodes that have child AST nodes that match the provided matcher.
+- forEachArgumentWithParam: Matches all arguments and their respective ParmVarDecl.
+- forEachArgumentWithParamType: Matches all arguments and their respective types for a CallExpr or CXXConstructExpr. It is very similar to forEachArgumentWithParam but it works on calls through function pointers as well.
+- forEachConstructorInitializer: Matches each constructor initializer in a constructor definition.
+- forEachDescendant: Matches AST nodes that have descendant AST nodes that match the provided matcher.
+- forEachLambdaCapture: Matches each lambda capture in a lambda expression.
+- forEachOverridden: Matches each method overridden by the given method. This matcher may produce multiple matches.
+- forEachSwitchCase: Matches each case or default statement belonging to the given switch statement. This matcher may produce multiple matches.
+- forEachTemplateArgument: Matches templateSpecializationType, class template specialization, variable template specialization, and function template specialization nodes where the template argument matches the inner matcher. This matcher may produce multiple matches.
+- forField: Matches the field declaration of a constructor initializer.
+- forFunction: Matches declaration of the function the statement belongs to.
+- has: Matches AST nodes that have child AST nodes that match the provided matcher.
+- hasAncestor: Matches AST nodes that have an ancestor that matches the provided matcher.
+- hasAnyArgument: Matches any argument of a call expression or a constructor call expression, or an ObjC-message-send expression.
+- hasAnyBase: Matches C++ classes that have a direct or indirect base matching BaseSpecMatcher.
+- hasAnyBinding: Matches any binding of a DecompositionDecl.
+- hasAnyBody: Matches a function declaration that has a given body present in the AST. Note that this matcher matches all the declarations of a function whose body is present in the AST.
+- hasAnyCapture: Matches any capture in a lambda expression.
+- hasAnyClause: Matches any clause in an OpenMP directive.
+- hasAnyConstructorInitializer: Matches a constructor initializer.
+- hasAnyDeclaration: Matches an OverloadExpr if any of the declarations in the set of overloads matches the given matcher.
+- hasAnyParameter: Matches any parameter of a function or an ObjC method declaration or a block.
+- hasAnyPlacementArg: Matches any placement new expression arguments.
+- hasAnySubstatement: Matches compound statements where at least one substatement matches a given matcher. Also matches StmtExprs that have CompoundStmt as children.
+- hasAnyTemplateArgument: Matches templateSpecializationTypes, class template specializations, variable template specializations, and function template specializations that have at least one TemplateArgument matching the given InnerMatcher.
+- hasAnyTemplateArgumentLoc: Matches template specialization `TypeLoc`s, class template specializations, variable template specializations, and function template specializations that have at least one `TemplateArgumentLoc` matching the given `InnerMatcher`.
+- hasAnyUsingShadowDecl: Matches any using shadow declaration.
+- hasArgument: Matches the n'th argument of a call expression or a constructor call expression.
+- hasArgumentOfType: Matches unary expressions that have a specific type of argument.
+- hasArraySize: Matches array new expressions with a given array size.
+- hasBase: Matches the base expression of an array subscript expression.
+- hasBinding: Matches the Nth binding of a DecompositionDecl.
+- hasBody: Matches a 'for', 'while', 'while' statement or a function or coroutine definition that has a given body. Note that in case of functions or coroutines this matcher only matches the definition itself and not the other declarations of the same function or coroutine.
+- hasCanonicalType: Matches QualTypes whose canonical type matches InnerMatcher.
+- hasCaseConstant: If the given case statement does not use the GNU case range extension, matches the constant given in the statement.
+- hasCondition: Matches the condition expression of an if statement, for loop, while loop, do-while loop, switch statement or conditional operator.
+- hasConditionVariableStatement: Matches the condition variable statement in an if statement, for loop, while loop or switch statement.
+- hasDecayedType: Matches the decayed type, whose decayed type matches InnerMatcher
+- hasDeclContext: Matches declarations whose declaration context, interpreted as a Decl, matches InnerMatcher.
+- hasDeclaration: Matches a node if the declaration associated with that node matches the given matcher.
+- hasDeducedType: Matches AutoType nodes where the deduced type is a specific type.
+- hasDescendant: Matches AST nodes that have descendant AST nodes that match the provided matcher.
+- hasDestinationType: Matches casts whose destination type matches a given matcher.
+- hasDirectBase: Matches C++ classes that have a direct base matching BaseSpecMatcher.
+- hasEitherOperand: Matches if either the left hand side or the right hand side of a binary operator or fold expression matches.
+- hasElementType: Matches arrays and C99 complex types that have a specific element type.
+- hasElse: Matches the else-statement of an if statement.
+- hasExplicitSpecifier: Matches the expression in an explicit specifier if present in the given declaration.
+- hasFalseExpression: Matches the false branch expression of a conditional operator (binary or ternary).
+- hasFoldInit: Matches the operand that does not contain the parameter pack.
+- hasImplicitDestinationType: Matches implicit casts whose destination type matches a given matcher.
+- hasInClassInitializer: Matches non-static data members that have an in-class initializer.
+- hasIncrement: Matches the increment statement of a for loop.
+- hasIndex: Matches the index expression of an array subscript expression.
+- hasInit: Matches the n'th item of an initializer list expression.
+- hasInitStatement: Matches selection statements with initializer.
+- hasInitializer: Matches a variable declaration that has an initializer expression that matches the given matcher.
+- hasLHS: Matches the left hand side of binary operator expressions.
+- hasLoopInit: Matches the initialization statement of a for loop.
+- hasLoopVariable: Matches the initialization statement of a for loop.
+- hasMethod: Matches the first method of a class or struct that satisfies InnerMatcher.
+- hasObjectExpression: Matches a member expression where the object expression is matched by a given matcher. Implicit object expressions are included; that is, it matches use of implicit `this`.
+- hasOperands: Matches if both matchers match with opposite sides of the binary operator or fold expression.
+- hasParameter: Matches the n'th parameter of a function or an ObjC method declaration or a block.
+- hasParent: Matches AST nodes that have a parent that matches the provided matcher.
+- hasPattern: Matches the operand that contains the parameter pack.
+- hasPlacementArg: Matches placement new expression arguments.
+- hasPointeeLoc: Matches pointer `TypeLoc`s that have a pointee `TypeLoc` matching `PointeeMatcher`.
+- hasPrefix: Matches on the prefix of a NestedNameSpecifierLoc.
+- hasQualifier: Matches Types whose qualifier, a NestedNameSpecifier, matches InnerMatcher if the qualifier exists.
+- hasRHS: Matches the right hand side of binary operator expressions.
+- hasRangeInit: Matches the range initialization statement of a for loop.
+- hasReceiver: Matches if the Objective-C message is sent to an instance, and the inner matcher matches on that instance.
+- hasReceiverType: Matches on the receiver of an ObjectiveC Message expression.
+- hasReferentLoc: Matches reference `TypeLoc`s that have a referent `TypeLoc` matching `ReferentMatcher`.
+- hasReplacementType: Matches template type parameter substitutions that have a replacement type that matches the provided matcher.
+- hasReturnTypeLoc: Matches a function declared with the specified return `TypeLoc`.
+- hasReturnValue: Matches the return value expression of a return statement
+- hasSingleDecl: Matches the Decl of a DeclStmt which has a single declaration.
+- hasSizeExpr: Matches VariableArrayType nodes that have a specific size expression.
+- hasSourceExpression: Matches if the cast's source expression or opaque value's source expression matches the given matcher.
+- hasSpecializedTemplate: Matches the specialized template of a specialization declaration.
+- hasStructuredBlock: Matches the structured-block of the OpenMP executable directive
+- hasSyntacticForm: Matches the syntactic form of init list expressions (if expression have it).
+- hasTargetDecl: Matches a using shadow declaration where the target declaration is matched by the given matcher.
+- hasTemplateArgument: Matches templateSpecializationType, class template specializations, variable template specializations, and function template specializations where the n'th TemplateArgument matches the given InnerMatcher.
+- hasTemplateArgumentLoc: Matches template specialization `TypeLoc`s, class template specializations, variable template specializations, and function template specializations where the n'th `TemplateArgumentLoc` matches the given `InnerMatcher`.
+- hasThen: Matches the then-statement of an if statement.
+- hasTrueExpression: Matches the true branch expression of a conditional operator.
+- hasType: Overloaded to match the declaration of the expression's or value declaration's type.
+- hasTypeLoc: Matches if the type location of a node matches the inner matcher.
+- hasUnaryOperand: Matches if the operand of a unary operator matches.
+- hasUnderlyingDecl: Matches a NamedDecl whose underlying declaration matches the given matcher.
+- hasUnderlyingType: Matches QualType nodes to find the underlying type.
+- hasUnqualifiedDesugaredType: Matches if the matched type matches the unqualified desugared type of the matched node.
+- hasUnqualifiedLoc: Matches `QualifiedTypeLoc`s that have an unqualified `TypeLoc` matching `InnerMatcher`.
+- hasValueType: Matches atomic types with a specific value type.
+- ignoringElidableConstructorCall: Matches expressions that match InnerMatcher that are possibly wrapped in an elidable constructor and other corresponding bookkeeping nodes.
+- ignoringImpCasts: Matches expressions that match InnerMatcher after any implicit casts are stripped off.
+- ignoringImplicit: Matches expressions that match InnerMatcher after any implicit AST nodes are stripped off.
+- ignoringParenCasts: Matches expressions that match InnerMatcher after parentheses and casts are stripped off.
+- ignoringParenImpCasts: Matches expressions that match InnerMatcher after implicit casts and parentheses are stripped off.
+- ignoringParens: Overload ignoringParens for Expr.
+- innerType: Matches ParenType nodes where the inner type is a specific type.
+- invocation: Matches function calls and constructor calls
+- loc: Matches NestedNameSpecifierLocs for which the given inner NestedNameSpecifier-matcher matches.
+- member: Matches a member expression where the member is matched by a given matcher.
+- ofClass: Matches the class declaration that the given method declaration belongs to.
+- on: Matches on the implicit object argument of a member call expression, after stripping off any parentheses or implicit casts.
+- onImplicitObjectArgument: Matches on the implicit object argument of a member call expression. Unlike `on`, matches the argument directly without stripping away anything.
+- optionally: Matches any node regardless of the submatcher.
+- pointee: Narrows PointerType (and similar) matchers to those where the pointee matches a given matcher.
+- pointsTo: Overloaded to match the pointee type's declaration.
+- references: Overloaded to match the referenced type's declaration.
+- returns: Matches the return type of a function declaration.
+- sizeOfExpr: Same as unaryExprOrTypeTraitExpr, but only matching sizeof.
+- specifiesNamespace: Matches nested name specifiers that specify a namespace matching the given namespace matcher.
+- specifiesType: Matches nested name specifiers that specify a type matching the given QualType matcher without qualifiers.
+- specifiesTypeLoc: Matches nested name specifier locs that specify a type matching the given TypeLoc.
+- thisPointerType: Overloaded to match the type's declaration.
+- throughUsingDecl: Matches if a node refers to a declaration through a specific using shadow declaration.
+- to: Matches a DeclRefExpr that refers to a declaration that matches the specified matcher.
+- withInitializer: Matches the initializer expression of a constructor initializer.
+
+```text
+help functionDecl
+help hasName
+help hasDescendant
 ```

@@ -118,6 +118,49 @@ def unknown_topic(help_output):
     )
 
 
+@when(
+    parsers.parse('I complete matcher prefix "{prefix}" through the prompt'),
+    target_fixture="matcher_completion",
+)
+def complete_categorized_matcher(tmp_path, prefix):
+    async def drive():
+        with create_pipe_input() as pipe:
+            session = create_session(input=pipe, output=DummyOutput(), cwd=tmp_path)
+            task = asyncio.create_task(session.prompt_async("ctk> "))
+            try:
+                pipe.send_text(prefix)
+                await _wait_text(session, prefix)
+                for _ in range(300):
+                    state = session.default_buffer.complete_state
+                    if (
+                        state
+                        and state.original_document.text == prefix
+                        and state.completions
+                    ):
+                        assert len(state.completions) == 1
+                        item = state.completions[0]
+                        metadata = item.display_meta_text
+                        completed = (
+                            prefix[: len(prefix) + item.start_position] + item.text
+                        )
+                        await _tab(pipe, session, completed)
+                        return session.default_buffer.text, metadata
+                    await asyncio.sleep(0.01)
+                raise AssertionError("Matcher completion did not appear")
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    return asyncio.run(drive())
+
+
+@then(parsers.parse('matcher completion is "{completed}" with kind "{kind}"'))
+def matcher_kind_hint(matcher_completion, completed, kind):
+    source, metadata = matcher_completion
+    assert source == completed
+    assert metadata.startswith(f"{kind} matcher · ")
+
+
 @given("console files with spaces", target_fixture="console_files")
 def console_files(tmp_path):
     (tmp_path / "system.hpp").write_text(
