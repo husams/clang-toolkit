@@ -4,8 +4,10 @@
 opened file, pinned `ParsedTree`, or any retained `BindingSelection`; it does not
 run a matcher, reparse retained targets, or replace their bindings. `current` is
 unnecessary: the selected reference is already the root. This operation descends
-through native visitor edges; parent lookup and inheritance navigation remain
-separate proposal operations.
+through native visitor edges. Immediate parent lookup uses `peek parents` and
+`step parents`; filtered base specifiers bind referenced classes through
+`peek children`. See `docs/node-navigation.md` for those operations. Dedicated
+inheritance axes remain proposals.
 
 ```text
 let tree = parse "example.cc"

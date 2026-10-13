@@ -132,6 +132,14 @@ foreach row in $calls do {
 
 `source_match_index` identifies the immediate parent row within the originating file's retained match result. On a combined multi-file collection it can restart at zero for each file: do not index the combined parent collection with it. Use `source_file` to choose the matching file's parent collection first, or retain and continue each file independently when correlating children to parents. Server-reported paths may be canonicalized (the tested macOS `/tmp` target appeared under `/private/tmp`); do not rely on literal path spelling alone. Continuation includes each selected root and descendants; relationship predicates may inspect the full AST. Virtual/indirect static callees do not establish runtime targets.
 
+## Bound-node navigation and traversal
+
+Use retained bindings directly with `peek children|parents`, `step children|parents`,
+and `traverse`; no `current` command is needed. Immediate base specifiers can be
+filtered and their class declarations bound in the same expression. Read
+[navigation.md](navigation.md) for runnable examples, matcher scopes, parent edges,
+and the distinction between streaming output and assigned native results.
+
 ## Matchers, loops, collections
 
 ```text
