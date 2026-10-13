@@ -1,6 +1,6 @@
 ---
 name: ctk-script
-description: Write, run, explain, and debug clang-toolkit scripts using the compiled console DSL, legacy console DSL, or native server language. Use for .ctk files, parse/match/foreach workflows, native node navigation, inheritance queries, binding-field extraction, expressions, and script or batch execution; use the SDK reasoning skill for Python API tasks.
+description: Write, run, explain, and debug clang-toolkit scripts using the compiled console DSL, legacy console DSL, or native server language. Use for .ctk files, parse/match/foreach workflows, native node navigation, inheritance queries, binding-field extraction, expressions, indexed foreach with .index, while, repeat until, break/continue, and script or batch execution; use the SDK reasoning skill for Python API tasks.
 ---
 
 # Write and use CTK scripts
@@ -9,18 +9,19 @@ Produce runnable CTK statements that answer the user's question and verify them 
 
 ## Choose the language
 
-- **Console DSL:** `ctk` (including `uv run ctk`) defaults to the compiled engine. It supports arithmetic, Boolean logic, value-producing conditions, mutation, and value predicates. Read [console.md](references/console.md). `python -m clang_toolkit.cli.app` and `scripts/manual_console.sh` retain the legacy default; pass `--script-engine compiled` there when using the compiled syntax. `--script-engine tree` selects the reference evaluator, and `legacy` selects the previous parser.
+- **Console DSL:** `ctk` (including `uv run ctk`) defaults to the compiled engine. It supports arithmetic, Boolean logic, value-producing conditions, mutation, value predicates, and loop control. Read [console.md](references/console.md). `python -m clang_toolkit.cli.app` and `scripts/manual_console.sh` retain the legacy default; pass `--script-engine compiled` there when using the compiled syntax. `--script-engine tree` selects the reference evaluator, and `legacy` selects the previous parser.
+- **Loops and indexes:** use `foreach item in items do BODY` and access its zero-based ordinal as `item.index`; use `item.value` for colliding data fields. Read [loops.md](references/loops.md) for complete executable examples, `while`, `repeat … until`, `break`, `continue`, and collection/scope rules.
 - **Named script arguments:** `ctk FILE.ctk x=value` runs the file and exposes the literal string as `$arg.x`; `--script`, `--execute`, and piped runs accept the same arguments.
 - **Text and CSV inputs:** `read` returns text lines or CSV records; trim strings explicitly with `.strip()`. See the complete input example in [console.md](references/console.md).
 - **Native node navigation and inheritance:** read [navigation.md](references/navigation.md) for `traverse` from any retained node, filtered `peek`/`step`, matcher scopes, direct base bindings, and streaming versus explicit collection.
 - **Native server DSL:** the console's `script "SOURCE" [in "TARGET"]`, SDK `run_script`, or a `background batch`/`durable batch` body. Read [native.md](references/native.md). This language uses explicit `emit` statements.
 - For multi-file discovery, batching, resource cleanup, and exports, also read [batches.md](references/batches.md).
 
-`--script FILE.ctk` and `script "SOURCE"` are different execution paths. Do not mix their comments, functions, field methods, loop terminators, or output conventions. Compiled-console arithmetic, conditions, mutation, and value predicates do not add those features to native server scripts or server-side batch bodies.
+`--script FILE.ctk` and `script "SOURCE"` are different execution paths. Do not mix their comments, functions, field methods, loop terminators, or output conventions. Compiled-console arithmetic, conditions, mutation, value predicates, and new loop forms do not add those features to native server scripts or server-side batch bodies.
 
 ## Work through the language
 
-Use the supplied target and endpoint; `ctk` without an override uses its configured server. Use `help match`, `help foreach`, `help predicates`, or the relevant topic to confirm syntax, and `server status` to check readiness. Do not install packages, restart the user's service, change persistent settings, or substitute Python SDK calls merely to make a script example run.
+Use the supplied target and endpoint; `ctk` without an override uses its configured server. Use `help match`, `help foreach`, `help loops`, `help predicates`, or the relevant topic to confirm syntax, and `server status` to check readiness. Do not install packages, restart the user's service, change persistent settings, or substitute Python SDK calls merely to make a script example run.
 
 When the user requests console-only exploration or forbids file reading, use a real TTY-backed `ctk` session, bounded statements, console help, `.keys`, and `inspect`; do not inspect target source, configuration, or implementation files. For ordinary script authoring, use bundled references first and read target source only when the user asks. Follow applicable wiki-first instructions for project/design context; historical proposals do not prove runtime support.
 
@@ -40,4 +41,4 @@ Use `$row.f.qualified_name`, `$row.f.decl_name`, and other discovered direct pro
 
 Return the exact script and observed output or an explicit unverified boundary when details are requested. Follow the user's response-length preference. Parsing syntax or reading a manual is not live verification.
 
-Console guidance was refreshed on 2026-10-13 for the compiled entrypoint, its expression/control-flow syntax, and native bound-node navigation. Native server-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` and server capabilities when installed behavior differs.
+Console guidance was refreshed on 2026-10-13 for the compiled entrypoint, its expression/control-flow syntax, indexed loop bindings, while/repeat and loop control, and native bound-node navigation. Native server-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` and server capabilities when installed behavior differs.
