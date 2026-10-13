@@ -162,3 +162,54 @@ def test_strings_keep_original_token_for_legacy_interpolation() -> None:
     assert (tree.data, mode) == ("display", "expression")
     assert str(tree.children[0]) == '"Hello $name"'
     assert tree.children[0].type == "STRING"
+
+
+def test_then_is_conditional_body_syntax_in_composed_repl_grammar():
+    program = parse(
+        "let x = 2\n"
+        "let y = if $x > 0 then $x * 10 else 1\n"
+        "let z = if $x < 0 then 0 else if $x > 0 then {\n"
+        "  let local = 3\n"
+        "  $local\n"
+        "} else 1"
+    )
+    assert [node.kind for node in program.children] == ["let", "let", "let"]
+    assert program.children[1].children[0].kind == "conditional"
+    nested = program.children[2].children[0]
+    assert nested.kind == "conditional"
+    assert nested.children[2].children[0].kind == "conditional"
+
+
+def test_then_does_not_become_a_foreach_body_keyword():
+    with pytest.raises(UnexpectedInput):
+        parse("foreach item in [1] then $item")
+
+
+def test_composed_parser_preserves_mixed_then_do_else_association():
+    program = parse(
+        "if false then if true do 1 else 2\n"
+        "if false do if true then 1 else 2\n"
+        "if false then { if true do 1 } else 2"
+    )
+    outer, inverse, explicit = program.children
+    assert not outer.children[2].children
+    assert outer.children[1].children[0].children[2].children[0].value == 2
+    assert not inverse.children[2].children
+    assert inverse.children[1].children[0].children[2].children[0].value == 2
+    assert explicit.children[2].children[0].value == 2
+
+
+def test_then_remains_a_bare_dictionary_key_and_field():
+    value = parse("let r = {then: 3}; $r.then").children
+    assert value[0].children[0].children[0].value == "then"
+    assert value[1].value == "then"
+
+
+def test_combined_parser_preserves_explicit_empty_else_and_grouped_inner_if():
+    program = parse(
+        "let a = if false then if true then 1 else {} else 2\n"
+        "let b = if false then (if true then 1) else 2"
+    )
+    explicit_inner, grouped = (node.children[0] for node in program.children)
+    assert explicit_inner.children[2].children[0].value == 2
+    assert grouped.children[2].children[0].value == 2

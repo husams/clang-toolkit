@@ -193,7 +193,12 @@ class WorkspaceConsole:
             width=lambda: self.panel_width,
         )
         self.search = SearchToolbar()
-        self.transcript_lexer = TranscriptLexer()
+        transcript_code_lexer = (
+            getattr(session, "editor_lexer", None)
+            if getattr(session, "script_engine", "legacy") != "legacy"
+            else None
+        )
+        self.transcript_lexer = TranscriptLexer(transcript_code_lexer)
         self.results = TextArea(
             text="CTK console\n",
             lexer=self.transcript_lexer,

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lark import Lark, Transformer, Token, v_args
+from lark import Lark, Token, Transformer, v_args
 from lark.exceptions import VisitError
 
 
@@ -112,6 +112,14 @@ class _Builder(Transformer[Any, Any]):
         else_block = rest[0].block if rest else self._empty_block(meta)
         line, column = self._location(meta, items)
         return Node("conditional", children=(negated, block, else_block), line=line, column=column)
+
+    def conditional_single_body(self, meta: Any, items: list[Any]) -> Node:
+        statement = next(item for item in items if isinstance(item, Node))
+        line, column = self._location(meta, items)
+        return Node("block", children=(statement,), line=line, column=column)
+
+    def conditional_block_body(self, meta: Any, items: list[Any]) -> Node:
+        return next(item for item in items if isinstance(item, Node))
 
     def if_else(self, meta: Any, items: list[Any]) -> _Else:
         blocks = [item for item in items if isinstance(item, Node)]
@@ -363,15 +371,15 @@ _GRAMMAR = Path(__file__).with_name("grammar.lark").read_text(encoding="utf-8")
 _PARSER = Lark(
     _GRAMMAR,
     # Earley is used here because an optional newline before ``else`` must be
-    # distinguishable from an ordinary statement separator.  ``resolve``
-    # chooses the nearest-else parse while retaining the useful Lark error
-    # locations for malformed source.
+    # distinguishable from an ordinary statement separator. Its matched/open
+    # grammar also makes nearest-else binding explicit.
     parser="earley",
     lexer="dynamic_complete",
     ambiguity="resolve",
     propagate_positions=True,
     maybe_placeholders=False,
 )
+
 
 
 def parse(source: str) -> Node:

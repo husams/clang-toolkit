@@ -181,3 +181,79 @@ def test_interrupted_script_keeps_output_and_can_run_again(runtime):
     assert asyncio.run(_run_interactive_command(
         runtime.client, "print 7", runtime, None,
     )).output == "7"
+
+
+def test_then_conditional_syntax_persists_across_combined_repl_submissions(runtime):
+    first = submit(runtime, "let x = 2")
+    second = submit(runtime, "let y = if $x > 0 then $x * 10 else 1")
+    assert first.success and second.success, second.output
+    assert runtime.bindings["y"] == 20
+    assert submit(runtime, "let x = 0").success
+    false_branch = submit(runtime, "if $x > 0 then $x * 10 else 1")
+    assert false_branch.success, false_branch.output
+    assert false_branch.output == "1"
+
+
+def test_then_conditional_supports_nested_else_if_and_multiline_block(runtime):
+    result = submit(
+        runtime,
+        "let x = 2\n"
+        "let value = if $x < 0 then 0\n"
+        "else if $x > 0 then {\n"
+        "  let local = $x * 10\n"
+        "  $local\n"
+        "} else 1\n"
+        "$value",
+    )
+    assert result.success, result.output
+    assert result.output == "20"
+    assert runtime.bindings["value"] == 20
+    assert "local" not in runtime.bindings
+
+
+def test_mixed_then_do_dangling_else_and_explicit_block_in_combined_repl(runtime):
+    inner_else = submit(
+        runtime,
+        "let selected = if false then if true do 1 else 2; print $selected",
+    )
+    assert inner_else.success, inner_else.output
+    assert inner_else.output == "None"
+
+    same_body_form = submit(
+        runtime,
+        "let selected = if false then if true then 1 else 2; print $selected",
+    )
+    assert same_body_form.success, same_body_form.output
+    assert same_body_form.output == "None"
+
+    inverse_order = submit(
+        runtime,
+        "let selected = if false do if true then 1 else 2; print $selected",
+    )
+    assert inverse_order.success, inverse_order.output
+    assert inverse_order.output == "None"
+
+    active_inner = submit(
+        runtime,
+        "let selected = if true then if false do 1 else 2; print $selected",
+    )
+    assert active_inner.success, active_inner.output
+    assert active_inner.output == "2"
+
+    explicit_empty_inner_else = submit(
+        runtime,
+        "let selected = if false then if true then 1 else {} else 2; print $selected",
+    )
+    assert explicit_empty_inner_else.success, explicit_empty_inner_else.output
+    assert explicit_empty_inner_else.output == "2"
+
+    grouped_inner = submit(
+        runtime,
+        "let selected = if false then (if true then 1) else 2; print $selected",
+    )
+    assert grouped_inner.success, grouped_inner.output
+    assert grouped_inner.output == "2"
+
+    explicit_outer_else = submit(runtime, "if false then { if true do 1 } else 2")
+    assert explicit_outer_else.success, explicit_outer_else.output
+    assert explicit_outer_else.output == "2"

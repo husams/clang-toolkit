@@ -105,14 +105,14 @@ def _combined_grammar() -> str:
     proto_source = _PROTOTYPE_GRAMMAR.read_text(encoding="utf-8")
     # A dollar sign is optional on the iterator to retain existing CTK style.
     proto_source = proto_source.replace(
-        'foreach_expr: "foreach" CNAME "in" expression body',
-        'foreach_expr.10: "foreach" \"$\"? CNAME "in" expression body',
+        'closed_foreach_expr.10: "foreach" CNAME',
+        'closed_foreach_expr.10: "foreach" "$"? CNAME',
     )
-    # Prefer the compiled forms where the released grammar overlaps them.
     proto_source = proto_source.replace(
-        'print_stmt: "print" expression',
-        'print_stmt.10: "print" expression',
+        'open_foreach_expr.10: "foreach" CNAME',
+        'open_foreach_expr.10: "foreach" "$"? CNAME',
     )
+    # Let and print priorities are defined by the standalone grammar.
     proto_source = proto_source.replace(
         'postfix_part: soft_newlines "." soft_newlines CNAME -> member_part',
         'postfix_part: soft_newlines "." soft_newlines MEMBER_NAME -> member_part',
@@ -139,10 +139,10 @@ def _combined_grammar() -> str:
         "| LEGACY_PRINT legacy_value_expression [LEGACY_TO legacy_output_path [LEGACY_MODE (LEGACY_REPLACE | LEGACY_APPEND)]] -> print",
         "| LEGACY_PRINT legacy_value_expression LEGACY_TO legacy_output_path [LEGACY_MODE (LEGACY_REPLACE | LEGACY_APPEND)] -> print",
     )
-    proto_source = proto_source.replace('let_stmt: \"let\" CNAME \"=\" expression', 'let_stmt.10: \"let\" CNAME \"=\" expression')
     proto_source = proto_source.replace(
-        "          | proto_expression\n",
-        "          | legacy_statement -> host_statement\n          | proto_expression\n",
+        "?proto_closed_statement: proto_let_stmt",
+        "?proto_closed_statement: legacy_statement -> host_statement\n"
+        "                  | proto_let_stmt",
     )
     legacy_source = legacy_source.replace(
         "legacy_editor_start: (legacy_editor_token | proto_editor_token)*",

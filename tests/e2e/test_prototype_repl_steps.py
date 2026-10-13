@@ -179,6 +179,8 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         os.write(master, sequence.encode())
         if marker:
             visible = read_until(marker, idle=success)
+        elif success:
+            visible = read_until("", idle=True)
         return visible or "\n".join(screen.display)
 
     def wait_for_exit(timeout: float = 10) -> int:
@@ -219,6 +221,9 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             'print "MUTATION_${mutation}"',
             "MUTATION_703",
         )
+        screenshot = submit("let x = 1", "")
+        screenshot += submit("let y = if $x > 0 then $x * 10 else 1", "")
+        screenshot += submit('print "SCREENSHOT_${y}"', "SCREENSHOT_10")
 
         # ctk() keeps native analysis inside the interactive compiled runtime;
         # its returned MatchRows are consumed by a conditional collected loop.
@@ -281,6 +286,7 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         return {
             "ui": ui,
             "result": result,
+            "screenshot": screenshot,
             "native": native,
             "lazy": lazy,
             "cancellation": cancellation,
@@ -312,6 +318,7 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     evidence = compiled_repl_evidence
     assert evidence["ui"] in {"prompt", "workspace"}
     assert "SETUP_146" in evidence["result"] and "MUTATION_703" in evidence["result"]
+    assert "SCREENSHOT_10" in evidence["screenshot"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]
     assert "LAZY_401" in evidence["lazy"]
     assert "division by zero" in evidence["error"]

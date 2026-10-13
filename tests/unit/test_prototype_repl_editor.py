@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from prompt_toolkit.document import Document
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.input import PipeInput, create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.validation import ValidationError
@@ -14,6 +15,7 @@ from prompt_toolkit.validation import ValidationError
 from clang_toolkit.cli.app import DispatchResult
 from clang_toolkit.cli.prompt import create_session
 from clang_toolkit.cli.runtime.prototype.repl_editor import (
+    PrototypeCompleter,
     PrototypeInputValidator,
     PrototypeReplLexer,
     input_state,
@@ -136,3 +138,17 @@ def test_workspace_enter_uses_active_compiled_completeness_and_keeps_bad_source(
         assert submitted == [complete]
 
     asyncio.run(_interact_compiled(tmp_path, drive, execute))
+
+
+def test_then_is_valid_highlighted_and_completed_for_conditionals():
+    source = "let value = if true then 2 else 1"
+    tokens = lex(source)
+    assert "ERROR" not in {_kind(token) for token in tokens}
+    assert not input_state(source).needs_more
+    lexer = PrototypeReplLexer()
+    then_parts = lexer.lex_document(Document(source))(0)
+    assert ("class:keyword", "then") in then_parts
+
+    base = create_session(output=DummyOutput()).completer
+    completions = list(PrototypeCompleter(base).get_completions(Document("the"), CompleteEvent()))
+    assert any(item.text == "then" for item in completions)

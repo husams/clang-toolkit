@@ -16,10 +16,12 @@ from prompt_toolkit.utils import get_cwidth
 from clang_toolkit.cli.app import DispatchResult, dispatch_result
 from clang_toolkit.cli.highlight import highlight
 from clang_toolkit.cli.runtime import Runtime
+from clang_toolkit.cli.runtime.prototype.repl_editor import PrototypeReplLexer
 from clang_toolkit.cli.workspace import WorkspaceConsole
 from clang_toolkit.cli.workspace_transcript import (
     CodeRows,
     ErrorSpan,
+    StyledBlock,
     TranscriptLexer,
     command_block,
     error_span,
@@ -121,6 +123,41 @@ def test_code_rows_wrap_and_fill_without_changing_search_source(width: int) -> N
             transformed.display_to_source(transformed.source_to_display(index)) == index
         )
     assert "     │ " not in document.text
+
+
+def test_transcript_uses_active_compiled_lexer_for_completed_code() -> None:
+    source = "let x = 1\nlet y = if $x > 0 then $x * 10 + 1 else 1"
+    text = command_block(source)
+    lexer = TranscriptLexer(PrototypeReplLexer()).lex_document(Document(text))
+
+    operator_styles = {
+        token: style for style, token in lexer(1) if token in {">", "*", "+"}
+    }
+    assert set(operator_styles) == {">", "*", "+"}
+    assert all("class:operator" in style for style in operator_styles.values())
+    assert all("class:error" not in style for style in operator_styles.values())
+    assert any(
+        style.endswith("class:keyword")
+        for style, token in lexer(1)
+        if token == "then"
+    )
+
+    legacy = TranscriptLexer().lex_document(Document(command_block("let y = 1 + 2")))
+    assert any("class:error" in style for style, token in legacy(0) if token == "+")
+
+
+def test_stored_transcript_styles_override_active_lexer_across_lines() -> None:
+    text = command_block("let y = 1 +\n2")
+    styled = [
+        [("class:code class:stored", line)]
+        for line in text.splitlines()
+    ]
+    transcript = TranscriptLexer(PrototypeReplLexer())
+    transcript.blocks.append(StyledBlock(0, text, styled))
+
+    lines = transcript.lex_document(Document(text))
+    assert all("class:stored" in style for style, _ in lines(0))
+    assert all("class:stored" in style for style, _ in lines(1))
 
 
 def test_workspace_syntax_roles_distinguish_commands_matchers_and_literals() -> None:

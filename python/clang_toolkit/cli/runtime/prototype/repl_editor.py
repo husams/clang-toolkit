@@ -25,6 +25,7 @@ _KEYWORDS = frozenset(
     {
         "and",
         "do",
+        "then",
         "else",
         "false",
         "foreach",
@@ -211,12 +212,13 @@ class PrototypeReplLexer(Lexer):
                 "?",
             }:
                 style = "operator"
-            elif kind in {
+            elif str(token) in _KEYWORDS or kind in {
                 "LET",
                 "PRINT",
                 "FOREACH",
                 "IN",
                 "DO",
+                "THEN",
                 "DONE",
                 "IF",
                 "ELSE",

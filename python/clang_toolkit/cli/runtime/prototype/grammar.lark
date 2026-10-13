@@ -6,35 +6,62 @@ start: program
 program: separators? statement (separators statement)* separators?
         |                  -> empty_program
 
-?statement: let_stmt
-          | foreach_expr
-          | print_stmt
-          | assign_stmt
-          | expression
+?statement: closed_statement | open_statement
+?closed_statement: let_stmt
+                  | print_stmt
+                  | assign_stmt
+                  | closed_expression
+?open_statement: open_let_stmt
+               | open_print_stmt
+               | target ASSIGN_OP open_expression -> assign_stmt
+               | open_expression
 
-let_stmt: "let" CNAME "=" expression
-print_stmt: "print" expression
-foreach_expr: "foreach" CNAME "in" expression body
-assign_stmt: target ASSIGN_OP expression
+let_stmt.10: "let" CNAME "=" closed_expression
+open_let_stmt.10: "let" CNAME "=" open_expression -> let_stmt
+print_stmt.10: "print" closed_expression
+open_print_stmt.10: "print" open_expression -> print_stmt
+assign_stmt: target ASSIGN_OP closed_expression
 
-if_expr: "if" expression body if_else?
-if_else: separators? "else" else_body
-else_body: "do" statement       -> single_else_body
-         | "do"? block           -> block_else_body
-         | statement              -> statement_else_body
-unless_expr: "unless" expression body if_else?
+?expression: closed_expression | open_expression
+?closed_expression: conditional
+                  | closed_if_expr
+                  | closed_unless_expr
+                  | closed_foreach_expr
+?open_expression: open_if_expr
+                 | open_unless_expr
+                 | open_foreach_expr
 
-body: "do" statement       -> single_body
-    | "do"? block           -> block_body
+closed_if_expr: "if" expression closed_conditional_body closed_if_else -> if_expr
+open_if_expr: "if" expression conditional_body -> if_expr
+            | "if" expression closed_conditional_body open_if_else -> if_expr
+closed_unless_expr: "unless" expression closed_conditional_body closed_if_else -> unless_expr
+open_unless_expr: "unless" expression conditional_body -> unless_expr
+                | "unless" expression closed_conditional_body open_if_else -> unless_expr
+closed_if_else: separators? "else" closed_else_body -> if_else
+open_if_else: separators? "else" open_else_body -> if_else
+closed_else_body: "do" closed_statement -> single_else_body
+                | "do"? block -> block_else_body
+                | closed_statement -> statement_else_body
+open_else_body: "do" open_statement -> single_else_body
+              | open_statement -> statement_else_body
+closed_conditional_body: "do" closed_statement -> single_body
+                       | "then" closed_statement -> single_body
+                       | "do"? block -> block_body
+                       | "then" block -> block_body
+conditional_body: "do" statement -> single_body
+                | "then" statement -> single_body
+                | "do"? block -> block_body
+                | "then" block -> block_body
+
+closed_foreach_expr.10: "foreach" CNAME "in" expression closed_body -> foreach_expr
+open_foreach_expr.10: "foreach" CNAME "in" expression open_body -> foreach_expr
+closed_body: "do" closed_statement -> single_body
+           | "do"? block -> block_body
+open_body: "do" open_statement -> single_body
 
 block: "{" block_contents? "}"
 block_contents: separators? statement (separators statement)* separators?
 
-?expression: control_expression
-           | conditional
-?control_expression: if_expr
-                    | unless_expr
-                    | foreach_expr
 ?conditional: or_expr
             | or_expr soft_newlines "?" soft_newlines conditional soft_newlines ":" soft_newlines conditional
 ?or_expr: and_expr (soft_newlines "or" soft_newlines and_expr)*

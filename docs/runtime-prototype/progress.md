@@ -54,3 +54,18 @@ Status: complete; ordinary `uv run ctk` in the isolated checkout now opens the c
 Ownership: root owns app.py, pyproject.toml, entrypoint unit tests and documentation; E2E worker owns the two default-launch terminal cases; independent explorer reviews argument handling and refreshed installation metadata.
 
 Validation: all 1,252 Python unit tests passed in 27.76 seconds; both default-entrypoint PTY BDD scenarios passed in 20.26 seconds, including native continuation, cancellation/recovery and resource cleanup. The exact `let x = 1` / `let y = $x + 1` example followed by `print $y` prints 2 through `uv run ctk`. Independent review verified the installed entrypoint, explicit overrides, help and version behavior. Ruff and whitespace checks pass. Prior 343 native and 123 existing BDD checks remain applicable because native code and the core module default are unchanged. Main checkout remains clean.
+
+
+## Conditional syntax and transcript follow-up — 2026-10-13
+
+Status: complete; the exact `let y = if $x > 0 then $x * 10 else 1` input is accepted, and completed workspace transcripts use the selected engine's grammar.
+
+- [x] Add `then` for `if` and `unless` bodies while preserving `do`, brace blocks and existing `foreach` syntax.
+- [x] Encode matched/open conditional forms in the grammar so `else` binds the nearest unmatched conditional; preserve grouping and explicit empty branches.
+- [x] Verify both engines, lazy branches, scope cleanup, multiline and nested forms, and bare dictionary keys named `then`.
+- [x] Use the active prototype lexer for completed transcript rows; preserve legacy semantic matcher colors and styled result overlays.
+- [x] Verify both real consoles through the ordinary installed default entrypoint, run complete regression gates and obtain independent approval.
+
+Ownership: syntax worker owns formal grammar, syntax lowering, combined grammar/editor adaptation and semantic regression tests; UI worker owns workspace/transcript lexer plumbing, its regression tests and real-console cases; root owns integration, full gates, documentation and delivery records. Independent explorer reviewed final grammar and legacy styling compatibility.
+
+Validation: 1,288 complete Python unit tests passed in 38.90 seconds, all 343 native tests passed together against the existing main build in 31.649 seconds with fresh storage, and both final-grammar PTY scenarios passed in 30.73 seconds. The installed `uv run ctk` computes 20 for the exact screenshot example. Regression cases preserve nearest-inner else, explicit empty else and parentheses/block boundaries; both engines share unchanged checked evaluator/compiler operations. Independent review, cache-free Ruff and whitespace checks passed. Native source/API/build files are unchanged; main checkout remains clean. Restart an existing console to load the parser and transcript update.

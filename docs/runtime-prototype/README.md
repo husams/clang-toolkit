@@ -35,6 +35,16 @@ let report = {
 print $report
 ```
 
+The agreed `if ... then ... else` expression is also accepted:
+
+```text
+let x = 2
+let y = if $x > 0 then $x * 10 else 1
+print $y
+```
+
+This prints `20`. `if` and `unless` accept `then` or `do` before a single statement or brace block; `foreach` uses `do` or a brace block. Completed workspace transcript rows use the active scripting grammar, so accepted operators are not shown as syntax errors.
+
 The report has `total: 12`, `label: "large"` and `message: "below threshold"`. The next submission can use `$total += 1; print $total`; it prints `13`. Bindings persist between submissions. Enter continues incomplete expressions and open blocks; the workspace also supports Alt-Enter for a newline and Ctrl-J to submit.
 
 The same engine runs file/stdin/`--execute` scripts:
@@ -47,7 +57,7 @@ The combined formal grammar keeps native CTK operations such as `let rows = matc
 
 `let` and mutation are quiet. Assigned control-flow expressions collect their final values without automatic display, including nested prints to the configured display sink. Explicit `print ... to ...` and `save` remain file effects. Bare values and unconsumed branches display their result; print output that precedes a later failure remains visible. Workspace results retain structured outlines.
 
-This checkout's `uv run ctk` entrypoint defaults to `compiled`; restart an already running console to use the updated default. Use `--script-engine tree` to compare the reference evaluator, or `--script-engine legacy` for the previous parser. The main checkout and direct `python -m clang_toolkit.cli.app` launch retain the legacy default. Older `do ... done` loop syntax and `--continue-on-error` remain available with the legacy engine; the compiled dialect uses `do STATEMENT` or brace blocks.
+This checkout's `uv run ctk` entrypoint defaults to `compiled`; restart an already running console to use the updated default. Use `--script-engine tree` to compare the reference evaluator, or `--script-engine legacy` for the previous parser. The main checkout and direct `python -m clang_toolkit.cli.app` launch retain the legacy default. Older `do ... done` loop syntax and `--continue-on-error` remain available with the legacy engine; the compiled dialect uses `do STATEMENT` or brace blocks, with `then` also available for conditional bodies.
 
 ## Run the complete example
 

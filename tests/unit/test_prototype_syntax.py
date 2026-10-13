@@ -134,3 +134,36 @@ def test_parse_errors_are_lark_errors_with_location() -> None:
 def test_integer_outside_signed_64_bit_range_is_rejected() -> None:
     with pytest.raises(ValueError, match="signed 64-bit"):
         parse("let value = 9223372036854775809")
+
+
+def test_mixed_then_do_dangling_else_binds_to_nearest_unbraced_conditional():
+    nested = parse("if false then if true do 1 else 2").children[0]
+    assert nested.kind == "conditional"
+    assert not nested.children[2].children
+    inner = nested.children[1].children[0]
+    assert inner.kind == "conditional"
+    assert inner.children[2].children[0].value == 2
+
+    inverse = parse("if false do if true then 1 else 2").children[0]
+    assert not inverse.children[2].children
+    assert inverse.children[1].children[0].children[2].children[0].value == 2
+
+
+def test_explicit_then_block_keeps_else_on_outer_conditional():
+    outer = parse("if false then { if true do 1 } else 2").children[0]
+    assert outer.children[2].children[0].value == 2
+    assert not outer.children[1].children[0].children[2].children
+
+
+def test_dangling_else_keeps_explicit_inner_else_and_grouping():
+    explicit_inner = parse(
+        "if false then if true then 1 else {} else 2"
+    ).children[0]
+    assert explicit_inner.children[2].children[0].value == 2
+    inner = explicit_inner.children[1].children[0]
+    assert inner.children[2].kind == "block"
+    assert not inner.children[2].children
+
+    grouped = parse("if false then (if true then 1) else 2").children[0]
+    assert grouped.children[2].children[0].value == 2
+    assert grouped.children[1].children[0].kind == "conditional"
