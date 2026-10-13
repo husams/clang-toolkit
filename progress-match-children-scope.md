@@ -16,13 +16,15 @@ Files and parsed trees can establish bindings first, then those nodes can be use
 as explicit scoped roots. Scope limits candidate roots; matcher relationship
 predicates still use the pinned AST context.
 
-Validation: 352 native tests pass with a private TMPDIR and storage root, and
+Validation: 353 native tests pass with a private TMPDIR and storage root, and
 1148 Python tests pass. The complete acceptance run passed 127 cases; one SDK
 case still expected base bindings to advertise no scope. It now expects CHILDREN
 and exercises native type-location children through both sync and async SDKs.
 The final SDK/navigation/traversal rerun passed all eight cases, covering all 128
 distinct acceptance cases. An earlier native run lost an existing fixed-name
 temporary fixture; the full run passed after isolating temporary files.
+The final native regression matches template-argument locations lacking pointer
+identity and returns through their retained parent without Clang equality asserts.
 
 The real TTY console executed every statement in examples/match_children_scope.ctk
 and exited successfully: two immediate methods versus three recursive methods,

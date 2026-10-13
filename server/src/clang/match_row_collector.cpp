@@ -3,6 +3,25 @@
 #include "serialization/node_serializers.hpp"
 
 namespace ctk::clang_layer {
+namespace {
+bool same_native_node(const clang::DynTypedNode &left,
+                      const clang::DynTypedNode &right) {
+  if (!left.getNodeKind().isSame(right.getNodeKind()))
+    return false;
+  if ((left.getMemoizationData() && right.getMemoizationData()) ||
+      left.get<clang::QualType>() || left.get<clang::TypeLoc>() ||
+      left.get<clang::NestedNameSpecifierLoc>())
+    return left == right;
+  if (const auto *argument = left.get<clang::TemplateArgumentLoc>()) {
+    const auto *other = right.get<clang::TemplateArgumentLoc>();
+    const auto range = argument->getSourceRange();
+    return range.isValid() && range == other->getSourceRange() &&
+           argument->getArgument().structurallyEquals(other->getArgument());
+  }
+  // Clang's DynTypedNode equality asserts for other non-memoizable values.
+  return false;
+}
+} // namespace
 RowCollector::RowCollector(MatchExecution &result, CapturedBindingState &state,
                            const IMatchBackend::Checkpoint &checkpoint,
                            const MatchLimits &limits,
@@ -33,7 +52,7 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
     row.set_source_match_index(*source_row);
   if (target_node) {
     const auto named = nodes.find("target");
-    if (named != nodes.end() && !(named->second == *target_node)) {
+    if (named != nodes.end() && !same_native_node(named->second, *target_node)) {
       result_.code = MatchCode::InvalidArgument;
       result_.message =
           "target is reserved for the navigation candidate; "
@@ -60,7 +79,8 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
       serialization::helpers::write_match_metadata(node, value, context);
     value.add_supported_scopes(ctk::match::v1::BINDING_MATCH_SCOPE_CHILDREN);
     if (target_parent && candidate_node &&
-        ((target_node && name == "target") || node == *candidate_node))
+        ((target_node && name == "target") ||
+         same_native_node(node, *candidate_node)))
       parents.emplace(name, *target_parent);
     native.emplace(name, node);
   }

@@ -131,6 +131,28 @@ TEST_F(MatchCursors, ChildrenScopeRetainsAuxiliaryParentForEachCandidateAlias) {
             source.response.results(0).bindings().at("f").symbol_identity());
 }
 
+TEST_F(MatchCursors, ChildrenScopeMatchesTemplateArgumentLocationsWithoutPointerIdentity) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "template<class T> struct Holder {}; Holder<int> item;";
+  const auto source = run(file("varDecl(hasName(\"item\")).bind(\"v\")"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  auto type_request = binding(source.response, "v", "typeLoc().bind(\"loc\")");
+  type_request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto types = fork(type_request);
+  ASSERT_EQ(types.code, MatchCode::Ok) << types.message;
+  ASSERT_EQ(types.response.results_size(), 1);
+  auto request = binding(types.response, "loc", "templateArgumentLoc().bind(\"arg\")");
+  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  const auto arguments = fork(request);
+  ASSERT_EQ(arguments.code, MatchCode::Ok) << arguments.message;
+  ASSERT_EQ(arguments.response.results_size(), 1);
+  const auto up = run(navigation(arguments.response, "arg", NAVIGATION_AXIS_PARENTS));
+  ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
+  EXPECT_EQ(up.response.results_size(), 1);
+  EXPECT_EQ(up.response.results(0).bindings().at("target").SerializeAsString(),
+            types.response.results(0).bindings().at("loc").SerializeAsString());
+}
+
 TEST_F(MatchCursors, ChildrenScopeStreamsAndCancellationPreservesSource) {
   const auto source = run(file("functionDecl(hasName(\"alpha\")).bind(\"f\")"));
   auto request = binding(source.response, "f", "compoundStmt()");
