@@ -1,6 +1,6 @@
 ---
 name: ctk-script
-description: Write, run, explain, and debug clang-toolkit CTK scripts using the console DSL or native server language. Use for .ctk files, parse/match/foreach workflows, binding-field extraction, and script or batch execution; use the SDK reasoning skill for Python API tasks.
+description: Write, run, explain, and debug clang-toolkit scripts using the compiled console DSL, legacy console DSL, or native server language. Use for .ctk files, parse/match/foreach workflows, binding-field extraction, expressions, and script or batch execution; use the SDK reasoning skill for Python API tasks.
 ---
 
 # Write and use CTK scripts
@@ -9,17 +9,17 @@ Produce runnable CTK statements that answer the user's question and verify them 
 
 ## Choose the language
 
-- **Console DSL (default):** interactive `ctk`, `ctk --script FILE.ctk`, or `ctk --execute TEXT`. Read [console.md](references/console.md).
+- **Console DSL:** `ctk` (including `uv run ctk`) defaults to the compiled engine. It supports arithmetic, Boolean logic, value-producing conditions, mutation, and value predicates. Read [console.md](references/console.md). `python -m clang_toolkit.cli.app` and `scripts/manual_console.sh` retain the legacy default; pass `--script-engine compiled` there when using the compiled syntax. `--script-engine tree` selects the reference evaluator, and `legacy` selects the previous parser.
 - **Named script arguments:** `ctk FILE.ctk x=value` runs the file and exposes the literal string as `$arg.x`; `--script`, `--execute`, and piped runs accept the same arguments.
 - **Text and CSV inputs:** `read` returns text lines or CSV records; trim strings explicitly with `.strip()`. See the complete input example in [console.md](references/console.md).
 - **Native server DSL:** the console's `script "SOURCE" [in "TARGET"]`, SDK `run_script`, or a `background batch`/`durable batch` body. Read [native.md](references/native.md). This language uses explicit `emit` statements.
 - For multi-file discovery, batching, resource cleanup, and exports, also read [batches.md](references/batches.md).
 
-`--script FILE.ctk` and `script "SOURCE"` are different execution paths. Do not mix their comments, functions, field methods, loop terminators, or output conventions.
+`--script FILE.ctk` and `script "SOURCE"` are different execution paths. Do not mix their comments, functions, field methods, loop terminators, or output conventions. Compiled-console arithmetic, conditions, mutation, and value predicates do not add those features to native server scripts or server-side batch bodies.
 
 ## Work through the language
 
-Use the supplied target and endpoint; `ctk` without an override uses its configured server. Use `help match`, `help foreach`, or the relevant topic to confirm syntax, and `server status` to check readiness. Do not install packages, restart the user's service, change persistent settings, or substitute Python SDK calls merely to make a script example run.
+Use the supplied target and endpoint; `ctk` without an override uses its configured server. Use `help match`, `help foreach`, `help predicates`, or the relevant topic to confirm syntax, and `server status` to check readiness. Do not install packages, restart the user's service, change persistent settings, or substitute Python SDK calls merely to make a script example run.
 
 When the user requests console-only exploration or forbids file reading, use a real TTY-backed `ctk` session, bounded statements, console help, `.keys`, and `inspect`; do not inspect target source, configuration, or implementation files. For ordinary script authoring, use bundled references first and read target source only when the user asks. Follow applicable wiki-first instructions for project/design context; historical proposals do not prove runtime support.
 
@@ -39,4 +39,4 @@ Use `$row.f.qualified_name`, `$row.f.decl_name`, and other discovered direct pro
 
 Return the exact script and observed output or an explicit unverified boundary when details are requested. Follow the user's response-length preference. Parsing syntax or reading a manual is not live verification.
 
-Console guidance was refreshed on 2026-10-12 after the text/CSV reads, whole interactive scripts, and named script arguments were merged. Native-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` when installed behavior differs.
+Console guidance was refreshed on 2026-10-13 for the compiled entrypoint and its expression, control-flow, mutation, and predicate syntax. Native-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `ctk --version` when installed behavior differs.

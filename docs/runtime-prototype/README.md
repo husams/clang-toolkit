@@ -1,8 +1,8 @@
 # CTK runtime prototype
 
-This isolated prototype compares a tree interpreter with compile-once Python execution for the proposed scripting language. Both engines evaluate the same parsed AST with the same checked operations, lexical scopes, execution budget and host-function registry.
+The CTK scripting runtime provides a tree interpreter and compile-once Python execution for expressions and control flow, with the compiled engine selected by the ordinary `ctk` entrypoint. Both engines evaluate the same parsed AST with the same checked operations, lexical scopes, execution budget and host-function registry.
 
-Branch: `codex/scripting-runtime-prototype`; base: `8907c6a`. The standalone experiment and a compiled version of both existing console views are available in this checkout. Native `RunScript` remains unchanged.
+Branch: `codex/scripting-runtime-prototype`; base: `8907c6a`. The standalone comparison and compiled scripting in both existing console views are available in this checkout and in the published package entrypoint. Native `RunScript` remains unchanged.
 
 ## Try the compiled REPL
 
@@ -57,7 +57,7 @@ The combined formal grammar keeps native CTK operations such as `let rows = matc
 
 `let` and mutation are quiet. Assigned control-flow expressions collect their final values without automatic display, including nested prints to the configured display sink. Explicit `print ... to ...` and `save` remain file effects. Bare values and unconsumed branches display their result; print output that precedes a later failure remains visible. Workspace results retain structured outlines.
 
-This checkout's `uv run ctk` entrypoint defaults to `compiled`; restart an already running console to use the updated default. Use `--script-engine tree` to compare the reference evaluator, or `--script-engine legacy` for the previous parser. The main checkout and direct `python -m clang_toolkit.cli.app` launch retain the legacy default. Older `do ... done` loop syntax and `--continue-on-error` remain available with the legacy engine; the compiled dialect uses `do STATEMENT` or brace blocks, with `then` also available for conditional bodies.
+This checkout's `uv run ctk` entrypoint defaults to `compiled`; restart an already running console to use the updated default. Use `--script-engine tree` to compare the reference evaluator, or `--script-engine legacy` for the previous parser. The package entrypoint selects compiled scripting on `main` as well; direct `python -m clang_toolkit.cli.app` and the manual-console launcher retain the legacy default unless an engine is selected explicitly. Older `do ... done` loop syntax and `--continue-on-error` remain available with the legacy engine; the compiled dialect uses `do STATEMENT` or brace blocks, with `then` also available for conditional bodies.
 
 ## Run the complete example
 

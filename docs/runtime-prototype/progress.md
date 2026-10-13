@@ -87,3 +87,10 @@ Status: complete; all targeted checks and the full E2E regression gate passed.
 Validation: 1,381 Python unit tests passed in 31.79 seconds; 343 native tests passed in 22.118 seconds; all 125 E2E scenarios passed in 565.51 seconds with warnings only; and Ruff and whitespace checks passed. The two predicate PTY scenarios passed in 22.59 seconds through default compiled `uv run ctk` in prompt and workspace views. The exact README example was run through the real CLI against a temporary private server and `struct Sample {};` fixture; all eight printed values were `true`. Independent review approved tree/compiled predicate parity, native availability and schema diagnostics, and local exact node-kind checks.
 
 Files: `tests/unit/test_prototype_predicates.py`, `tests/e2e/test_prototype_repl_steps.py`, and this document plus `README.md`.
+
+
+## Publication and CTK scripting skill follow-up — 2026-10-13
+
+The approved publication keeps the ordinary package `ctk` entrypoint compiled in both consoles, while direct module/manual-console invocation and `--script-engine legacy` retain the original dialect. Native-server scripting and RPC contracts are unchanged. Repository and installed skill references describe the new expression, condition, mutation and predicate forms, with explicit legacy selection for `done` and `--continue-on-error`.
+
+The documentation-only follow-up preserves the verified implementation: 1,381 Python unit tests, all 125 E2E scenarios and 343 tests in the existing native development build passed. The complete updated skill examples also passed through ordinary `uv run ctk`, including primitive predicates/conditionals, collections, text/CSV reads and literal named arguments. Independent review confirmed compatibility with the base native server. Skill validation and whitespace checks passed.
