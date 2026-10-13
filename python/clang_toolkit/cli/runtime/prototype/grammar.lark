@@ -15,6 +15,7 @@ program: separators? statement (separators statement)* separators?
                   | assign_stmt
                   | closed_expression
 ?open_statement: open_let_stmt
+               | open_runnable_definition
                | open_print_stmt
                | target ASSIGN_OP open_expression -> assign_stmt
                | open_expression
@@ -26,6 +27,8 @@ open_print_stmt.10: "print" open_expression -> print_stmt
 assign_stmt: target ASSIGN_OP closed_expression
 
 runnable_definition.20: "let" CNAME "(" parameters? ")" "=" block
+                      | "let" CNAME "(" parameters? ")" "=" closed_expression
+open_runnable_definition.20: "let" CNAME "(" parameters? ")" "=" open_expression -> runnable_definition
 parameters: separators? parameter ("," separators? parameter)* ","? separators?
 parameter: CNAME ("=" expression)?
 

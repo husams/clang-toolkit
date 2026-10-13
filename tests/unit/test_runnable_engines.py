@@ -119,3 +119,48 @@ def test_default_arity_is_checked_before_argument_effects(execute):
 def test_required_parameter_after_default_is_rejected(execute):
     with pytest.raises(ValueError, match="required parameters"):
         execute("let f(a = 1, b) = { a }")
+
+
+def test_expression_bodies_calls_defaults_and_lazy_conditionals(execute):
+    value, context = execute(
+        "let add(l, r = 1) = l + r; let inc(x) = add(x, 1); "
+        "let constant(x) = add(1, 2); "
+        "let add_if(l, h) = if l < h then l + h else 0; "
+        "let safe(x) = if x == 0 then 7 else 10 / x; "
+        "[add(2), inc(4), constant(9), add_if(2, 5), add_if(5, 2), safe(0)]"
+    )
+    assert value == [3, 5, 3, 7, 0, 7]
+    assert context.scopes == (context.bindings,)
+
+
+def test_expression_bodies_capture_alias_and_recursive_self(execute):
+    value, _ = execute(
+        "let factor = 2; let scale(x) = x * factor; let alias = scale; "
+        "let caller(factor) = alias(3); "
+        "let sum(n) = if n == 0 then 0 else n + sum(n - 1); "
+        "let original = sum; let sum(n) = 0; [caller(9), original(5)]"
+    )
+    assert value == [6, 15]
+
+
+def test_expression_body_compiles_without_tree_dispatch(monkeypatch):
+    compiled = compile_program(parse("let add(l, r) = l + r; add(19, 23)"))
+    monkeypatch.setattr("clang_toolkit.cli.runtime.prototype.semantics.eval_statement",
+                        lambda *_: pytest.fail("tree dispatch"))
+    assert compiled(Context()) == 42
+
+
+def test_expression_body_is_dormant_and_conditionals_keep_their_else(execute):
+    seen = []
+    context = Context(functions={"side": lambda: seen.append(1) or 7})
+    execute("let dormant() = side()", context)
+    assert seen == []
+    value, _ = execute(
+        "let choose(x) = if x > 0 then if x < 10 then x else 10 else 0\n"
+        "let optional(x) = if x > 0 then x\n"
+        "let multiline(x) = (x +\n 1)\n"
+        "[choose(5), choose(12), choose(-1), optional(0), multiline(2), dormant()]",
+        context,
+    )
+    assert value == [5, 10, 0, None, 3, 7]
+    assert seen == [1]
