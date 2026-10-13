@@ -14,6 +14,17 @@ Feature: Console collections and local libraries
     When I run a script importing nested matcher libraries
     Then the imported matcher and variables work against native results
 
+  Scenario Outline: Preload matcher libraries before console scripts
+    Given a private server and a collection library fixture
+    When I run the <engine> console with a configured library directory
+    Then the imported matcher and variables work against native results
+
+    Examples:
+      | engine   |
+      | legacy   |
+      | tree     |
+      | compiled |
+
   Scenario: Print native UTF-8 string literal bytes as text
     Given a private server and a collection library fixture
     When I print a native UTF-8 string literal through the CLI
