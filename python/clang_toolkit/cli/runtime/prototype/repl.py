@@ -221,7 +221,9 @@ class ReplSession:
 
             return render_help(tree)
         if mode == "expression" and kind not in {"display", "match"}:
-            return self.runtime._evaluate(tree)
+            expression = Tree("display", [tree], meta=tree.meta)
+            return self.runtime._evaluate_statement_once(
+                expression, self.source, value_context=True)[0]
         visible = mode == "statement" and not context.consume_depth
         if visible:
             self.check_output_capacity()

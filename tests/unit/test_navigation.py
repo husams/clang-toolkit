@@ -136,6 +136,27 @@ def test_console_navigation_reuses_matcher_variables(selected_client, tmp_path):
     runtime.close()
 
 
+@pytest.mark.parametrize("engine", ["tree", "compiled"])
+def test_compiled_navigation_assignment_is_silent_and_standalone_streams(
+        selected_client, tmp_path, capsys, engine):
+    from clang_toolkit.cli.app import dispatch_result
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client, source, requests, _ = selected_client
+    runtime = PrototypeRuntime(client, cwd=tmp_path, script_engine=engine)
+    runtime.bindings["node"] = source
+    assigned = dispatch_result(client, "let items = peek children compoundStmt() in $node", runtime)
+    assert assigned.success and assigned.output == ""
+    assert capsys.readouterr().out == ""
+    assert len(runtime.bindings["items"]) == 1
+    assert runtime._value_context_depth == 0
+    standalone = dispatch_result(client, "peek children compoundStmt() in $node", runtime)
+    assert standalone.success and "1 neighbours" in standalone.output
+    assert "compound_stmt" in capsys.readouterr().out
+    assert requests[-1].query == "compoundStmt()"
+    runtime.close()
+
+
 def test_async_navigation_uses_stream_rpc_and_waits_for_completion(monkeypatch):
     value = row("target")
     observed = []

@@ -142,16 +142,17 @@ def navigate_inheritance(navigation_server, tmp_path):
     path.write_text((root / "examples/multiple_inheritance_navigation.cc").read_text())
     script = (root / "examples/multiple_inheritance_navigation.ctk").read_text().replace(
         '"examples/multiple_inheritance_navigation.cc"', f'"{path}"')
-    cli = subprocess.run(
-        [sys.executable, "-m", "clang_toolkit.cli.app", "--server",
-         navigation_server.endpoint, "--execute", script], text=True,
-        capture_output=True, timeout=60,
-        env={**os.environ, "PYTHONPATH": str(root / "python")})
-    assert cli.returncode == 0, cli.stdout + cli.stderr
-    assert cli.stdout.splitlines() == [
-        "demo::Left", "demo::Right", "demo::Root", "demo::Root",
-        "Unique base classes:", "demo::Left", "demo::Right", "demo::Root",
-        "3", "demo::Leaf"]
+    for engine in ["legacy", "tree", "compiled"]:
+        cli = subprocess.run(
+            [sys.executable, "-m", "clang_toolkit.cli.app", "--server",
+             navigation_server.endpoint, "--script-engine", engine, "--execute", script],
+            text=True, capture_output=True, timeout=60,
+            env={**os.environ, "PYTHONPATH": str(root / "python")})
+        assert cli.returncode == 0, cli.stdout + cli.stderr
+        assert cli.stdout.splitlines() == [
+            "demo::Left", "demo::Right", "demo::Root", "demo::Root",
+            "Unique base classes:", "demo::Left", "demo::Right", "demo::Root",
+            "3", "demo::Leaf"]
     query = 'cxxBaseSpecifier(hasType(cxxRecordDecl().bind("base")))'
     with Client(navigation_server.endpoint) as client:
         tree = client.parse(path)
