@@ -140,6 +140,26 @@ def test_native_match_target_suffixes_stay_inside_host_command() -> None:
     ]
 
 
+@pytest.mark.parametrize("command", ["match", 'cursor open "sample.cc"', "cfg"])
+def test_multiline_matchers_keep_legacy_host_tree_shape(command: str) -> None:
+    matcher = 'functionDecl(\n hasName(\n "caller"\n )\n, unless(isImplicit())\n).bind(\n "f"\n)'
+    tree, mode = _host(parse(f"{command} {matcher}").children[0])
+    single_line = f"{command} " + matcher.replace("\n", " ")
+    assert tree == _host(parse(single_line).children[0])[0]
+    assert mode == "statement"
+
+
+def test_invalid_multiline_matcher_keeps_original_error_coordinates() -> None:
+    with pytest.raises(UnexpectedInput) as failure:
+        parse("let class = recordDecl(\n isExpansionInMainFile(),\n @\n)")
+    assert (failure.value.line, failure.value.column) == (3, 2)
+
+
+def test_semicolon_is_not_matcher_argument_whitespace() -> None:
+    with pytest.raises(UnexpectedInput):
+        parse("let class = recordDecl(\n isExpansionInMainFile();\n unless(isImplicit())\n)")
+
+
 def test_grouping_allows_postfix_on_native_command_result() -> None:
     value = parse("let field = (match callExpr() in $rows).field").children[0]
     access = value.children[0]

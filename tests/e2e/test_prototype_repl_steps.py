@@ -244,6 +244,17 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         )
         native += submit(continuation_query, "CONTINUATION_106")
 
+        native += submit(
+            f'let root = parse "{source.name}"\n'
+            'let class = recordDecl(\n'
+            '    isExpansionInMainFile(),\n'
+            '    unless(isImplicit())\n'
+            ')\n'
+            'let class_rows = match $class in $root\n'
+            'print "MULTILINE_MATCHER_${class_rows.length}"',
+            "MULTILINE_MATCHER_1",
+        )
+
         predicates = submit(
             'let data = {a: null, disabled: false}\n'
             'let present = $data has a\n'
@@ -339,6 +350,7 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     assert "SETUP_146" in evidence["result"] and "MUTATION_703" in evidence["result"]
     assert "SCREENSHOT_10" in evidence["screenshot"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]
+    assert "MULTILINE_MATCHER_1" in evidence["native"]
     assert "PREDICATES_11111" in evidence["predicates"]
     assert "LAZY_401" in evidence["lazy"]
     assert "division by zero" in evidence["error"]

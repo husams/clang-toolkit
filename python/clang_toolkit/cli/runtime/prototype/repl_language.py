@@ -179,6 +179,24 @@ proto_named_call: PROTO_UTILITY_NAME""",
         (
             legacy_source,
             proto_source,
+            # The legacy LALR parser removes expression newlines in its
+            # postlexer. Earley's dynamic lexer cannot use that postlexer, so
+            # preserve matcher continuation here as formal grammar rules.
+            # Hidden newline tokens retain source positions without changing
+            # the host trees consumed by the legacy evaluator.
+            r"""
+_host_newlines: _HOST_NEWLINE*
+_HOST_NEWLINE: /\r?\n/
+
+%override legacy_matcher_definition: LEGACY_LET LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_parameters] _host_newlines LEGACY_RPAR LEGACY_EQUAL legacy_root_expression
+%override legacy_parameters: LEGACY_NAME (_host_newlines LEGACY_COMMA _host_newlines LEGACY_NAME)*
+%override legacy_root_matcher: LEGACY_ROOT_MATCHER_NAME LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
+%override legacy_nested_matcher: LEGACY_MATCHER_NAME _host_newlines LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
+%override legacy_arguments: legacy_argument (_host_newlines LEGACY_COMMA _host_newlines legacy_argument)*
+%override legacy_bind: LEGACY_BIND LEGACY_LPAR _host_newlines LEGACY_STRING _host_newlines LEGACY_RPAR
+%override legacy_target_matcher: LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_target_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
+%override legacy_target_arguments: legacy_target_expression (_host_newlines LEGACY_COMMA _host_newlines legacy_target_expression)*
+""",
             """
 repl_start: proto_start
 editor_start: (legacy_editor_token | proto_editor_token)*
