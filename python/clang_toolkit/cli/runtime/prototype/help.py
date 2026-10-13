@@ -47,13 +47,19 @@ _LET = """let: Bind a value, matcher function or runnable body.
 Usage:
   let NAME = VALUE
   let NAME(PARAM, ...) = MATCHER
-  let NAME(PARAM, ...) = { STATEMENTS }
+  let NAME(PARAM, OPTIONAL = EXPR, ...) = { STATEMENTS }
   let NAME() = { STATEMENTS }
   NAME(ARG, ...)
 References use bare names, fields and zero-based indexes: rows[0].f.
 Double quotes interpolate checked expressions: "answer={value * 2}".
 Use {{ and }} for literal braces; single quotes keep literal text.
 Definitions are dormant. Brace bodies compile to Python AST functions once.
+Omitted defaults run per call, left to right, with earlier parameters in scope.
+Optional handlers come first: on error EXPR or { STATEMENTS }; on exit EXPR or { STATEMENTS }.
+Errors return the error handler value; exit cleanup runs after success or failure
+and ignores its value. Call-site EXPR on error EXPR or { STATEMENTS } is lazy.
+In foreach bodies, on error break stops the nearest loop; on error continue skips
+the failed iteration. Cleanup runs first. Limits and cancellation cannot be recovered.
 Each call has fresh parameters and locals and returns its final statement value;
 an empty body returns null. Captures use the definition's lexical environment.
 Aliases retain their original function after redefinition. Recursive calls use
@@ -64,6 +70,7 @@ Foreground batches snapshot plain captures per group and inspect reachable calls
 Runnable values cannot be exported or retained as batch results.
 Examples:
   let twice(value) = { value * 2 }
+  let scale(value, factor = 2) = { value * factor }
   let answer = twice(21)
   let announce() = { print "ready" }
   announce()

@@ -13,6 +13,7 @@ from .semantics import (
     _static_predicate_name, _predicate, _predicate_binding,
 )
 from .runnables import define_runnable, invoke_named
+from .control import FATAL_ERRORS, LoopBreak, LoopContinue, cleanup, recover, split_handlers
 
 
 def _tick(context: Context, node: Any) -> None:
@@ -261,6 +262,10 @@ class _Lowerer:
         elif kind == "call":
             args = [self.emit_expr(x) for x in child_values(node)]
             expr = self.call("_call", context, nref, ast.Constant(_name(node)), self.lambda0(ast.List(args, ast.Load())))
+        elif kind == "recovery":
+            body = ast.Lambda(ast.arguments([], [ast.arg("context")], None, [], [], None, []), self.emit_expr(child_values(node)[0]))
+            fallback = ast.Name(self.emit_block_function(child_values(node)[1]), ast.Load())
+            expr = self.call("_recover", context, body, fallback)
         elif kind == "foreach":
             return self.call(self.emit_foreach_function(node), context)
         elif kind == "binary":
@@ -323,9 +328,23 @@ class _Lowerer:
         self.counter += 1
         values = child(block, "statements", 0, ()) if isinstance(children(block), Mapping) else child_values(block)
         statements = tuple(values) if isinstance(values, (tuple, list)) else (values,)
-        body = [ast.Expr(self.call("_tick", ast.Name("context", ast.Load()), self.node_ref(block))), ast.Assign([ast.Name("last", ast.Store())], ast.Constant(None))]
+        handlers, statements = split_handlers(statements)
+        context = ast.Name("context", ast.Load())
+        body = [ast.Expr(self.call("_tick", context, self.node_ref(block))), ast.Assign([ast.Name("last", ast.Store())], ast.Constant(None))]
         for statement in statements:
             body.extend(self.emit_stmt(statement))
+        if handlers:
+            catches = []
+            if "error" in handlers:
+                fallback = self.emit_block_function(handlers["error"])
+                catches = [ast.ExceptHandler(ast.Name("_FatalErrors", ast.Load()), None, [ast.Raise()]),
+                           ast.ExceptHandler(ast.Name("_Exception", ast.Load()), None,
+                                             [ast.Assign([ast.Name("last", ast.Store())], self.call(fallback, context))])]
+            final = []
+            if "exit" in handlers:
+                action = ast.Name(self.emit_block_function(handlers["exit"]), ast.Load())
+                final = [ast.Expr(self.call("_cleanup", context, action))]
+            body = [ast.Try(body, catches, [], final)]
         body.append(ast.Return(ast.Name("last", ast.Load())))
         self.functions.append(ast.FunctionDef(name, ast.arguments([], [ast.arg("context")], None, [], [], None, []), body, []))
         return name
@@ -341,7 +360,10 @@ class _Lowerer:
             ast.Expr(self.call("_check_items", context, self.node_ref(node), self.call("len", ast.Name(results, ast.Load())))),
             ast.Expr(self.call("_tick", context, self.node_ref(node))),
             ast.Expr(ast.Call(ast.Attribute(context, "push_scope", ast.Load()), [ast.Dict([ast.Constant(str(getattr(node, "value", "")))], [ast.Name(item, ast.Load())])], [])),
-            ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))], [], [], [ast.Expr(ast.Call(ast.Attribute(context, "pop_scope", ast.Load()), [], []))]),
+            ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))],
+                    [ast.ExceptHandler(ast.Name("_LoopBreak", ast.Load()), None, [ast.Break()]),
+                     ast.ExceptHandler(ast.Name("_LoopContinue", ast.Load()), None, [ast.Continue()])],
+                    [], [ast.Expr(ast.Call(ast.Attribute(context, "pop_scope", ast.Load()), [], []))]),
             ast.Expr(ast.Call(ast.Attribute(ast.Name(results, ast.Load()), "append", ast.Load()), [ast.Name("last", ast.Load())], [])),
         ]
         return [
@@ -365,6 +387,9 @@ class _Lowerer:
         if kind == "observe":
             statement = child_values(node)[0]
             return [*self.emit_stmt(statement), ast.Expr(self.call("_observe", context, self.node_ref(statement), ast.Name("last", ast.Load())))]
+        if kind == "flow":
+            signal = "_LoopBreak" if node.value == "break" else "_LoopContinue"
+            return [ast.Expr(self.call("_tick", context, nref)), ast.Raise(self.call(signal))]
         if kind == "foreach":
             return self.emit_foreach(node)
         if kind == "block":
@@ -409,6 +434,8 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_host": host_value, "_observe": observe_statement, "_consume": consumed_value,
         "_lookup": _lookup, "_define": _define, "_make_list": _make_list,
         "_define_runnable": define_runnable,
+        "_recover": recover, "_cleanup": cleanup, "_FatalErrors": FATAL_ERRORS,
+        "_Exception": Exception, "_LoopBreak": LoopBreak, "_LoopContinue": LoopContinue,
         "_make_dict": _make_dict, "_get": _get, "_index": _index, "_iterable": _iterable,
         "_logical": _logical, "_binary": _binary, "_unary": _unary,
         "_predicate": _predicate, "_predicate_binding": _predicate_binding,

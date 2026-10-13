@@ -81,3 +81,12 @@ def test_library_syntax_error_uses_library_source(runtime):
     result = dispatch_result(runtime.client, 'import "syntax.ctk"', runtime)
     assert not result.success and "syntax.ctk" in result.output
     assert "line 2" in result.output
+
+
+def test_imported_defaults_and_handlers_retain_compiled_code(runtime):
+    (runtime.cwd / "handlers.ctk").write_text('let divide(lhs, rhs = 1) = { on error 0; on exit 99; lhs / rhs }\n')
+    assert dispatch_result(runtime.client, 'import "handlers.ctk"', runtime).success
+    for value in range(65):
+        assert dispatch_result(runtime.client, f"let unused = {value}", runtime).success
+    assert dispatch_result(runtime.client, "let answer = [divide(10), divide(10, 0)]", runtime).success
+    assert runtime.bindings["answer"] == [10, 0]

@@ -21,7 +21,7 @@ from .syntax import Node
 from .tree import evaluate
 
 
-class _ExitRequested(Exception):
+class _ExitRequested(BaseException):
     """Stop this submission at an explicit console exit command."""
 
 
@@ -398,7 +398,7 @@ class ReplSession:
         return value
 
     def observe(self, context: Context, node: Node, value: Any) -> None:
-        tail = self.last_tail if node.kind in {"conditional", "block", "call"} else node.kind
+        tail = self.last_tail if node.kind in {"conditional", "block", "call", "recovery"} else node.kind
         self.last_tail = tail
         if id(node) not in self.top_statements:
             if node.kind == "host" and id(node) in self.host_displays:

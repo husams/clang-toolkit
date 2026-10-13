@@ -1,5 +1,5 @@
 Feature: Compiled scripts in the interactive REPL
-  The isolated project's default ctk entrypoint runs compiled scripts and reusable let bodies with bare names inside both console interfaces.
+  The isolated project's default ctk entrypoint runs compiled scripts and reusable let bodies with bare names with default parameters, optional error/exit handlers, and loop recovery inside both console interfaces.
 
   Scenario: Prompt REPL executes compiled conditionals and recovers after errors
     Given an isolated compiled prompt REPL and native sample

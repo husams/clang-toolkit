@@ -329,6 +329,9 @@ def parse(source: str) -> Node:
         if not isinstance(result, Node):
             raise TypeError("combined REPL parser did not produce a prototype node")
         _validate_integer_ranges(result)
+        from .syntax import _validate_control_scope
+
+        _validate_control_scope(result)
         _validate_host_control_scope(result)
         return result
     except VisitError as error:

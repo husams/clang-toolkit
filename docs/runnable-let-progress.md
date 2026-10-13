@@ -38,6 +38,6 @@ Native ANTLR/durable batch parity remains outside this Python compiler delivery.
 ## Defaults and handlers extension
 
 - [x] Defaults evaluated per omitted argument in the lexical call frame.
-- [ ] Optional prefix error/exit handlers and call-site fallbacks compiled to Python.
-- [ ] Loop break/continue after cleanup, shared budgets and resource guards.
+- [x] Optional prefix error/exit handlers and call-site fallbacks compiled to Python.
+- [x] Loop break/continue after cleanup, shared budgets and resource guards.
 - [ ] Console/import/batch integration, help, documentation and regression gates.

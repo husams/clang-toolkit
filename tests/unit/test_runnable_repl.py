@@ -84,3 +84,17 @@ def test_auxiliary_native_matchers_are_not_parsed_as_runnable_calls(runtime):
     assert runtime.bindings["edges"].name == "cxxBaseSpecifier"
     result = dispatch_result(runtime.client, 'let cxxBaseSpecifier() = { 1 }', runtime)
     assert not result.success and "built-in callable" in result.output
+
+
+def test_handlers_defaults_and_cleanup_display_across_submissions(runtime):
+    assert submit(runtime, 'let divide(lhs, rhs = 1) = { on error 0; on exit { print "clean" }; lhs / rhs }') == ""
+    assert submit(runtime, 'divide(10)') == "clean\n10.0"
+    assert submit(runtime, 'divide(10, 0)') == "clean\n0"
+    assert submit(runtime, 'let value = divide(10, 0); print value') == "0"
+    assert submit(runtime, 'divide(10) on error 99') == "clean\n10.0"
+    assert submit(runtime, '1 / 0 on error { print "handled"; 9 }') == "handled\n9"
+    assert runtime._scopes == []
+
+
+def test_loop_handlers_accept_native_host_actions(runtime):
+    assert submit(runtime, 'let events = []; let values = foreach item in [1, 0, 2] do { on error continue; on exit { events.push(item) }; 10 / item }; print "{values.length}:{events.length}"') == "2:3"

@@ -252,6 +252,46 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             "RUNNABLE_NO_PARAMS",
         )
 
+        handlers = submit(
+            'let cleanup_count = [0]\n'
+            'let divide(lhs, rhs = 1) = {\n'
+            '  on error 0\n'
+            '  on exit { cleanup_count[0] += 1 }\n'
+            '  lhs / rhs\n'
+            '}\n'
+            'let normal = divide(10)\n'
+            'let handled = divide(10, 0)\n'
+            'let fallback = (1 / 0) on error { 7 }\n'
+            'let continued = foreach item in [2, 0, 5] do {\n'
+            '  on error continue\n'
+            '  on exit { cleanup_count[0] += 1 }\n'
+            '  10 / item\n'
+            '}\n'
+            'let stopped = foreach item in [2, 0, 5] do {\n'
+            '  on error { break }\n'
+            '  10 / item\n'
+            '}\n'
+            'let handler_ok = normal == 10 and handled == 0 and fallback == 7\n'
+            'let loops_ok = continued.length == 2 and stopped.length == 1\n'
+            'let handler_result = handler_ok and loops_ok\n'
+            'print "HANDLERS_{handler_result}_{cleanup_count[0]}"',
+            "HANDLERS_true_5",
+        )
+        handlers += submit(
+            'let owned(path, divisor = 1) = {\n'
+            '  on error 0\n'
+            '  on exit { file close opened }\n'
+            '  file open path into opened\n'
+            '  10 / divisor\n'
+            '}\n'
+            f'let opened_ok = owned("{source.name}")\n'
+            f'let opened_failed = owned("{source.name}", 0)\n'
+            'print "HANDLER_NATIVE_{opened_ok == 10}_{opened_failed}"',
+            "HANDLER_NATIVE_true_0",
+        )
+        with Client(server.endpoint) as observer:
+            assert observer.resource_status().explicit_file_leases == 0
+
         # ctk() keeps native analysis inside the interactive compiled runtime;
         # its returned MatchRows are consumed by a conditional collected loop.
         root_query = (
@@ -343,6 +383,7 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             "result": result,
             "screenshot": screenshot,
             "runnables": runnables,
+            "handlers": handlers,
             "native": native,
             "predicates": predicates,
             "lazy": lazy,
@@ -379,6 +420,8 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     assert "RUNNABLE_42_4" in evidence["runnables"]
     assert "RUNNABLE_MATCH_1" in evidence["runnables"]
     assert "RUNNABLE_NO_PARAMS" in evidence["runnables"]
+    assert "HANDLERS_true_5" in evidence["handlers"]
+    assert "HANDLER_NATIVE_true_0" in evidence["handlers"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]
     assert "MULTILINE_MATCHER_1" in evidence["native"]
     assert "PREDICATES_11111" in evidence["predicates"]

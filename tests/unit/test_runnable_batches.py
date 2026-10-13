@@ -94,3 +94,19 @@ def test_omitted_defaults_are_inspected_before_batch_admission(runtime):
     assert not runtime._prototype_session.requirements('let dormant(a = unsafe()) = { a }').background_query
     assert runtime._prototype_session.requirements('let call(a = unsafe()) = { a }; call()').background_query
     assert not runtime._prototype_session.requirements('apply(null)').background_query
+
+
+@pytest.mark.parametrize("handler", ["on error", "on exit"])
+def test_unsafe_handler_actions_are_rejected_before_admission(runtime, handler):
+    submit(runtime, f'let operation() = {{ {handler} {{ background functionDecl() }}; 1 / 0 }}')
+    result = dispatch_result(runtime.client, 'let report = batch chunk in inputs size 1 progress off do { operation() }', runtime)
+    assert not result.success and "foreground" in result.output
+    assert runtime.client.scopes == []
+
+
+def test_batch_groups_run_handlers_and_defaults_in_frozen_scopes(runtime):
+    submit(runtime, 'let state = [0]; let operation(value = 0) = { on error 7; on exit { state[0] += 1 }; 1 / value }')
+    submit(runtime, 'let report = batch chunk in inputs size 1 progress off do { operation() }')
+    assert runtime.bindings["report"]["results"] == [7, 7]
+    assert runtime.bindings["state"] == [0]
+    assert all(scope.released for scope in runtime.client.scopes)
