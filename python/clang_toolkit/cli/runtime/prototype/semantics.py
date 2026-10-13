@@ -111,6 +111,11 @@ class Context:
             raise _error(self, node, f"undefined binding {name!r}")
         return scope[name]
 
+    def binding_state(self, name: str, node: Any = None) -> tuple[bool, Any]:
+        """Return lexical binding presence and its value without raising if absent."""
+        scope = self.lookup_scope(name)
+        return (True, scope[name]) if scope is not None else (False, None)
+
     def assign_binding(self, name: str, value: Any, node: Any = None) -> Any:
         scope = self.lookup_scope(name)
         if scope is None:
@@ -224,6 +229,17 @@ def _expr(node: Any, position: int = 0, name: str = "expr") -> Any:
     return result
 
 
+def _static_predicate_name(value: Any) -> str | None:
+    """Return a literal predicate name without treating it as a variable."""
+    if isinstance(value, str):
+        return value
+    if _kind(value) == "literal" and isinstance(node_value(value), str):
+        return node_value(value)
+    if value is None:
+        return None
+    return None
+
+
 def _as_bool(ctx: Context, value: Any, node: Any) -> bool:
     if type(value) is not bool:
         raise _error(ctx, node, f"condition requires bool, got {type(value).__name__}")
@@ -301,6 +317,66 @@ def _binary(ctx: Context, op: str, left: Any, right: Any, node: Any) -> Any:
         quotient = (abs(left) // abs(right)) * (-1 if (left < 0) != (right < 0) else 1)
         return _int(ctx, left - quotient * right, node)
     raise _error(ctx, node, f"unknown binary operator {op!r}")
+
+
+_SCALAR_TYPES = (bool, int, float, str, type(None))
+
+
+def _predicate(ctx: Context, node: Any, op: str, left: Any, right: Any = None) -> bool:
+    """Apply one already-evaluated value predicate."""
+    if op in {"has", "does_not_have"}:
+        if type(right) is not str:
+            raise _error(ctx, node, "field name must be a string")
+        try:
+            from .native_predicates import has_field
+
+            result = has_field(left, right)
+        except (ValueError, TypeError) as error:
+            raise _error(ctx, node, str(error)) from error
+        return not result if op == "does_not_have" else result
+    if op in {"is_kind", "is_not_kind"}:
+        if type(right) is not str:
+            raise _error(ctx, node, "node kind name must be a string")
+        try:
+            from .native_predicates import is_node_kind
+
+            result = is_node_kind(left, right)
+        except (ValueError, TypeError) as error:
+            raise _error(ctx, node, str(error)) from error
+        return not result if op == "is_not_kind" else result
+    if op in {"in", "not_in"}:
+        if type(right) is not list:
+            raise _error(ctx, node, "membership requires a plain list")
+        if type(left) not in _SCALAR_TYPES:
+            raise _error(ctx, node, f"membership equality does not support {type(left).__name__}")
+        if type(left) is int:
+            _int(ctx, left, node)
+        elif type(left) is float:
+            _finite(ctx, left, node)
+        found = False
+        for item in right:
+            if type(item) not in _SCALAR_TYPES:
+                raise _error(ctx, node, f"membership equality does not support {type(item).__name__}")
+            ctx.tick(node)
+            if type(item) is int:
+                _int(ctx, item, node)
+            elif type(item) is float:
+                _finite(ctx, item, node)
+            if _binary(ctx, "==", left, item, node):
+                found = True
+                break
+        return not found if op == "not_in" else found
+    raise _error(ctx, node, f"unknown predicate {op!r}")
+
+
+def _predicate_binding(ctx: Context, node: Any, op: str, name: str) -> bool:
+    if op not in {"is_defined", "is_not_defined", "is_set", "is_not_set"}:
+        raise _error(ctx, node, f"unknown binding predicate {op!r}")
+    if type(name) is not str:
+        raise _error(ctx, node, f"{op} requires a variable reference")
+    defined, value = ctx.binding_state(name, node)
+    result = defined if op in {"is_defined", "is_not_defined"} else defined and value is not None
+    return not result if op in {"is_not_defined", "is_not_set"} else result
 
 
 def _unary(ctx: Context, op: str, value: Any, node: Any) -> Any:
@@ -558,6 +634,28 @@ def eval_expr(ctx: Context, node: Any) -> Any:
                 return True
             return _binary(ctx, op, left, eval_expr(ctx, _expr(node, 1, "rhs")), node)
         return _binary(ctx, op, left, eval_expr(ctx, _expr(node, 1, "rhs")), node)
+    if kind == "predicate":
+        op = str(node_value(node))
+        operand = _expr(node, 0, "operand")
+        if op in {"is_defined", "is_not_defined", "is_set", "is_not_set"}:
+            if _kind(operand) != "ref":
+                raise _error(ctx, node, f"{op} requires a variable reference")
+            return _predicate_binding(ctx, node, op, _name(operand))
+        if op in {"is_kind", "is_not_kind"}:
+            kind_node = _expr(node, 1, "kind")
+            kind_name = _static_predicate_name(kind_node)
+            value = eval_expr(ctx, operand)
+            return _predicate(ctx, node, op, value, kind_name)
+        if op in {"has", "does_not_have"}:
+            key_node = _expr(node, 1, "key")
+            value = eval_expr(ctx, operand)
+            key = _static_predicate_name(key_node)
+            if key is None:
+                key = eval_expr(ctx, key_node)
+            return _predicate(ctx, node, op, value, key)
+        if op in {"in", "not_in"}:
+            return _predicate(ctx, node, op, eval_expr(ctx, operand), eval_expr(ctx, _expr(node, 1, "rhs")))
+        raise _error(ctx, node, f"unknown predicate {op!r}")
     if kind == "unary":
         return _unary(ctx, str(node_value(node)), eval_expr(ctx, _expr(node, 0, "expr")), node)
     if kind == "conditional":
@@ -611,7 +709,7 @@ def eval_statement(ctx: Context, node: Any) -> Any:
         return eval_foreach(ctx, node)
     if kind == "block":
         return eval_block(ctx, node)
-    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "unary", "host"}:
+    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "predicate", "unary", "host"}:
         return eval_expr(ctx, node)
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 

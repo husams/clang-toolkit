@@ -25,12 +25,17 @@ _KEYWORDS = frozenset(
     {
         "and",
         "do",
+        "does",
+        "defined",
         "then",
         "else",
         "false",
         "foreach",
+        "has",
+        "have",
         "if",
         "in",
+        "is",
         "let",
         "not",
         "null",
@@ -38,6 +43,7 @@ _KEYWORDS = frozenset(
         "print",
         "true",
         "unless",
+        "set",
     }
 )
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
@@ -178,6 +184,7 @@ class PrototypeReplLexer(Lexer):
             elif kind in {
                 "OPEN_STRING",
                 "STRING",
+                "PREDICATE_STRING",
                 "FILE_STRING",
                 "DIRECTORY_STRING",
                 "PATH_STRING",

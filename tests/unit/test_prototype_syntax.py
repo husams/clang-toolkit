@@ -167,3 +167,77 @@ def test_dangling_else_keeps_explicit_inner_else_and_grouping():
     grouped = parse("if false then (if true then 1) else 2").children[0]
     assert grouped.children[2].children[0].value == 2
     assert grouped.children[1].children[0].kind == "conditional"
+
+
+def test_value_predicates_build_the_shared_predicate_ir():
+    cases = {
+        "$record has a": ("has", "ref", "record", "literal", "a"),
+        '$record has "a"': ("has", "ref", "record", "literal", "a"),
+        "$record has 'a'": ("has", "ref", "record", "literal", "a"),
+        "$record has ($key)": ("has", "ref", "record", "ref", "key"),
+        "$record does not have a": ("does_not_have", "ref", "record", "literal", "a"),
+        "2 in $items": ("in", "literal", 2, "ref", "items"),
+        "2 not in $items": ("not_in", "literal", 2, "ref", "items"),
+        "$node is CXXRecord": ("is_kind", "ref", "node", "literal", "CXXRecord"),
+        "$node is not CXXRecord": ("is_not_kind", "ref", "node", "literal", "CXXRecord"),
+        "$x is defined": ("is_defined", "ref", "x", None, None),
+        "$x is not defined": ("is_not_defined", "ref", "x", None, None),
+        "$x is set": ("is_set", "ref", "x", None, None),
+        "$x is not set": ("is_not_set", "ref", "x", None, None),
+    }
+    for source, (kind, left_kind, left_value, right_kind, right_value) in cases.items():
+        predicate = parse(source).children[0]
+        assert predicate.kind == "predicate" and predicate.value == kind
+        assert (predicate.children[0].kind, predicate.children[0].value) == (left_kind, left_value)
+        if right_kind is None:
+            assert len(predicate.children) == 1
+        else:
+            assert (predicate.children[1].kind, predicate.children[1].value) == (right_kind, right_value)
+
+
+@pytest.mark.parametrize("source", ["1 < 2 < 3", "$x is set is defined", "$r has a has b"])
+def test_chained_comparisons_and_predicates_are_rejected(source: str) -> None:
+    with pytest.raises(UnexpectedInput):
+        parse(source)
+
+
+@pytest.mark.parametrize("source", ["$x.member is defined", "false is set", "($x + 1) is not defined"])
+def test_defined_and_set_predicates_require_a_root_reference(source: str) -> None:
+    with pytest.raises(ValueError, match=r"root variable reference at line 1, column"):
+        parse(source)
+
+
+def test_grouped_root_reference_is_valid_for_binding_predicates() -> None:
+    predicate = parse("($x) is defined").children[0]
+    assert predicate.kind == "predicate" and predicate.value == "is_defined"
+    assert predicate.children[0].kind == "ref" and predicate.children[0].value == "x"
+
+
+def test_predicate_words_do_not_split_identifiers_or_postfix_access() -> None:
+    for source in (
+        "$data.disabled",
+        "$this",
+        "$pin[1]",
+        "$row.has_value",
+        "$row.doesMore",
+        "$row.have_name",
+        "$row.inside",
+        "$row.island",
+        "$row.notable",
+        "$row.definedness",
+        "$row.setting",
+        "$candy",
+        "$forever",
+        "$information",
+        "$records[0].item is CXXRecord",
+        "$records[0].item is not CXXRecord",
+        "$records[0].record_name is CXXRecord",
+        "$records[0].record_name is not CXXRecord",
+    ):
+        assert parse(source).children[0].kind in {"ref", "get", "index", "predicate"}
+
+
+def test_logical_word_operators_do_not_split_reference_names() -> None:
+    expression = parse("true and $candy or $forever").children[0]
+    assert expression.kind == "binary" and expression.value == "or"
+    assert expression.children[0].kind == "binary" and expression.children[0].value == "and"

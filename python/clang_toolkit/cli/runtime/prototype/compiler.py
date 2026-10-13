@@ -10,6 +10,7 @@ from .semantics import (
     Context, ExecutionLimitError, Node, PrototypeError, _as_bool, _binary,
     _ensure_dict_capacity, _ensure_insertable, _error, _finite, _int, _kind, _name, _unary, child, children,
     child_values, consumed_value, host_value, index_value, iterable_value, observe_statement, property_value,
+    _static_predicate_name, _predicate, _predicate_binding,
 )
 
 
@@ -271,6 +272,30 @@ class _Lowerer:
                 expr = self.call("_logical", context, nref, ast.Constant(op), self.lambda0(self.emit_expr(left)), self.lambda0(self.emit_expr(right)))
             else:
                 expr = self.call("_binary", context, ast.Constant(op), self.emit_expr(left), self.emit_expr(right), nref)
+        elif kind == "predicate":
+            op = str(getattr(node, "value", None))
+            operand = child(node, "operand", 0)
+            if operand is None:
+                operand = child(node, "lhs", 0)
+            if op in {"is_defined", "is_not_defined", "is_set", "is_not_set"}:
+                if _kind(operand) != "ref":
+                    expr = self.call("_predicate_binding", context, nref, ast.Constant(op), ast.Constant(None))
+                else:
+                    expr = self.call("_predicate_binding", context, nref, ast.Constant(op), ast.Constant(_name(operand)))
+            elif op in {"is_kind", "is_not_kind"}:
+                kind_node = child(node, "kind", 1)
+                kind_name = _static_predicate_name(kind_node)
+                expr = self.call("_predicate", context, nref, ast.Constant(op), self.emit_expr(operand), ast.Constant(kind_name))
+            elif op in {"has", "does_not_have"}:
+                key_node = child(node, "key", 1)
+                key_name = _static_predicate_name(key_node)
+                key_expr = ast.Constant(key_name) if key_name is not None else self.emit_expr(key_node)
+                expr = self.call("_predicate", context, nref, ast.Constant(op), self.emit_expr(operand), key_expr)
+            elif op in {"in", "not_in"}:
+                rhs = child(node, "rhs", 1)
+                expr = self.call("_predicate", context, nref, ast.Constant(op), self.emit_expr(operand), self.emit_expr(rhs))
+            else:
+                expr = self.call("_predicate", context, nref, ast.Constant(op), ast.Constant(None), ast.Constant(None))
         elif kind == "unary":
             expr = self.call("_unary", context, ast.Constant(str(getattr(node, "value", None))), self.emit_expr(child(node, "expr", 0)), nref)
         elif kind == "conditional":
@@ -382,6 +407,7 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_lookup": _lookup, "_define": _define, "_make_list": _make_list,
         "_make_dict": _make_dict, "_get": _get, "_index": _index, "_iterable": _iterable,
         "_logical": _logical, "_binary": _binary, "_unary": _unary,
+        "_predicate": _predicate, "_predicate_binding": _predicate_binding,
         "_call": _call, "_conditional": _conditional, "_run_scoped": _run_scoped,
         "_print": _print, "_assign_ref": _assign_ref, "_assign_index": _assign_index, "_assign_get": _assign_get,
         "_bad_target": _bad_target, "_check_items": _check_items, "len": len,

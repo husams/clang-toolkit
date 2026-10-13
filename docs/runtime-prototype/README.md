@@ -88,6 +88,7 @@ The compiler builds Python `ast` nodes and uses `compile()` once. Generated loop
 
 - Numbers, strings, booleans, `null`, lists and dictionaries with bare identifier keys.
 - Checked arithmetic, comparisons, strict Boolean `and/or/not`, and unary signs.
+- Presence (`$record has field`), list membership (`in` / `not in`), exact semantic node-kind tests, and separate binding `defined` / non-null `set` predicates.
 - Value-producing `if/else`, `unless/else`, and `condition ? true_value : false_value`.
 - Local `let`, direct and compound assignment to existing bindings and owned list/dictionary entries.
 - Single-statement bodies without braces, multi-statement brace bodies, newline separators and same-line semicolons.
@@ -95,6 +96,51 @@ The compiler builds Python `ast` nodes and uses `compile()` once. Generated loop
 - Field and index reads through existing CTK value adapters, named registered host functions, and bounded `len/range`.
 
 Branches return their final statement value. Locals remain scoped; assignments update the nearest existing binding. Failed target updates preserve the old value. A missing conditional branch returns `null`. A skipped branch performs no host call. Prints capture owned container values at emission while retaining native value identities.
+
+Predicates return booleans in conditions and ordinary expressions. Their five forms are:
+
+| Predicate family | Forms | Meaning |
+| --- | --- | --- |
+| Field presence | `$record has field`; `$record does not have "field"`; `$record has ($key)` | Tests key presence, including when its value is `null`; a grouped expression supplies a dynamic key. |
+| List membership | `$value in $values`; `$value not in $values` | Checks list elements with strict scalar equality and stops at the first match. |
+| Semantic node kind | `$row.item is CXXRecord`; `$row.item is not CXXRecordDecl` | Tests the exact serialized kind; `CXXRecord` is the alias for `CXXRecordDecl`. |
+| Binding defined | `$name is defined`; `$name is not defined` | Tests whether the root name resolves without reading a missing name. |
+| Binding set | `$name is set`; `$name is not set` | A set binding is defined and non-null; `false`, `0`, and empty values still count as set. |
+
+For a complete REPL example, create a small source file that the selected server can parse:
+
+```sh
+cat > /tmp/ctk-predicate-example.cc <<'EOF'
+struct Sample {};
+EOF
+```
+
+Launch `uv run ctk` in this checkout with a running CTK server, then submit:
+
+```text
+let record = {a: null, enabled: false}
+let key = "a"
+let has_key = $record has a
+let lacks_key = $record does not have "missing"
+let has_dynamic_key = $record has ($key)
+let in_list = 2 in [1, 2, 3]
+let outside_list = 4 not in [1, 2, 3]
+let absent = $not_bound is not defined and $not_bound is not set
+let enabled = $record.enabled
+let enabled_is_set = $enabled is set
+let records = match cxxRecordDecl(hasName("Sample")).bind("item") in "/tmp/ctk-predicate-example.cc"
+let is_record = $records[0].item is CXXRecord and $records[0].item is CXXRecordDecl
+print $has_key
+print $lacks_key
+print $has_dynamic_key
+print $in_list
+print $outside_list
+print $absent
+print $enabled_is_set
+print $is_record
+```
+
+Each print is `true`. The node-kind query is also exercised against an actual match-bound `CXXRecord` in both prompt and workspace PTY tests. Membership checks stop at their first match, so an unsupported later element is only diagnosed if reached. Defined checks do not read missing names; both defined and set checks follow the REPL's existing name precedence. Node-kind tests inspect the selected semantic binding payload locally, while native field presence preserves existing availability and schema diagnostics.
 
 The shared numeric contract uses signed int64 and finite floating-point values. Booleans do not act as integers; mixed float operations reject lossy integer conversion. Integer remainder follows truncation toward zero.
 
@@ -130,10 +176,11 @@ These are local Python runtime measurements. The registered-host workload uses a
 
 ## Validation
 
-- All 1,242 Python unit tests passed; a final focused REPL/editor/CLI rerun passed 79 cases after the cancellation-status change.
-- All 343 native tests passed with fresh storage against the existing `ctk-server 0.1.0` binary at revision `e399a47c332e`. This Python-only worktree remains based on `8907c6a`; no native source, API or build changes are part of this extension.
+- All 1,381 Python unit tests passed in 31.79 seconds. Ruff passed.
+- All 343 native tests passed in 22.118 seconds with fresh storage against the existing `ctk-server 0.1.0` binary at revision `e399a47c332e`. This Python-only worktree remains based on `8907c6a`; no native source, API or build changes are part of this extension.
 - The existing BDD suite passed 122 cases in its full run. One workspace PTY case exceeded its 15-second deadline while awaiting a native parse; its isolated rerun passed. All 123 distinct existing cases therefore passed across those runs.
 - Two new real-server PTY scenarios passed in the prompt and workspace views. They exercise multiline paste, persistent bindings and mutation, expressions, direct native match/continuation, lazy host calls, error recovery, workspace Ctrl-C cancellation and recovery, ordinary `quit`, and zero resource counters after cleanup. Across existing and new cases, all 125 distinct BDD scenarios passed.
+- The final predicate PTY acceptance passed both prompt and workspace scenarios in 22.59 seconds, using the ordinary default `uv run ctk` compiled entrypoint and a match-bound `CXXRecord`. The complete E2E suite passed all 125 scenarios in 565.51 seconds, with warnings only.
 - Independent review approved tree/compiled parity, native target and presence-method compatibility, exactly-once query/rendering behavior, shared output limits, preserved output during interruption, scope recovery and native resource cleanup. Separate fresh PTY probes confirmed interpolation and ordinary quit in both views.
 - Ruff and whitespace checks passed. The documented launcher example produced the expected structured report with total 12, followed by 13 in the next calculation.
 

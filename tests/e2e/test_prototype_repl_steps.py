@@ -49,7 +49,8 @@ def _repl_fixture(
     source = tmp_path / "prototype_match.cc"
     source.write_text(
         "int callee() { return 7; }\n"
-        "int caller() { return callee(); }\n",
+        "int caller() { return callee(); }\n"
+        "struct Sample {};\n",
         encoding="utf-8",
     )
     return {"server": server, "source": source, "ui": ui}
@@ -243,6 +244,23 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
         )
         native += submit(continuation_query, "CONTINUATION_106")
 
+        predicates = submit(
+            'let data = {a: null, disabled: false}\n'
+            'let present = $data has a\n'
+            'let member = 2 in [1, 2, 3]\n'
+            'let absent = $not_bound is not defined and $not_bound is not set\n'
+            'let disabled = $data.disabled\n'
+            'let disabled_is_set = $disabled is set\n'
+            'let records = match cxxRecordDecl(hasName("Sample")).bind("item") '
+            f'in "{source.name}"\n'
+            'let is_record = $records[0].item is CXXRecord and '
+            '$records[0].item is CXXRecordDecl\n'
+            'let predicate_result = if $present and $member and $absent and '
+            '$disabled_is_set and $is_record then 11111 else 0\n'
+            'print "PREDICATES_${predicate_result}"',
+            "PREDICATES_11111",
+        )
+
         lazy = submit(
             'let skipped = false and ctk("file open \\"never-open.cc\\"")\n'
             'let also_skipped = true ? "safe" : ctk("server status")\n'
@@ -288,6 +306,7 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             "result": result,
             "screenshot": screenshot,
             "native": native,
+            "predicates": predicates,
             "lazy": lazy,
             "cancellation": cancellation,
             "cancel_recovery": cancel_recovery,
@@ -320,6 +339,7 @@ def verify_compiled_repl_evidence(compiled_repl_evidence):
     assert "SETUP_146" in evidence["result"] and "MUTATION_703" in evidence["result"]
     assert "SCREENSHOT_10" in evidence["screenshot"]
     assert "ROOT_107" in evidence["native"] and "CONTINUATION_106" in evidence["native"]
+    assert "PREDICATES_11111" in evidence["predicates"]
     assert "LAZY_401" in evidence["lazy"]
     assert "division by zero" in evidence["error"]
     assert "RECOVERED_30" in evidence["recovered"]

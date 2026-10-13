@@ -69,3 +69,21 @@ Status: complete; the exact `let y = if $x > 0 then $x * 10 else 1` input is acc
 Ownership: syntax worker owns formal grammar, syntax lowering, combined grammar/editor adaptation and semantic regression tests; UI worker owns workspace/transcript lexer plumbing, its regression tests and real-console cases; root owns integration, full gates, documentation and delivery records. Independent explorer reviewed final grammar and legacy styling compatibility.
 
 Validation: 1,288 complete Python unit tests passed in 38.90 seconds, all 343 native tests passed together against the existing main build in 31.649 seconds with fresh storage, and both final-grammar PTY scenarios passed in 30.73 seconds. The installed `uv run ctk` computes 20 for the exact screenshot example. Regression cases preserve nearest-inner else, explicit empty else and parentheses/block boundaries; both engines share unchanged checked evaluator/compiler operations. Independent review, cache-free Ruff and whitespace checks passed. Native source/API/build files are unchanged; main checkout remains clean. Restart an existing console to load the parser and transcript update.
+
+
+## Predicate acceptance follow-up — 2026-10-13
+
+Status: complete; all targeted checks and the full E2E regression gate passed.
+
+- [x] Add shared tree/compiled cases for field presence (including null and dynamic keys), strict list membership, defined/set states, lazy guards and lexical shadowing.
+- [x] Cover membership early-stop versus reached incomparable values, step limits, cancellation and located failures.
+- [x] Use generated `AstNode` / `MatchBinding` snapshots to assert exact canonical node kinds and the `CXXRecord` alias.
+- [x] Exercise persistent predicate assignments and failed-assignment atomicity through `PrototypeRuntime`.
+- [x] Extend both real-console scenarios to match a native `CXXRecordDecl` and evaluate predicates over its serialized binding.
+- [x] Run focused predicate unit acceptance (77 passed) and real-terminal PTY acceptance (2 passed in 22.59 seconds) through the default compiled `uv run ctk` entrypoint.
+- [x] Verify the complete README predicate example against the private server using the default compiled CLI.
+- [x] Complete the full E2E regression run; all 125 scenarios passed in 565.51 seconds (warnings only).
+
+Validation: 1,381 Python unit tests passed in 31.79 seconds; 343 native tests passed in 22.118 seconds; all 125 E2E scenarios passed in 565.51 seconds with warnings only; and Ruff and whitespace checks passed. The two predicate PTY scenarios passed in 22.59 seconds through default compiled `uv run ctk` in prompt and workspace views. The exact README example was run through the real CLI against a temporary private server and `struct Sample {};` fixture; all eight printed values were `true`. Independent review approved tree/compiled predicate parity, native availability and schema diagnostics, and local exact node-kind checks.
+
+Files: `tests/unit/test_prototype_predicates.py`, `tests/e2e/test_prototype_repl_steps.py`, and this document plus `README.md`.

@@ -91,7 +91,8 @@ class _Builder(Transformer[Any, Any]):
         return Node("print", children=(items[0],), line=line, column=column)
 
     def foreach_expr(self, meta: Any, items: list[Any]) -> Node:
-        name, iterable, block = items
+        name = next(item for item in items if isinstance(item, Token) and item.type == "CNAME")
+        iterable, block = [item for item in items if isinstance(item, Node)]
         line, column = self._location(meta, items)
         return Node("foreach", value=str(name), children=(iterable, block), line=line, column=column)
 
@@ -180,13 +181,71 @@ class _Builder(Transformer[Any, Any]):
 
     def comparison(self, meta: Any, items: list[Any]) -> Node:
         nodes = [item for item in items if isinstance(item, Node)]
-        operators = [item for item in items if isinstance(item, Token) and item.type == "COMPARE_OP"]
-        if not operators:
+        tails = [item for item in items if isinstance(item, _Part)]
+        if not tails:
             return nodes[0]
-        left, right = nodes
-        operator = operators[0]
+        left = nodes[0]
+        tail = tails[0]
         line, column = self._location(meta, items)
-        return Node("binary", value=str(operator), children=(left, right), line=line, column=column)
+        if tail.kind == "comparison":
+            return Node("binary", value=tail.value, children=(left, tail.children[0]), line=line, column=column)
+        kind = str(tail.value)
+        if kind in {"is_defined", "is_not_defined", "is_set", "is_not_set"} and left.kind != "ref":
+            raise ValueError(f"{kind.replace('_', ' ')} requires a root variable reference at line {line}, column {column}")
+        return Node("predicate", value=kind, children=(left, *tail.children), line=line, column=column)
+
+    def comparison_tail(self, meta: Any, items: list[Any]) -> _Part:
+        operator = next(item for item in items if isinstance(item, Token) and item.type == "COMPARE_OP")
+        right = next(item for item in items if isinstance(item, Node))
+        line, column = self._location(meta, items)
+        return _Part("comparison", value=str(operator), children=(right,), line=line, column=column)
+
+    def has_tail(self, meta: Any, items: list[Any]) -> _Part:
+        key = next(item for item in items if isinstance(item, Node))
+        return self._predicate_tail(meta, "has", (key,))
+
+    def does_not_have_tail(self, meta: Any, items: list[Any]) -> _Part:
+        key = next(item for item in items if isinstance(item, Node))
+        return self._predicate_tail(meta, "does_not_have", (key,))
+
+    def in_tail(self, meta: Any, items: list[Any]) -> _Part:
+        right = next(item for item in items if isinstance(item, Node))
+        return self._predicate_tail(meta, "in", (right,))
+
+    def not_in_tail(self, meta: Any, items: list[Any]) -> _Part:
+        right = next(item for item in items if isinstance(item, Node))
+        return self._predicate_tail(meta, "not_in", (right,))
+
+    def is_defined_tail(self, meta: Any, items: list[Any]) -> _Part:
+        return self._predicate_tail(meta, "is_defined")
+
+    def is_not_defined_tail(self, meta: Any, items: list[Any]) -> _Part:
+        return self._predicate_tail(meta, "is_not_defined")
+
+    def is_set_tail(self, meta: Any, items: list[Any]) -> _Part:
+        return self._predicate_tail(meta, "is_set")
+
+    def is_not_set_tail(self, meta: Any, items: list[Any]) -> _Part:
+        return self._predicate_tail(meta, "is_not_set")
+
+    def is_kind_tail(self, meta: Any, items: list[Any]) -> _Part:
+        name = next(item for item in items if isinstance(item, Token) and item.type == "CNAME")
+        line, column = self._location(meta, items)
+        return self._predicate_tail(meta, "is_kind", (Node("literal", value=str(name), line=line, column=column),))
+
+    def is_not_kind_tail(self, meta: Any, items: list[Any]) -> _Part:
+        name = next(item for item in items if isinstance(item, Token) and item.type == "CNAME")
+        line, column = self._location(meta, items)
+        return self._predicate_tail(meta, "is_not_kind", (Node("literal", value=str(name), line=line, column=column),))
+
+    def bare_key(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("literal", value=str(items[0]), line=line, column=column)
+
+    @staticmethod
+    def _predicate_tail(meta: Any, kind: str, children: tuple[Node, ...] = ()) -> _Part:
+        line, column = _Builder._location(meta, children)
+        return _Part("predicate", value=kind, children=children, line=line, column=column)
 
     def additive(self, meta: Any, items: list[Any]) -> Node:
         return self._fold_operator("binary", items, meta)
@@ -304,6 +363,11 @@ class _Builder(Transformer[Any, Any]):
         return Node("literal", value=value, line=line, column=column)
 
     def string_literal(self, meta: Any, items: list[Any]) -> Node:
+        value = python_ast.literal_eval(str(items[0]))
+        line, column = self._location(meta, items)
+        return Node("literal", value=value, line=line, column=column)
+
+    def predicate_string_literal(self, meta: Any, items: list[Any]) -> Node:
         value = python_ast.literal_eval(str(items[0]))
         line, column = self._location(meta, items)
         return Node("literal", value=value, line=line, column=column)

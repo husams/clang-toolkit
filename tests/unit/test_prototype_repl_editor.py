@@ -152,3 +152,25 @@ def test_then_is_valid_highlighted_and_completed_for_conditionals():
     base = create_session(output=DummyOutput()).completer
     completions = list(PrototypeCompleter(base).get_completions(Document("the"), CompleteEvent()))
     assert any(item.text == "then" for item in completions)
+
+
+def test_predicate_syntax_is_lexed_highlighted_and_completed():
+    source = '$row does not have "name" and 2 not in $items and $node is CXXRecord'
+    tokens = lex(source)
+    assert "ERROR" not in {_kind(token) for token in tokens}
+    assert not input_state(source).needs_more
+    parts = PrototypeReplLexer().lex_document(Document(source))(0)
+    highlighted = {text for style, text in parts if style == "class:keyword"}
+    assert {"does", "not", "have", "and", "in", "is"} <= highlighted
+
+    base = create_session(output=DummyOutput()).completer
+    completions = list(PrototypeCompleter(base).get_completions(Document("doe"), CompleteEvent()))
+    assert any(item.text == "does" for item in completions)
+
+
+@pytest.mark.parametrize("source", ['$row has "a"', "$row has 'a'"])
+def test_quoted_predicate_keys_keep_string_highlighting(source: str):
+    tokens = lex(source)
+    assert "ERROR" not in {_kind(token) for token in tokens}
+    parts = PrototypeReplLexer().lex_document(Document(source))(0)
+    assert ("class:string", source[source.index("has") + 4 :]) in parts

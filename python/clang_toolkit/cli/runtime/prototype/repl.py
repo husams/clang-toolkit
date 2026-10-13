@@ -54,6 +54,24 @@ class _ReplContext(Context):
         except LegacyEvaluationError:
             return super().lookup(name, node)
 
+    def binding_state(self, name: str, node: Any = None) -> tuple[bool, Any]:
+        if self.lookup_scope(name) is not None:
+            return super().binding_state(name, node)
+        runtime = self.session.runtime
+        if name == "env":
+            return True, runtime.environment
+        if name == "config":
+            return True, runtime.config_vars
+        # Mirror the existing resolver's membership order; do not catch an
+        # arbitrary evaluation failure and misreport it as a missing name.
+        for scope in reversed(runtime._scopes):
+            if name in scope:
+                return True, scope[name]
+        for namespace in (runtime.bindings, runtime.environment, runtime.config_vars):
+            if name in namespace:
+                return True, namespace[name]
+        return False, None
+
     def emit(self, value: Any, node: Any = None) -> Any:
         if self.consume_depth:
             return value
@@ -199,7 +217,7 @@ class ReplSession:
             self.parts.append(DispatchResult(None, True))
             raise _ExitRequested()
         if kind in {"help", "help_shortcut"}:
-            from clang_toolkit.cli.help import render_help
+            from .help import render_help
 
             return render_help(tree)
         if mode == "expression" and kind not in {"display", "match"}:
@@ -231,7 +249,7 @@ class ReplSession:
             tree, mode = node.value
             kind = str(tree.data)
             if kind in {"help", "help_shortcut"}:
-                from clang_toolkit.cli.help import render_help_markdown
+                from .help import render_help_markdown
 
                 self.record(kind, value, text=value, routed=True, markdown=render_help_markdown(tree))
             elif mode == "statement":

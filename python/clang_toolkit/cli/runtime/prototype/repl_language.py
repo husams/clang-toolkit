@@ -105,12 +105,12 @@ def _combined_grammar() -> str:
     proto_source = _PROTOTYPE_GRAMMAR.read_text(encoding="utf-8")
     # A dollar sign is optional on the iterator to retain existing CTK style.
     proto_source = proto_source.replace(
-        'closed_foreach_expr.10: "foreach" CNAME',
-        'closed_foreach_expr.10: "foreach" "$"? CNAME',
+        'closed_foreach_expr.10: "foreach" CNAME PRED_IN',
+        'closed_foreach_expr.10: "foreach" "$"? CNAME PRED_IN',
     )
     proto_source = proto_source.replace(
-        'open_foreach_expr.10: "foreach" CNAME',
-        'open_foreach_expr.10: "foreach" "$"? CNAME',
+        'open_foreach_expr.10: "foreach" CNAME PRED_IN',
+        'open_foreach_expr.10: "foreach" "$"? CNAME PRED_IN',
     )
     # Let and print priorities are defined by the standalone grammar.
     proto_source = proto_source.replace(
@@ -182,7 +182,7 @@ proto_named_call: PROTO_UTILITY_NAME""",
             """
 repl_start: proto_start
 editor_start: (legacy_editor_token | proto_editor_token)*
-proto_editor_token: PROTO_UTILITY_NAME | PROTO_ASSIGN_OP | PROTO_COMPARE_OP | PROTO_ADD_OP | PROTO_MUL_OP | PROTO_UNARY_OP | PROTO_FLOAT | PROTO_INT | PROTO_STRING | PROTO_MEMBER_NAME | PROTO_CNAME | PROTO_NEWLINE
+proto_editor_token: PROTO_UTILITY_NAME | PROTO_ASSIGN_OP | PROTO_COMPARE_OP | PROTO_ADD_OP | PROTO_MUL_OP | PROTO_UNARY_OP | PROTO_FLOAT | PROTO_INT | PROTO_STRING | PROTO_PREDICATE_STRING | PROTO_PRED_AND | PROTO_PRED_OR | PROTO_MEMBER_NAME | PROTO_CNAME | PROTO_NEWLINE
 """,
         )
     )

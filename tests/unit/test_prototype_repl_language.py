@@ -213,3 +213,75 @@ def test_combined_parser_preserves_explicit_empty_else_and_grouped_inner_if():
     explicit_inner, grouped = (node.children[0] for node in program.children)
     assert explicit_inner.children[2].children[0].value == 2
     assert grouped.children[2].children[0].value == 2
+
+
+def test_compiled_parser_builds_the_same_value_predicate_ir():
+    from clang_toolkit.cli.runtime.prototype.syntax import parse as parse_standalone
+
+    sources = (
+        "$record has a",
+        '$record has "a"',
+        "$record has 'a'",
+        "$record has ($key)",
+        "$record does not have a",
+        "2 in $items",
+        "2 not in $items",
+        "$node is CXXRecord",
+        "$node is not CXXRecord",
+        "$x is defined",
+        "$x is not defined",
+        "$x is set",
+        "$x is not set",
+    )
+    for source in sources:
+        assert parse(source) == parse_standalone(source)
+
+    # The same words keep their existing collection/control and dictionary roles.
+    program = parse("foreach $item in [1] do $item; let row = {has: 1, is: 2}; $row.is")
+    assert program.children[0].kind == "foreach"
+    assert [entry.value for entry in program.children[1].children[0].children] == ["has", "is"]
+    assert program.children[2].kind == "get" and program.children[2].value == "is"
+
+
+def test_predicate_keywords_remain_valid_field_names_and_allow_soft_newlines():
+    for source, key in (
+        ("$row has has", "has"),
+        ("$row does not have not", "not"),
+        ("$row has\n name", "name"),
+        ("$row does not\n have\n name", "name"),
+    ):
+        predicate = parse(source).children[0]
+        assert predicate.kind == "predicate"
+        assert predicate.children[1].kind == "literal"
+        assert predicate.children[1].value == key
+
+    dictionary = parse("let row = {has: 1, does: 2, not: 3, have: 4}").children[0]
+    assert [entry.value for entry in dictionary.children[0].children] == [
+        "has", "does", "not", "have"
+    ]
+
+
+def test_predicate_words_do_not_split_identifiers_in_the_compiled_parser():
+    from clang_toolkit.cli.runtime.prototype.syntax import parse as parse_standalone
+
+    for source in (
+        "$data.disabled",
+        "$this",
+        "$pin[1]",
+        "$row.has_value",
+        "$row.doesMore",
+        "$row.have_name",
+        "$row.inside",
+        "$row.island",
+        "$row.notable",
+        "$row.definedness",
+        "$row.setting",
+        "$candy",
+        "$forever",
+        "$information",
+        "$records[0].item is CXXRecord",
+        "$records[0].item is not CXXRecord",
+        "$records[0].record_name is CXXRecord",
+        "$records[0].record_name is not CXXRecord",
+    ):
+        assert parse(source) == parse_standalone(source)
