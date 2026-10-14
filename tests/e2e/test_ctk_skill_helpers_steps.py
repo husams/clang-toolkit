@@ -62,12 +62,13 @@ let hierarchy = ancestors(tree, "demo::Leaf")
 let bounded = ancestors(tree, "demo::Leaf", 1)
 let zero = ancestors(tree, "demo::Leaf", 0)
 let leaf = ancestors(tree, "demo::Solo", 0)
+let leafFull = ancestors(tree, "demo::Solo")
 let dependent = ancestors(tree, "demo::Dependent")
 let ambiguous = classInfo(tree, "Solo")
 let missing = ancestors(tree, "demo::Missing")
 let missingInfo = classInfo(tree, "demo::Missing")
 let invalid = ancestors(tree, "demo::Leaf", -1)
-save {info: info, root: root, right: right, implicit: implicit, hierarchy: hierarchy, bounded: bounded, zero: zero, leaf: leaf, dependent: dependent, ambiguous: ambiguous, missing: missing, missing_info: missingInfo, invalid: invalid} to arg.output as json
+save {info: info, root: root, right: right, implicit: implicit, hierarchy: hierarchy, bounded: bounded, zero: zero, leaf: leaf, leaf_full: leafFull, dependent: dependent, ambiguous: ambiguous, missing: missing, missing_info: missingInfo, invalid: invalid} to arg.output as json
 print "HELPERS_VERIFIED"
 ''')
 
@@ -107,8 +108,9 @@ def verify_classes(class_evidence: dict[str, Any]) -> None:
     hierarchy = v["hierarchy"]
     assert hierarchy["complete"]
     assert [[n["name"] for n in level] for level in hierarchy["levels"]] == [
-        ["demo::Leaf"], ["demo::Left", "demo::Right"], ["demo::Root", "demo::Root"],
+        ["demo::Left", "demo::Right"], ["demo::Root", "demo::Root"],
     ]
+    assert all(n["id"] != hierarchy["tree"]["id"] for level in hierarchy["levels"] for n in level)
     left, right = hierarchy["tree"]["bases"]
     assert left["edge"]["type"] == "LeftAlias" and left["edge"]["access"] == "public"
     assert right["edge"]["access"] == "private"
@@ -116,11 +118,16 @@ def verify_classes(class_evidence: dict[str, Any]) -> None:
     assert right["bases"][0]["edge"]["access"] == "protected"
     assert left["bases"][0]["id"] == right["bases"][0]["id"]
     assert not v["bounded"]["complete"]
+    assert [[n["name"] for n in level] for level in v["bounded"]["levels"]] == [["demo::Left", "demo::Right"]]
     assert all(node["truncated"] for node in v["bounded"]["tree"]["bases"])
     assert v["zero"]["tree"]["truncated"] and v["zero"]["tree"]["bases"] == []
     assert v["leaf"]["complete"] and v["leaf"]["tree"]["bases"] == []
+    assert v["zero"]["levels"] == []
+    assert v["leaf"]["levels"] == v["leaf_full"]["levels"] == []
+    assert v["leaf_full"]["complete"]
     dependent = v["dependent"]
     assert not dependent["complete"]
+    assert [[n["name"] for n in level] for level in dependent["levels"]] == [["Base"]]
     assert dependent["tree"]["bases"][0]["unresolved"]
     assert dependent["tree"]["bases"][0]["edge"]["class"] is None
     assert v["ambiguous"]["status"] == "ambiguous" and len(v["ambiguous"]["candidates"]) == 2

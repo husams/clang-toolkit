@@ -87,8 +87,10 @@ is null for an unresolved dependent base. Edge access describes that one direct
 inheritance relation; it does not calculate a member's effective access through
 an entire path.
 
-`levels[0]` contains the root; `levels[1]` the direct bases; later lists contain
-successive base levels. Later entries have `name`, `id`, `via` (parent name) and
+`levels[0]` contains the direct bases; `levels[1]` their bases; later lists contain
+successive ancestor levels. The selected class is excluded from `levels`; a class
+without bases returns an empty list. The selected class remains the `tree` root
+as traversal context. Every level entry has `name`, `id`, `via` (parent name) and
 `edge`. A diamond preserves both paths to the same class, including virtual
 edges. This is a path tree, not a deduplicated object layout or ancestor set.
 
