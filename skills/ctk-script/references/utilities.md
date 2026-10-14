@@ -19,6 +19,26 @@ until the calls finish, and prefer fully qualified names. `target` accepts that
 parsed tree or another ordinary match target; parsing once avoids repeated work.
 Native query errors propagate: do not wrap every helper in an empty fallback.
 
+## Live class lookup
+
+`classByName(target, className)` returns a live class binding. `target` accepts
+a parsed tree, live node, or source filename. Prefer a parsed tree for repeated
+queries. Missing or ambiguous definitions raise an error with the matching count;
+duplicate matches with the same symbol identity collapse to one definition.
+
+```ctk
+let node = classByName(tree, "demo::Leaf")
+print classMethods(node)
+print classFields(node)
+print directBases(node)
+let fromFile = classByName("/project/src/widget.cpp", "demo::Leaf")
+```
+
+`classMethods(node, includeImplicit = false)` takes a live node and an optional
+Boolean. To select by name, use `classMethods(classByName(tree, "demo::Leaf"))`
+or `classInfo(tree, "demo::Leaf").methods`. Keep the binding's native session live
+while using it; saving a node as JSON does not preserve its navigation handle.
+
 ## Class information
 
 `classInfo(target, className, includeImplicit = false)` returns a dictionary:
@@ -26,7 +46,7 @@ Native query errors propagate: do not wrap every helper in an empty fallback.
 | Key | Meaning |
 | --- | --- |
 | `status` | `"ok"`, `"not_found"`, or `"ambiguous"`. Check this before reading other fields. |
-| `class` | `{name, id, file, line, kind}`. Names are qualified where available, `id` is symbol identity and `kind` is a `TAG_KIND_*` string. |
+| `class` | `{name, display_name, id, file, line, kind, template}`. Names are qualified where available, `id` is symbol identity and `kind` is a `TAG_KIND_*` string. `display_name` includes all specialization arguments; `template` is null for ordinary classes. |
 | `fields` | Direct non-static fields: identity/location, type, `access`, `mutable`, `bit_field`, `anonymous_record`. |
 | `static_fields` | Direct static data members: identity/location, type, `access`, `constexpr`. |
 | `methods` | Direct methods, member templates, constructors, destructors and conversions. Overloads retain separate entries and identities. |
@@ -74,6 +94,42 @@ if rows.length == 1 then {
 }
 ```
 
+## Class templates and specializations
+
+`classTemplateInfo(target, className)` returns `{status, class, template,
+specializations}` for a template, `not_template` for an ordinary class, or
+`not_found`/`ambiguous` with candidates. A bare template name selects its primary
+class definition. An exact specialization `display_name` selects that concrete
+class; include every argument, including defaults, using Clang's displayed
+spacing. Specializations retain distinct symbol identities even though their
+`name` is the same bare qualified template name.
+
+```ctk
+let templates = classTemplateInfo(tree, "demo::Box")
+foreach variant in templates.specializations do print variant.display_name
+let concrete = classByName(tree, "demo::Box<int, 3>")
+print classFields(concrete)
+```
+
+Each `template` contains `kind` (`primary`, `partial_specialization`, or
+`specialization`), the qualified `primary` name, `parameters`, `arguments`, and
+`specialization_kind` (null on the primary). The latter distinguishes explicit
+specializations from implicit or explicit instantiations using Clang's
+`DECL_TEMPLATE_SPECIALIZATION_KIND_*` values. Parameter descriptions report
+`kind`, `name`, optional `type`, `pack`, and nested `parameters` for template
+template parameters. Argument descriptions report `kind`, semantic `spelling`,
+optional `type`, and pack `elements`. These are semantic descriptions, not source
+text; dependent parameter types may use Clang's `type-parameter-*` spelling.
+Default-expression text and constraints are not included.
+
+`specializations` includes definitions visible in the supplied target, including
+partial patterns and materialized instantiations. It does not instantiate unused
+templates or search other translation units. A specialization's `parameters`
+describes its own partial pattern, if any; query the primary for its parameters.
+The server supplies bounded scalar template facts on shallow bindings, without
+expanding member bodies or full AST argument trees. Native limits still apply;
+unavailable facts raise errors. Use the matching updated server and client.
+
 ## Inheritance tree and levels
 
 `ancestors(target, className, maxDepth = 32)` returns `{status, tree, levels,
@@ -91,7 +147,7 @@ an entire path.
 successive ancestor levels. The selected class is excluded from `levels`; a class
 without bases returns an empty list. The selected class remains the `tree` root
 as traversal context. Every level entry has `name`, `id`, `via` (parent name) and
-`edge`. A diamond preserves both paths to the same class, including virtual
+`edge`, plus `display_name` and `template` for specialization identity. A diamond preserves both paths to the same class, including virtual
 edges. This is a path tree, not a deduplicated object layout or ancestor set.
 
 For the bundled fixture, the names and incoming access follow:
@@ -123,7 +179,7 @@ if hierarchy.status == "ok" then {
 } else print hierarchy
 ```
 
-All helper summaries contain plain dictionaries/lists/scalars. They can be
+All helper summaries except the live `classByName` binding contain plain dictionaries/lists/scalars. They can be
 saved and loaded; they do not retain navigation handles. `peek parents` means
 AST containment and is distinct from this inheritance walk.
 
@@ -190,11 +246,13 @@ needed; the helpers do not assume main-file-only analysis or deduplicate overloa
 
 ## Verification and maintained sources
 
-The fixture covers forward declarations, alias bases, a diamond, virtual/public/
+The fixtures cover class templates, partial/full specializations, concrete
+instantiations, nested template parameters, variadic packs, forward declarations,
+alias bases, a diamond, virtual/public/
 protected/private inheritance, overloads, static/mutable/bit fields, member
 visibility, constructors/destructors, a member template, nested classes/lambda
 parameters, a default argument, unresolved template bases, ambiguous names and
-plain callbacks. The BDD acceptance scenarios run the actual compiled CLI against
+plain callbacks. The BDD acceptance scenarios run the actual CLI against
 an isolated native server: `uv run python -m pytest tests/e2e/test_ctk_skill_helpers_steps.py -m e2e -q`.
 
 Maintain this library against `api/ast/v1/semantic_types.proto`, declaration

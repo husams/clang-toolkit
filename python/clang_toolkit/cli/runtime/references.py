@@ -186,6 +186,14 @@ def property_value(value: Any, name: str) -> Any:
 
 
 def call_method(value: Any, name: str, arguments: list[Any]) -> Any:
+    if name == "one" and isinstance(value, (list, MatchValue, NativeMatchCollection, MatchSet)):
+        if len(arguments) > 1 or (arguments and not isinstance(arguments[0], str)):
+            raise ReferenceError("one accepts an optional diagnostic label")
+        count = len(value.rows) if isinstance(value, MatchSet) else len(value)
+        if count != 1:
+            label = arguments[0] if arguments else "one"
+            raise ReferenceError(f"{label}: expected exactly one item, got {count}")
+        return index_value(value, 0)
     if isinstance(value, BindingSelection) and name in {"hasField", "fieldState", "fieldOr"}:
         try:
             return semantic_call_method(semantic_view(value.value), name, arguments)
@@ -410,12 +418,12 @@ def field_names(value: Any) -> tuple[str, ...]:
     if isinstance(value, InputDescriptor):
         return tuple(value.__dataclass_fields__)
     if isinstance(value, MatchSet):
-        return ("length", "isEmpty", "unique", "sort", "filter")
+        return ("length", "isEmpty", "unique", "sort", "filter", "one")
     if isinstance(value, MatchValue):
-        return ("length", "isEmpty", "unique", "sort", "filter",
+        return ("length", "isEmpty", "unique", "sort", "filter", "one",
                 *tuple(sorted(value.binding_names())))
     if isinstance(value, NativeMatchCollection):
-        return ("length", "isEmpty", "rows", "unique", "sort", "filter",
+        return ("length", "isEmpty", "rows", "unique", "sort", "filter", "one",
                 *tuple(sorted(value.binding_names())))
     if isinstance(value, NativeBindingCollection):
         return ("length", "isEmpty", "rows")
@@ -440,7 +448,7 @@ def field_names(value: Any) -> tuple[str, ...]:
     if isinstance(value, str):
         return ("strip",)
     if isinstance(value, list):
-        return ("length", "isEmpty", "push", "pop", "insert", "remove", "clear", "joinWith", "unique", "sort", "filter")
+        return ("length", "isEmpty", "push", "pop", "insert", "remove", "clear", "joinWith", "unique", "sort", "filter", "one")
     if type(value) is dict:
         keys = tuple(str(key) for key in value)
         properties = tuple(

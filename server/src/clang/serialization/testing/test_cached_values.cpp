@@ -1,3 +1,4 @@
+#include "../declaration_helpers.hpp"
 #include "../semantic_helpers.hpp"
 #include <clang/AST/DeclTemplate.h>
 #include <clang/Frontend/ASTUnit.h>
@@ -76,11 +77,12 @@ TEST(CachedValues, StructuralConstantChildrenAreUnrequested) {
 
 TEST(CachedValues, ShallowLValueAPValuesOmitBaseAndPathChildren) {
   auto ast = clang::tooling::buildASTFromCodeWithArgs(
-      "int target = 7; constexpr const int *pointer = &target;",
-      {"-std=c++23"}, "fixture.cc", "ctk-test");
+      "int target = 7; constexpr const int *pointer = &target;", {"-std=c++23"},
+      "fixture.cc", "ctk-test");
   ASSERT_TRUE(ast);
   const clang::VarDecl *pointer = nullptr;
-  for (const auto *decl : ast->getASTContext().getTranslationUnitDecl()->decls())
+  for (const auto *decl :
+       ast->getASTContext().getTranslationUnitDecl()->decls())
     if (const auto *variable = llvm::dyn_cast<clang::VarDecl>(decl);
         variable && variable->getName() == "pointer")
       pointer = variable;
@@ -100,6 +102,167 @@ TEST(CachedValues, ShallowLValueAPValuesOmitBaseAndPathChildren) {
   EXPECT_FALSE(value.lvalue().has_base());
   EXPECT_TRUE(has_unrequested(binding, "APLValue.path"));
   EXPECT_TRUE(has_unrequested(binding, "APLValue.base"));
+}
+
+TEST(CachedValues, ShallowClassTemplateFactsPreservePrimaryAndSpecializations) {
+  auto ast = clang::tooling::buildASTFromCodeWithArgs(
+      "template<class T, int N = 3> struct Box {}; "
+      "template<class T> struct Box<T*, 3> {}; "
+      "template<> struct Box<double, 3> {}; Box<int, 3> object;",
+      {"-std=c++20"}, "fixture.cc", "ctk-test");
+  ASSERT_TRUE(ast);
+  auto &ast_context = ast->getASTContext();
+  const clang::ClassTemplateDecl *primary = nullptr;
+  const clang::ClassTemplatePartialSpecializationDecl *partial = nullptr;
+  for (const auto *decl : ast_context.getTranslationUnitDecl()->decls()) {
+    if (const auto *value = llvm::dyn_cast<clang::ClassTemplateDecl>(decl))
+      primary = value;
+    if (const auto *value =
+            llvm::dyn_cast<clang::ClassTemplatePartialSpecializationDecl>(decl))
+      partial = value;
+  }
+  ASSERT_NE(primary, nullptr);
+  ASSERT_NE(partial, nullptr);
+  using Facts = ctk::match::v1::ClassTemplateFacts;
+  auto serialize = [&](const clang::Decl &decl) {
+    SerializationContext context{ast_context};
+    context.projection = ProjectionPolicy::Shallow;
+    ctk::match::v1::MatchBinding binding;
+    EXPECT_TRUE(NodeSerializerDispatcher::serialize(
+        clang::DynTypedNode::create(decl), binding, context));
+    EXPECT_EQ(context.projection, ProjectionPolicy::Shallow);
+    EXPECT_TRUE(binding.is_complete());
+    return binding;
+  };
+  auto binding = serialize(*primary->getTemplatedDecl());
+  ASSERT_TRUE(binding.has_class_template());
+  EXPECT_EQ(binding.class_template().kind(), Facts::PRIMARY);
+  ASSERT_EQ(binding.class_template().parameters_size(), 2);
+  EXPECT_EQ(binding.class_template().parameters(0).name(), "T");
+  EXPECT_EQ(binding.class_template().parameters(1).type().spelling(), "int");
+  EXPECT_EQ(binding.class_template().primary_template().qualified_name(),
+            "Box");
+  auto wrapper = serialize(*primary);
+  EXPECT_EQ(wrapper.class_template().parameters_size(), 2);
+  EXPECT_TRUE(has_unrequested(wrapper, "parameters"));
+  auto partial_binding = serialize(*partial);
+  EXPECT_EQ(partial_binding.class_template().kind(),
+            Facts::PARTIAL_SPECIALIZATION);
+  EXPECT_EQ(partial_binding.class_template().parameters_size(), 1);
+  EXPECT_EQ(partial_binding.class_template().arguments_size(), 2);
+  EXPECT_TRUE(has_unrequested(partial_binding, "template_arguments"));
+  int explicit_count = 0;
+  int implicit_count = 0;
+  for (const auto *specialization : primary->specializations()) {
+    auto value = serialize(*specialization);
+    const auto &facts = value.class_template();
+    EXPECT_EQ(facts.kind(), Facts::SPECIALIZATION);
+    ASSERT_EQ(facts.arguments_size(), 2);
+    EXPECT_EQ(facts.arguments(1).semantic_spelling(), "3");
+    EXPECT_EQ(value.node()
+                  .class_template_specialization_decl()
+                  .template_arguments_size(),
+              0);
+    EXPECT_TRUE(has_unrequested(value, "template_arguments"));
+    if (facts.specialization_kind() ==
+        ctk::ast::v1::
+            DECL_TEMPLATE_SPECIALIZATION_KIND_EXPLICIT_SPECIALIZATION) {
+      ++explicit_count;
+      EXPECT_EQ(facts.display_name(), "Box<double, 3>");
+    } else {
+      ++implicit_count;
+      EXPECT_EQ(facts.specialization_kind(),
+                ctk::ast::v1::
+                    DECL_TEMPLATE_SPECIALIZATION_KIND_IMPLICIT_INSTANTIATION);
+      EXPECT_EQ(facts.display_name(), "Box<int, 3>");
+    }
+  }
+  EXPECT_EQ(explicit_count, 1);
+  EXPECT_EQ(implicit_count, 1);
+}
+
+TEST(CachedValues, ClassTemplateFactsDescribeNestedParametersAndPacks) {
+  auto ast = clang::tooling::buildASTFromCodeWithArgs(
+      "template<class... Ts> struct Pack {}; Pack<int, double> object; "
+      "template<template<class...> class C> struct Wrapper {};",
+      {"-std=c++20"}, "fixture.cc", "ctk-test");
+  ASSERT_TRUE(ast);
+  bool saw_pack = false;
+  bool saw_nested = false;
+  for (const auto *decl :
+       ast->getASTContext().getTranslationUnitDecl()->decls()) {
+    const auto *primary = llvm::dyn_cast<clang::ClassTemplateDecl>(decl);
+    if (!primary)
+      continue;
+    SerializationContext context{ast->getASTContext()};
+    context.projection = ProjectionPolicy::Shallow;
+    ctk::match::v1::MatchBinding binding;
+    helpers::write_class_template_facts(clang::DynTypedNode::create(*primary),
+                                        binding, context);
+    if (primary->getName() == "Wrapper") {
+      ASSERT_EQ(binding.class_template().parameters_size(), 1);
+      const auto &parameter = binding.class_template().parameters(0);
+      ASSERT_EQ(parameter.template_parameters_size(), 1);
+      EXPECT_TRUE(parameter.template_parameters(0).is_parameter_pack());
+      saw_nested = true;
+    }
+    for (const auto *specialization : primary->specializations()) {
+      SerializationContext specialized_context{ast->getASTContext()};
+      specialized_context.projection = ProjectionPolicy::Shallow;
+      ctk::match::v1::MatchBinding specialized;
+      helpers::write_class_template_facts(
+          clang::DynTypedNode::create(*specialization), specialized,
+          specialized_context);
+      ASSERT_EQ(specialized.class_template().arguments_size(), 1);
+      const auto &pack = specialized.class_template().arguments(0);
+      EXPECT_EQ(pack.kind(),
+                ctk::ast::v1::TEMPLATE_ARGUMENT_DESCRIPTION_KIND_PACK);
+      ASSERT_EQ(pack.pack_elements_size(), 2);
+      EXPECT_EQ(pack.pack_elements(0).type().spelling(), "int");
+      EXPECT_EQ(pack.pack_elements(1).type().spelling(), "double");
+      EXPECT_TRUE(specialized_context.complete);
+      EXPECT_EQ(specialized_context.projection, ProjectionPolicy::Shallow);
+      saw_pack = true;
+    }
+  }
+  EXPECT_TRUE(saw_pack);
+  EXPECT_TRUE(saw_nested);
+}
+
+TEST(CachedValues, ClassTemplateFactsRespectDepthAndNodeBudgets) {
+  auto ast = clang::tooling::buildASTFromCodeWithArgs(
+      "template<class... Ts> struct Pack {}; Pack<int, double> object;",
+      {"-std=c++20"}, "fixture.cc", "ctk-test");
+  ASSERT_TRUE(ast);
+  const clang::ClassTemplateDecl *primary = nullptr;
+  for (const auto *decl :
+       ast->getASTContext().getTranslationUnitDecl()->decls())
+    if (const auto *value = llvm::dyn_cast<clang::ClassTemplateDecl>(decl))
+      primary = value;
+  ASSERT_NE(primary, nullptr);
+  ASSERT_FALSE(primary->specializations().empty());
+  const auto *specialization = *primary->specializations().begin();
+  for (bool depth_limit : {false, true}) {
+    SerializationContext context{ast->getASTContext()};
+    context.projection = ProjectionPolicy::Shallow;
+    if (depth_limit)
+      context.max_depth = 1;
+    else
+      context.max_nodes = 1;
+    ctk::match::v1::MatchBinding binding;
+    helpers::write_class_template_facts(
+        clang::DynTypedNode::create(*specialization), binding, context);
+    helpers::finish_binding(binding, context);
+    EXPECT_FALSE(binding.is_complete());
+    EXPECT_EQ(context.projection, ProjectionPolicy::Shallow);
+    EXPECT_LE(context.nodes, context.max_nodes);
+    bool truncated = false;
+    for (const auto &entry : binding.availability())
+      truncated |= entry.state() == ctk::ast::v1::FIELD_STATE_TRUNCATED;
+    EXPECT_TRUE(truncated);
+    if (binding.class_template().arguments_size())
+      EXPECT_EQ(binding.class_template().arguments(0).pack_elements_size(), 0);
+  }
 }
 } // namespace
 } // namespace ctk::clang_layer::serialization::testing

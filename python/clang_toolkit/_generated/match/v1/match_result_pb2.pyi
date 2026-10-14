@@ -34,7 +34,7 @@ CALL_DISPATCH_INDIRECT: CallDispatch
 CALL_DISPATCH_VIRTUAL: CallDispatch
 
 class MatchBinding(_message.Message):
-    __slots__ = ("node", "qualified_type", "unsupported", "base_specifier", "availability", "is_complete", "supported_scopes", "location", "range", "symbol_identity", "documentation", "call_site")
+    __slots__ = ("node", "qualified_type", "unsupported", "base_specifier", "availability", "is_complete", "supported_scopes", "location", "range", "symbol_identity", "documentation", "call_site", "class_template")
     NODE_FIELD_NUMBER: _ClassVar[int]
     QUALIFIED_TYPE_FIELD_NUMBER: _ClassVar[int]
     UNSUPPORTED_FIELD_NUMBER: _ClassVar[int]
@@ -47,6 +47,7 @@ class MatchBinding(_message.Message):
     SYMBOL_IDENTITY_FIELD_NUMBER: _ClassVar[int]
     DOCUMENTATION_FIELD_NUMBER: _ClassVar[int]
     CALL_SITE_FIELD_NUMBER: _ClassVar[int]
+    CLASS_TEMPLATE_FIELD_NUMBER: _ClassVar[int]
     node: _node_pb2.AstNode
     qualified_type: _semantic_pb2.QualType
     unsupported: _node_pb2.UnsupportedValue
@@ -59,7 +60,36 @@ class MatchBinding(_message.Message):
     symbol_identity: str
     documentation: str
     call_site: CallSiteFacts
-    def __init__(self, node: _Optional[_Union[_node_pb2.AstNode, _Mapping]] = ..., qualified_type: _Optional[_Union[_semantic_pb2.QualType, _Mapping]] = ..., unsupported: _Optional[_Union[_node_pb2.UnsupportedValue, _Mapping]] = ..., base_specifier: _Optional[_Union[_semantic_pb2.CXXBaseSpecifier, _Mapping]] = ..., availability: _Optional[_Iterable[_Union[_common_pb2.FieldAvailability, _Mapping]]] = ..., is_complete: _Optional[bool] = ..., supported_scopes: _Optional[_Iterable[_Union[BindingMatchScope, str]]] = ..., location: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., range: _Optional[_Union[MatchSourceRange, _Mapping]] = ..., symbol_identity: _Optional[str] = ..., documentation: _Optional[str] = ..., call_site: _Optional[_Union[CallSiteFacts, _Mapping]] = ...) -> None: ...
+    class_template: ClassTemplateFacts
+    def __init__(self, node: _Optional[_Union[_node_pb2.AstNode, _Mapping]] = ..., qualified_type: _Optional[_Union[_semantic_pb2.QualType, _Mapping]] = ..., unsupported: _Optional[_Union[_node_pb2.UnsupportedValue, _Mapping]] = ..., base_specifier: _Optional[_Union[_semantic_pb2.CXXBaseSpecifier, _Mapping]] = ..., availability: _Optional[_Iterable[_Union[_common_pb2.FieldAvailability, _Mapping]]] = ..., is_complete: _Optional[bool] = ..., supported_scopes: _Optional[_Iterable[_Union[BindingMatchScope, str]]] = ..., location: _Optional[_Union[MatchSourcePoint, _Mapping]] = ..., range: _Optional[_Union[MatchSourceRange, _Mapping]] = ..., symbol_identity: _Optional[str] = ..., documentation: _Optional[str] = ..., call_site: _Optional[_Union[CallSiteFacts, _Mapping]] = ..., class_template: _Optional[_Union[ClassTemplateFacts, _Mapping]] = ...) -> None: ...
+
+class ClassTemplateFacts(_message.Message):
+    __slots__ = ("kind", "display_name", "primary_template", "parameters", "arguments", "specialization_kind")
+    class Kind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        KIND_UNSPECIFIED: _ClassVar[ClassTemplateFacts.Kind]
+        ORDINARY: _ClassVar[ClassTemplateFacts.Kind]
+        PRIMARY: _ClassVar[ClassTemplateFacts.Kind]
+        SPECIALIZATION: _ClassVar[ClassTemplateFacts.Kind]
+        PARTIAL_SPECIALIZATION: _ClassVar[ClassTemplateFacts.Kind]
+    KIND_UNSPECIFIED: ClassTemplateFacts.Kind
+    ORDINARY: ClassTemplateFacts.Kind
+    PRIMARY: ClassTemplateFacts.Kind
+    SPECIALIZATION: ClassTemplateFacts.Kind
+    PARTIAL_SPECIALIZATION: ClassTemplateFacts.Kind
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    DISPLAY_NAME_FIELD_NUMBER: _ClassVar[int]
+    PRIMARY_TEMPLATE_FIELD_NUMBER: _ClassVar[int]
+    PARAMETERS_FIELD_NUMBER: _ClassVar[int]
+    ARGUMENTS_FIELD_NUMBER: _ClassVar[int]
+    SPECIALIZATION_KIND_FIELD_NUMBER: _ClassVar[int]
+    kind: ClassTemplateFacts.Kind
+    display_name: str
+    primary_template: _semantic_pb2.DeclarationSymbol
+    parameters: _containers.RepeatedCompositeFieldContainer[_semantic_pb2.TemplateParameterDescription]
+    arguments: _containers.RepeatedCompositeFieldContainer[_semantic_pb2.TemplateArgumentDescription]
+    specialization_kind: _semantic_pb2.DeclTemplateSpecializationKind
+    def __init__(self, kind: _Optional[_Union[ClassTemplateFacts.Kind, str]] = ..., display_name: _Optional[str] = ..., primary_template: _Optional[_Union[_semantic_pb2.DeclarationSymbol, _Mapping]] = ..., parameters: _Optional[_Iterable[_Union[_semantic_pb2.TemplateParameterDescription, _Mapping]]] = ..., arguments: _Optional[_Iterable[_Union[_semantic_pb2.TemplateArgumentDescription, _Mapping]]] = ..., specialization_kind: _Optional[_Union[_semantic_pb2.DeclTemplateSpecializationKind, str]] = ...) -> None: ...
 
 class MatchSourcePoint(_message.Message):
     __slots__ = ("file", "line", "column", "valid", "is_macro", "offset")

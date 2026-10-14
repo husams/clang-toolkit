@@ -26,6 +26,9 @@ void write_tag_info(const clang::TagDecl &, ctk::ast::v1::TagDeclInfo &,
                     SerializationContext &);
 void write_record_info(const clang::RecordDecl &,
                        ctk::ast::v1::RecordDeclInfo &, SerializationContext &);
+void write_class_template_facts(const clang::DynTypedNode &,
+                                ctk::match::v1::MatchBinding &,
+                                SerializationContext &);
 void write_template_parameters(const clang::TemplateParameterList &,
                                ctk::ast::v1::TemplateParameterList &,
                                SerializationContext &);

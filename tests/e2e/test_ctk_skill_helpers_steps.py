@@ -30,14 +30,14 @@ def helper_fixture(tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: 
     return server, skill, source, tmp_path
 
 
-def _run(fixture: HelperFixture, source: str) -> dict[str, Any]:
+def _run(fixture: HelperFixture, source: str, engine: str = "compiled") -> dict[str, Any]:
     server, skill, target, directory = fixture
     script = directory / "verify.ctk"
     output = directory / "output.json"
     script.write_text(f'import {json.dumps(str(skill / "scripts" / "ctk_helpers.ctk"))}\n' + source, encoding="utf-8")
     result = subprocess.run(
         [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint,
-         "-c", str(server.config), "--script-engine", "compiled", "--ui", "prompt",
+         "-c", str(server.config), "--script-engine", engine, "--ui", "prompt",
          "--script", str(script), f"path={target}", f"output={output}"],
         cwd=directory,
         env=dict(os.environ, XDG_STATE_HOME=str(directory / "state")),
@@ -179,3 +179,66 @@ def verify_callbacks(callback_evidence: dict[str, Any]) -> None:
     assert v["calls"][0]["caller"] == "demo::work"
     assert v["calls"][0]["callee"] == "demo::sink"
     assert v["calls"][0]["dispatch"] == "CALL_DISPATCH_DIRECT"
+
+
+@given("an isolated server and the bundled CTK template fixture", target_fixture="template_fixture")
+def template_fixture(tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> HelperFixture:
+    fixture = helper_fixture(tmp_path, request, monkeypatch)
+    _, skill, source, _ = fixture
+    source.write_text((skill / "assets" / "template_fixture.cc").read_text(encoding="utf-8"), encoding="utf-8")
+    return fixture
+
+
+@when("I select live classes and inspect their template specializations in both engines", target_fixture="template_evidence")
+def template_evidence(template_fixture: HelperFixture) -> list[dict[str, Any]]:
+    script = '''
+let tree = parse arg.path
+let leaf = classByName(tree, "demo::Leaf")
+let byFile = classByName(arg.path, "demo::Leaf")
+let byNode = classByName(leaf, "demo::Leaf")
+let primary = classByName(tree, "demo::Box")
+let templates = classTemplateInfo(tree, "demo::Box")
+let explicit = classByName(tree, "demo::Box<double, 3>")
+let instantiated = classByName(tree, "demo::Box<int, 3>")
+let partial = classByName(tree, "demo::Box<int *, 3>")
+let fullInfo = classInfo(tree, "demo::Box<double, 3>")
+let hierarchy = ancestors(tree, "demo::Leaf")
+let partialHierarchy = ancestors(tree, "demo::PartialLeaf")
+let fullHierarchy = ancestors(tree, "demo::FullLeaf")
+let missing() = { on error "missing"; classByName(tree, "demo::Absent") }
+let ambiguous() = { on error "ambiguous"; classByName(tree, "Duplicate") }
+save {identity: [leaf.symbol_identity, byFile.symbol_identity, byNode.symbol_identity], methods: classMethods(primary), explicit_fields: classFields(explicit), instantiated_fields: classFields(instantiated), partial_fields: classFields(partial), full_info: fullInfo, templates: templates, pack: classTemplateInfo(tree, "demo::Pack"), wrapper: classTemplateInfo(tree, "demo::Wrapper"), ordinary: classTemplateInfo(tree, "demo::Ordinary"), hierarchy: hierarchy, partial_hierarchy: partialHierarchy, full_hierarchy: fullHierarchy, missing: missing(), ambiguous: ambiguous()} to arg.output as json
+print "HELPERS_VERIFIED"
+'''
+    return [_run(template_fixture, script, engine) for engine in ("compiled", "tree")]
+
+
+@then("the live nodes and template summaries preserve specialization identity and complete ancestors")
+def verify_templates(template_evidence: list[dict[str, Any]]) -> None:
+    assert template_evidence[0] == template_evidence[1]
+    v = template_evidence[0]
+    assert len(set(v["identity"])) == 1
+    assert [m["name"] for m in v["methods"]] == ["demo::Box::work"]
+    assert v["explicit_fields"][0]["type"] == "double"
+    assert v["instantiated_fields"][0]["type"] == "int"
+    assert v["partial_fields"][0]["type"] == "int *"
+    assert v["full_info"]["class"]["template"]["kind"] == "specialization"
+    template = v["templates"]["template"]
+    assert template["kind"] == "primary" and template["primary"] == "demo::Box"
+    assert [(p["name"], p["type"], p["pack"]) for p in template["parameters"]] == [("T", None, False), ("N", "int", False)]
+    variants = v["templates"]["specializations"]
+    assert len({item["id"] for item in variants}) == 5
+    assert any(item["template"]["kind"] == "partial_specialization" for item in variants)
+    assert {item["template"]["specialization_kind"] for item in variants} == {"DECL_TEMPLATE_SPECIALIZATION_KIND_EXPLICIT_SPECIALIZATION", "DECL_TEMPLATE_SPECIALIZATION_KIND_IMPLICIT_INSTANTIATION"}
+    for key, spelling in (("hierarchy", "demo::Box<int, 3>"), ("partial_hierarchy", "demo::Box<int *, 3>"), ("full_hierarchy", "demo::Box<double, 3>")):
+        hierarchy = v[key]
+        assert hierarchy["complete"]
+        assert hierarchy["levels"][0][0]["display_name"] == spelling
+        assert hierarchy["levels"][1][0]["name"] == "demo::Root"
+        assert hierarchy["tree"]["bases"][0]["kind"] == "TAG_KIND_STRUCT"
+    assert v["pack"]["template"]["parameters"][0]["pack"]
+    elements = v["pack"]["specializations"][0]["template"]["arguments"][0]["elements"]
+    assert [element["type"] for element in elements] == ["int", "double"]
+    assert v["wrapper"]["template"]["parameters"][0]["parameters"][0]["pack"]
+    assert v["ordinary"]["status"] == "not_template"
+    assert v["missing"] == "missing" and v["ambiguous"] == "ambiguous"

@@ -109,7 +109,7 @@ _REGEX_LITERALS = {
 _NO_VALUE_TERMINALS = {"STRING", "OPEN_STRING", "NUMBER", "DOLLAR", "SEMICOLON"}
 _PUNCTUATION = {"(", ")", "]", "}", ",", "."}
 _METHOD_NAMES = {
-    "hasField", "fieldState", "fieldOr", "joinWith", "unique", "sort", "filter",
+    "hasField", "fieldState", "fieldOr", "joinWith", "unique", "sort", "filter", "one",
     "get", "set", "delete", "hasKey", "clear",
     "push", "pop", "insert", "remove", "strip",
 }

@@ -215,6 +215,29 @@ def editor_evidence(editor_server, tmp_path):
         )
         os.write(master, b"\x1b\x03")
         wait_for(lambda: "Input 1:1" in visible())
+        lookup_help = submit("classByName?", "Signature")
+        assert "classByName(target, className)" in lookup_help
+        assert "Definition" in lookup_help
+        template_target = tmp_path / "templates.cc"
+        template_target.write_text(
+            (helper.parent.parent / "assets/template_fixture.cc").read_text()
+        )
+        submit(f'let classTree = parse "{template_target}"', "let classTree")
+        submit(
+            'let selected = classByName(classTree, "demo::Box<int, 3>"); '
+            'let members = classMethods(selected); print "CLASS_METHODS={members.length}"',
+            "CLASS_METHODS=1",
+        )
+        submit(
+            'let hierarchy = ancestors(classTree, "demo::PartialLeaf"); '
+            'print "ANCESTORS_COMPLETE={hierarchy.complete}"',
+            "ANCESTORS_COMPLETE=true",
+        )
+        submit(
+            'let templateInfo = classTemplateInfo(classTree, "demo::Box"); '
+            'print "CLASS_TEMPLATES={templateInfo.specializations.length}"',
+            "CLASS_TEMPLATES=5",
+        )
         # The cursor returns to an earlier line, before existing arguments,
         # a native target and another statement. Tab must preserve all of it.
         draft = 'match functionDecl(\n  hasReturnTypeL()\n) in tree\nprint "KEEP_LATER"'

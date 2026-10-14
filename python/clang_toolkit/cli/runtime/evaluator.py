@@ -897,6 +897,7 @@ class Runtime:
                     "unique",
                     "sort",
                     "filter",
+                    "one",
                 }:
                     kind = "method"
                     meta = f"method · {name} list values"
@@ -922,6 +923,9 @@ class Runtime:
                 ):
                     kind = "method"
                     meta = f"method · {name} values by a field selector"
+                elif name == "one" and isinstance(value, (list, MatchValue, NativeMatchCollection, MatchSet)):
+                    kind = "method"
+                    meta = "method · require exactly one item"
                 else:
                     kind = "property"
                     meta = "property"
