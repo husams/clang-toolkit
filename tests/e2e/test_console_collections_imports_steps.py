@@ -126,6 +126,21 @@ def run_preloaded_libraries(collection_fixture, engine: str):
     )
 
 
+@when(parsers.parse("I restart the {engine} console with unchanged cached libraries"), target_fixture="library_output")
+def restart_with_cached_libraries(collection_fixture, engine: str, monkeypatch):
+    _, _, _, directory = collection_fixture
+    cache = directory / "script-cache"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    first = run_preloaded_libraries(collection_fixture, engine)
+    entries = list((cache / "clang-toolkit" / "scripts").glob("*.json"))
+    assert len(entries) == 2
+    written = {path: path.stat().st_mtime_ns for path in entries}
+    second = run_preloaded_libraries(collection_fixture, engine)
+    assert second == first
+    assert {path: path.stat().st_mtime_ns for path in entries} == written
+    return second
+
+
 @then("the imported matcher and variables work against native results")
 def verify_libraries(library_output):
     assert library_output == ["1", "first"]

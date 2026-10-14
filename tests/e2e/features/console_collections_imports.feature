@@ -25,6 +25,16 @@ Feature: Console collections and local libraries
       | tree     |
       | compiled |
 
+  Scenario Outline: Reuse cached library syntax after a console restart
+    Given a private server and a collection library fixture
+    When I restart the <engine> console with unchanged cached libraries
+    Then the imported matcher and variables work against native results
+
+    Examples:
+      | engine   |
+      | tree     |
+      | compiled |
+
   Scenario: Print native UTF-8 string literal bytes as text
     Given a private server and a collection library fixture
     When I print a native UTF-8 string literal through the CLI
