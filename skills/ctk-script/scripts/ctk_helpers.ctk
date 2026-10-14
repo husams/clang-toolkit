@@ -113,7 +113,7 @@ let ancestors(target, className, maxDepth = 32) = {
         root["truncated"] = false
         root["unresolved"] = false
         root["cycle"] = false
-        let result = {status: "ok", tree: root, levels: [[_ctkClass(rows[0].cls)]], complete: true}
+        let result = {status: "ok", tree: root, levels: [], complete: true}
         let queue = [{node: rows[0].cls, output: root, depth: 0, path: [root.id]}]
         foreach frame in queue do {
             let edges = peek children _ctkBaseMatcher().bind("edge") in frame.node
@@ -130,8 +130,9 @@ let ancestors(target, className, maxDepth = 32) = {
                     child["cycle"] = if metadata.resolved then child.id in frame.path else false
                     push frame.output.bases, child
                     let depth = frame.depth + 1
-                    if result.levels.length <= depth then { push result.levels, [] }
-                    push result.levels[depth], {name: child.name, id: child.id, via: frame.output.name, edge: metadata}
+                    let levelIndex = depth - 1
+                    if result.levels.length <= levelIndex then { push result.levels, [] }
+                    push result.levels[levelIndex], {name: child.name, id: child.id, via: frame.output.name, edge: metadata}
                     if child.unresolved or child.cycle then { result["complete"] = false } else {
                         let definitions = _ctkClasses(target, child.name)
                         let same = definitions.filter("cls.symbol_identity", child.id)
