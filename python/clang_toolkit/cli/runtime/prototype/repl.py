@@ -221,7 +221,7 @@ class PrototypeRuntime(Runtime):
 
     def _execute_library_source(self, source: str, path: Any) -> None:
         try:
-            program, executable = self._prototype_session.program(source)
+            program, executable = self._prototype_session.program(source, library=True)
         except UnexpectedInput as error:
             raise LegacyEvaluationError(f"{path}: {syntax_diagnostic(source, error)}") from error
         except ValueError as error:
@@ -288,14 +288,19 @@ class ReplSession:
         self.top_hosts: set[int] = set()
         self.host_displays: dict[int, str | None] = {}
 
-    def program(self, source: str) -> tuple[Node, Any]:
+    def program(self, source: str, *, library: bool = False) -> tuple[Node, Any]:
         from .repl_language import parse
 
         cached = self.cache.get(source)
         if cached is not None:
             self.cache.move_to_end(source)
             return cached
-        program = parse(source)
+        if library:
+            from .library_cache import parse_library
+
+            program = parse_library(source)
+        else:
+            program = parse(source)
         def prepare_host(tree: Tree) -> Tree:
             tree = Tree(tree.data, [prepare(child) if isinstance(child, Node)
                                    else prepare_host(child) if isinstance(child, Tree)

@@ -273,6 +273,7 @@ _ENTRIES = (
             "Imports share the current runtime; there are no namespaces or separate exports. Import cycles are rejected.",
             "Interactive consoles and console-script runs preload top-level `.ctk` files from `~/.ctk/lib` in filename order; `ctk --lib-dir DIR` selects another directory, expanding `~` and resolving relative paths from the session directory. Subdirectories are available through explicit nested imports. Later definitions replace earlier bindings, just as repeated imports do. Preloads do not add command-history entries.",
             "A missing default directory is empty. An invalid explicit directory or a failed import reports its path and stops startup before interactive input or the user's script runs.",
+            "The compiled and tree engines cache library syntax across restarts under `$XDG_CACHE_HOME/clang-toolkit/scripts` (default `~/.cache/clang-toolkit/scripts`). Source content, Python/Lark versions and grammar/runtime changes invalidate entries automatically. Nested imports and assignments still execute on every load with the current bindings. Unavailable or damaged cache files fall back to parsing; deleting this directory safely resets the cache. The cache stores data, with Python code compiled afresh after loading it.",
         ),
         ('import "lib/module.ctk"',),
     ),
