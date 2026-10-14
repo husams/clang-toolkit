@@ -186,6 +186,7 @@ def test_runtime_list_and_filesystem_properties_complete_from_live_bindings(tmp_
         "isEmpty",
         "joinWith(",
         "length",
+        "one(",
         "pop(",
         "push(",
         "remove(",

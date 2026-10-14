@@ -164,6 +164,8 @@ _AST_NODE_TYPE = "ctk.ast.v1.AstNode"
 _MATCH_BINDING_TYPE = "ctk.match.v1.MatchBinding"
 _AST_BASE_FIELDS = {
     "ctk.ast.v1.CXXRecordDecl": "record",
+    "ctk.ast.v1.ClassTemplateSpecializationDecl": "record",
+    "ctk.ast.v1.ClassTemplatePartialSpecializationDecl": "record",
     "ctk.ast.v1.RecordDecl": "record",
     "ctk.ast.v1.RecordDeclInfo": "tag",
     "ctk.ast.v1.TagDeclInfo": "type_declaration",

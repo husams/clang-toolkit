@@ -13,14 +13,49 @@ let _ctkParameterMatcher(name) = parmVarDecl(hasDeclContext(functionDecl(hasName
 let _ctkBaseMatcher() = cxxBaseSpecifier(optionally(hasType(qualType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl().bind("base"))))))))
 
 let _ctkSymbol(node) = {name: node.decl_name, id: node.symbol_identity, file: node.location.file, line: node.location.line}
+let _ctkTemplateParameter(parameter) = {kind: parameter.kind.name, name: parameter.fieldOr("name", ""), type: if parameter.hasField("type") then parameter.type.spelling else null, pack: parameter.is_parameter_pack, parameters: foreach nested in parameter.template_parameters do _ctkTemplateParameter(nested)}
+let _ctkTemplateArgument(argument) = {kind: argument.kind.name, spelling: argument.fieldOr("semantic_spelling", ""), type: if argument.hasField("type") then argument.type.spelling else null, elements: foreach element in argument.pack_elements do _ctkTemplateArgument(element)}
+let _ctkTemplate(node) = {
+    let facts = node.class_template
+    if facts.kind.number == 1 then null else {kind: if facts.kind.number == 2 then "primary" else if facts.kind.number == 4 then "partial_specialization" else "specialization", primary: facts.primary_template.qualified_name, parameters: foreach parameter in facts.parameters do _ctkTemplateParameter(parameter), arguments: foreach argument in facts.arguments do _ctkTemplateArgument(argument), specialization_kind: if facts.hasField("specialization_kind") then facts.specialization_kind.name else null}
+}
 let _ctkClass(node) = {
     let info = _ctkSymbol(node)
     info["kind"] = node.tag_kind.name
+    info["display_name"] = node.class_template.display_name
+    info["template"] = _ctkTemplate(node)
     info
 }
 let _ctkClasses(target, name) = {
     let rows = match definedClass(name).bind("cls") in target
     rows.unique("cls.symbol_identity")
+}
+let _ctkLookupClasses(target, name) = {
+    let rows = _ctkClasses(target, name)
+    if rows.isEmpty then {
+        let all = match cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("cls") in target
+        all.filter("cls.class_template.display_name", name).unique("cls.symbol_identity")
+    } else {
+        let ordinary = foreach row in rows do { if row.cls is CXXRecordDecl then row else null }
+        let preferred = filterValues(ordinary, (row) = row != null)
+        if preferred.isEmpty then rows else preferred
+    }
+}
+let classByName(target, className) = {
+    let rows = _ctkLookupClasses(target, className)
+    let row = rows.one("classByName({className})")
+    row.cls
+}
+let classTemplateInfo(target, className) = {
+    let rows = _ctkLookupClasses(target, className)
+    if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: foreach row in rows do _ctkClass(row.cls)} else {
+        let node = rows[0].cls
+        let info = _ctkClass(node)
+        if info.template == null then {status: "not_template", class: info} else {
+            let variants = match classTemplateSpecializationDecl(hasName(node.decl_name), isDefinition(), unless(isImplicit())).bind("cls") in target
+            {status: "ok", class: info, template: info.template, specializations: foreach row in variants.unique("cls.symbol_identity") do _ctkClass(row.cls)}
+        }
+    }
 }
 let _ctkAccess(node) = {
     let publicRows = match decl(isPublic()) in node scope self
@@ -95,7 +130,7 @@ let classMethods(node, includeImplicit = false) = {
     }
 }
 let classInfo(target, className, includeImplicit = false) = {
-    let rows = _ctkClasses(target, className)
+    let rows = _ctkLookupClasses(target, className)
     let candidates = foreach row in rows do _ctkClass(row.cls)
     if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: candidates} else {
         let node = rows[0].cls
@@ -104,7 +139,7 @@ let classInfo(target, className, includeImplicit = false) = {
     }
 }
 let ancestors(target, className, maxDepth = 32) = {
-    let rows = _ctkClasses(target, className)
+    let rows = _ctkLookupClasses(target, className)
     let candidates = foreach row in rows do _ctkClass(row.cls)
     if maxDepth < 0 then {status: "invalid_depth"} else if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: candidates} else {
         let root = _ctkClass(rows[0].cls)
@@ -132,7 +167,7 @@ let ancestors(target, className, maxDepth = 32) = {
                     let depth = frame.depth + 1
                     let levelIndex = depth - 1
                     if result.levels.length <= levelIndex then { push result.levels, [] }
-                    push result.levels[levelIndex], {name: child.name, id: child.id, via: frame.output.name, edge: metadata}
+                    push result.levels[levelIndex], {name: child.name, display_name: child.get("display_name"), template: child.get("template"), id: child.id, via: frame.output.name, edge: metadata}
                     if child.unresolved or child.cycle then { result["complete"] = false } else {
                         let definitions = _ctkClasses(target, child.name)
                         let same = definitions.filter("cls.symbol_identity", child.id)

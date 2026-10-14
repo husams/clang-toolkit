@@ -38,6 +38,45 @@ def _binding() -> match_result_pb2.MatchBinding:
     return value
 
 
+@pytest.mark.parametrize("payload", ["class_template_specialization_decl", "class_template_partial_specialization_decl"])
+def test_template_record_inherited_fields_keep_presence_and_availability(payload: str) -> None:
+    row = match_result_pb2.MatchResult()
+    binding = row.bindings["cls"]
+    record = getattr(binding.node, payload).record
+    record.tag.tag_kind = common_pb2.TAG_KIND_CLASS
+    record.tag.type_declaration.named.qualified_name = "demo::Box"
+    rows, _owner = _collection(row)
+    selected = rows[0].binding("cls")
+    assert property_value(property_value(selected, "tag_kind"), "name") == "TAG_KIND_CLASS"
+    assert "tag_kind" in property_value(selected, "keys")
+    assert call_method(selected, "hasField", ["tag_kind"]) is True
+
+    binding.availability.add(field_path=f"{payload}.record.tag.tag_kind",
+                                 state=common_pb2.FIELD_STATE_UNREQUESTED,
+                                 reason="projection omitted tag")
+    rows, _owner = _collection(row)
+    selected = rows[0].binding("cls")
+    assert "tag_kind" not in property_value(selected, "keys")
+    with pytest.raises(ReferenceError, match="field was not requested.*projection omitted tag"):
+        property_value(selected, "tag_kind")
+
+
+def test_one_preserves_native_row_identity_and_reports_lookup_cardinality() -> None:
+    row = match_result_pb2.MatchResult()
+    row.bindings["cls"].CopyFrom(_binding())
+    rows, owner = _collection(row)
+    selected = call_method(rows, "one", [])
+    assert selected._owner is owner
+    item = call_method([selected], "one", [])
+    assert item is selected
+    with pytest.raises(ReferenceError, match="classByName.*got 0"):
+        call_method([], "one", ["classByName(Missing)"])
+    with pytest.raises(ReferenceError, match="classByName.*got 2"):
+        call_method([selected, selected], "one", ["classByName(Ambiguous)"])
+    with pytest.raises(ReferenceError, match="optional diagnostic label"):
+        call_method([selected], "one", [42])
+
+
 def test_binding_value_is_a_detached_mutation_isolated_snapshot_readable_after_close() -> None:
     row = match_result_pb2.MatchResult()
     row.bindings["value"].CopyFrom(_binding())

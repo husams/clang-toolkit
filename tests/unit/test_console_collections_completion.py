@@ -60,6 +60,23 @@ def test_collection_keywords_are_offered_in_their_grammar_positions():
     assert ":" in _options(completer, '{"a" ')
 
 
+def test_one_is_advertised_as_a_collection_method(tmp_path):
+    from unittest.mock import Mock
+
+    from clang_toolkit.cli.runtime import Runtime
+    from clang_toolkit.client import Client
+
+    runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
+    try:
+        runtime.execute("let items = [1]")
+        completer = ReplCompleter(references=runtime.completion_references,
+                                  field_resolver=runtime.completion_suggestions)
+        assert "one(" in _options(completer, "$items.")
+        assert "method" in to_plain_text(_options(completer, "$items.")["one("].display_meta)
+    finally:
+        runtime.close()
+
+
 def test_flatten_completes_in_expression_contexts_and_preserves_join():
     completer = ReplCompleter()
 

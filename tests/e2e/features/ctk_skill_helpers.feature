@@ -8,3 +8,8 @@ Feature: Use bundled CTK skill utilities through the compiled console
     Given an isolated server and the bundled CTK helper fixture
     When I use the ready-made matchers and named and inline callbacks
     Then the documented matchers and executable-block examples return the expected values
+
+  Scenario: Live class lookup and template inheritance in both execution engines
+    Given an isolated server and the bundled CTK template fixture
+    When I select live classes and inspect their template specializations in both engines
+    Then the live nodes and template summaries preserve specialization identity and complete ancestors

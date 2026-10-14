@@ -66,6 +66,7 @@
 #include "decl/var_template_decl.hpp"
 #include "decl/var_template_partial_specialization_decl.hpp"
 #include "decl/var_template_specialization_decl.hpp"
+#include "declaration_helpers.hpp"
 #include "expr/matrix_subscript_expr.hpp"
 #include "expr/member_expr.hpp"
 #include "expr/no_init_expr.hpp"
@@ -399,6 +400,7 @@ bool NodeSerializerDispatcher::serialize(const clang::DynTypedNode &node,
   ++context.nodes;
   bool result;
   try {
+    helpers::write_class_template_facts(node, binding, context);
     result = dispatch(node, binding, context);
   } catch (...) {
     --context.depth;

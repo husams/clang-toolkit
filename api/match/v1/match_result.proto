@@ -56,6 +56,26 @@ message MatchBinding {
   string documentation = 10;
   // Present only when this binding is a CallExpr.
   CallSiteFacts call_site = 11;
+  // Bounded immediate facts for class records and class-template declarations.
+  // Argument/parameter descriptions contain no owned AST children.
+  ClassTemplateFacts class_template = 13;
+}
+
+message ClassTemplateFacts {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    ORDINARY = 1;
+    PRIMARY = 2;
+    SPECIALIZATION = 3;
+    PARTIAL_SPECIALIZATION = 4;
+  }
+  optional Kind kind = 1;
+  // Clang's qualified diagnostic spelling, including specialization arguments.
+  string display_name = 2;
+  ctk.ast.v1.DeclarationSymbol primary_template = 3;
+  repeated ctk.ast.v1.TemplateParameterDescription parameters = 4;
+  repeated ctk.ast.v1.TemplateArgumentDescription arguments = 5;
+  optional ctk.ast.v1.DeclTemplateSpecializationKind specialization_kind = 6;
 }
 
 // A source coordinate is valid only when `valid` is true. Coordinates use

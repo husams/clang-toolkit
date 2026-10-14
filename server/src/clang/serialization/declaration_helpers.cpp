@@ -5,6 +5,7 @@
 #include <clang/AST/Attr.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/OperatorKinds.h>
+#include <llvm/Support/SaveAndRestore.h>
 #include <llvm/Support/raw_ostream.h>
 
 namespace ctk::clang_layer::serialization::helpers {
@@ -294,6 +295,69 @@ void argument_description(const clang::TemplateArgument &native,
   }
 }
 } // namespace
+
+void write_class_template_facts(const clang::DynTypedNode &node,
+                                ctk::match::v1::MatchBinding &binding,
+                                SerializationContext &context) {
+  const auto *record = node.get<clang::CXXRecordDecl>();
+  const auto *primary = node.get<clang::ClassTemplateDecl>();
+  if (!record && !primary)
+    return;
+  using Facts = ctk::match::v1::ClassTemplateFacts;
+  auto *facts = binding.mutable_class_template();
+  const auto *specialization =
+      llvm::dyn_cast_or_null<clang::ClassTemplateSpecializationDecl>(record);
+  const auto *partial =
+      llvm::dyn_cast_or_null<clang::ClassTemplatePartialSpecializationDecl>(
+          record);
+  if (specialization)
+    primary = specialization->getSpecializedTemplate();
+  else if (record)
+    primary = record->getDescribedClassTemplate();
+  facts->set_kind(partial          ? Facts::PARTIAL_SPECIALIZATION
+                  : specialization ? Facts::SPECIALIZATION
+                  : primary        ? Facts::PRIMARY
+                                   : Facts::ORDINARY);
+  std::string name;
+  llvm::raw_string_ostream stream(name);
+  const clang::NamedDecl *named =
+      record ? static_cast<const clang::NamedDecl *>(record)
+             : static_cast<const clang::NamedDecl *>(primary);
+  auto policy = context.ast_context.getPrintingPolicy();
+  policy.SuppressDefaultTemplateArgs = false;
+  named->getNameForDiagnostic(stream, policy, true);
+  facts->set_display_name(name);
+  if (!primary)
+    return;
+
+  // These bounded descriptions contain scalar type facts, never owned AST
+  // values. Permit their nested parameter/pack descriptions even on shallow
+  // bindings, while retaining the same depth/node accounting.
+  llvm::SaveAndRestore projection(context.projection,
+                                  ProjectionPolicy::Recursive);
+  write_symbol(*primary, *facts->mutable_primary_template(), context);
+  const auto *parameters = partial           ? partial->getTemplateParameters()
+                           : !specialization ? primary->getTemplateParameters()
+                                             : nullptr;
+  if (parameters)
+    for (const auto *parameter : *parameters) {
+      if (!can_expand(*facts, "parameters", context))
+        break;
+      parameter_description(*parameter, *facts->add_parameters(), context);
+    }
+  if (specialization) {
+    for (const auto &argument : specialization->getTemplateArgs().asArray()) {
+      if (!can_expand(*facts, "arguments", context))
+        break;
+      argument_description(argument, *facts->add_arguments(), context);
+    }
+    // Clang's five specialization kinds have the same order after the
+    // protobuf's unspecified zero value.
+    facts->set_specialization_kind(
+        static_cast<pb::DeclTemplateSpecializationKind>(
+            static_cast<int>(specialization->getSpecializationKind()) + 1));
+  }
+}
 
 void write_declaration_name(clang::DeclarationName native,
                             pb::DeclarationName &payload,
