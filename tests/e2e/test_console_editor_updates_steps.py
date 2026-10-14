@@ -136,6 +136,38 @@ def editor_evidence(editor_server, tmp_path):
         wait_for(lambda: "cxxRecordDecl" in visible() and "node matcher" in visible())
         os.write(master, b"\x1b\x03")
         wait_for(lambda: "Input 1:1" in visible())
+        # Whitespace before an opening parenthesis must preserve matcher
+        # categories on every line of the active editor, including `unless`.
+        color_draft = (
+            "let selected = functionDecl (\n"
+            '  hasName ("class"),\n'
+            "  unless (isImplicit ())\n"
+            ")\n"
+            "let result = if(true) then 1 else 2"
+        )
+        paste(color_draft)
+        wait_for(lambda: "Input 5:" in visible() and "let result = if(true)" in visible())
+
+        def color(line_text, token):
+            row = next(i for i, line in enumerate(screen.display) if line_text in line)
+            return screen.buffer[row][screen.display[row].index(token)].fg
+
+        assert len({
+            color("let selected = functionDecl", "let"),
+            color("let selected = functionDecl", "selected"),
+            color("let selected = functionDecl", "functionDecl"),
+            color('hasName ("class")', "hasName"),
+            color('hasName ("class")', '"class"'),
+            color("unless (isImplicit ())", "unless"),
+        }) == 6
+        assert color('hasName ("class")', "hasName") == color(
+            "unless (isImplicit ())", "isImplicit"
+        )
+        assert color("let result = if(true)", "let") == color(
+            "let result = if(true)", "if"
+        )
+        os.write(master, b"\x1b\x03")
+        wait_for(lambda: "Input 1:1" in visible())
         helper = (
             Path(__file__).resolve().parents[2]
             / "skills/ctk-script/scripts/ctk_helpers.ctk"

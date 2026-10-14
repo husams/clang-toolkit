@@ -210,7 +210,7 @@ def highlight(source: str) -> StyleAndTextTuples:
     significant = [
         token
         for token in tokens
-        if _kind(token) not in {"WS", "NEWLINE", "BATCH_SEPARATOR", "COMMENT"}
+        if not str(token).isspace() and _kind(token) != "COMMENT"
     ]
     following = {
         id(token): str(significant[i + 1]) if i + 1 < len(significant) else ""
@@ -241,6 +241,8 @@ def highlight(source: str) -> StyleAndTextTuples:
             style = "reference"
         elif kind == "BIND" or text == ".bind":
             style = "bind"
+        elif text in _KEYWORDS and text not in MATCHER_METADATA:
+            style = "keyword"
         elif text.isidentifier() and following.get(id(token)) == "(":
             metadata = MATCHER_METADATA.get(text)
             style = (
