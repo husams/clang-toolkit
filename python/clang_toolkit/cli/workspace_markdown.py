@@ -21,7 +21,8 @@ from rich.style import Style as RichStyle
 from rich.syntax import Syntax, SyntaxTheme
 from rich.theme import Theme
 
-from clang_toolkit.cli.highlight import WORKSPACE_SYNTAX, highlight
+from clang_toolkit.cli.highlight import WORKSPACE_SYNTAX
+from clang_toolkit.cli.runtime.prototype.repl_editor import highlight
 
 
 class CtkLexer(Lexer):
@@ -30,7 +31,9 @@ class CtkLexer(Lexer):
         "class:matcher": Token.Name.Function,
         "class:matcher-root": Token.Name.Class,
         "class:matcher-predicate": Token.Name.Decorator,
+        "class:function": Token.Name.Function.Magic,
         "class:boolean": Token.Keyword.Constant,
+        "class:null": Token.Keyword.Constant,
         "class:comment": Token.Comment,
         "class:bind": Token.Name.Tag,
         "class:reference": Token.Name.Variable,
@@ -44,7 +47,7 @@ class CtkLexer(Lexer):
 
     def get_tokens_unprocessed(self, text: str) -> Iterator[tuple[int, Any, str]]:
         offset = 0
-        for fragment in highlight(text, semantic_matchers=True, batch=True):
+        for fragment in highlight(text):
             style, value = fragment[0], fragment[1]
             yield offset, self.kinds.get(style, Token.Text), value
             offset += len(value)

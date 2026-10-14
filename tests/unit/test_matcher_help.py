@@ -117,7 +117,7 @@ def test_existing_parenthesis_and_injected_matchers_preserve_completion_hints():
     custom = choices("match custom", matchers=("customNode",))[0]
     assert custom.display_meta_text == "AST matcher"
     saved = choices("let selected = hasNam", matcher_functions=("hasName",))[0]
-    assert saved.display_meta_text == "saved matcher function"
+    assert saved.display_meta_text == "user defined · hasName(…)"
 
 
 def test_matcher_help_remains_visible_when_values_are_redirected(tmp_path):

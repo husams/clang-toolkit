@@ -118,6 +118,7 @@ STYLE = Style.from_dict(
     {
         "keyword": "bold ansiblue",
         "matcher": "ansicyan",
+        "function": "bold ansibrightblue",
         "bind": "ansimagenta",
         "reference": "ansiyellow",
         "variable": "ansiyellow",
@@ -127,6 +128,11 @@ STYLE = Style.from_dict(
         "punctuation": "ansibrightblack",
         "operator": "bold ansiwhite",
         "error": "bg:ansired ansiwhite",
+        "comment": "italic ansibrightblack",
+        "boolean": "ansibrightmagenta",
+        "null": "ansibrightmagenta",
+        "matcher-root": "ansibrightcyan",
+        "matcher-predicate": "ansibrightgreen",
     }
 )
 
@@ -137,12 +143,14 @@ WORKSPACE_SYNTAX = {
     "matcher": "#b8a1ef",
     "matcher-root": "#82adff",
     "matcher-predicate": "#a3d36b",
+    "function": "bold #62b3ff",
     "reference": "#79c6bc",
     "variable": "#79c6bc",
     "string": "#e6c47d",
     "number": "#f1a875",
     "value": "#ffd580",
     "boolean": "italic #f1a875",
+    "null": "italic #f1a875",
     "operator": "bold #c7d5ee",
     "punctuation": "#90a4b4",
     "comment": "italic #748999",

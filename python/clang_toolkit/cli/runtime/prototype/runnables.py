@@ -21,6 +21,7 @@ class RunnableBlock:
     source_name: str
     defaults: tuple[Callable[[Context], Any], ...] = ()
     default_nodes: tuple[Any, ...] = ()
+    definition: str = ""
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(self.parameters)})"
@@ -87,7 +88,8 @@ def create_runnable(context: Context, node: Any, executable: Callable[[Context],
         raise _error(context, node, f"{name} has duplicate parameter names")
     value = RunnableBlock(name, parameters, node.children[0], executable,
                           context.scopes, context.source, context.string_templates,
-                          (node.line, node.column), context.source_name, defaults, node.children[1:])
+                          (node.line, node.column), context.source_name, defaults, node.children[1:],
+                          context.source[slice(*node.source_span)] if node.source_span else "")
     return value
 
 

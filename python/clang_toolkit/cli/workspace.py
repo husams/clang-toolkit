@@ -171,7 +171,7 @@ class WorkspaceConsole:
         self.wrap_results = True
         self.last_source = ""
         self.command_position: int | None = None
-        self.context = CommandContext()
+        self.context = CommandContext(getattr(session, "function_help", None))
         self.server_panel = MarkdownPanel()
         self.server_panel.set_markdown("## Server status\n\nChecking server…")
         self.outline = WorkspaceTree(

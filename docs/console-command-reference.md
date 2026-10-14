@@ -90,7 +90,7 @@ help MATCHER
 MATCHER?
 ```
 
-- LLVM 22.1.8: 483 registered matcher names with offline help.
+- LLVM 22.1.8: 502 registered matcher names with offline help.
 - Node matchers select an AST node kind; narrowing matchers test attributes; traversal matchers follow related nodes.
 - Completion hints identify the kind and describe the matcher in root, nested and assignment contexts.
 - The matcher reference includes C++ source snippets alongside matcher examples.
@@ -1573,6 +1573,7 @@ MATCHER?
 - coroutineBodyStmt: Matches coroutine body statements.
 - coyieldExpr: Matches co_yield expressions.
 - cudaKernelCallExpr: Matches CUDA kernel call expression.
+- cxxBaseSpecifier: Matches class bases.
 - cxxBindTemporaryExpr: Matches nodes where temporaries are created.
 - cxxBoolLiteral: Matches bool literals.
 - cxxCatchStmt: Matches catch statements.
@@ -1654,6 +1655,7 @@ MATCHER?
 - lValueReferenceType: Matches lvalue reference types.
 - labelDecl: Matches a declaration of label.
 - labelStmt: Matches label statements.
+- lambdaCapture: Matches lambda captures.
 - lambdaExpr: Matches lambda expressions.
 - linkageSpecDecl: Matches a declaration of a linkage specification.
 - macroQualifiedType: Matches qualified types when the qualifier is applied via a macro.
@@ -1683,6 +1685,7 @@ MATCHER?
 - objcStringLiteral: Matches ObjectiveC String literal expressions.
 - objcThrowStmt: Matches Objective-C statements.
 - objcTryStmt: Matches Objective-C @try statements.
+- ompDefaultClause: Matches OpenMP ``default`` clause.
 - ompExecutableDirective: Matches any ``#pragma omp`` executable directive.
 - opaqueValueExpr: Matches opaque value expressions. They are used as helpers to reference another expressions and can be met in BinaryConditionalOperators, for example.
 - parenExpr: Matches parentheses used in expressions.
@@ -1710,6 +1713,9 @@ MATCHER?
 - switchStmt: Matches switch statements.
 - tagDecl: Matches tag declarations.
 - tagType: Matches tag types (record and enum types).
+- templateArgument: Matches template arguments.
+- templateArgumentLoc: Matches template arguments (with location info).
+- templateName: Matches template name.
 - templateSpecializationType: Matches template specialization types.
 - templateSpecializationTypeLoc: Matches template specialization `TypeLoc`s.
 - templateTemplateParmDecl: Matches template template parameter declarations.
@@ -1764,11 +1770,13 @@ MATCHER?
 - argumentCountIs: Checks that a call expression or a constructor call expression has a specific number of arguments (including absent default arguments).
 - asString: Matches if the matched type is represented by the given string.
 - booleanType: Matches type bool.
+- capturesThis: Matches a `LambdaCapture` that refers to 'this'.
 - declCountIs: Matches declaration statements that contain a specific number of declarations.
 - declaresSameEntityAsBoundNode: Matches a declaration if it declares the same entity as the node previously bound to ID.
 - designatorCountIs: Matches designated initializer expressions that contain a specific number of designators.
 - equals: Matches literals that are equal to the given value of type ValueT.
 - equalsBoundNode: Matches if a node equals a previously bound node.
+- equalsIntegralValue: Matches a TemplateArgument of integral type with a given value.
 - hasAnyName: Matches NamedDecl nodes that have any of the specified names.
 - hasAnyOperatorName: Matches operator expressions (binary or unary) that have any of the specified names.
 - hasAnyOverloadedOperatorName: Matches overloaded operator names.
@@ -1838,6 +1846,7 @@ MATCHER?
 - isExplicitTemplateSpecialization: Matches explicit template specializations of function, class, or static member variable template instantiations.
 - isExternC: Matches extern "C" function or variable declarations.
 - isFinal: Matches if the given method or class declaration is final.
+- isFirstPrivateKind: Matches if the OpenMP ``default`` clause has ``firstprivate`` kind specified.
 - isImplicit: Matches an entity that has been implicitly added by the compiler (e.g. implicit default/copy constructors).
 - isInAnonymousNamespace: Matches declarations in an anonymous namespace.
 - isInStdNamespace: Matches declarations in the namespace `std`, but not in nested namespaces.
@@ -1849,6 +1858,7 @@ MATCHER?
 - isInstantiated: Matches declarations that are template instantiations or are inside template instantiations.
 - isInstantiationDependent: Matches expressions that are instantiation-dependent even if it is neither type- nor value-dependent.
 - isInteger: Matches QualType nodes that are of integer type.
+- isIntegral: Matches a TemplateArgument that is an integral value.
 - isLambda: Matches the generated class of lambda expressions.
 - isLeftFold: Matches left-folding fold expressions.
 - isListInitialization: Matches a constructor call expression which uses list initialization.
@@ -1858,14 +1868,17 @@ MATCHER?
 - isMoveConstructor: Matches constructor declarations that are move constructors.
 - isNoReturn: Matches FunctionDecls that have a noreturn attribute.
 - isNoThrow: Matches functions that have a non-throwing exception specification.
+- isNoneKind: Matches if the OpenMP ``default`` clause has ``none`` kind specified.
 - isOverride: Matches if the given method declaration overrides another method.
 - isPrivate: Matches private C++ declarations and C++ base specifiers that specify private inheritance.
+- isPrivateKind: Matches if the OpenMP ``default`` clause has ``private`` kind specified.
 - isProtected: Matches protected C++ declarations and C++ base specifiers that specify protected inheritance.
 - isPublic: Matches public C++ declarations and C++ base specifiers that specify public inheritance.
 - isPure: Matches if the given method declaration is pure.
 - isRightFold: Matches right-folding fold expressions.
 - isSameOrDerivedFrom: Overloaded method as shortcut for isSameOrDerivedFrom(hasName(...)).
 - isScoped: Matches C++11 scoped enum declaration.
+- isSharedKind: Matches if the OpenMP ``default`` clause has ``shared`` kind specified.
 - isSignedInteger: Matches QualType nodes that are of signed integer type.
 - isStandaloneDirective: Matches standalone OpenMP directives, i.e., directives that can't have a structured block.
 - isStaticLocal: Matches a static variable with local scope.
@@ -1919,6 +1932,7 @@ MATCHER?
 - alignOfExpr: Same as unaryExprOrTypeTraitExpr, but only matching alignof.
 - binaryOperation: Matches nodes which can be used with binary operators.
 - callee: Matches if the call or fold expression's callee expression matches.
+- capturesVar: Matches a `LambdaCapture` that refers to the specified `VarDecl`. The `VarDecl` can be a separate variable that is captured by value or reference, or a synthesized variable if the capture has an initializer.
 - containsDeclaration: Matches the n'th declaration of a declaration statement.
 - eachOf: Matches if any of the given matchers matches.
 - forCallable: Matches declaration of the function, method, or block the statement belongs to.
@@ -2028,6 +2042,7 @@ MATCHER?
 - ignoringParens: Overload ignoringParens for Expr.
 - innerType: Matches ParenType nodes where the inner type is a specific type.
 - invocation: Matches function calls and constructor calls
+- isExpr: Matches a sugar TemplateArgument that refers to a certain expression.
 - loc: Matches NestedNameSpecifierLocs for which the given inner NestedNameSpecifier-matcher matches.
 - member: Matches a member expression where the member is matched by a given matcher.
 - ofClass: Matches the class declaration that the given method declaration belongs to.
@@ -2037,6 +2052,10 @@ MATCHER?
 - pointee: Narrows PointerType (and similar) matchers to those where the pointee matches a given matcher.
 - pointsTo: Overloaded to match the pointee type's declaration.
 - references: Overloaded to match the referenced type's declaration.
+- refersToDeclaration: Matches a canonical TemplateArgument that refers to a certain declaration.
+- refersToIntegralType: Matches a TemplateArgument that refers to an integral type.
+- refersToTemplate: Matches a TemplateArgument that refers to a certain template.
+- refersToType: Matches a TemplateArgument that refers to a certain type.
 - returns: Matches the return type of a function declaration.
 - sizeOfExpr: Same as unaryExprOrTypeTraitExpr, but only matching sizeof.
 - specifiesNamespace: Matches nested name specifiers that specify a namespace matching the given namespace matcher.

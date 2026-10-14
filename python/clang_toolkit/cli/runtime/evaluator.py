@@ -1218,7 +1218,13 @@ class Runtime:
         if len(set(parameters)) != len(parameters):
             raise EvaluationError(f"{name} has duplicate parameter names")
         scope = self._scopes[-1] if self._scopes else self.bindings
-        value = MatcherFunction(name, parameters, statement.children[-1])
+        source = self._source_stack[-1]
+        # Legacy imports execute an isolated statement while retaining its
+        # positions in the library. Ordinary submissions retain full source.
+        definition = (source[statement.meta.start_pos:statement.meta.end_pos]
+                      if statement.meta.end_pos <= len(source) else source.strip())
+        value = MatcherFunction(name, parameters, statement.children[-1],
+                                definition)
         scope[name] = value
         return value
 
@@ -1237,6 +1243,15 @@ class Runtime:
         return tuple(
             name for name, value in values.items() if isinstance(value, MatcherFunction)
         )
+
+    def callable_help(self) -> dict[str, Any]:
+        from clang_toolkit.cli.callable_help import describe_callable
+
+        values = dict(self.bindings)
+        for scope in self._scopes:
+            values.update(scope)
+        return {name: describe_callable(name, value) for name, value in values.items()
+                if isinstance(value, MatcherFunction)}
 
     def _set(self, statement: Tree) -> None:
         scope = (

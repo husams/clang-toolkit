@@ -2,24 +2,48 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+
 from clang_toolkit.cli.help import COMMAND_HELP, MATCHER_HELP, help_entry
+from clang_toolkit.cli.callable_help import CallableHelp
 from clang_toolkit.cli.language import lex
 from clang_toolkit.cli.workspace_markdown import MarkdownPanel
 
 
 class CommandContext(MarkdownPanel):
+    def __init__(
+        self,
+        function_help: Mapping[str, CallableHelp]
+        | Callable[[], Mapping[str, CallableHelp]]
+        | None = None,
+    ) -> None:
+        super().__init__()
+        self.function_help = function_help
+
     def update(self, source: str, root: str, *, completion: str | None = None) -> None:
         words = [str(token) for token in lex(source) if token.type != "WS"]
+        functions = (
+            self.function_help()
+            if callable(self.function_help)
+            else self.function_help or {}
+        )
         matcher = completion.removesuffix("(") if completion else None
-        if matcher not in MATCHER_HELP:
+        if completion is None and words and words[0] == "help":
+            matcher = " ".join(words[1:])
+        if matcher not in MATCHER_HELP and matcher not in functions:
             calls: list[str | None] = []
             for i, word in enumerate(words):
                 if word == "(":
                     name = words[i - 1] if i else ""
-                    calls.append(name if name in MATCHER_HELP else None)
+                    calls.append(
+                        name if name in MATCHER_HELP or name in functions else None
+                    )
                 elif word == ")" and calls:
                     calls.pop()
             matcher = calls[-1] if calls else (words[-1] if words else None)
+        if matcher in functions:
+            self.set_markdown(functions[matcher].markdown())
+            return
         if matcher in MATCHER_HELP:
             entry = MATCHER_HELP[matcher]
             self.set_markdown(

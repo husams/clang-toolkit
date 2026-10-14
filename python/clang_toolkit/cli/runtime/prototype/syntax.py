@@ -26,6 +26,7 @@ class Node:
     children: tuple[Node, ...] = ()
     line: int = 1
     column: int = 1
+    source_span: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,8 @@ class _Builder(Transformer[Any, Any]):
 
     def parameter(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)
-        return Node("parameter", str(items[0]), _nodes(items), line, column)
+        return Node("parameter", str(items[0]), _nodes(items), line, column,
+                    (meta.start_pos, meta.end_pos))
 
     def parameters(self, meta: Any, items: list[Any]) -> tuple[Node, ...]:
         return _nodes(items)
@@ -117,7 +119,8 @@ class _Builder(Transformer[Any, Any]):
         body = self._action_block(next(item for item in items if isinstance(item, Node)))
         defaults = tuple(item for item in specs if item.children)
         line, column = self._location(meta, items)
-        return Node(kind, (name, parameters), (body, *defaults), line, column)
+        return Node(kind, (name, parameters), (body, *defaults), line, column,
+                    (meta.start_pos, meta.end_pos))
 
     def error_handler(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)

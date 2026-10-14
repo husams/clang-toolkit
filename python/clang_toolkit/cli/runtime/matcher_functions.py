@@ -18,6 +18,7 @@ class MatcherFunction:
     name: str
     parameters: tuple[str, ...]
     _body: Tree
+    definition: str = ""
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(self.parameters)})"

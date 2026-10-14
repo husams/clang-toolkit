@@ -7,6 +7,7 @@ from functools import cache
 import re
 
 from lark import Lark, Token
+from lark.lexer import PatternStr
 from lark.exceptions import UnexpectedInput
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
@@ -15,8 +16,14 @@ from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.validation import ValidationError, Validator
 
 from clang_toolkit.cli.highlight import TOKEN_STYLES
+from clang_toolkit.cli.completion_candidates import _REGEX_LITERALS
+from clang_toolkit.cli.matcher_catalog import MATCHER_METADATA
 from clang_toolkit.cli.input_state import InputState
-from clang_toolkit.cli.runtime.prototype.repl_language import grammar_text, parser, parse
+from clang_toolkit.cli.runtime.prototype.repl_language import (
+    grammar_text,
+    parser,
+    parse,
+)
 from clang_toolkit.cli.runtime.prototype.syntax import Node
 
 _CLOSERS = {"(": ")", "[": "]", "{": "}"}
@@ -72,6 +79,8 @@ def _editor_parser() -> Lark:
 
 def _kind(token: Token) -> str:
     name = token.type
+    if name.startswith("__IGNORE"):
+        return "WS" if str(token).isspace() else "COMMENT"
     for prefix in ("LEGACY_", "PROTO_"):
         if name.startswith(prefix):
             return name[len(prefix) :]
@@ -181,84 +190,114 @@ class PrototypeInputValidator(Validator):
             raise ValidationError(cursor_position=len(source), message=message)
 
 
+@cache
+def _keyword_patterns() -> tuple[re.Pattern[str], ...]:
+    """Read keyword vocabulary from the grammar, including legacy commands."""
+    return tuple(
+        re.compile(terminal.pattern.to_regexp())
+        for terminal in _editor_parser().terminals
+        if _kind(Token(terminal.name, "")) in _REGEX_LITERALS
+        or (
+            isinstance(terminal.pattern, PatternStr)
+            and terminal.pattern.value.isidentifier()
+        )
+    )
+
+
+def highlight(source: str) -> StyleAndTextTuples:
+    """Share lossless combined-language colors with the editor and Markdown."""
+    tokens = lex(source)
+    significant = [
+        token
+        for token in tokens
+        if _kind(token) not in {"WS", "NEWLINE", "BATCH_SEPARATOR", "COMMENT"}
+    ]
+    following = {
+        id(token): str(significant[i + 1]) if i + 1 < len(significant) else ""
+        for i, token in enumerate(significant)
+    }
+    fragments: StyleAndTextTuples = []
+    for token in tokens:
+        kind = _kind(token)
+        text = str(token)
+        if kind == "COMMENT":
+            style = "comment"
+        elif kind in {
+            "OPEN_STRING",
+            "STRING",
+            "PREDICATE_STRING",
+            "FILE_STRING",
+            "DIRECTORY_STRING",
+            "PATH_STRING",
+        }:
+            style = "string"
+        elif kind in {"NUMBER", "INT", "FLOAT"}:
+            style = "number"
+        elif text in {"true", "false", "null"}:
+            style = "null" if text == "null" else "boolean"
+        elif kind in {"ERROR"}:
+            style = "error"
+        elif kind == "DOLLAR":
+            style = "reference"
+        elif kind == "BIND" or text == ".bind":
+            style = "bind"
+        elif text.isidentifier() and following.get(id(token)) == "(":
+            metadata = MATCHER_METADATA.get(text)
+            style = (
+                {
+                    "node": "matcher-root",
+                    "narrowing": "matcher-predicate",
+                    "traversal": "matcher",
+                }.get(metadata[0], "matcher")
+                if metadata
+                else "function"
+            )
+            if text in {"unless", "anyOf", "allOf", "eachOf", "optionally"}:
+                style = "matcher"
+        elif str(token) in {
+            "+",
+            "-",
+            "*",
+            "/",
+            "%",
+            "=",
+            "==",
+            "!=",
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "+=",
+            "-=",
+            "*=",
+            "/=",
+            "%=",
+            "?",
+        }:
+            style = "operator"
+        elif text in _KEYWORDS or any(
+            pattern.fullmatch(text) for pattern in _keyword_patterns()
+        ):
+            style = "keyword"
+        elif str(token) in "()[]{}:,;." and len(str(token)) == 1:
+            style = "punctuation"
+        else:
+            style = "variable" if text.isidentifier() else TOKEN_STYLES.get(kind, "")
+        fragments.append((f"class:{style}" if style else "", text))
+    return fragments
+
+
 class PrototypeReplLexer(Lexer):
     """Highlight all characters using terminals from the composed grammar."""
 
     def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
         lines: list[StyleAndTextTuples] = [[]]
-        for token in lex(document.text):
-            kind = _kind(token)
-            if kind == "COMMENT":
-                style = "comment"
-            elif kind in {
-                "OPEN_STRING",
-                "STRING",
-                "PREDICATE_STRING",
-                "FILE_STRING",
-                "DIRECTORY_STRING",
-                "PATH_STRING",
-            }:
-                style = "string"
-            elif kind in {"NUMBER", "INT", "FLOAT"}:
-                style = "number"
-            elif kind in {"TRUE", "FALSE", "NULL"}:
-                style = "value"
-            elif kind in {"ERROR"}:
-                style = "error"
-            elif kind in {"DOLLAR", "BIND"}:
-                style = "reference"
-            elif kind == "ROUTINE_NAME":
-                style = "matcher"
-            elif str(token) in {
-                "+",
-                "-",
-                "*",
-                "/",
-                "%",
-                "=",
-                "==",
-                "!=",
-                "<",
-                "<=",
-                ">",
-                ">=",
-                "+=",
-                "-=",
-                "*=",
-                "/=",
-                "%=",
-                "?",
-            }:
-                style = "operator"
-            elif str(token) in _KEYWORDS or kind in {
-                "LET",
-                "PRINT",
-                "FOREACH",
-                "IN",
-                "DO",
-                "THEN",
-                "DONE",
-                "IF",
-                "ELSE",
-                "UNLESS",
-                "AND",
-                "OR",
-                "NOT",
-                "PARSE",
-                "MATCH",
-                "SET",
-            }:
-                style = "keyword"
-            elif str(token) in "()[]{}:,;." and len(str(token)) == 1:
-                style = "punctuation"
-            else:
-                style = TOKEN_STYLES.get(kind, "")
-            text = str(token)
+        for style, text in highlight(document.text):
             for index, part in enumerate(text.split("\n")):
                 if index:
                     lines.append([])
                 if part:
-                    lines[-1].append((f"class:{style}" if style else "", part))
+                    lines[-1].append((style, part))
         return lambda lineno: lines[lineno] if 0 <= lineno < len(lines) else []
 
 
@@ -267,27 +306,43 @@ def _completing_loop_binding(source: str, name: str, position: int) -> bool:
     location = _position(source, position)
     state = input_state(source)
     try:
-        program = parse(source + "".join(_CLOSERS[value] for value in reversed(state.stack)))
+        program = parse(
+            source + "".join(_CLOSERS[value] for value in reversed(state.stack))
+        )
     except (UnexpectedInput, ValueError):
         return False
 
     def visit(node: Node, bindings: set[str]) -> bool | None:
         if node.kind == "get" and node.value == "index":
             base = node.children[0]
-            if base.kind == "ref" and base.value == name and (base.line, base.column) == location:
+            if (
+                base.kind == "ref"
+                and base.value == name
+                and (base.line, base.column) == location
+            ):
                 return name in bindings
         if node.kind == "foreach":
             found = visit(node.children[0], bindings)
-            return found if found is not None else visit(node.children[1], bindings | {node.value})
+            return (
+                found
+                if found is not None
+                else visit(node.children[1], bindings | {node.value})
+            )
         if node.kind in {"program", "block"}:
             bindings = set(bindings)
             for statement in node.children:
                 found = visit(statement, bindings)
                 if found is not None:
                     return found
-                statement = statement.children[0] if statement.kind == "observe" else statement
+                statement = (
+                    statement.children[0] if statement.kind == "observe" else statement
+                )
                 if statement.kind in {"let", "runnable"}:
-                    binding = statement.value[0] if statement.kind == "runnable" else statement.value
+                    binding = (
+                        statement.value[0]
+                        if statement.kind == "runnable"
+                        else statement.value
+                    )
                     bindings.discard(binding)
             return None
         if node.kind == "runnable":
@@ -312,54 +367,152 @@ class PrototypeCompleter(Completer):
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
         before = document.text_before_cursor
+        # Use token spans from the complete draft: a closed string may extend
+        # past the cursor, and an earlier line's comment is no longer active.
+        cursor = document.cursor_position
+        in_literal = any(
+            int(token.start_pos) < cursor < int(token.end_pos)
+            and _kind(token)
+            in {
+                "COMMENT",
+                "OPEN_STRING",
+                "STRING",
+                "PREDICATE_STRING",
+                "FILE_STRING",
+                "DIRECTORY_STRING",
+                "PATH_STRING",
+            }
+            for token in lex(document.text)
+        )
         existing = list(self.base.get_completions(document, complete_event))
-        if "$" not in before:
-            existing = [Completion(item.text.removeprefix("$"), item.start_position,
-                                  display=item.display_text.replace("$", ""), display_meta=item.display_meta)
-                        if item.text.startswith("$") else item for item in existing if item.text != "$"]
-        yield from existing
         tokens = lex(before)
-        if any(_kind(token) in {"COMMENT", "OPEN_STRING"} for token in tokens):
+        if not existing and not in_literal:
+            # A runnable header is outside the legacy parser. Recover the
+            # native operand's grammar context from its lossless token spans.
+            native = next(
+                (
+                    token
+                    for token in reversed(tokens)
+                    if str(token)
+                    in {"match", "parse", "cfg", "callgraph", "traverse", "help"}
+                ),
+                None,
+            )
+            if native is not None and int(native.start_pos) > 0:
+                start = int(native.start_pos)
+                existing = list(
+                    self.base.get_completions(
+                        Document(document.text[start:], cursor_position=cursor - start),
+                        complete_event,
+                    )
+                )
+        if "$" not in before:
+            existing = [
+                Completion(
+                    item.text.removeprefix("$"),
+                    item.start_position,
+                    display=item.display_text.replace("$", ""),
+                    display_meta=item.display_meta,
+                )
+                if item.text.startswith("$")
+                else item
+                for item in existing
+                if item.text != "$"
+            ]
+        yield from existing
+        if in_literal:
+            return
+        if tokens and _kind(tokens[-1]) in {"COMMENT", "OPEN_STRING"}:
             return
         match = re.search(r"[A-Za-z_][A-Za-z0-9_]*$|(?<=\.)$", before)
         if match is None:
             return
         partial = match.group(0)
+        tail = re.match(r"[A-Za-z_0-9]+", document.text_after_cursor)
+        word_suffix = tail[0] if tail else ""
+
+        def insertion(name: str, *, call: bool = False) -> str | None:
+            if not name.startswith(partial) or not name.endswith(word_suffix):
+                return None
+            if word_suffix:
+                return name[: -len(word_suffix)]
+            return name + (
+                "("
+                if call and not document.text_after_cursor.lstrip().startswith("(")
+                else ""
+            )
+
         known = {item.text for item in existing}
         references = getattr(self.base, "_references", None)
         references = references() if callable(references) else references or {}
         functions = getattr(self.base, "_matcher_functions", None)
         functions = functions() if callable(functions) else functions or ()
-        if before[:match.start()].endswith("."):
-            field = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\[[0-9]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*)\.[A-Za-z_0-9]*$", before)
+        descriptions = (
+            self.base.function_descriptions()
+            if hasattr(self.base, "function_descriptions")
+            else {}
+        )
+        functions = set(functions) | set(descriptions)
+        if re.search(r"(?:^|[;\n])\s*help\s+[^;\n]*$", before):
+            return
+        if before[: match.start()].endswith("."):
+            field = re.search(
+                r"([A-Za-z_][A-Za-z0-9_]*(?:\[[0-9]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*)\.[A-Za-z_0-9]*$",
+                before,
+            )
             if field and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", field.group(1)):
-                draft = before[:match.start()] + "index"
+                draft = before[: match.start()] + "index"
                 if _completing_loop_binding(draft, field.group(1), field.start(1)):
                     for name in ("index", "value"):
-                        if name.startswith(partial) and name not in known:
-                            yield Completion(name, start_position=-len(partial), display_meta="loop binding")
-                            known.add(name)
+                        text = insertion(name)
+                        if text is not None and text not in known:
+                            yield Completion(
+                                text,
+                                start_position=-len(partial),
+                                display_meta="loop binding",
+                            )
+                            known.add(text)
             resolver = getattr(self.base, "_field_resolver", None)
             suggestions = resolver(field.group(1)) if field and resolver else ()
             for item in suggestions:
                 name = item.name if hasattr(item, "name") else str(item)
-                if name.startswith(partial) and name not in known:
-                    yield Completion(name, start_position=-len(partial), display_meta="field")
+                text = insertion(name, call=getattr(item, "kind", None) == "method")
+                if text is not None and text not in known:
+                    yield Completion(
+                        text,
+                        start_position=-len(partial),
+                        display_meta=getattr(item, "display_meta", "field"),
+                    )
             return
         if "$" not in before:
             for name in sorted(references):
-                if name.startswith(partial) and name != partial and name not in known:
-                    yield Completion(name, start_position=-len(partial), display_meta="binding")
+                text = insertion(name)
+                if (
+                    name not in functions
+                    and text is not None
+                    and name != partial
+                    and text not in known
+                ):
+                    yield Completion(
+                        text, start_position=-len(partial), display_meta="binding"
+                    )
             for name in sorted(functions):
-                text = name + "("
-                if name.startswith(partial) and text not in known:
-                    yield Completion(text, start_position=-len(partial), display_meta="callable")
+                text = insertion(name, call=True)
+                if text is not None and text not in known:
+                    hint = (
+                        descriptions[name].hint
+                        if name in descriptions
+                        else f"user defined · {name}(…)"
+                    )
+                    yield Completion(
+                        text,
+                        start_position=-len(partial),
+                        display=name + ("(" if text.endswith("(") else ""),
+                        display_meta=hint,
+                    )
         for keyword in sorted(_KEYWORDS):
-            if (
-                keyword.startswith(partial)
-                and keyword != partial
-                and keyword not in known
-            ):
+            text = insertion(keyword)
+            if text is not None and keyword != partial and text not in known:
                 yield Completion(
-                    keyword, start_position=-len(partial), display_meta="script keyword"
+                    text, start_position=-len(partial), display_meta="script keyword"
                 )

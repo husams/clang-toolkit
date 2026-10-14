@@ -57,7 +57,6 @@ _WORD_TYPES = {
     "JOIN_WITH",
     "FLATTEN",
 }
-_SAFE_SUFFIX = frozenset(" \t\r\n()[]{},.\"'")
 
 
 @dataclass(frozen=True)
@@ -65,25 +64,35 @@ class CursorContext:
     prefix_tokens: list[Token]
     partial: str
     after: str
+    word_suffix: str = ""
+    in_string: bool = False
 
 
 def cursor_context(source: str, cursor: int) -> CursorContext | None:
     """Find complete grammar tokens before cursor and its current prefix."""
     after = source[cursor:]
-    if (
-        not set(after).issubset(_SAFE_SUFFIX)
-        or input_state(source[:cursor]).error_at is not None
-    ):
+    if input_state(source[:cursor]).error_at is not None:
         return None
 
     tokens = lex(source, batch=True)
     partial = ""
+    word_suffix = ""
+    in_string = False
     skipped: set[int] = set()
     partial_token_id: int | None = None
     for token in tokens:
         start, end = _offset(token, "start_pos"), _offset(token, "end_pos")
-        if start < cursor < end and token.type in _WORD_TYPES:
+        if start < cursor <= end and token.type == "COMMENT":
             return None
+        if start < cursor < end and token.type in {
+            "STRING", "FILE_STRING", "DIRECTORY_STRING", "PATH_STRING", "OPEN_STRING"
+        }:
+            in_string = True
+        if start < cursor < end and token.type in _WORD_TYPES:
+            partial = source[start:cursor]
+            word_suffix = source[cursor:end]
+            partial_token_id = id(token)
+            break
         if token.type == "DOT" and start <= cursor == end:
             before = _before(tokens, start)
             if "BIND" in accepted_after(before):
@@ -118,13 +127,18 @@ def cursor_context(source: str, cursor: int) -> CursorContext | None:
     for token in tokens:
         if _offset(token, "end_pos") > cursor:
             continue
-        if token.type in {"WS", "ERROR"}:
+        if token.type in {"WS", "COMMENT", "ERROR"}:
             if token.type == "ERROR":
                 return None
+            if (
+                token.type == "WS" and "\n" in str(token)
+                and "BATCH_SEPARATOR" in accepted_after(prefix_tokens)
+            ):
+                prefix_tokens.append(Token.new_borrow_pos("BATCH_SEPARATOR", "\n", token))
             continue
         if id(token) not in skipped and id(token) != partial_token_id:
             prefix_tokens.append(token)
-    return CursorContext(prefix_tokens, partial, after)
+    return CursorContext(prefix_tokens, partial, after, word_suffix, in_string)
 
 
 def _before(tokens: list[Token], offset: int) -> list[Token]:

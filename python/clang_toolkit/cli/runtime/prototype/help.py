@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from typing import Any
+from collections.abc import Mapping
 
 from clang_toolkit.cli import help as legacy_help
+from clang_toolkit.cli.callable_help import CallableHelp
 
 _PLAIN = """Value predicates (prototype)
 $record has a / $record does not have a
@@ -123,8 +125,10 @@ Examples:
 _LOOP_TOPICS = {"loops", "foreach", "while", "repeat", "break", "continue"}
 
 
-def render_help(statement: Any) -> str:
+def render_help(statement: Any, functions: Mapping[str, CallableHelp] | None = None) -> str:
     topic = legacy_help.help_topic(statement)
+    if functions and topic in functions:
+        return functions[topic].plain()
     if topic in _LOOP_TOPICS:
         return _LOOPS.rstrip()
     if topic == "predicates":
@@ -137,8 +141,10 @@ def render_help(statement: Any) -> str:
     return result
 
 
-def render_help_markdown(statement: Any) -> str:
+def render_help_markdown(statement: Any, functions: Mapping[str, CallableHelp] | None = None) -> str:
     topic = legacy_help.help_topic(statement)
+    if functions and topic in functions:
+        return functions[topic].markdown()
     if topic in _LOOP_TOPICS:
         return "# Console loops\n\n```text\n" + _LOOPS.rstrip() + "\n```"
     if topic == "predicates":
