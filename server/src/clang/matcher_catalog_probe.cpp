@@ -1,5 +1,6 @@
 // Enumerate matchers reachable through Clang's public dynamic completion API.
-// The Python driver records the output as an offline console completion catalog.
+// The Python driver records the output as an offline console completion
+// catalog.
 #include "clang/ASTMatchers/Dynamic/Registry.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -16,7 +17,7 @@ static std::string matcherName(const MatcherCompletion &Completion) {
   return Text.take_front(Text.find('(')).str();
 }
 
-int main() {
+int main(int argc, const char **argv) {
   std::set<std::string> Names;
   std::set<std::string> Roots;
   auto AddCompletions = [&](const std::vector<ArgKind> &Types,
@@ -34,6 +35,11 @@ int main() {
   };
 
   AddCompletions(Registry::getAcceptedCompletionTypes({}), true);
+  // Completion's type-conversion filter omits some registered auxiliary
+  // matchers. Check every documented name directly before walking arguments.
+  for (int Index = 1; Index < argc; ++Index)
+    if (Registry::lookupMatcherCtor(argv[Index]))
+      Names.insert(argv[Index]);
   bool Changed = true;
   while (Changed) {
     Changed = false;
@@ -43,8 +49,8 @@ int main() {
       if (!Ctor)
         continue;
       for (unsigned Argument = 0; Argument < 8; ++Argument) {
-        const auto Types = Registry::getAcceptedCompletionTypes(
-            {{*Ctor, Argument}});
+        const auto Types =
+            Registry::getAcceptedCompletionTypes({{*Ctor, Argument}});
         const std::size_t Before = Names.size();
         AddCompletions(Types, false);
         Changed |= Names.size() != Before;

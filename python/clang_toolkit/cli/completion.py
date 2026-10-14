@@ -15,6 +15,7 @@ from clang_toolkit.cli.completion_cursor import cursor_context
 from clang_toolkit.cli.matcher_catalog import NESTED_MATCHERS, ROOT_MATCHERS, matcher_hint
 from clang_toolkit.cli.path_completion import path_completions
 from clang_toolkit.cli.help import COMMAND_HELP, MATCHER_HELP
+from clang_toolkit.cli.callable_help import CallableHelp
 
 
 class ReplCompleter(Completer):
@@ -31,6 +32,9 @@ class ReplCompleter(Completer):
         presence_resolver: Callable[[str], Iterable[str]] | None = None,
         root_matchers: Iterable[str] | None = None,
         matcher_functions: Iterable[str] | Callable[[], Iterable[str]] | None = None,
+        function_help: Mapping[str, CallableHelp]
+        | Callable[[], Mapping[str, CallableHelp]]
+        | None = None,
         cwd: Path | None = None,
     ) -> None:
         custom = tuple(dict.fromkeys(matchers)) if matchers is not None else None
@@ -42,6 +46,7 @@ class ReplCompleter(Completer):
         self._root_matchers = tuple(dict.fromkeys(roots))
         self._matcher_names = frozenset((*self._nested_matchers, *self._root_matchers))
         self._matcher_functions = matcher_functions
+        self._function_help = function_help
         self._references = references
         self._field_resolver = field_resolver
         self._presence_resolver = presence_resolver
@@ -55,7 +60,10 @@ class ReplCompleter(Completer):
         # Completion parses the whole editable command to recover its Lark
         # context. On very long partial strings this is unnecessary work and
         # can stall typing; the command is still parsed normally on submission.
-        if len(source) > 512:
+        if cursor > 8192 or (
+            cursor > 512
+            and (complete_event is None or not complete_event.completion_requested)
+        ):
             return
         context = cursor_context(source, cursor)
         if context is not None:
@@ -89,7 +97,7 @@ class ReplCompleter(Completer):
                         )
                 return
         yield from path_completions(document, self._cwd or Path.cwd())
-        if context is None:
+        if context is None or context.in_string:
             return
         accepted = accepted_after(context.prefix_tokens)
         # Completed commands should remain editable history drafts. An implicit
@@ -103,6 +111,7 @@ class ReplCompleter(Completer):
             and not source[cursor - 1].isspace()
         ):
             return
+        functions_help = self.function_descriptions()
         if "HELP_WORD" in accepted:
             prefix = " ".join(str(token) for token in context.prefix_tokens[1:])
             topics = {**COMMAND_HELP, **MATCHER_HELP}
@@ -115,12 +124,32 @@ class ReplCompleter(Completer):
                     if not topic.startswith(prefix + " "):
                         continue
                     topic = topic[len(prefix) + 1 :]
-                if topic.startswith(context.partial):
+                if topic.startswith(context.partial) and topic.endswith(
+                    context.word_suffix
+                ):
+                    insertion = (
+                        topic[:-len(context.word_suffix)]
+                        if context.word_suffix else topic
+                    )
                     yield Completion(
-                        topic,
+                        insertion,
                         start_position=-len(context.partial),
+                        display=topic,
                         display_meta=matcher_hint(entry.topic) or entry.purpose,
                     )
+            if not prefix:
+                for name, entry in functions_help.items():
+                    if name.startswith(context.partial) and name.endswith(
+                        context.word_suffix
+                    ):
+                        insertion = (
+                            name[:-len(context.word_suffix)]
+                            if context.word_suffix else name
+                        )
+                        yield Completion(
+                            insertion, start_position=-len(context.partial),
+                            display=name, display_meta=entry.hint,
+                        )
             return
         current_references = (
             self._references() if callable(self._references) else self._references
@@ -131,6 +160,7 @@ class ReplCompleter(Completer):
         }
         functions = tuple(self._matcher_functions() if callable(self._matcher_functions)
                           else self._matcher_functions or ())
+        functions = tuple(dict.fromkeys((*functions, *functions_help)))
         for item in candidates_for(
             context,
             accepted,
@@ -144,7 +174,10 @@ class ReplCompleter(Completer):
             if metadata is None:
                 name = item.display.removesuffix("(")
                 if name in functions:
-                    metadata = "saved matcher function"
+                    metadata = (
+                        functions_help[name].hint if name in functions_help
+                        else f"user defined · {name}(…)"
+                    )
                 elif (
                     {"ROOT_MATCHER_NAME", "MATCHER_NAME"} & accepted
                     and name in self._matcher_names
@@ -160,3 +193,9 @@ class ReplCompleter(Completer):
                 display=item.display,
                 display_meta=metadata,
             )
+
+    def function_descriptions(self) -> Mapping[str, CallableHelp]:
+        return (
+            self._function_help() if callable(self._function_help)
+            else self._function_help or {}
+        )

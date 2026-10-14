@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from collections.abc import Mapping
 
 from lark import Tree
 from clang_toolkit._generated.analysis.v1.cfg_options_pb2 import CfgOptions
 from clang_toolkit.cli.language import parser
+from clang_toolkit.cli.callable_help import CallableHelp
 from clang_toolkit.cli.matcher_catalog import (
     LLVM_VERSION, MATCHER_METADATA, REFERENCE_SOURCE, REFERENCE_URL, ROOT_MATCHERS,
 )
@@ -1147,9 +1149,11 @@ def help_topic(statement: Tree) -> str:
     return topic
 
 
-def render_help_markdown(statement: Tree) -> str:
+def render_help_markdown(statement: Tree, functions: Mapping[str, CallableHelp] | None = None) -> str:
     """Structured presentation for the workspace; plain console help is unchanged."""
     topic = help_topic(statement)
+    if functions and topic in functions:
+        return functions[topic].markdown()
     if not topic:
         return (
             "## Command reference\n\n"
@@ -1177,9 +1181,11 @@ def render_help_markdown(statement: Tree) -> str:
     )
 
 
-def render_help(statement: Tree) -> str:
+def render_help(statement: Tree, functions: Mapping[str, CallableHelp] | None = None) -> str:
     """Render a help statement already recognized by the shared Lark parser."""
     topic = help_topic(statement)
+    if functions and topic in functions:
+        return functions[topic].plain()
     if not topic:
         lines = ["Commands and expression forms (help is available without a server):"]
         lines.extend(f"  {name:12} {COMMAND_HELP[name].purpose}" for name in COMMANDS)

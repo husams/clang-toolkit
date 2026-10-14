@@ -203,8 +203,15 @@ def candidates_for(
         if previous == "DOT" and terminal != "BIND":
             continue
         literal = _literal_for(terminal)
-        if literal is not None and literal.startswith(context.partial):
-            candidates.append(Candidate(literal, literal, -len(context.partial)))
+        if (
+            literal is not None and literal.startswith(context.partial)
+            and literal.endswith(context.word_suffix)
+        ):
+            insertion = (
+                literal[:-len(context.word_suffix)]
+                if context.word_suffix else literal
+            )
+            candidates.append(Candidate(insertion, literal, -len(context.partial)))
 
     needs_space = (
         not context.partial
@@ -214,9 +221,16 @@ def candidates_for(
     for name, is_root, is_matcher, display_meta in names:
         if not name.startswith(context.partial):
             continue
+        if not name.endswith(context.word_suffix):
+            continue
         after = context.after
-        suffix = "" if not is_matcher or after.lstrip().startswith("(") else "("
-        insertion = name + suffix
+        suffix = (
+            "" if not is_matcher or context.word_suffix
+            or after.lstrip().startswith("(") else "("
+        )
+        insertion = (
+            name[:-len(context.word_suffix)] if context.word_suffix else name
+        ) + suffix
         if is_root and needs_space:
             # At the exact end of `match` or `let name =`, append after the
             # existing grammar token instead of replacing it.

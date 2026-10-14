@@ -11,9 +11,9 @@ from ._matcher_catalog_generated import (
     ROOT_MATCHERS,
 )
 
-# The dynamic registry also exposes auxiliary node matchers omitted from the
-# bundled reference catalog. Keep them out of local runnable-call syntax.
-SCRIPT_BUILTIN_MATCHERS = frozenset((*ROOT_MATCHERS, *NESTED_MATCHERS, "cxxBaseSpecifier"))
+# Include auxiliary matchers in completion and keep all registered names out
+# of local runnable-call syntax.
+SCRIPT_BUILTIN_MATCHERS = frozenset((*ROOT_MATCHERS, *NESTED_MATCHERS))
 
 # Keep the original narrow validation sets stable. The server's dynamic
 # registry remains authoritative for names outside this legacy local guard.

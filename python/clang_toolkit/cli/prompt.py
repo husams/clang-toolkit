@@ -17,6 +17,7 @@ from prompt_toolkit.validation import ValidationError, Validator
 from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.completion import ReplCompleter
+from clang_toolkit.cli.callable_help import CallableHelp
 from clang_toolkit.cli.highlight import STYLE, ReplLexer
 from clang_toolkit.cli.input_state import input_state
 from clang_toolkit.cli.language import lex, parser
@@ -140,6 +141,7 @@ def create_session(
     field_resolver: Callable[[str], Iterable[object]] | None = None,
     presence_resolver: Callable[[str], Iterable[str]] | None = None,
     matcher_functions: Iterable[str] | Callable[[], Iterable[str]] | None = None,
+    function_help: Mapping[str, CallableHelp] | Callable[[], Mapping[str, CallableHelp]] | None = None,
     history: History | None = None,
     cwd: Path | None = None,
     script_engine: str = "legacy",
@@ -190,6 +192,7 @@ def create_session(
         field_resolver=field_resolver,
         presence_resolver=presence_resolver,
         matcher_functions=matcher_functions,
+        function_help=function_help,
         cwd=cwd,
     )
     if prototype_editor:
@@ -211,4 +214,5 @@ def create_session(
     session.editor_lexer = lexer
     session.editor_tokenizer = editor_tokenizer
     session.script_engine = script_engine
+    session.function_help = function_help
     return session

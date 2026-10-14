@@ -132,6 +132,14 @@ def main() -> None:
     include = run(llvm_config, "--includedir")
     libdir = run(llvm_config, "--libdir")
     bindir = run(llvm_config, "--bindir")
+    reference_url = REFERENCE_URL.format(version=version)
+    if args.reference is not None:
+        reference = args.reference.read_text(encoding="utf-8")
+    else:
+        with urlopen(reference_url, timeout=30) as response:
+            reference = response.read().decode("utf-8")
+    documented = MatcherReferenceParser()
+    documented.feed(reference)
     with tempfile.TemporaryDirectory(prefix="ctk-matcher-catalog-") as temp_dir:
         executable = Path(temp_dir) / "matcher-catalog"
         command = [
@@ -147,18 +155,12 @@ def main() -> None:
             str(executable),
         ]
         subprocess.run(command, check=True)
-        rows = run(str(executable)).splitlines()
+        rows = run(str(executable), *sorted(documented.entries)).splitlines()
 
     roots = sorted(
         name for name, flag in (row.split("\t") for row in rows) if flag == "1"
     )
     nested = sorted(name for name, _ in (row.split("\t") for row in rows))
-    reference_url = REFERENCE_URL.format(version=version)
-    if args.reference is not None:
-        reference = args.reference.read_text(encoding="utf-8")
-    else:
-        with urlopen(reference_url, timeout=30) as response:
-            reference = response.read().decode("utf-8")
     metadata = matcher_metadata(reference, nested)
     content = [
         '"""Generated registry names and LLVM reference help; do not edit directly.\n'

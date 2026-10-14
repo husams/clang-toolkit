@@ -206,6 +206,16 @@ class PrototypeRuntime(Runtime):
     def completion_suggestions(self, reference: str) -> Any:
         return super().completion_suggestions(reference if reference.startswith("$") else "$" + reference)
 
+    def callable_help(self) -> dict[str, Any]:
+        from clang_toolkit.cli.callable_help import describe_callable
+        from clang_toolkit.cli.runtime.matcher_functions import MatcherFunction
+
+        values = dict(self.bindings)
+        for scope in self._scopes:
+            values.update(scope)
+        return {name: describe_callable(name, value) for name, value in values.items()
+                if isinstance(value, (RunnableBlock, MatcherFunction))}
+
     def completion_presence_fields(self, reference: str) -> tuple[str, ...]:
         return super().completion_presence_fields(reference if reference.startswith("$") else "$" + reference)
 
@@ -395,7 +405,7 @@ class ReplSession:
         if kind in {"help", "help_shortcut"}:
             from .help import render_help
 
-            return render_help(tree)
+            return render_help(tree, self.runtime.callable_help())
         if mode == "expression" and kind not in {"display", "match"}:
             expression = Tree("display", [tree], meta=tree.meta)
             return self.runtime._evaluate_statement_once(
@@ -434,7 +444,8 @@ class ReplSession:
             if kind in {"help", "help_shortcut"}:
                 from .help import render_help_markdown
 
-                self.record(kind, value, text=value, routed=True, markdown=render_help_markdown(tree))
+                self.record(kind, value, text=value, routed=True,
+                            markdown=render_help_markdown(tree, self.runtime.callable_help()))
             elif mode == "statement":
                 display = self.host_displays.pop(id(node), None)
                 if display is not None:

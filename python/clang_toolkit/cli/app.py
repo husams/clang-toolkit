@@ -232,7 +232,9 @@ def _dispatch_statement(
     """Keep each statement's rich result and original script coordinates."""
     try:
         if statement.data in {"help", "help_shortcut"}:
-            return DispatchResult(render_help(statement), True, render_help_markdown(statement))
+            functions = runtime.callable_help() if runtime is not None else None
+            return DispatchResult(render_help(statement, functions), True,
+                                  render_help_markdown(statement, functions))
         assert runtime is not None
         output = runtime.execute_statement(statement, source)
         outline_value, runtime.display_value = runtime.display_value, None
@@ -766,6 +768,7 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
             field_resolver=runtime.completion_suggestions,
             presence_resolver=runtime.completion_presence_fields,
             matcher_functions=runtime.matcher_function_names,
+            function_help=runtime.callable_help,
             history=prompt_history,
             cwd=runtime.cwd,
             script_engine=args.script_engine,

@@ -56,7 +56,25 @@ Wide terminals use the right side for relevant command help, a binding outline, 
 
 Clang matcher help works offline: use `help functionDecl`, `hasName?`, or `help hasDescendant` for descriptions, overload signatures, accepted argument/node types and LLVM reference examples. `help matchers` lists the categories; `help matchers node`, `help matchers narrowing`, and `help matchers traversal` browse their members. Completion hints identify each matcher's category and purpose. The help panel follows the innermost matcher at the editing cursor and previews the selected completion.
 
-Matcher metadata comes from the LLVM reference for the catalog's LLVM version, filtered to names reachable in that installation's dynamic registry. Regenerate it with `uv run python scripts/generate_matcher_catalog.py --llvm-config /path/to/llvm-config`; `--reference /path/to/LibASTMatchersReference.html` uses a saved reference. Runtime help and completion use the checked-in catalog without fetching documentation.
+Matcher metadata comes from the LLVM reference for the catalog's LLVM version, checked directly against that installation's dynamic registry as well as its completion API. Regenerate it with `uv run python scripts/generate_matcher_catalog.py --llvm-config /path/to/llvm-config`; `--reference /path/to/LibASTMatchersReference.html` uses a saved reference. Runtime help and completion use the checked-in catalog without fetching documentation.
+
+Input and submitted commands distinguish keywords, variables, user functions,
+node matchers, predicates, traversal matchers, literals, operators and comments.
+Completion works at the cursor on earlier lines of a multiline draft, including
+inside runnable bodies, and preserves existing parentheses and later statements.
+Use **Tab** to request completion in a long draft.
+
+User function hints show **user defined** and the full signature, including
+default expressions. `help NAME` and `NAME?` show the saved signature and exact
+definition as highlighted CTK code; the Help panel follows the selected function
+too. Imported helpers and callable aliases have the same help. Redefining a name
+refreshes its hints and help without executing its body or default expressions.
+
+The LLVM 22.1.8 catalog includes all 502 dynamically registered matchers, with
+209 node matchers suitable for the root picker. Auxiliary matchers such as
+`cxxBaseSpecifier`, `lambdaCapture` and `templateArgument` appear inside matcher
+arguments. Function return types use `returns(TYPE_MATCHER)`; source-spelled
+return types use `hasReturnTypeLoc(TYPE_LOC_MATCHER)`.
 
 ## Multiline input
 
