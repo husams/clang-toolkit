@@ -108,6 +108,34 @@ def editor_evidence(editor_server, tmp_path):
 
     try:
         wait_for(lambda: "Session open" in visible())
+        for prefix, expected in [
+            ("match fun", "functionDecl"),
+            ("match cxxR", "cxxRecordDecl"),
+            ("let selected = fun", "functionDecl"),
+            ("let selected = cxxR", "cxxRecordDecl"),
+            ("match functionDecl(hasDescendant(fun", "functionDecl"),
+            ("match functionDecl(cxxR", "cxxRecordDecl"),
+        ]:
+            paste(prefix)
+            os.write(master, b"\t")
+            frame = wait_for(lambda: expected in visible() and "node matcher" in visible())
+            (tmp_path / (str(len(prefix)) + expected + ".txt")).write_text(frame)
+            os.write(master, b"\x1b\x03")
+            wait_for(lambda: "Input 1:1" in visible())
+        # A long script used to lose the entire Clang catalog after an
+        # assignment; a long matcher also lost it during automatic completion.
+        long_draft = "print 1\n" * 1100 + "let selected = cxxR"
+        paste(long_draft)
+        os.write(master, b"\t")
+        wait_for(lambda: "cxxRecordDecl" in visible() and "node matcher" in visible())
+        os.write(master, b"\x1b\x03")
+        wait_for(lambda: "Input 1:1" in visible())
+        long_matcher = "match functionDecl(" + "isDefinition(), " * 40
+        paste(long_matcher)
+        os.write(master, b"cxxR")
+        wait_for(lambda: "cxxRecordDecl" in visible() and "node matcher" in visible())
+        os.write(master, b"\x1b\x03")
+        wait_for(lambda: "Input 1:1" in visible())
         helper = (
             Path(__file__).resolve().parents[2]
             / "skills/ctk-script/scripts/ctk_helpers.ctk"

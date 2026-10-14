@@ -357,6 +357,39 @@ def _completing_loop_binding(source: str, name: str, position: int) -> bool:
     return visit(program, set()) is True
 
 
+def _matcher_argument_document(
+    document: Document, tokens: list[Token], matchers: set[str]
+) -> Document | None:
+    """Recover the current native argument without parsing earlier script text."""
+    stack: list[tuple[str, int | None]] = []
+    previous = ""
+    for token in tokens:
+        if _kind(token) in {"WS", "COMMENT", "NEWLINE", "BATCH_SEPARATOR"}:
+            continue
+        value = str(token)
+        if value in _OPENERS:
+            start = int(token.end_pos) if value == "(" and previous in matchers else None
+            stack.append((value, start))
+        elif value in _CLOSING:
+            if not stack or stack.pop()[0] != _CLOSING[value]:
+                return None
+        elif value == "," and stack and stack[-1][1] is not None:
+            stack[-1] = (stack[-1][0], int(token.end_pos))
+        previous = value
+    start = next((start for _, start in reversed(stack) if start is not None), None)
+    if start is None:
+        return None
+    # Whitespace and comments before the current argument need not consume the
+    # parser's completion budget. Existing brackets/expressions remain intact.
+    start = next((int(token.start_pos) for token in tokens
+                  if int(token.start_pos) >= start
+                  and _kind(token) not in {"WS", "COMMENT", "NEWLINE", "BATCH_SEPARATOR"}),
+                 document.cursor_position)
+    prefix = "match functionDecl("
+    return Document(prefix + document.text[start:],
+                    cursor_position=len(prefix) + document.cursor_position - start)
+
+
 class PrototypeCompleter(Completer):
     """Keep legacy suggestions and add the compact prototype keyword set."""
 
@@ -386,7 +419,9 @@ class PrototypeCompleter(Completer):
         )
         existing = list(self.base.get_completions(document, complete_event))
         tokens = lex(before)
-        if not existing and not in_literal:
+        if not existing and not in_literal and (
+            not tokens or _kind(tokens[-1]) not in {"COMMENT", "OPEN_STRING"}
+        ):
             # A runnable header is outside the legacy parser. Recover the
             # native operand's grammar context from its lossless token spans.
             native = next(
@@ -394,7 +429,7 @@ class PrototypeCompleter(Completer):
                     token
                     for token in reversed(tokens)
                     if str(token)
-                    in {"match", "parse", "cfg", "callgraph", "traverse", "help"}
+                    in {"match", "parse", "cfg", "callgraph", "traverse", "help", "let"}
                 ),
                 None,
             )
@@ -406,6 +441,12 @@ class PrototypeCompleter(Completer):
                         complete_event,
                     )
                 )
+            if not existing:
+                matchers = set(getattr(self.base, "_nested_matchers", ())) | set(
+                    getattr(self.base, "_root_matchers", ()))
+                argument = _matcher_argument_document(document, tokens, matchers)
+                if argument is not None:
+                    existing = list(self.base.get_completions(argument, complete_event))
         if "$" not in before:
             existing = [
                 Completion(
