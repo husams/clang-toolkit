@@ -98,6 +98,38 @@ def test_combined_highlighting_includes_existing_command_keywords(source):
     assert highlight(source)[0][0] == "class:keyword"
 
 
+@pytest.mark.parametrize("gap", ["", " ", "\t", "\n  ", " // note\n  "])
+def test_matcher_highlighting_preserves_roles_before_spaced_parentheses(gap):
+    source = (
+        f"let selected = functionDecl{gap}(\n"
+        f'  hasName{gap}("class"), unless{gap}(isImplicit{gap}())\n'
+        ")\n"
+        f"let helper{gap}(value) = value\nhelper{gap}(1)"
+    )
+    fragments = highlight(source)
+    assert "".join(text for _, text in fragments) == source
+    styles = {text: style for style, text in fragments if text.strip()}
+    assert styles["functionDecl"] == "class:matcher-root"
+    assert styles["hasName"] == styles["isImplicit"] == "class:matcher-predicate"
+    assert styles["unless"] == "class:matcher"
+    assert styles["helper"] == "class:function"
+    assert styles['"class"'] == "class:string"
+
+
+@pytest.mark.parametrize("gap", ["", " ", "\t", "\n  "])
+@pytest.mark.parametrize(
+    "source, keyword",
+    [
+        ("let result = if{gap}(true) then 1 else 2", "if"),
+        ("while{gap}(false) {{ print 1 }}", "while"),
+        ("repeat {{ print 1 }} until{gap}(true)", "until"),
+    ],
+)
+def test_control_keywords_keep_their_style_before_parentheses(source, keyword, gap):
+    fragments = highlight(source.format(gap=gap))
+    assert next(style for style, text in fragments if text == keyword) == "class:keyword"
+
+
 def test_completion_on_an_earlier_matcher_line_preserves_following_statements(runtime):
     source = (
         "match cxxRecordDecl(\n  isExpansionInMainF(), unless(isImplicit())\n"
