@@ -136,6 +136,9 @@ export class Prototype {
       rendered: this.rendered,
     };
   }
+  completionTarget(): string | undefined {
+    return this.target?.fsPath;
+  }
   private publish(): void {
     this.view.post({ type: "state", state: this.snapshot() });
   }
@@ -531,6 +534,6 @@ export async function activate(
         ),
       ),
     );
-  await registerLanguage(context);
+  await registerLanguage(context, () => prototype.completionTarget());
   return prototype;
 }

@@ -32,6 +32,15 @@ const responseSchema = z.object({
   call: z
     .object({ name: z.string(), parameter: z.number().int().nonnegative() })
     .nullish(),
+  symbols: z
+    .object({
+      file: z.string().min(1),
+      prefix: z.string(),
+      start: z.number().int().nonnegative(),
+      quote: z.enum(['"', "'"]),
+      close: z.boolean(),
+    })
+    .nullish(),
 });
 export type ConsoleResponse = z.infer<typeof responseSchema>;
 interface Pending {
@@ -55,6 +64,7 @@ export class ConsoleService {
     directory: string,
     library: string,
     scriptDirectory?: string,
+    targetFile?: string,
   ): Promise<ConsoleResponse> {
     if (!this.child) {
       const child = spawn(this.python, ["-I", "-B", "-u", this.script], {
@@ -103,7 +113,7 @@ export class ConsoleService {
       }, 30000);
       this.pending.set(id, { resolve, reject, timer });
       this.child?.stdin.write(
-        `${JSON.stringify({ id, source, cursor, directory, library, scriptDirectory })}\n`,
+        `${JSON.stringify({ id, source, cursor, directory, library, scriptDirectory, targetFile })}\n`,
       );
     });
   }

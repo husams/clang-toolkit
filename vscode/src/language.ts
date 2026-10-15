@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
 import * as vscode from "vscode";
+import { ClassNameService } from "./class-name-service.js";
 import {
   type ConsoleResponse,
   ConsoleService,
@@ -7,12 +8,31 @@ import {
   toCodePointOffset,
   toUtf16Offset,
 } from "./console-service.js";
+import type { RunRequest } from "./model.js";
 
 export async function registerLanguage(
   context: vscode.ExtensionContext,
+  targetFile: () => string | undefined,
 ): Promise<void> {
   const output = vscode.window.createOutputChannel("CTK Completion");
   context.subscriptions.push(output);
+  const classes = new ClassNameService(
+    vscode.Uri.joinPath(context.extensionUri, "dist/worker.js").fsPath,
+  );
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx,json,yaml,yml}",
+  );
+  const invalidate = () => classes.invalidate();
+  context.subscriptions.push(
+    classes,
+    watcher,
+    watcher.onDidChange(invalidate),
+    watcher.onDidCreate(invalidate),
+    watcher.onDidDelete(invalidate),
+    vscode.workspace.onDidChangeTextDocument(({ document }) => {
+      if (["c", "cpp"].includes(document.languageId)) invalidate();
+    }),
+  );
   let service: ConsoleService | undefined;
   let starting: Promise<ConsoleService> | undefined;
   let warned = false;
@@ -52,6 +72,7 @@ export async function registerLanguage(
         document.uri.scheme === "file"
           ? dirname(document.uri.fsPath)
           : directory,
+        targetFile(),
       );
     } catch (error) {
       output.appendLine(String(error));
@@ -67,6 +88,7 @@ export async function registerLanguage(
   context.subscriptions.push(
     { dispose: () => service?.dispose() },
     vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("ctk")) invalidate();
       if (event.affectsConfiguration("ctk.pythonPath")) {
         service?.dispose();
         service = undefined;
@@ -85,6 +107,84 @@ export async function registerLanguage(
           const data = await response(document, position);
           if (token.isCancellationRequested || document.version !== version)
             return [];
+          if (data.symbols) {
+            const symbol = data.symbols;
+            if (
+              vscode.workspace.textDocuments.some(
+                (doc) => doc.isDirty && ["c", "cpp"].includes(doc.languageId),
+              )
+            ) {
+              output.appendLine(
+                "Save edited C++ files before requesting class-name suggestions.",
+              );
+              return [];
+            }
+            const config = vscode.workspace.getConfiguration(
+              "ctk",
+              document.uri,
+            );
+            const directory =
+              vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ??
+              vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
+              dirname(symbol.file);
+            const request: RunRequest = {
+              action: {
+                id: "class-completion",
+                title: "Class names",
+                description: "Classes available to classByName",
+                kind: "symbols",
+                parameters: [],
+              },
+              values: {},
+              kinds: ["classes"],
+              files: [symbol.file],
+              directory,
+              endpoint: config.get<string>("server", ""),
+              configPath: config.get<string>("configPath", ""),
+              compilationDatabase: config.get<string>(
+                "compilationDatabase",
+                "",
+              ),
+              compileArguments: config.get<string[]>("compileArguments", []),
+              timeoutMs: config.get<number>("rpcTimeoutMs", 30000),
+              maxResults: config.get<number>("maxResults", 2000),
+            };
+            try {
+              const report = await classes.complete(request, symbol.prefix);
+              if (token.isCancellationRequested || document.version !== version)
+                return [];
+              return new vscode.CompletionList(
+                report.results.map((result) => {
+                  const item = new vscode.CompletionItem(
+                    result.name,
+                    vscode.CompletionItemKind.Class,
+                  );
+                  item.range = new vscode.Range(
+                    document.positionAt(toUtf16Offset(source, symbol.start)),
+                    position,
+                  );
+                  item.insertText =
+                    symbol.quote +
+                    result.name
+                      .replaceAll("\\", "\\\\")
+                      .replaceAll(symbol.quote, `\\${symbol.quote}`) +
+                    (symbol.close ? symbol.quote : "");
+                  item.filterText = symbol.quote + result.name;
+                  item.detail = `${vscode.workspace.asRelativePath(result.file)}:${result.line}`;
+                  item.documentation =
+                    new vscode.MarkdownString().appendCodeblock(
+                      result.excerpt,
+                      "cpp",
+                    );
+                  return item;
+                }),
+                report.truncated,
+              );
+            } catch (error) {
+              output.appendLine(`Class-name completion: ${String(error)}`);
+              return [];
+            }
+          }
           return (data.items ?? []).map((entry) => {
             const kind =
               entry.detail === "directory"

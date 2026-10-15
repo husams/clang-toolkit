@@ -175,7 +175,7 @@ def value_of(node: Node, source: str, bindings: dict[str, Any]) -> Any:
     if node.kind == 'host':
         tree = node.value[0]
         if tree.data == 'parse_expression':
-            return ParsedTree('', None)
+            return ParsedTree(static_file_operand(tree.children[1], bindings) or '', None)
         if tree.data in {'match', 'match_expression'}:
             names = {'root'}
             for bound in tree.find_data('bind'):
@@ -239,9 +239,9 @@ def filesystem_options(document: Document, cwd: Path, script_directory: Path) ->
     return None
 
 
-def argument_stack(source: str) -> list[tuple[str, int, int]]:
-    """Track name, argument index and editable start using the console lexer."""
-    stack: list[tuple[str, int, int]] = []
+def argument_stack(source: str) -> list[tuple[str, int, int, int]]:
+    """Track name, argument index, editable start and first-argument start."""
+    stack: list[tuple[str, int, int, int]] = []
     previous, preceding = '', ''
     for token in lex(source):
         kind, value = _kind(token), str(token)
@@ -252,12 +252,12 @@ def argument_stack(source: str) -> list[tuple[str, int, int]]:
             continue
         if value in '([{':
             name = previous if value == '(' and previous.isidentifier() and preceding not in {'let', '.'} else ''
-            stack.append((name, 0, int(token.end_pos)))
+            stack.append((name, 0, int(token.end_pos), int(token.end_pos)))
         elif value in ')]}' and stack:
             stack.pop()
         elif value == ',' and stack:
-            name, parameter, _ = stack[-1]
-            stack[-1] = (name, parameter + 1, int(token.end_pos))
+            name, parameter, _, first = stack[-1]
+            stack[-1] = (name, parameter + 1, int(token.end_pos), first)
         preceding, previous = previous, value
     return stack
 
@@ -362,7 +362,7 @@ def helper_filesystem_options(document: Document, cwd: Path, functions: dict[str
     stack = argument_stack(document.text_before_cursor)
     if not stack:
         return None
-    name, index, start = stack[-1]
+    name, index, start, _ = stack[-1]
     if name not in functions:
         return None
     paths = path_parameters(tuple((name, entry.definition) for name, entry in functions.items()), name)
@@ -380,6 +380,57 @@ def helper_filesystem_options(document: Document, cwd: Path, functions: dict[str
     return path_completions(candidate, cwd)
 
 
+def static_file_operand(value: Any, bindings: dict[str, Any]) -> str | None:
+    """Resolve only literal paths and already inferred values; never call code."""
+    if isinstance(value, Token) and value.type in {'STRING', 'FILE_STRING'}:
+        try:
+            value = ast.literal_eval(str(value))
+        except (ValueError, SyntaxError):
+            return None
+    elif isinstance(value, Tree) and value.data == 'reference':
+        if any(not isinstance(child, Token) or child.type not in {'DOLLAR', 'NAME', 'DOT'} for child in value.children):
+            return None
+        names = [str(child) for child in value.children if child.type == 'NAME']
+        value = bindings.get(names[0]) if names else None
+        for name in names[1:]:
+            value = value.get(name) if type(value) is dict else None
+    if isinstance(value, ParsedTree):
+        value = value.path
+    if not isinstance(value, str) or not value or any(char in value for char in '{}$\0'):
+        return None
+    return value
+
+
+def class_name_context(document: Document, cwd: Path, bindings: dict[str, Any], functions: dict[str, CallableHelp]) -> dict[str, Any] | None:
+    stack = argument_stack(document.text_before_cursor)
+    if not stack:
+        return None
+    name, index, start, first = stack[-1]
+    if name != 'classByName' or index != 1 or name not in functions:
+        return None
+    if 0 not in path_parameters(tuple((key, entry.definition) for key, entry in functions.items()), name).get(name, ()):
+        return None
+    try:
+        expression = parse(document.text[first:start - 1].strip()).children[0]
+    except (UnexpectedInput, ValueError, IndexError):
+        return None
+    file = static_file_operand(value_of(expression, document.text[first:start - 1], bindings), bindings)
+    if file is None:
+        return None
+    tokens = lex(document.text[start:document.cursor_position])
+    if tokens and _kind(tokens[-1]) == 'COMMENT':
+        return None
+    atom = next((token for token in tokens if _kind(token) not in {'WS', 'COMMENT', 'NEWLINE', 'BATCH_SEPARATOR'}), None)
+    start = start + int(atom.start_pos) if atom is not None else document.cursor_position
+    prefix = 'parse '
+    context = path_context(Document(prefix + document.text[start:], cursor_position=len(prefix) + document.cursor_position - start))
+    if context is None or any(char in context.spelling for char in '{}$\0'):
+        return None
+    path = Path(file).expanduser()
+    return dict(file=str(path if path.is_absolute() else (cwd / path).resolve()), prefix=context.spelling,
+                start=start + context.start - len(prefix), quote=context.quote, close=not context.has_closing_quote)
+
+
 def request(data: dict[str, Any]) -> dict[str, Any]:
     source, cursor = data['source'], data['cursor']
     if not isinstance(source, str) or len(source) > 1024 * 1024 or not isinstance(cursor, int) or not 0 <= cursor <= len(source):
@@ -387,6 +438,8 @@ def request(data: dict[str, Any]) -> dict[str, Any]:
     cwd = Path(data.get('directory') or '.').resolve()
     script_directory = Path(data.get('scriptDirectory') or cwd).resolve()
     bindings, functions = {}, {}
+    if data.get('targetFile'):
+        bindings['arg'] = {'FILE': data['targetFile']}
     library = Path(data.get('library') or Path.home() / '.ctk/lib').expanduser()
     if library.is_dir():
         for path in sorted(library.glob('*.ctk'))[:256]:
@@ -437,7 +490,8 @@ def request(data: dict[str, Any]) -> dict[str, Any]:
             help_items[name] = dict(signature=metadata[2][0] if metadata[2] else name + '()', signatures=list(metadata[2]), documentation=metadata[1])
     stack = argument_stack(source[:cursor])
     current = next((entry for entry in reversed(stack) if entry[0] in help_items), None)
-    return dict(items=items, functions=help_items, call=dict(name=current[0], parameter=current[1]) if current else None)
+    return dict(items=items, functions=help_items, call=dict(name=current[0], parameter=current[1]) if current else None,
+                symbols=class_name_context(document, cwd, bindings, functions))
 
 
 if __name__ == '__main__':

@@ -152,6 +152,32 @@ class CompletionTests(unittest.TestCase):
         self.assertIn('source.cpp', self.names(source))
         self.assertFalse(marker.exists())
 
+    def test_class_name_context_uses_the_first_argument_without_executing_it(self):
+        helpers = Path(__file__).parents[2] / 'skills/ctk-script/scripts/ctk_helpers.ctk'
+        (self.root / 'helpers.ctk').write_text(helpers.read_text())
+        source = 'let node = classByName("source file.cpp", "demo::Or")\nclassFields(node)'
+        cursor = source.index('demo::Or') + len('demo::Or')
+        context = self.complete(source, cursor)['symbols']
+        self.assertEqual(context['file'], str((self.root / 'source file.cpp').resolve()))
+        self.assertEqual(context['prefix'], 'demo::Or')
+        self.assertEqual(source[context['start']:cursor], '"demo::Or')
+        self.assertEqual(context['quote'], '"')
+        self.assertFalse(context['close'])
+        for first in ['unknownFunction()', '"{unknownFunction()}"']:
+            self.assertIsNone(self.complete(f'classByName({first}, "Or')['symbols'])
+        self.assertIsNone(self.complete('classByName(other("source.cpp"), "Or')['symbols'])
+        self.assertIsNone(self.complete('classByName("source.cpp", other("Or')['symbols'])
+
+    def test_class_name_context_resolves_literal_variables_and_selected_file(self):
+        helpers = Path(__file__).parents[2] / 'skills/ctk-script/scripts/ctk_helpers.ctk'
+        (self.root / 'helpers.ctk').write_text(helpers.read_text())
+        for prefix in ['let cpp = "source.cpp"\nclassByName(cpp, ', 'let tree = parse "source.cpp"\nclassByName(tree, ']:
+            with self.subTest(prefix=prefix):
+                self.assertEqual(self.complete(prefix)['symbols']['file'], str((self.root / 'source.cpp').resolve()))
+        source = 'classByName(arg.FILE, "'
+        data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), targetFile=str(self.root / 'selected.cpp')))
+        self.assertEqual(data['symbols']['file'], str(self.root / 'selected.cpp'))
+
 
 if __name__ == '__main__':
     unittest.main()

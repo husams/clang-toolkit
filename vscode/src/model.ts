@@ -132,9 +132,10 @@ export function queries(
   action: Action,
   values: Record<string, string>,
   kinds: string[],
+  includeHeaders = false,
 ): string[] {
   values = validateParameters(action, values);
-  const root = "isExpansionInMainFile(), unless(isImplicit())";
+  const root = `${includeHeaders ? "" : "isExpansionInMainFile(), "}unless(isImplicit())`;
   if (action.kind === "members") {
     const record = `cxxRecordDecl(hasName(${quoted(values.CLASS_NAME ?? "")}))`;
     const selected = values.MEMBER_KIND ?? "All";
@@ -187,6 +188,7 @@ export const requestSchema = z.object({
   endpoint: z.string().optional(),
   configPath: z.string().optional(),
   libraryDirectory: z.string().optional(),
+  includeHeaders: z.boolean().optional(),
   compilationDatabase: z.string().optional(),
   compileArguments: z.array(z.string()),
   timeoutMs: z.number().int().min(1000),

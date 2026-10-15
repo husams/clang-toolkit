@@ -121,7 +121,12 @@ export async function runAnalysis(
     for (const [index, file] of request.files.entries()) {
       progress(file, index);
       try {
-        for (const query of queries(request.action, values, request.kinds)) {
+        for (const query of queries(
+          request.action,
+          values,
+          request.kinds,
+          request.includeHeaders,
+        )) {
           const matches = await client.match(query, file, {
             onRow: async (row) => {
               const binding =

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Client } from "@clang-toolkit/sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ClassNameService } from "../src/class-name-service.js";
 import { runAnalysis } from "../src/engine.js";
 import { predefined, type RunRequest, scriptAction } from "../src/model.js";
 import { startConsoleWorker, startWorker } from "../src/worker-client.js";
@@ -100,6 +101,51 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")("native prototype", () => {
       { ...data, libraryDirectory: resolve("../skills/ctk-script/scripts") },
       () => {},
     ).completion;
+  it("completes qualified classes from the chosen translation unit and refreshes edits", async () => {
+    const header = resolve(directory, "classes.hpp");
+    const first = resolve(directory, "first.cpp");
+    const second = resolve(directory, "second.cpp");
+    await writeFile(header, "namespace shared { struct Header {}; }");
+    await writeFile(
+      first,
+      '#include "classes.hpp"\nnamespace shop { struct Order {}; struct Order; struct Other {}; }',
+    );
+    await writeFile(second, "namespace billing { class Invoice {}; }");
+    const service = new ClassNameService(resolve("dist/worker.js"));
+    const data = {
+      ...request("symbols"),
+      kinds: ["classes"] as RunRequest["kinds"],
+      files: [first],
+    };
+    try {
+      const all = await service.complete(data, "");
+      expect(all.results.map((r) => r.name).sort()).toEqual([
+        "shared::Header",
+        "shop::Order",
+        "shop::Other",
+      ]);
+      expect(
+        (await service.complete(data, "shop::Or")).results.map((r) => r.name),
+      ).toEqual(["shop::Order"]);
+      expect(
+        (await service.complete({ ...data, files: [second] }, "")).results.map(
+          (r) => r.name,
+        ),
+      ).toEqual(["billing::Invoice"]);
+      await writeFile(first, "namespace shop { struct Replacement {}; }");
+      expect(
+        (await service.complete(data, "")).results.map((r) => r.name),
+      ).toEqual(["shop::Replacement"]);
+      await expect(
+        service.complete(
+          { ...data, files: [resolve(directory, "missing.cpp")] },
+          "",
+        ),
+      ).rejects.toThrow();
+    } finally {
+      service.dispose();
+    }
+  }, 30000);
   it("runs console helpers and user functions with source-linked results", async () => {
     const source =
       '// @ctk {"parameters":[{"name":"CLASS_NAME","label":"Class","default":"demo::Order"}]}\nlet fields(target, name) = { let node = classByName(target, name); classFields(node) }\nfields(arg.FILE, arg.CLASS_NAME)';
