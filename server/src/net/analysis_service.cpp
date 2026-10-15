@@ -154,4 +154,20 @@ grpc::Status AnalysisServiceAdapter::CallGraph(
     response->Swap(&result.response);
   return match_status(result.code, result.message, *context);
 }
+grpc::Status AnalysisServiceAdapter::StreamVariableFlow(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::VariableFlowRequest *request,
+    grpc::ServerWriter<ctk::analysis::v1::VariableFlowEvent> *writer) {
+  auto result = cfg_.variable_flow(
+      *request, [context] { return !context->IsCancelled(); },
+      [writer](const auto &event, std::string &message) {
+        if (!writer->Write(event)) {
+          message = "variable flow stream closed";
+          return ctk::clang_layer::MatchCode::Cancelled;
+        }
+        return ctk::clang_layer::MatchCode::Ok;
+      },
+      owner(*context));
+  return match_status(result.code, result.message, *context);
+}
 } // namespace ctk::net

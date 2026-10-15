@@ -96,7 +96,7 @@ _COMMAND_VALUE_KINDS = frozenset(
         "session_label", "session_start", "session_add", "session_match", "session_pause",
         "session_resume", "session_close", "session_list", "session_attach",
         "session_close_retained", "server_status", "cache_status", "cache_prune",
-        "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file", "cfg_binding",
+        "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file", "cfg_binding", "variable_flow",
         "callgraph", "callgraph_file", "help", "help_shortcut", "traverse", "script",
         "peek", "step",
         "cursor_open", "cursor_continue", "cursor_restart", "cursor_close",
@@ -398,6 +398,9 @@ class Runtime:
 
             value = execute_cfg(self, statement, source)
             return value, None
+        if kind == "variable_flow":
+            from .variable_flow import execute_variable_flow
+            return execute_variable_flow(self, statement), None
         if kind == "callgraph_file":
             from .call_graph import execute_call_graph
             from .graph_options import render_graph
@@ -731,6 +734,10 @@ class Runtime:
             from .control_flow import execute_cfg
 
             execute_cfg(self, statement, source)
+            return ""
+        if kind == "variable_flow":
+            from .variable_flow import execute_variable_flow
+            execute_variable_flow(self, statement)
             return ""
         if kind == "cfg":
             message = (

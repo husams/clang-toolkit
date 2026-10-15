@@ -13,6 +13,7 @@ from . import script_response_pb2 as analysis_dot_v1_dot_script__response__pb2
 from . import traverse_request_pb2 as analysis_dot_v1_dot_traverse__request__pb2
 from . import traverse_response_pb2 as analysis_dot_v1_dot_traverse__response__pb2
 from . import traverse_stream_pb2 as analysis_dot_v1_dot_traverse__stream__pb2
+from . import variable_flow_pb2 as analysis_dot_v1_dot_variable__flow__pb2
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -98,6 +99,11 @@ class AnalysisServiceStub:
                 request_serializer=analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.SerializeToString,
                 response_deserializer=analysis_dot_v1_dot_cfg__stream__pb2.CfgStreamEvent.FromString,
                 _registered_method=True)
+        self.StreamVariableFlow = channel.unary_stream(
+                '/ctk.analysis.v1.AnalysisService/StreamVariableFlow',
+                request_serializer=analysis_dot_v1_dot_variable__flow__pb2.VariableFlowRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_variable__flow__pb2.VariableFlowEvent.FromString,
+                _registered_method=True)
 
 
 class AnalysisServiceServicer:
@@ -178,6 +184,14 @@ class AnalysisServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamVariableFlow(self, request, context):
+        """Provisional usage sites precede converged facts. Require completion and
+        terminal OK; incomplete completion explicitly signals unsupported effects.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AnalysisServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -235,6 +249,11 @@ def add_AnalysisServiceServicer_to_server(servicer, server):
                     servicer.StreamCfg,
                     request_deserializer=analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.FromString,
                     response_serializer=analysis_dot_v1_dot_cfg__stream__pb2.CfgStreamEvent.SerializeToString,
+            ),
+            'StreamVariableFlow': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamVariableFlow,
+                    request_deserializer=analysis_dot_v1_dot_variable__flow__pb2.VariableFlowRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_variable__flow__pb2.VariableFlowEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -534,6 +553,33 @@ class AnalysisService:
             '/ctk.analysis.v1.AnalysisService/StreamCfg',
             analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.SerializeToString,
             analysis_dot_v1_dot_cfg__stream__pb2.CfgStreamEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamVariableFlow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/StreamVariableFlow',
+            analysis_dot_v1_dot_variable__flow__pb2.VariableFlowRequest.SerializeToString,
+            analysis_dot_v1_dot_variable__flow__pb2.VariableFlowEvent.FromString,
             options,
             channel_credentials,
             insecure,

@@ -180,4 +180,89 @@ CfgResult CfgController::build_stream(
   return future.get();
 }
 void CfgController::stop_admission() { impl_->executor->stop_admission(); }
+CfgResult CfgController::variable_flow(
+    const ctk::analysis::v1::VariableFlowRequest &request,
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+    const ctk::clang_layer::ICfgBackend::VariableSink &sink,
+    const std::string &owner) {
+  if (!sink || !request.has_variable() || !request.has_function())
+    return {MatchCode::InvalidArgument,
+            "variable and function bindings are required",
+            {}};
+  if ((request.has_max_blocks() &&
+       (!request.max_blocks() || request.max_blocks() > 100000)) ||
+      (request.has_max_events() &&
+       (!request.max_events() || request.max_events() > 100000)) ||
+      (request.has_max_iterations() &&
+       (!request.max_iterations() || request.max_iterations() > 1000000)))
+    return {MatchCode::InvalidArgument,
+            "variable flow limits exceed server bounds",
+            {}};
+  if (!impl_->backend || !impl_->matches)
+    return {MatchCode::FailedPrecondition,
+            "retained variable flow is unavailable",
+            {}};
+  auto work = std::make_shared<ResourceManager::WorkLease>();
+  if (impl_->resources) {
+    std::string message;
+    auto code = impl_->resources->begin_work(owner, request.resource_scope_id(),
+                                             *work, message);
+    if (code != MatchCode::Ok)
+      return {code, std::move(message), {}};
+  }
+  const auto check = [checkpoint, work] {
+    return (!checkpoint || checkpoint()) && work->checkpoint();
+  };
+  auto promise = std::make_shared<std::promise<CfgResult>>();
+  auto future = promise->get_future();
+  if (!impl_->executor->enqueue([this, promise, request, check, owner, work,
+                                 sink] {
+        try {
+          auto scope = detail::make_snapshot_scope(impl_->resources, owner,
+                                                   request.resource_scope_id(),
+                                                   work->token());
+          std::shared_ptr<const ctk::clang_layer::NativeBindingState> variable,
+              function;
+          auto resolve = [&](const auto &binding, auto &state) {
+            ctk::match::v1::MatchRequest target;
+            target.mutable_binding()->CopyFrom(binding);
+            target.set_query("unused");
+            target.set_resource_scope_id(request.resource_scope_id());
+            return impl_->matches->native_state(owner, target, state,
+                                                work->token());
+          };
+          auto resolved = resolve(request.variable(), variable);
+          if (resolved.code != MatchCode::Ok) {
+            promise->set_value({resolved.code, resolved.message, {}});
+            return;
+          }
+          resolved = resolve(request.function(), function);
+          if (resolved.code != MatchCode::Ok) {
+            promise->set_value({resolved.code, resolved.message, {}});
+            return;
+          }
+          promise->set_value(impl_->backend->variable_flow(
+              request, variable, function, check, impl_->limits,
+              [&](const auto &event, std::string &message) {
+                if (!check()) {
+                  message = "variable flow cancelled";
+                  return MatchCode::Cancelled;
+                }
+                if (event.ByteSizeLong() > impl_->limits.max_bytes) {
+                  message = "variable flow event byte limit exceeded";
+                  return MatchCode::ResourceExhausted;
+                }
+                return sink(event, message);
+              }));
+        } catch (const std::exception &error) {
+          promise->set_value({MatchCode::Internal, error.what(), {}});
+        } catch (...) {
+          promise->set_value({MatchCode::Internal, "variable flow failed", {}});
+        }
+      }))
+    return {MatchCode::ResourceExhausted,
+            "CFG executor queue is full or stopped",
+            {}};
+  return future.get();
+}
 } // namespace ctk::application
