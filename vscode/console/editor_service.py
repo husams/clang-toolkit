@@ -14,10 +14,11 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 from lark import Token
 from lark.exceptions import UnexpectedInput
-from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.completion import CompleteEvent, Completion
 from prompt_toolkit.document import Document
 from clang_toolkit.cli.callable_help import CallableHelp
 from clang_toolkit.cli.completion import ReplCompleter
+from clang_toolkit.cli.path_completion import path_context, path_completions
 from clang_toolkit.cli.help import COMMAND_HELP, MATCHER_HELP
 from clang_toolkit.cli.matcher_catalog import MATCHER_METADATA
 from clang_toolkit.cli.runtime.evaluator import CompletionField, Runtime
@@ -210,11 +211,40 @@ def describe_source(source: str, bindings: dict[str, Any], functions: dict[str, 
             bindings[node.value] = value_of(node.children[0], part, bindings)
 
 
+@lru_cache(maxsize=1)
+def host_starts() -> frozenset[str]:
+    options = ReplCompleter().get_completions(Document(''), CompleteEvent(completion_requested=True))
+    return frozenset(item.text.strip().removesuffix('(') for item in options
+                     if item.text.strip().removesuffix('(') not in MATCHER_METADATA
+                     and item.text.strip().removesuffix('(').isidentifier())
+
+
+def filesystem_options(document: Document, cwd: Path, script_directory: Path) -> list[Completion] | None:
+    """Recover a host operand after compiled syntax; let the console select path roles."""
+    tokens = lex(document.text_before_cursor)
+    if tokens and _kind(tokens[-1]) == 'COMMENT':
+        return None
+    starts = host_starts()
+    offsets = [0, *(int(token.start_pos) for token in reversed(tokens)
+                    if token.start_pos and str(token) in starts and str(token).isidentifier())]
+    for start in offsets[:33]:
+        candidate = Document(document.text[start:], cursor_position=document.cursor_position - start)
+        context = path_context(candidate)
+        if context is None:
+            continue
+        prefix = [token for token in lex(candidate.text[:context.start])
+                  if _kind(token) not in {'WS', 'COMMENT', 'NEWLINE', 'BATCH_SEPARATOR'}]
+        directory = script_directory if prefix and str(prefix[-1]) == 'import' else cwd
+        return path_completions(candidate, directory)
+    return None
+
+
 def request(data: dict[str, Any]) -> dict[str, Any]:
     source, cursor = data['source'], data['cursor']
     if not isinstance(source, str) or len(source) > 1024 * 1024 or not isinstance(cursor, int) or not 0 <= cursor <= len(source):
         raise ValueError('Invalid completion source or cursor')
     cwd = Path(data.get('directory') or '.').resolve()
+    script_directory = Path(data.get('scriptDirectory') or cwd).resolve()
     bindings, functions = {}, {}
     library = Path(data.get('library') or Path.home() / '.ctk/lib').expanduser()
     if library.is_dir():
@@ -223,7 +253,7 @@ def request(data: dict[str, Any]) -> dict[str, Any]:
             functions.update(function_headers(load_source(path)))
     # Local imports contribute definitions, never execution or side effects.
     for match in re.finditer(r'(?m)^\s*import\s+["\']([^"\']+)["\']', source[:cursor]):
-        functions.update(function_headers(load_source(cwd / match[1])))
+        functions.update(function_headers(load_source(script_directory / match[1])))
     describe_source(source[:cursor], bindings, functions)
     # Function definitions later in the file are useful to an editor too.
     functions.update(function_headers(source))
@@ -237,10 +267,13 @@ def request(data: dict[str, Any]) -> dict[str, Any]:
     base = ReplCompleter(references=runtime.completion_references, field_resolver=fields,
                          matcher_functions=lambda: tuple(functions), function_help=functions, cwd=cwd)
     document = Document(source, cursor_position=cursor)
-    options = PrototypeCompleter(base).get_completions(document, CompleteEvent(completion_requested=True))
+    options = list(PrototypeCompleter(base).get_completions(document, CompleteEvent(completion_requested=True)))
+    paths = filesystem_options(document, cwd, script_directory)
+    if paths is not None:
+        options = [*paths, *(item for item in options if item.display_meta_text not in {'file', 'directory'})]
     items = []
     for item in options:
-        label = item.display_text.rstrip('(')
+        label = item.display_text if item.display_meta_text in {'file', 'directory'} else item.display_text.rstrip('(')
         name = label.lstrip('$').removeprefix('.')
         help_entry = functions.get(name) or MATCHER_HELP.get(name) or COMMAND_HELP.get(name)
         documentation = ''

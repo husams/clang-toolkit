@@ -2,7 +2,7 @@
   "name": "clang-toolkit-prototype",
   "displayName": "Clang Toolkit Prototype",
   "description": "Unified Semantic Analysis and CTK script editing prototype",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "clang-toolkit",
   "license": "MIT",
   "type": "module",
@@ -202,7 +202,7 @@
         "editor.quickSuggestions": {
           "other": "on",
           "comments": "off",
-          "strings": "off"
+          "strings": "on"
         },
         "editor.suggestOnTriggerCharacters": true,
         "editor.parameterHints.enabled": true,

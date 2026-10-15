@@ -71,6 +71,51 @@ class CompletionTests(unittest.TestCase):
         self.assertIn('functionDecl', self.names('match '))
         self.assertIn('isDefinition', self.names('emit match functionDecl(isDef'))
 
+    def test_filesystem_paths_in_multiline_scripts_and_function_bodies(self):
+        (self.root / 'source file.cpp').write_text('int value;')
+        (self.root / 'source dir').mkdir()
+        (self.root / 'source dir/nested.cpp').write_text('int nested;')
+        prefixes = ['parse "sou', 'let scale(x) = x * 2\nparse "sou',
+                    'let analyze() = {\n  let tree = parse "sou',
+                    'let analyze() = {\n  match varDecl() in "sou',
+                    'let analyze() = {\n  import "sou',
+                    'let analyze() = {\n  let data = read "sou']
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix):
+                items = self.names(prefix)
+                self.assertIn('source file.cpp', items)
+                self.assertEqual(items['source file.cpp']['detail'], 'file')
+                self.assertIn('source dir/', items)
+                item = items['source file.cpp']
+                self.assertEqual(prefix[:item['start']] + item['text'], prefix[:prefix.rfind('"')] + '"source file.cpp"')
+        self.assertIn('nested.cpp', self.names('parse "source dir/'))
+        self.assertEqual(set(self.names('set cache_dir to "sou')), {'source dir/'})
+
+    def test_path_completion_preserves_existing_quotes_and_later_lines(self):
+        (self.root / 'source file.cpp').write_text('int value;')
+        source = 'let scale(x) = x * 2\nlet tree = parse "sou"\nprint scale(21)'
+        cursor = source.index('sou') + 3
+        item = self.names(source, cursor)['source file.cpp']
+        self.assertEqual(source[:item['start']] + item['text'] + source[cursor:], source.replace('"sou"', '"source file.cpp"'))
+        self.assertNotIn('source file.cpp', self.names('print "sou'))
+        self.assertNotIn('source file.cpp', self.names('// parse "sou'))
+        self.assertNotIn('source file.cpp', self.names('match varDecl(hasName("sou'))
+
+    def test_import_paths_use_script_directory_and_paths_share_console_candidates(self):
+        from clang_toolkit.cli.path_completion import path_completions
+        from prompt_toolkit.document import Document
+        directory = self.root / 'scripts'
+        directory.mkdir()
+        (directory / 'local.ctk').write_text('let local() = 1')
+        source = 'let scale(x) = x * 2\nimport "loc'
+        data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), scriptDirectory=str(directory), library=str(self.root)))
+        self.assertIn('local.ctk', {item['label'] for item in data['items']})
+        for prefix in ['parse "loc', 'import "loc', 'read loc', 'set cache_dir to "']:
+            with self.subTest(prefix=prefix):
+                expected = {item.display_text: item.text for item in path_completions(Document(prefix), directory)}
+                actual = service.request(dict(source=prefix, cursor=len(prefix), directory=str(directory), library=str(self.root)))
+                self.assertEqual({item['label']: item['text'] for item in actual['items'] if item['detail'] in {'file', 'directory'}}, expected)
+
 
 if __name__ == '__main__':
     unittest.main()

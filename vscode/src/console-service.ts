@@ -54,6 +54,7 @@ export class ConsoleService {
     cursor: number,
     directory: string,
     library: string,
+    scriptDirectory?: string,
   ): Promise<ConsoleResponse> {
     if (!this.child) {
       const child = spawn(this.python, ["-I", "-B", "-u", this.script], {
@@ -102,7 +103,7 @@ export class ConsoleService {
       }, 30000);
       this.pending.set(id, { resolve, reject, timer });
       this.child?.stdin.write(
-        `${JSON.stringify({ id, source, cursor, directory, library })}\n`,
+        `${JSON.stringify({ id, source, cursor, directory, library, scriptDirectory })}\n`,
       );
     });
   }

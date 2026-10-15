@@ -93,6 +93,48 @@ export async function run(): Promise<void> {
     ),
   );
   assert.ok(members.items.some((item) => item.label === "symbol"));
+  const pathSource =
+    'let scale(x) = x * 2\nlet tree = parse "dem"\nprint scale(21)';
+  const path = await complete(pathSource, pathSource.indexOf("dem") + 3);
+  const file = path.items.find((item) => item.label === "demo.cpp");
+  assert.equal(file?.kind, vscode.CompletionItemKind.File);
+  assert.ok(file?.range instanceof vscode.Range);
+  const pathEdit = new vscode.WorkspaceEdit();
+  pathEdit.replace(path.draft.uri, file.range, String(file.insertText));
+  await vscode.workspace.applyEdit(pathEdit);
+  assert.equal(path.draft.getText(), pathSource.replace('"dem"', '"demo.cpp"'));
+  const nested = vscode.Uri.joinPath(folder.uri, "source dir");
+  await vscode.workspace.fs.createDirectory(nested);
+  await vscode.workspace.fs.writeFile(
+    vscode.Uri.joinPath(nested, "nested file.cpp"),
+    Buffer.from("int nested;"),
+  );
+  const folders = await complete('parse "source');
+  const directory = folders.items.find((item) => item.label === "source dir/");
+  assert.equal(directory?.kind, vscode.CompletionItemKind.Folder);
+  assert.equal(directory?.command?.command, "editor.action.triggerSuggest");
+  const children = await complete('parse "source dir/"');
+  assert.ok(children.items.some((item) => item.label === "nested file.cpp"));
+  await vscode.workspace.fs.writeFile(
+    vscode.Uri.joinPath(nested, "helper.ctk"),
+    Buffer.from("let helper() = 1"),
+  );
+  const importUri = vscode.Uri.joinPath(nested, "run.ctk");
+  await vscode.workspace.fs.writeFile(importUri, Buffer.from('import "hel"'));
+  const imported = await vscode.workspace.openTextDocument(importUri);
+  const importItems =
+    await vscode.commands.executeCommand<vscode.CompletionList>(
+      "vscode.executeCompletionItemProvider",
+      importUri,
+      imported.positionAt(imported.getText().indexOf("hel") + 3),
+    );
+  assert.ok(importItems?.items.some((item) => item.label === "helper.ctk"));
+  assert.equal(
+    vscode.workspace
+      .getConfiguration("editor", { languageId: "ctk" })
+      .get<{ strings: string }>("quickSuggestions")?.strings,
+    "on",
+  );
   const source = 'emit match functionDecl(\n  isDef()\n).bind("symbol");';
   const earlier = await complete(source, source.indexOf("isDef") + 5);
   const definition = earlier.items.find(

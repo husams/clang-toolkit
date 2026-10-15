@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import * as vscode from "vscode";
 import {
   type ConsoleResponse,
@@ -24,7 +25,9 @@ export async function registerLanguage(
     const directory =
       vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ??
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-      context.extensionPath;
+      (document.uri.scheme === "file"
+        ? dirname(document.uri.fsPath)
+        : process.cwd());
     if (!starting)
       starting = findPython(
         config.get<string>("pythonPath", ""),
@@ -46,6 +49,9 @@ export async function registerLanguage(
         toCodePointOffset(source, document.offsetAt(position)),
         directory,
         config.get<string>("libraryDirectory", ""),
+        document.uri.scheme === "file"
+          ? dirname(document.uri.fsPath)
+          : directory,
       );
     } catch (error) {
       output.appendLine(String(error));
@@ -80,14 +86,19 @@ export async function registerLanguage(
           if (token.isCancellationRequested || document.version !== version)
             return [];
           return (data.items ?? []).map((entry) => {
-            const kind = entry.detail.startsWith("method")
-              ? vscode.CompletionItemKind.Method
-              : entry.detail.includes("matcher") ||
-                  entry.detail.startsWith("user defined")
-                ? vscode.CompletionItemKind.Function
-                : entry.detail.includes("keyword")
-                  ? vscode.CompletionItemKind.Keyword
-                  : vscode.CompletionItemKind.Property;
+            const kind =
+              entry.detail === "directory"
+                ? vscode.CompletionItemKind.Folder
+                : entry.detail === "file"
+                  ? vscode.CompletionItemKind.File
+                  : entry.detail.startsWith("method")
+                    ? vscode.CompletionItemKind.Method
+                    : entry.detail.includes("matcher") ||
+                        entry.detail.startsWith("user defined")
+                      ? vscode.CompletionItemKind.Function
+                      : entry.detail.includes("keyword")
+                        ? vscode.CompletionItemKind.Keyword
+                        : vscode.CompletionItemKind.Property;
             const item = new vscode.CompletionItem(entry.label, kind);
             item.range = new vscode.Range(
               document.positionAt(toUtf16Offset(source, entry.start)),
@@ -95,6 +106,11 @@ export async function registerLanguage(
             );
             item.insertText = entry.text;
             item.filterText = entry.text;
+            if (entry.detail === "directory")
+              item.command = {
+                command: "editor.action.triggerSuggest",
+                title: "Continue path completion",
+              };
             item.detail = entry.detail;
             item.documentation = new vscode.MarkdownString(
               entry.documentation || entry.detail,
@@ -108,6 +124,10 @@ export async function registerLanguage(
       "(",
       ",",
       " ",
+      "/",
+      "\\",
+      '"',
+      "'",
     ),
   );
   context.subscriptions.push(
