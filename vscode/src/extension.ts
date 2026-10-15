@@ -395,6 +395,7 @@ export class Prototype {
     this.publish();
     try {
       if (override) {
+        this.customDocument = undefined;
         this.action = override.action;
         this.values = override.values ?? {};
         this.kinds = override.kinds ?? override.action.kinds ?? this.kinds;

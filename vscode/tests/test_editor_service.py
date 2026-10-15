@@ -116,6 +116,42 @@ class CompletionTests(unittest.TestCase):
                 actual = service.request(dict(source=prefix, cursor=len(prefix), directory=str(directory), library=str(self.root)))
                 self.assertEqual({item['label']: item['text'] for item in actual['items'] if item['detail'] in {'file', 'directory'}}, expected)
 
+    def test_helper_file_arguments_offer_paths_without_changing_the_other_arguments(self):
+        helpers = Path(__file__).parents[2] / 'skills/ctk-script/scripts/ctk_helpers.ctk'
+        (self.root / 'helpers.ctk').write_text(helpers.read_text())
+        (self.root / 'source file.cpp').write_text('struct Order {};')
+        (self.root / 'source dir').mkdir()
+        for helper in ['classByName', 'classInfo', 'classTemplateInfo', 'ancestors', 'functionInfo', 'callSites']:
+            with self.subTest(helper=helper):
+                source = f'let node = {helper}("sou", "Order")\nprint node'
+                cursor = source.index('sou') + 3
+                items = self.names(source, cursor)
+                self.assertIn('source dir/', items)
+                item = items['source file.cpp']
+                self.assertEqual(source[:item['start']] + item['text'] + source[cursor:], source.replace('"sou"', '"source file.cpp"'))
+        self.assertNotIn('source file.cpp', self.names('classByName("source file.cpp", "sou'))
+        self.assertNotIn('source file.cpp', self.names('classByName(other("sou'))
+        self.assertNotIn('source file.cpp', self.names('// classByName("sou'))
+        self.assertNotIn('source file.cpp', self.names('classFields("sou'))
+        self.assertIn('source file.cpp', self.names(f'classByName("{self.root}/sou'))
+        self.assertIn('source file.cpp', self.names('classByName(sou'))
+        commented = 'classByName(\n  // target file\n  "sou", "Order")'
+        self.assertIn('source file.cpp', self.names(commented, commented.index('sou') + 3))
+
+    def test_user_function_file_arguments_follow_direct_and_forwarded_parameters(self):
+        (self.root / 'source.cpp').write_text('int value;')
+        source = 'let readTree(input) = parse input\nlet lookup(name, cpp) = readTree(cpp)\nlookup("not a path", "sou'
+        self.assertIn('source.cpp', self.names(source))
+        self.assertNotIn('source.cpp', self.names('let label(target) = target\nlabel("sou'))
+        self.assertNotIn('source.cpp', self.names('let readTree(input) = parse input\nlet readTree(input) = input\nreadTree("sou'))
+
+    def test_helper_path_inspection_never_executes_bodies_or_defaults(self):
+        marker = self.root / 'executed'
+        (self.root / 'source.cpp').write_text('int value;')
+        source = f'let load(input = unknownDangerousFunction()) = {{ save "ran" to "{marker}"; parse input }}\nload("sou'
+        self.assertIn('source.cpp', self.names(source))
+        self.assertFalse(marker.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

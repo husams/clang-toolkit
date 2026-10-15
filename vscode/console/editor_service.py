@@ -12,7 +12,7 @@ from typing import Any
 
 # The package is copied from the same checkout when the VSIX is built.
 sys.path.insert(0, str(Path(__file__).parent))
-from lark import Token
+from lark import Token, Tree
 from lark.exceptions import UnexpectedInput
 from prompt_toolkit.completion import CompleteEvent, Completion
 from prompt_toolkit.document import Document
@@ -239,6 +239,147 @@ def filesystem_options(document: Document, cwd: Path, script_directory: Path) ->
     return None
 
 
+def argument_stack(source: str) -> list[tuple[str, int, int]]:
+    """Track name, argument index and editable start using the console lexer."""
+    stack: list[tuple[str, int, int]] = []
+    previous, preceding = '', ''
+    for token in lex(source):
+        kind, value = _kind(token), str(token)
+        if kind in {'WS', 'COMMENT', 'NEWLINE', 'BATCH_SEPARATOR'}:
+            continue
+        if kind in {'STRING', 'OPEN_STRING', 'PREDICATE_STRING', 'FILE_STRING', 'DIRECTORY_STRING', 'PATH_STRING'}:
+            previous, preceding = '', ''
+            continue
+        if value in '([{':
+            name = previous if value == '(' and previous.isidentifier() and preceding not in {'let', '.'} else ''
+            stack.append((name, 0, int(token.end_pos)))
+        elif value in ')]}' and stack:
+            stack.pop()
+        elif value == ',' and stack:
+            name, parameter, _ = stack[-1]
+            stack[-1] = (name, parameter + 1, int(token.end_pos))
+        preceding, previous = previous, value
+    return stack
+
+
+@lru_cache(maxsize=256)
+def function_path_facts(definition: str) -> tuple[tuple[str, ...], frozenset[str], tuple[tuple[str, int, str], ...], frozenset[str]]:
+    """Inspect syntax only; function bodies and defaults are never executed."""
+    empty = ((), frozenset(), (), frozenset())
+    if len(definition) > 64 * 1024:
+        return empty
+    try:
+        program = parse(definition)
+    except (UnexpectedInput, ValueError):
+        return empty
+    routine = next((item for item in program.children if item.kind == 'runnable'), None)
+    if routine is None:
+        return empty
+    parameters = routine.value[1]
+    direct: set[str] = set()
+    blocked: set[str] = set()
+    calls: list[tuple[str, int, str]] = []
+
+    def reference(value: Any) -> str | None:
+        if isinstance(value, Node) and value.kind == 'ref':
+            return value.value
+        if isinstance(value, Tree) and value.data == 'reference':
+            names = [str(child) for child in value.children if isinstance(child, Token) and child.type == 'NAME']
+            if len(names) == 1 and len(value.children) == 2:
+                return names[0]
+        return None
+
+    def host(tree: Tree) -> None:
+        kind = str(tree.data)
+        # Native targets are explicit syntax operands, not matcher-name strings.
+        targets = []
+        if kind in {'match', 'background', 'script', 'cfg_file'}:
+            targets = [tree.children[index + 1] for index, child in enumerate(tree.children[:-1])
+                       if isinstance(child, Token) and child.type == 'IN']
+        elif kind in {'parse_expression', 'read_expression', 'files_expression', 'callgraph_file', 'traverse', 'file_open'}:
+            targets = [child for child in tree.children if isinstance(child, (Tree, Node))][:1]
+        for target in targets:
+            if name := reference(target):
+                direct.add(name)
+        if kind == 'reference' and len(tree.children) > 2:
+            root = tree.children[1]
+            if isinstance(root, Token):
+                blocked.add(str(root))
+        for child in tree.children:
+            if isinstance(child, Tree):
+                host(child)
+            elif isinstance(child, Node):
+                visit(child)
+
+    def visit(node: Node) -> None:
+        if node.kind in {'runnable', 'inline_runnable'}:
+            return
+        if node.kind == 'call':
+            calls.extend((node.value, index, name) for index, child in enumerate(node.children)
+                         if (name := reference(child)) in parameters)
+        if node.kind == 'get' and node.children and (name := reference(node.children[0])):
+            blocked.add(name)
+        if node.kind == 'let':
+            blocked.add(node.value)
+        if node.kind == 'assign' and node.children and (name := reference(node.children[0])):
+            blocked.add(name)
+        if node.kind == 'host':
+            host(node.value[0])
+        for child in node.children:
+            visit(child)
+
+    visit(routine.children[0])
+    return parameters, frozenset(direct), tuple(calls), frozenset(blocked)
+
+
+@lru_cache(maxsize=32)
+def path_parameters(definitions: tuple[tuple[str, str], ...], root: str) -> dict[str, frozenset[int]]:
+    sources = dict(definitions)
+    facts = {}
+    pending = [root]
+    while pending:
+        name = pending.pop()
+        if name in facts or name not in sources:
+            continue
+        facts[name] = function_path_facts(sources[name])
+        pending.extend(callee for callee, _, _ in facts[name][2])
+    paths = {name: set(direct) - set(blocked) for name, (_, direct, _, blocked) in facts.items()}
+    for _ in range(len(facts)):
+        changed = False
+        for name, (_, _, calls, blocked) in facts.items():
+            for callee, index, forwarded in calls:
+                target = facts.get(callee)
+                if target and index < len(target[0]) and target[0][index] in paths[callee] and forwarded not in blocked and forwarded not in paths[name]:
+                    paths[name].add(forwarded)
+                    changed = True
+        if not changed:
+            break
+    return {name: frozenset(index for index, parameter in enumerate(parameters) if parameter in paths[name])
+            for name, (parameters, _, _, _) in facts.items()}
+
+
+def helper_filesystem_options(document: Document, cwd: Path, functions: dict[str, CallableHelp]) -> list[Completion] | None:
+    stack = argument_stack(document.text_before_cursor)
+    if not stack:
+        return None
+    name, index, start = stack[-1]
+    if name not in functions:
+        return None
+    paths = path_parameters(tuple((name, entry.definition) for name, entry in functions.items()), name)
+    if index not in paths.get(name, ()):
+        return None
+    tokens = lex(document.text[start:document.cursor_position])
+    if tokens and _kind(tokens[-1]) == 'COMMENT':
+        return []
+    atom = next((token for token in tokens if _kind(token) not in {'WS', 'COMMENT', 'NEWLINE', 'BATCH_SEPARATOR'}), None)
+    start = start + int(atom.start_pos) if atom is not None else document.cursor_position
+    # Reuse the console's quoting, directory navigation and suffix-preservation
+    # rules for this operand. Relative insertion offsets remain cursor-based.
+    prefix = 'parse '
+    candidate = Document(prefix + document.text[start:], cursor_position=len(prefix) + document.cursor_position - start)
+    return path_completions(candidate, cwd)
+
+
 def request(data: dict[str, Any]) -> dict[str, Any]:
     source, cursor = data['source'], data['cursor']
     if not isinstance(source, str) or len(source) > 1024 * 1024 or not isinstance(cursor, int) or not 0 <= cursor <= len(source):
@@ -268,7 +409,9 @@ def request(data: dict[str, Any]) -> dict[str, Any]:
                          matcher_functions=lambda: tuple(functions), function_help=functions, cwd=cwd)
     document = Document(source, cursor_position=cursor)
     options = list(PrototypeCompleter(base).get_completions(document, CompleteEvent(completion_requested=True)))
-    paths = filesystem_options(document, cwd, script_directory)
+    paths = helper_filesystem_options(document, cwd, functions)
+    if paths is None:
+        paths = filesystem_options(document, cwd, script_directory)
     if paths is not None:
         options = [*paths, *(item for item in options if item.display_meta_text not in {'file', 'directory'})]
     items = []
@@ -292,21 +435,7 @@ def request(data: dict[str, Any]) -> dict[str, Any]:
         if name in MATCHER_METADATA:
             metadata = MATCHER_METADATA[name]
             help_items[name] = dict(signature=metadata[2][0] if metadata[2] else name + '()', signatures=list(metadata[2]), documentation=metadata[1])
-    stack, previous = [], ''
-    for token in lex(source[:cursor]):
-        kind, value = _kind(token), str(token)
-        if kind in {'WS', 'COMMENT', 'NEWLINE', 'BATCH_SEPARATOR'}:
-            continue
-        if kind in {'STRING', 'OPEN_STRING', 'PREDICATE_STRING', 'FILE_STRING', 'DIRECTORY_STRING', 'PATH_STRING'}:
-            previous = ''
-            continue
-        if value in '([{':
-            stack.append([previous if value == '(' and previous.isidentifier() else '', 0])
-        elif value in ')]}' and stack:
-            stack.pop()
-        elif value == ',' and stack:
-            stack[-1][1] += 1
-        previous = value
+    stack = argument_stack(source[:cursor])
     current = next((entry for entry in reversed(stack) if entry[0] in help_items), None)
     return dict(items=items, functions=help_items, call=dict(name=current[0], parameter=current[1]) if current else None)
 

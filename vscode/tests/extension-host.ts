@@ -162,6 +162,54 @@ export async function run(): Promise<void> {
   );
   const helper = await complete("classByN");
   assert.ok(helper.items.some((item) => item.label === "classByName"));
+  const helperSource =
+    'let scale(x) = x * 2\nlet node = classByName("dem", "demo::Order")\nclassFields(node)';
+  const helperPath = await complete(
+    helperSource,
+    helperSource.indexOf('"dem') + 4,
+  );
+  const helperFile = helperPath.items.find((item) => item.label === "demo.cpp");
+  assert.equal(helperFile?.kind, vscode.CompletionItemKind.File);
+  assert.ok(helperFile?.range instanceof vscode.Range);
+  const helperEdit = new vscode.WorkspaceEdit();
+  helperEdit.replace(
+    helperPath.draft.uri,
+    helperFile.range,
+    String(helperFile.insertText),
+  );
+  await vscode.workspace.applyEdit(helperEdit);
+  assert.equal(
+    helperPath.draft.getText(),
+    helperSource.replace('"dem"', '"demo.cpp"'),
+  );
+  await vscode.window.showTextDocument(helperPath.draft);
+  await vscode.commands.executeCommand("ctk.runCurrentScript");
+  const helperExecution = api.snapshot() as {
+    errors: string[];
+    results: { name: string }[];
+  };
+  assert.deepEqual(helperExecution.errors, []);
+  assert.ok(
+    helperExecution.results.some(
+      (item) => item.name === "demo::Order::quantity",
+    ),
+  );
+  const classArgument = await complete('classByName("demo.cpp", "dem');
+  assert.ok(
+    !classArgument.items.some(
+      (item) => item.kind === vscode.CompletionItemKind.File,
+    ),
+  );
+  const helperFolders = await complete('classByName("source');
+  assert.ok(
+    helperFolders.items.some(
+      (item) =>
+        item.label === "source dir/" &&
+        item.kind === vscode.CompletionItemKind.Folder,
+    ),
+  );
+  const userPath = await complete('let load(input) = parse input\nload("dem');
+  assert.ok(userPath.items.some((item) => item.label === "demo.cpp"));
   const signatureDoc = await vscode.workspace.openTextDocument({
     language: "ctk",
     content:
