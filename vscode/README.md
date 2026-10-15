@@ -6,7 +6,7 @@ One Semantic Analysis view runs predefined analyses, saved scripts and custom CT
 
 Requires Node 22+, pnpm, VS Code 1.100+ and a running native `ctk-server`. From `vscode/`:
 
-Console autocomplete also needs Python 3.14 with the CTK console dependencies. The extension discovers a nearby `.venv`, the uv-installed CTK environment, or `python3`; set `ctk.pythonPath` to the console's interpreter if needed.
+Script execution and autocomplete need Python 3.14 with the CTK console dependencies. The extension discovers a nearby `.venv`, the uv-installed CTK environment, or `python3`; set `ctk.pythonPath` to the console's interpreter if needed. The console package from this checkout is bundled in the VSIX.
 
 ```sh
 pnpm --dir ../typescript install --frozen-lockfile
@@ -20,7 +20,7 @@ Press F5 and select **Run CTK Prototype**. Set `ctk.server` to an endpoint such 
 
 Alternatively, run `pnpm package` and use **Extensions → Install from VSIX…** with `artifacts/clang-toolkit-prototype.vsix`.
 
-The Activity Bar hexagon opens Semantic Analysis. Choose an analysis, set inputs and scope, then run. Results group by file; clicking a row opens source and the **CTK Result** bottom panel. Raw semantic fields remain inspectable. Non-location output appears in **CTK Output**. Failed files stay visible beside partial results. File/result limits are explicit. Stop terminates the worker immediately; server handles follow the native cancellation/expiry policy.
+The Activity Bar hexagon opens Semantic Analysis. Choose an analysis, set inputs and scope, then run. Results group by file; clicking a row opens source and the **CTK Result** bottom panel. Raw semantic fields remain inspectable. Script runs open **CTK Output** automatically with the console's rendered output and diagnostics. Failed files stay visible beside partial results. File/result limits are explicit. Stop requests console cancellation and cleanup; an unresponsive worker is terminated after ten seconds.
 
 Workspace scope searches the active file's workspace folder (or the first folder if none is active). **Open Output** exposes script emissions and error details directly from the shared panel.
 
@@ -28,16 +28,19 @@ Right-click a C++ file: **CTK → Run Script…** or **Run Predefined…**. Thes
 
 Autocomplete uses the console's actual grammar-aware completion engine. Suggestions appear while typing and after `.`, `$`, `(`, comma and space. Match results, strings, lists, dictionaries and parsed trees receive console member suggestions inferred from their declarations. Local functions and helpers in `~/.ctk/lib` (or `ctk.libraryDirectory`) show signatures, default parameters and Markdown definitions. Function calls display argument hints. Earlier-line edits preserve later text and existing parentheses. Drafts and helper bodies are inspected without execution; members requiring unknown runtime values cannot be inferred. The sidebar block is a preview; **Edit in CTK editor** opens or reuses the editor with these features.
 
-## Native scripts and parameters
+## Console scripts and parameters
 
-This prototype executes the **native ANTLR CTK DSL** through `Client.runScript()`. Python-console-only helpers and runnable declarations are outside this initial slice. Use `emit` for script output.
+All script entry points use the same **compiled console batch runner** as `ctk SCRIPT.ctk`: saved scripts, the editor Run button and custom blocks. Console helpers, `let` functions, defaults, closures, inline callbacks, imports, error/exit handlers and `print` use the console implementation. Each run starts a fresh console session and preloads `~/.ctk/lib` (or `ctk.libraryDirectory`). Definitions persist within a run; subsequent runs load them again. The native DSL remains available through the console's explicit `script` command.
 
 ```ctk
 // @ctk {"title":"Class fields","parameters":[{"name":"CLASS_NAME","label":"Class name","kind":"text","required":true}]}
-emit match fieldDecl(hasParent(cxxRecordDecl(hasName(${CLASS_NAME})))).bind("symbol");
+let node = classByName(arg.FILE, arg.CLASS_NAME)
+classFields(node)
 ```
 
-Placeholders are unquoted: `${CLASS_NAME}` becomes an escaped string literal. `${FILE}` is reserved for the C++ target. Parameters support `text`, `choice` (with `choices`), `file`, `folder`, defaults and optional values. Cancelling a picker does not execute. Scripts must be saved; custom blocks can open in a native CTK editor for highlighting and completion. The server and extension host must share filesystem paths. Untrusted workspaces cannot execute analyses.
+Picker parameters arrive as literal strings in `arg.NAME`; `arg.FILE` is the selected C++ file (empty when none is selected). Legacy unquoted `${NAME}` placeholders become `arg.NAME` references, without inserting user text into executable source. Parameters support `text`, `choice` (with `choices`), `file`, `folder`, defaults and optional values. Cancelling a picker does not execute. Unsaved editor contents run directly. Saved scripts resolve relative imports against their own directory; untitled/custom blocks use the workspace directory. Pure local scripts can run without C++ input or a native connection. Workspace scripts execute once with all selected files configured as default matcher inputs. Printed/returned match values and helper symbol summaries with source coordinates populate the shared results list; other values stay in console output. Try `examples/console-demo.ctk` with `examples/demo.cpp` active.
+
+The server and extension host must share filesystem paths. Untrusted workspaces cannot execute analyses.
 
 ## Validate and package
 
@@ -52,7 +55,7 @@ pnpm package
 
 The VSIX in `artifacts/` bundles the SDK, dependencies, schemas and matcher catalog. Build regenerates catalog metadata from the repository without network access.
 
-`test:host` uses an isolated VS Code profile and temporary fixture workspace; set `VSCODE_EXECUTABLE_PATH` when VS Code is installed elsewhere. It checks actual webview result rendering, source navigation, matcher completion, hover, predefined analyses and native scripts. Validation outcomes and repository-wide limitations are recorded in repository file `docs/vscode-prototype-progress.md`.
+`test:host` uses an isolated VS Code profile and temporary fixture workspace; set `VSCODE_EXECUTABLE_PATH` when VS Code is installed elsewhere. It checks actual webview result rendering, source navigation, matcher completion, hover, predefined analyses and console scripts. Validation outcomes and repository-wide limitations are recorded in repository file `docs/vscode-prototype-progress.md`.
 
 Design: https://chatgpt.com/space/page_befdeedd156081919409f24942e91485.
 

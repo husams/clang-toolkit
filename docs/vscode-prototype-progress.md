@@ -19,7 +19,7 @@ Design source: [normal proposal Page](https://chatgpt.com/space/page_befdeedd156
 
 The Activity Bar opens one Semantic Analysis panel. Find symbols, function/class/variable presets, class members, saved scripts and custom blocks use the same scope, execution and file-grouped results. Required parameters use VS Code input, choice or path pickers. File menus contain Run Script and Run Predefined. Results open their source location and CTK Result details. Script output and errors are reachable through Open Output.
 
-Scripts run in a cancellable worker using the native ANTLR DSL. The CTK editor supplies TextMate syntax scopes plus offline matcher completion and hover. Compilation flags, compilation database, endpoint and shared configuration are configurable. Workspace scope covers the selected workspace folder. Execution is disabled in untrusted workspaces, and file/result limits are explicit.
+Scripts now run in a cancellable worker using the compiled console batch entry point (version 0.1.2 correction below). The CTK editor supplies TextMate syntax scopes plus console completion and hover. Compilation flags, compilation database, endpoint and shared configuration are configurable. Workspace scope covers the selected workspace folder. Execution is disabled in untrusted workspaces, and file/result limits are explicit.
 
 The committed native API advertises `BINDING_MATCH_SCOPE_CHILDREN`, but the vendored TypeScript schema omitted it. This prototype updates that enum in the SDK schema and generated type, with a real protobuf wire-decoding regression check; it does not loosen boundary validation.
 
@@ -43,7 +43,7 @@ Raw validation output is retained locally under `vscode/artifacts/validation/` a
 
 ## Prototype boundary
 
-This is a runnable prototype rather than a released extension. Execution uses the server's native DSL; Python-console-only helpers and runnable declarations are not executed by the native server. Native server and extension host must share source paths. The prototype was subsequently installed locally for the user's trial; no marketplace publication was performed.
+This is a runnable prototype rather than a released extension. Predefined analyses use the TypeScript SDK; scripts use the bundled Python compiled console, including helpers and runnable declarations. Native server and extension host must share source paths. The prototype was subsequently installed locally for the user's trial; no marketplace publication was performed.
 
 The real host confirms webview rendering and language providers. Pixel-level mockup parity and manual picker/color acceptance remain to be reviewed; no screenshot-based visual acceptance is claimed.
 
@@ -56,3 +56,13 @@ The sidebar's custom block is explicitly a read-only preview; its editor button 
 Seven focused Python regressions and the expanded real VS Code host test pass, covering member metadata, library and user-defined signatures, grammar contexts, strings/comments, earlier-line insertion, nested argument hints, actual source edits and CTK suggestion defaults. The previous repository-wide Python failures remain recorded above; no console/runtime or native-server source was changed by this correction.
 
 Installed version 0.1.1 was also verified manually in the user's normal VS Code profile: typing `.` after `x` in `autocomplete-demo.ctk` automatically opened the suggestion list containing `filter`, `isEmpty`, `length`, `one`, `root`, `sort`, `symbol` and `unique`, with console method descriptions. This worked with the user's inline completion provider still active. The existing unsaved user script was preserved, and isolated extension-test instances exited after validation.
+
+## Console execution correction, version 0.1.2
+
+Saved scripts, custom blocks and Run Current Script now invoke the actual `cli.app._run` compiled-console batch entry point in a separate Python process. The bridge supplies workspace compiler settings and literal `arg` inputs, observes visible results for source navigation, and leaves parsing, helper preloading, imports, function execution, output routing, recovery/exit handlers, session commands and cleanup to the console. The configured helper directory is shared with autocomplete. Each run starts a fresh session, like `ctk SCRIPT.ctk`.
+
+Editor runs use current unsaved text without a save prompt. Script-relative imports retain the real source path; untitled blocks use the workspace directory. Scripts without C++ inputs can run locally. Workspace scope executes once with all files as default matcher inputs. `arg.FILE` is the selected/first input; unquoted legacy placeholders become argument references, never interpolated user code. Console output opens automatically. Returned/printed match bindings and helper symbol summaries retain file grouping and source navigation. Stop requests console cancellation, with a ten-second termination fallback.
+
+Focused validation: 11 extension unit/console-worker tests passed, seven autocomplete adapter tests passed, six native integration tests passed, and the real VS Code extension-host test passed with an unsaved script calling `scale`, `classByName` and `classFields`. Strict TypeScript, Biome and whitespace checks passed. The exact `console-demo.ctk` artifact also ran in a real TTY through `uv run ctk` with the user's default helper preload: `42`, `fields: 1; methods: 1`, and the real `demo::Order::quantity` summary at `demo.cpp:3`. Previous repository-wide Python failures remain documented above; no Python console/runtime or C++ implementation was changed.
+
+Version 0.1.2 was packaged, installed and reloaded in the user's existing VS Code trial window. Clicking the editor Run button for `console-demo.ctk` visibly produced the same console output and a clickable `demo::Order::quantity` result at line 3. The normal default `~/.ctk/lib` preload was used. The demo remains open for trial, the user's existing unsaved script was preserved, and no isolated extension-test processes remained after validation.

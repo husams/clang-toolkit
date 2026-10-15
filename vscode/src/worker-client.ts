@@ -1,7 +1,14 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { z } from "zod";
-import { type RunReport, type RunRequest, reportSchema } from "./model.js";
+import {
+  type RunReport,
+  type RunRequest,
+  renderScript,
+  reportSchema,
+  requestSchema,
+  validateParameters,
+} from "./model.js";
 
 const eventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -22,11 +29,46 @@ export function startWorker(
   request: RunRequest,
   progress: (text: string) => void,
 ): WorkerRun {
-  const child = spawn(process.execPath, [path], {
+  return launch(process.execPath, [path], request, progress);
+}
+export function startConsoleWorker(
+  path: string,
+  python: string,
+  request: RunRequest,
+  progress: (text: string) => void,
+): WorkerRun {
+  request = requestSchema.parse(request);
+  const values = validateParameters(request.action, request.values);
+  return launch(
+    python,
+    ["-I", "-B", "-u", path],
+    {
+      ...request,
+      values,
+      action: {
+        ...request.action,
+        source: renderScript(
+          request.action.source ?? "",
+          values,
+          request.files[0] ?? "",
+        ),
+      },
+    },
+    progress,
+  );
+}
+function launch(
+  executable: string,
+  args: string[],
+  request: RunRequest,
+  progress: (text: string) => void,
+): WorkerRun {
+  const child = spawn(executable, args, {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: ["pipe", "pipe", "pipe"],
     cwd: request.directory,
   });
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
   let cancelled = false,
     report: RunReport | undefined,
     failure: Error | undefined,
@@ -38,7 +80,9 @@ export function startWorker(
         const event = eventSchema.parse(JSON.parse(line));
         if (event.type === "progress")
           progress(
-            `${event.index + 1}/${request.files.length} · ${event.file}`,
+            request.action.kind === "script"
+              ? event.file
+              : `${event.index + 1}/${request.files.length} · ${event.file}`,
           );
         if (event.type === "complete") report = event.report;
         if (event.type === "error") failure = new Error(event.message);
@@ -52,6 +96,7 @@ export function startWorker(
     });
     child.once("error", reject);
     child.once("close", (code) => {
+      clearTimeout(killTimer);
       lines.close();
       if (cancelled) reject(new Error("Analysis cancelled"));
       else if (failure) reject(failure);
@@ -68,8 +113,11 @@ export function startWorker(
     process: child,
     completion,
     cancel: () => {
+      if (cancelled) return;
       cancelled = true;
       child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), 10000);
+      killTimer.unref();
     },
   };
 }

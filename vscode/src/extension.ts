@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as vscode from "vscode";
 import { z } from "zod";
+import { findPython } from "./console-service.js";
 import { registerLanguage } from "./language.js";
 import {
   type Action,
@@ -12,7 +14,11 @@ import {
   validateParameters,
 } from "./model.js";
 import { AnalysisView, DetailsView } from "./views.js";
-import { startWorker, type WorkerRun } from "./worker-client.js";
+import {
+  startConsoleWorker,
+  startWorker,
+  type WorkerRun,
+} from "./worker-client.js";
 
 const CXX = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i;
 const EXCLUDE = "**/{.git,node_modules,build,.venv,.cache,dist}/**";
@@ -50,10 +56,10 @@ const messageSchema = z.discriminatedUnion("type", [
 const custom: Action = {
   id: "custom",
   title: "Custom script block",
-  description: "Edit native CTK in the script editor",
+  description: "Edit console CTK in the script editor",
   kind: "script",
   parameters: [],
-  source: 'emit match functionDecl(isExpansionInMainFile()).bind("symbol");',
+  source: 'match functionDecl(isExpansionInMainFile()).bind("symbol");',
 };
 export class Prototype {
   readonly view: AnalysisView;
@@ -67,6 +73,7 @@ export class Prototype {
   private scope: "file" | "workspace" = "file";
   private results: Result[] = [];
   private errors: string[] = [];
+  private consoleOutput: string[] = [];
   private status = "Ready · native server required";
   private completed = false;
   private active: WorkerRun | undefined;
@@ -120,6 +127,7 @@ export class Prototype {
       status: this.status,
       completed: this.completed,
       errors: this.errors,
+      output: this.consoleOutput,
       results: this.results.map((r) => ({
         ...r,
         raw: undefined,
@@ -137,6 +145,7 @@ export class Prototype {
       ? "Analysis cancelled"
       : "Analysis failed";
     this.output.appendLine(this.errors[0] ?? "Analysis failed");
+    if (this.action.kind === "script") this.output.show(true);
     this.publish();
   }
   private async receive(raw: unknown): Promise<void> {
@@ -252,7 +261,7 @@ export class Prototype {
     if (!picked) return;
     await this.select(picked.action, run);
   }
-  private async select(action: Action, run: boolean): Promise<void> {
+  private async select(action: Action, run: boolean): Promise<boolean> {
     const values: Record<string, string> = {};
     for (const p of action.parameters) {
       if (!p.required) {
@@ -282,7 +291,7 @@ export class Prototype {
           validateInput: (input) =>
             p.required && !input.trim() ? `${p.label} is required` : undefined,
         });
-      if (value === undefined) return;
+      if (value === undefined) return false;
       values[p.name] = value;
     }
     this.action = action;
@@ -301,16 +310,24 @@ export class Prototype {
       await vscode.window.showTextDocument(this.customDocument);
     }
     if (run) await this.execute();
+    return true;
   }
   async currentScript(): Promise<void> {
     const document = vscode.window.activeTextEditor?.document;
     if (document?.languageId !== "ctk")
       throw new Error("Open a CTK script first");
-    if (document.isDirty && !(await document.save())) return;
-    await this.select(
-      scriptAction(document.uri.fsPath, document.getText()),
-      true,
-    );
+    if (
+      !(await this.select(
+        {
+          ...scriptAction(document.uri.fsPath, document.getText()),
+          ...(document.uri.scheme === "file" ? {} : { script: undefined }),
+        },
+        false,
+      ))
+    )
+      return;
+    this.customDocument = document;
+    await this.execute();
   }
   private async targets(): Promise<{ files: string[]; directory: string }> {
     if (!vscode.workspace.isTrusted)
@@ -319,8 +336,14 @@ export class Prototype {
       (this.target
         ? vscode.workspace.getWorkspaceFolder(this.target)?.uri.fsPath
         : undefined) ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!directory) throw new Error("Open a C++ workspace first");
+    directory ??= this.action.script
+      ? dirname(this.action.script)
+      : this.target
+        ? dirname(this.target.fsPath)
+        : process.cwd();
     if (this.scope === "file") {
+      if (!this.target && this.action.kind === "script")
+        return { files: [], directory };
       if (!this.target) {
         const candidates = await vscode.workspace.findFiles(
           "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
@@ -354,7 +377,8 @@ export class Prototype {
       throw new Error(
         `Workspace exceeds the ${maximum}-file limit. Increase ctk.maxFiles or use current-file scope.`,
       );
-    if (!files.length) throw new Error("No C++ files found in this workspace");
+    if (!files.length && this.action.kind !== "script")
+      throw new Error("No C++ files found in this workspace");
     return { files: files.map((uri) => uri.fsPath), directory };
   }
   async execute(override?: {
@@ -383,20 +407,17 @@ export class Prototype {
         const document = vscode.workspace.textDocuments.find(
           (doc) => doc.uri.fsPath === this.action.script,
         );
-        if (document?.isDirty) {
-          if (
-            (await vscode.window.showWarningMessage(
-              "Save this script before running?",
-              "Save and Run",
-            )) !== "Save and Run" ||
-            !(await document.save())
-          )
-            return;
-        }
         this.action = {
           ...this.action,
-          source: await readFile(this.action.script, "utf8"),
+          source:
+            document?.getText() ?? (await readFile(this.action.script, "utf8")),
         };
+      } else if (
+        this.customDocument &&
+        !this.customDocument.isClosed &&
+        this.action.kind === "script"
+      ) {
+        this.action = { ...this.action, source: this.customDocument.getText() };
       }
       const config = vscode.workspace.getConfiguration("ctk");
       const endpoint = config.get<string>("server", ""),
@@ -414,12 +435,27 @@ export class Prototype {
         ...(endpoint ? { endpoint } : {}),
         ...(configPath ? { configPath } : {}),
         ...(compilationDatabase ? { compilationDatabase } : {}),
+        ...(config.get<string>("libraryDirectory", "")
+          ? { libraryDirectory: config.get<string>("libraryDirectory", "") }
+          : {}),
       };
-      const worker = startWorker(
-        fileURLToPath(new URL("./worker.js", import.meta.url)),
-        request,
-        (text) => this.view.post({ type: "progress", text }),
-      );
+      const progress = (text: string) =>
+        this.view.post({ type: "progress", text });
+      const worker =
+        this.action.kind === "script"
+          ? startConsoleWorker(
+              fileURLToPath(
+                new URL("../console/run_service.py", import.meta.url),
+              ),
+              await findPython(config.get<string>("pythonPath", ""), directory),
+              request,
+              progress,
+            )
+          : startWorker(
+              fileURLToPath(new URL("./worker.js", import.meta.url)),
+              request,
+              progress,
+            );
       this.active = worker;
       this.status = "Running analysis…";
       this.errors = [];
@@ -430,11 +466,13 @@ export class Prototype {
         const report = await worker.completion;
         this.results = report.results;
         this.errors = report.errors;
+        this.consoleOutput = report.output;
         this.completed = true;
-        this.status = `${report.results.length} matches in ${new Set(report.results.map((r) => r.file)).size} files${report.truncated ? " · result limit reached" : ""}${report.errors.length ? ` · ${report.errors.length} file errors` : ""}`;
+        this.status = `${this.action.kind === "script" ? (report.errors.length ? "Script failed · " : "Script completed · ") : ""}${report.results.length} matches in ${new Set(report.results.map((r) => r.file)).size} files${report.truncated ? " · result limit reached" : ""}${report.errors.length ? ` · ${report.errors.length} errors` : ""}`;
         this.output.appendLine(`${this.action.title}: ${this.status}`);
         for (const output of report.output) this.output.appendLine(output);
         for (const error of report.errors) this.output.appendLine(error);
+        if (this.action.kind === "script") this.output.show(true);
       } catch (error) {
         this.fail(error);
       } finally {

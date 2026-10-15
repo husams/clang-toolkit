@@ -2,7 +2,7 @@
   "name": "clang-toolkit-prototype",
   "displayName": "Clang Toolkit Prototype",
   "description": "Unified Semantic Analysis and CTK script editing prototype",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "clang-toolkit",
   "license": "MIT",
   "type": "module",
@@ -193,7 +193,7 @@
         "ctk.libraryDirectory": {
           "type": "string",
           "default": "",
-          "description": "Console helper library folder for autocomplete; empty uses ~/.ctk/lib. Definitions are inspected, never executed."
+          "description": "Console helper library folder, preloaded when scripts run; empty uses ~/.ctk/lib. Autocomplete inspects definitions without executing them."
         }
       }
     },

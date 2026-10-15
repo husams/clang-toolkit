@@ -1,2 +1,2 @@
 // @ctk {"title":"Class fields","parameters":[{"name":"CLASS_NAME","label":"Class name","kind":"text","required":true}]}
-emit match fieldDecl(isExpansionInMainFile(), hasParent(cxxRecordDecl(hasName(${CLASS_NAME})))).bind("symbol");
+match fieldDecl(isExpansionInMainFile(), hasParent(cxxRecordDecl(hasName(arg.CLASS_NAME)))).bind("symbol");

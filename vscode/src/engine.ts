@@ -5,7 +5,6 @@ import {
   type Result,
   type RunReport,
   type RunRequest,
-  renderScript,
   validateParameters,
 } from "./model.js";
 
@@ -70,6 +69,8 @@ export async function runAnalysis(
   request: RunRequest,
   progress: (file: string, index: number) => void = () => {},
 ): Promise<RunReport> {
+  if (request.action.kind === "script")
+    throw new Error("Scripts require the console worker");
   const values = validateParameters(request.action, request.values);
   const options = {
     workingDirectory: request.directory,
@@ -115,52 +116,22 @@ export async function runAnalysis(
       excerpt: sources.get(result.file)?.[result.line - 1]?.trim() ?? "",
     });
   };
-  const rows = async (value: unknown): Promise<void> => {
-    if (Array.isArray(value)) {
-      for (const item of value) await rows(item);
-      return;
-    }
-    const item = record(value);
-    if (!item) return;
-    if (item.bindings) {
-      const bindings = record(item.bindings);
-      const binding =
-        bindings?.symbol ?? bindings?.root ?? Object.values(bindings ?? {})[0];
-      if (binding) await add(binding as SemanticBinding);
-      return;
-    }
-    for (const child of Object.values(item)) await rows(child);
-  };
   try {
     await client.ready(5000);
     for (const [index, file] of request.files.entries()) {
       progress(file, index);
       try {
-        if (request.action.kind === "script") {
-          const source = renderScript(
-            request.action.source ?? "",
-            values,
-            file,
-          );
-          const response = await client.runScript(source, {
-            file,
-            maxSteps: 1000,
+        for (const query of queries(request.action, values, request.kinds)) {
+          const matches = await client.match(query, file, {
+            onRow: async (row) => {
+              const binding =
+                row.bindings.symbol ??
+                row.bindings.root ??
+                Object.values(row.bindings)[0];
+              if (binding) await add(binding);
+            },
           });
-          await rows(response.emissions);
-          report.output.push(JSON.stringify(response.emissions, null, 2));
-        } else {
-          for (const query of queries(request.action, values, request.kinds)) {
-            const matches = await client.match(query, file, {
-              onRow: async (row) => {
-                const binding =
-                  row.bindings.symbol ??
-                  row.bindings.root ??
-                  Object.values(row.bindings)[0];
-                if (binding) await add(binding);
-              },
-            });
-            await matches.close();
-          }
+          await matches.close();
         }
         report.files += 1;
       } catch (error) {

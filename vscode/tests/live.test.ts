@@ -6,7 +6,7 @@ import { Client } from "@clang-toolkit/sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runAnalysis } from "../src/engine.js";
 import { predefined, type RunRequest, scriptAction } from "../src/model.js";
-import { startWorker } from "../src/worker-client.js";
+import { startConsoleWorker, startWorker } from "../src/worker-client.js";
 
 describe.skipIf(process.env.CTK_INTEGRATION !== "1")("native prototype", () => {
   let directory: string,
@@ -93,10 +93,17 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")("native prototype", () => {
     );
     expect(members.results).toHaveLength(2);
   }, 30000);
-  it("normalizes parameterized native script emissions", async () => {
+  const consoleRun = (data: RunRequest) =>
+    startConsoleWorker(
+      resolve("console/run_service.py"),
+      process.env.CTK_PYTHON ?? resolve("../.venv/bin/python"),
+      { ...data, libraryDirectory: resolve("../skills/ctk-script/scripts") },
+      () => {},
+    ).completion;
+  it("runs console helpers and user functions with source-linked results", async () => {
     const source =
-      '// @ctk {"parameters":[{"name":"CLASS_NAME","label":"Class","default":"demo::Order"}]}\nemit match fieldDecl(isExpansionInMainFile(), hasParent(cxxRecordDecl(hasName(${CLASS_NAME})))).bind("symbol");';
-    const report = await runAnalysis({
+      '// @ctk {"parameters":[{"name":"CLASS_NAME","label":"Class","default":"demo::Order"}]}\nlet fields(target, name) = { let node = classByName(target, name); classFields(node) }\nfields(arg.FILE, arg.CLASS_NAME)';
+    const report = await consoleRun({
       ...request("symbols"),
       action: scriptAction("example.ctk", source),
       values: {},
@@ -117,12 +124,29 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")("native prototype", () => {
     expect(report.files).toBe(1);
     expect(
       (
-        await runAnalysis({
+        await consoleRun({
           ...request("symbols"),
           action: scriptAction("bad.ctk", "not valid syntax;"),
         })
       ).errors,
     ).toHaveLength(1);
+  }, 30000);
+  it("runs a workspace script once with all default input files", async () => {
+    const other = resolve(directory, "other.cpp");
+    await writeFile(other, "struct Other {}; ");
+    const report = await consoleRun({
+      ...request("symbols"),
+      files: [fixture, other],
+      action: scriptAction(
+        "workspace.ctk",
+        'print "ONCE"\nmatch cxxRecordDecl(isExpansionInMainFile(), isDefinition(), unless(isImplicit())).bind("symbol")',
+      ),
+    });
+    expect(report.errors).toEqual([]);
+    expect(report.output.join("\n").match(/ONCE/g)).toHaveLength(1);
+    expect(report.results.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["demo::Order", "Other"]),
+    );
   }, 30000);
   it("reports truncation and treats symbol input as a literal name", async () => {
     const limited = await runAnalysis({ ...request("symbols"), maxResults: 1 });

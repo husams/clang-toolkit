@@ -1,2 +1,2 @@
-// @ctk {"title":"Find functions in file","description":"Native CTK matcher script","parameters":[]}
-emit match functionDecl(isExpansionInMainFile(), unless(isImplicit())).bind("symbol");
+// @ctk {"title":"Find functions in file","description":"Console CTK matcher script","parameters":[]}
+match functionDecl(isExpansionInMainFile(), unless(isImplicit())).bind("symbol");

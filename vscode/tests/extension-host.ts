@@ -157,7 +157,7 @@ export async function run(): Promise<void> {
     action: {
       ...scriptAction(
         "custom.ctk",
-        'emit match cxxRecordDecl(isExpansionInMainFile(), isDefinition(), unless(isImplicit())).bind("symbol");',
+        'match cxxRecordDecl(isExpansionInMainFile(), isDefinition(), unless(isImplicit())).bind("symbol");',
       ),
       script: undefined,
     },
@@ -167,6 +167,28 @@ export async function run(): Promise<void> {
     (api.snapshot() as { results: { name: string }[] }).results.some(
       (r) => r.name === "demo::Order",
     ),
+  );
+  const unsaved = await vscode.workspace.openTextDocument({
+    language: "ctk",
+    content:
+      'let scale(value, factor = 2) = { value * factor }\nprint scale(21)\nlet node = classByName(arg.FILE, "demo::Order")\nclassFields(node)',
+  });
+  await vscode.window.showTextDocument(unsaved);
+  await vscode.commands.executeCommand("ctk.runCurrentScript");
+  assert.equal(
+    unsaved.isUntitled,
+    true,
+    "unsaved scripts must run without a save dialog",
+  );
+  const executed = api.snapshot() as {
+    errors: string[];
+    output: string[];
+    results: { name: string }[];
+  };
+  assert.deepEqual(executed.errors, []);
+  assert.ok(executed.output.join("\n").includes("42"));
+  assert.ok(
+    executed.results.some((item) => item.name === "demo::Order::quantity"),
   );
   console.log(
     "CTK_EXTENSION_HOST_PASS: unified native analyses, scripts, completion, hover and source/details",

@@ -56,11 +56,14 @@ describe("shared action catalog", () => {
     ).toThrow();
   });
   it("escapes parameters so their contents cannot become script code", () => {
-    const value = 'x"; emit "injected';
-    const source = renderScript("emit ${NAME};", { NAME: value }, "a.cc");
-    expect(JSON.parse(source.slice(5, -1))).toBe(value);
+    const value = 'x"; print "{injected}';
+    const source = renderScript("print ${NAME};", { NAME: value }, "a.cc");
+    expect(source).toBe("print arg.NAME;");
     expect(renderScript("parse ${FILE};", {}, "/tmp/a b.cc")).toBe(
-      'parse "/tmp/a b.cc";',
+      "parse arg.FILE;",
+    );
+    expect(renderScript('print "${NAME}"; // ${MISSING}', {}, "a.cc")).toBe(
+      'print "${NAME}"; // ${MISSING}',
     );
     expect(() => renderScript("emit ${MISSING};", {}, "a.cc")).toThrow(
       "MISSING",

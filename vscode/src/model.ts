@@ -90,7 +90,7 @@ export function scriptAction(path: string, source: string): Action {
   return {
     id: `script:${path}`,
     title: metadata.title ?? path.split(/[\\/]/).at(-1) ?? path,
-    description: metadata.description ?? "Native CTK script",
+    description: metadata.description ?? "Console CTK script",
     kind: "script",
     parameters: metadata.parameters,
     script: path,
@@ -117,12 +117,13 @@ export function renderScript(
   file: string,
 ): string {
   return source.replace(
-    /\$\{([A-Z][A-Z0-9_]*)\}/g,
+    /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\$\{([A-Z][A-Z0-9_]*)\}/g,
     (_whole: string, name: string) => {
+      if (!name) return _whole;
       const value = name === "FILE" ? file : values[name];
       if (value === undefined)
         throw new Error(`Missing script parameter ${name}`);
-      return JSON.stringify(value);
+      return `arg.${name}`;
     },
   );
 }
@@ -179,12 +180,13 @@ export const requestSchema = z.object({
       .optional(),
     kinds: z.array(z.string()).optional(),
   }),
-  files: z.array(z.string().min(1)).min(1),
+  files: z.array(z.string().min(1)),
   values: z.record(z.string(), z.string()),
   kinds: z.array(z.enum(["variables", "classes", "functions"])),
   directory: z.string().min(1),
   endpoint: z.string().optional(),
   configPath: z.string().optional(),
+  libraryDirectory: z.string().optional(),
   compilationDatabase: z.string().optional(),
   compileArguments: z.array(z.string()),
   timeoutMs: z.number().int().min(1000),
