@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
 import * as vscode from "vscode";
+import { AutomaticClassSuggestions } from "./automatic-class-suggestions.js";
 import { ClassNameService } from "./class-name-service.js";
 import {
   type ConsoleResponse,
@@ -95,6 +96,54 @@ export async function registerLanguage(
         starting = undefined;
         warned = false;
       }
+    }),
+  );
+  const automatic = new AutomaticClassSuggestions(
+    () => {
+      const editor = vscode.window.activeTextEditor;
+      if (
+        editor?.document.languageId !== "ctk" ||
+        !vscode.window.state.focused ||
+        !vscode.workspace.isTrusted ||
+        !editor.selection.isEmpty ||
+        !vscode.workspace
+          .getConfiguration("ctk", editor.document.uri)
+          .get<boolean>("automaticClassSuggestions", true)
+      )
+        return undefined;
+      return {
+        key: `${editor.document.uri.toString()}:${editor.document.version}:${editor.document.offsetAt(editor.selection.active)}`,
+        value: { document: editor.document, position: editor.selection.active },
+      };
+    },
+    async ({ document, position }) =>
+      Boolean((await response(document, position)).symbols),
+    () => vscode.commands.executeCommand("editor.action.triggerSuggest"),
+    (error) =>
+      output.appendLine(`Automatic class-name suggestions: ${String(error)}`),
+  );
+  context.subscriptions.push(
+    automatic,
+    vscode.window.onDidChangeActiveTextEditor(() => automatic.cancel()),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      if (
+        event.document !== vscode.window.activeTextEditor?.document ||
+        event.document.languageId !== "ctk"
+      )
+        return;
+      automatic.cancel();
+      if (
+        event.reason ||
+        !event.contentChanges.some(
+          (change) =>
+            change.rangeLength <= 1 &&
+            change.text.length <= 128 &&
+            (/^(?:[\p{L}\p{N}_:]+|["'])$/u.test(change.text) ||
+              (change.text === "" && change.rangeLength === 1)),
+        )
+      )
+        return;
+      automatic.changed();
     }),
   );
   context.subscriptions.push(
