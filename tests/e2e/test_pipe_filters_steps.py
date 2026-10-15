@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+import errno
+import fcntl
+import json
+import os
+import pty
+import select
+import signal
+import struct
+import subprocess
+import sys
+import termios
+import time
+from pathlib import Path
+
+import pyte
+import pytest
+from pytest_bdd import given, parsers, scenarios, then, when
+
+from tests.e2e.test_network_steps import _launch_server
+
+pytestmark = pytest.mark.e2e
+scenarios("pipe_filters.feature")
+
+
+def _example_source():
+    return (Path(__file__).resolve().parents[2] / "examples/pipe_filters.ctk").read_text()
+
+
+@given("an isolated pipe-filter console and class fixture", target_fixture="pipe_console")
+def pipe_console(tmp_path, request, monkeypatch):
+    monkeypatch.setenv("CTK_STORAGE_ROOT", str(tmp_path / "pipe-storage"))
+    server = _launch_server("unix", tmp_path, request)
+    source = tmp_path / "classes.cc"
+    source.write_text(
+        "namespace demo { struct Widget { int width; int height; }; "
+        "struct Empty {}; struct Other { int depth; }; }\n"
+    )
+    library = tmp_path / "empty-lib"
+    library.mkdir()
+    return server, source, library
+
+
+def _command(server, library, *args):
+    return [str(Path(sys.executable).with_name("ctk")), "--server", server.endpoint,
+            "-c", str(server.config), "--lib-dir", str(library), *args]
+
+
+@when(parsers.parse('I execute the complete filter script using the "{engine}" engine'),
+      target_fixture="pipe_script_output")
+def pipe_script_output(pipe_console, tmp_path, engine):
+    server, source, library = pipe_console
+    script = tmp_path / "pipeline.ctk"
+    script.write_text(
+        'print "BEGIN_REPORT"\n' + _example_source() + '\nprint "END_REPORT"\n'
+        f'let tree = parse {json.dumps(str(source))}\n'
+        'let classes = match cxxRecordDecl(isDefinition(), '
+        'isExpansionInMainFile(), unless(isImplicit())).bind("class") in tree\n'
+        'let names = classes | map((row) = row.class.qualified_name) | sort\n'
+        'print "BEGIN_NAMES"\nprint names | json\nprint "END_NAMES"\n'
+        'let fields = match fieldDecl().bind("field") in classes.class\n'
+        'print "BEGIN_FIELDS"\n'
+        'print fields | map((row) = row.field.decl_name) | sort | json\n'
+        'print "END_FIELDS"\n'
+        'foreach (index, (name, count)) in (names | zip([0, 1, 2]) | enumerate) do {\n'
+        '  print "INDEX_{index}_{count}"\n}\n'
+    )
+    result = subprocess.run(
+        _command(server, library, "--script-engine", engine, "--script", str(script)),
+        cwd=Path(__file__).resolve().parents[2], text=True, capture_output=True,
+        timeout=90, env=dict(os.environ, NO_COLOR="1"),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout
+
+
+@then("the script prints the expected records and native names")
+def verify_pipe_script(pipe_script_output):
+    text = pipe_script_output
+    def value(section):
+        return json.loads(text.split(f"BEGIN_{section}\n", 1)[1].split(f"END_{section}", 1)[0])
+    assert value("REPORT") == [{"name": "Widget", "count": 5}, {"name": "Other", "count": 2}]
+    assert value("NAMES") == ["demo::Empty", "demo::Other", "demo::Widget"]
+    assert value("FIELDS") == [
+        "demo::Other::depth", "demo::Widget::height", "demo::Widget::width"
+    ]
+    assert all(f"INDEX_{i}_{i}" in text for i in range(3))
+    assert "error:" not in text
+
+
+@when("I paste the tuple pipeline into the real console terminal", target_fixture="pipe_terminal")
+def pipe_terminal(pipe_console, tmp_path):
+    server, _, library = pipe_console
+    master, slave = pty.openpty()
+    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 120, 0, 0))
+    process = subprocess.Popen(
+        _command(server, library, "--script-engine", "compiled", "--ui", "prompt"),
+        stdin=slave, stdout=slave, stderr=slave,
+        cwd=Path(__file__).resolve().parents[2], close_fds=True,
+        env=dict(os.environ, TERM="xterm-256color", NO_COLOR="1",
+                 XDG_STATE_HOME=str(tmp_path / "state")),
+    )
+    os.close(slave)
+    screen = pyte.Screen(120, 35)
+    stream = pyte.ByteStream(screen)
+    transcript = bytearray()
+
+    def wait_for(marker, timeout=30):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if select.select([master], [], [], 0.05)[0]:
+                try:
+                    payload = os.read(master, 65_536)
+                except OSError as error:
+                    if error.errno != errno.EIO:
+                        raise
+                    break
+                transcript.extend(payload)
+                stream.feed(payload)
+                if b"\x1b[6n" in payload:
+                    os.write(master, f"\x1b[{screen.cursor.y + 1};{screen.cursor.x + 1}R".encode())
+            elif marker in "\n".join(screen.display):
+                visible = "\n".join(screen.display)
+                return visible
+            if process.poll() is not None:
+                break
+        raise AssertionError(f"Console did not show {marker!r}:\n" + "\n".join(screen.display))
+
+    try:
+        wait_for("ctk>")
+        script = _example_source() + '\nprint "PIPELINE_PTY_{report[0].count}_{report[1].count}"'
+        os.write(master, ("\x1b[200~" + script + "\x1b[201~").encode())
+        wait_for("PIPELINE_PTY_{report")
+        os.write(master, b"\x0a")
+        visible = wait_for("PIPELINE_PTY_5_2")
+        (tmp_path / "pipe-terminal.txt").write_bytes(transcript)
+        return visible
+    finally:
+        (tmp_path / "pipe-terminal.txt").write_bytes(transcript)
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        os.close(master)
+
+
+@then("the terminal prints the verified tuple pipeline result")
+def verify_pipe_terminal(pipe_terminal):
+    assert "PIPELINE_PTY_5_2" in pipe_terminal
+    assert '"Widget"' in pipe_terminal and '"Other"' in pipe_terminal
+    assert "error:" not in pipe_terminal
