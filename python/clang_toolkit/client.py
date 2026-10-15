@@ -32,6 +32,8 @@ from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, trav
 from clang_toolkit._generated.analysis.v1 import traverse_stream_pb2, traverse_request_pb2
 from clang_toolkit._generated.analysis.v1 import cfg_stream_pb2, cfg_request_pb2
 from clang_toolkit.cfg_stream import CfgStreamState
+from clang_toolkit.variable_flow import VariableFlowState
+from clang_toolkit._generated.analysis.v1 import variable_flow_pb2
 from clang_toolkit._generated.analysis.v1 import batch_pb2
 from clang_toolkit.batches import BatchRun, batch_run, start_batch_request
 from clang_toolkit.analysis_error import AnalysisError
@@ -1093,6 +1095,77 @@ class AsyncClient:
         await self._stream_cfg_request(request, on_event=collect)
         return response
 
+    async def variable_flow_stream(self, variable: BindingSelection, function: BindingSelection,
+                                   **kwargs: Any) -> AsyncIterator[variable_flow_pb2.VariableFlowEvent]:
+        """Yield usage sites and converged facts; exhaust for completion and terminal OK."""
+        request = _variable_flow_request(self, variable, function, **kwargs)
+        async with aclosing(self._variable_flow_events(request)) as events:
+            async for event in events:
+                yield event
+
+    async def _variable_flow_events(self, request: variable_flow_pb2.VariableFlowRequest
+                                    ) -> AsyncIterator[variable_flow_pb2.VariableFlowEvent]:
+        self._ensure_stub()
+        self._begin_value_operation()
+        call = None
+        consumed = False
+        state = VariableFlowState()
+        try:
+            call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamVariableFlow(
+                request, timeout=self.config.rpc_timeout)
+            async for event in call:
+                state.consume(event)
+                yield event
+            state.finish()
+            status = call.code()
+            if inspect.isawaitable(status):
+                status = await status
+            if status != grpc.StatusCode.OK:
+                raise AnalysisError(status, "variable flow stream did not finish successfully")
+            consumed = True
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+        finally:
+            if call is not None and not consumed and not call.done():
+                call.cancel()
+            self._end_value_operation()
+
+    async def _stream_variable_flow_request(self, request: variable_flow_pb2.VariableFlowRequest, *,
+                                             on_event: Callable[..., Any]) -> variable_flow_pb2.VariableFlowCompleted:
+        completed = None
+        async with aclosing(self._variable_flow_events(request)) as events:
+            async for event in events:
+                result = on_event(event)
+                if inspect.isawaitable(result):
+                    await result
+                if event.HasField("completed"):
+                    completed = event.completed
+        if completed is None:
+            raise AnalysisError(grpc.StatusCode.DATA_LOSS, "missing variable flow completion")
+        return completed
+
+    async def stream_variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                                   *, on_event: Callable[..., Any], **kwargs: Any) -> variable_flow_pb2.VariableFlowCompleted:
+        return await self._stream_variable_flow_request(
+            _variable_flow_request(self, variable, function, **kwargs), on_event=on_event)
+
+    async def variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                            **kwargs: Any) -> variable_flow_pb2.VariableFlowReport:
+        return await self._collect_variable_flow_request(_variable_flow_request(self, variable, function, **kwargs))
+
+    async def _collect_variable_flow_request(self, request: variable_flow_pb2.VariableFlowRequest
+                                             ) -> variable_flow_pb2.VariableFlowReport:
+        report = variable_flow_pb2.VariableFlowReport()
+        def collect(event: variable_flow_pb2.VariableFlowEvent) -> None:
+            kind = event.WhichOneof("event")
+            if kind == "started": report.analysis.CopyFrom(event.started)
+            elif kind == "usage": report.usages.add().CopyFrom(event.usage)
+            elif kind == "fact": report.facts.add().CopyFrom(event.fact)
+            elif kind == "finding": report.findings.add().CopyFrom(event.finding)
+            elif kind == "completed": report.completed.CopyFrom(event.completed)
+        await self._stream_variable_flow_request(request, on_event=collect)
+        return report
+
     async def run_script(
                          self, source: str, *,
                          path: str | Path | FileHandle[AsyncClient] | InputDescriptor | None = None,
@@ -2093,6 +2166,16 @@ class Client:
             await _invoke_sync_callback(on_event, event)
         return self._cursor_call("_stream_cfg_request", request, on_event=callback)
 
+    def variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                      **kwargs: Any) -> variable_flow_pb2.VariableFlowReport:
+        return self._cursor_call("_collect_variable_flow_request", _variable_flow_request(self, variable, function, **kwargs))
+
+    def stream_variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                            *, on_event: Callable[..., Any], **kwargs: Any) -> variable_flow_pb2.VariableFlowCompleted:
+        async def callback(event: variable_flow_pb2.VariableFlowEvent) -> None:
+            await _invoke_sync_callback(on_event, event)
+        return self._cursor_call("_stream_variable_flow_request", _variable_flow_request(self, variable, function, **kwargs), on_event=callback)
+
     def run_script(
                    self, source: str, *,
                    path: str | Path | FileHandle[Client] | InputDescriptor | None = None,
@@ -2267,6 +2350,21 @@ class _AsyncExpressionAdapter:
         return self._call("cfg", function if path is None else path,
                           None if path is None else function, **kwargs)
 
+    def variable_flow(self, variable: BindingSelection, function: BindingSelection, **kwargs: Any
+                      ) -> variable_flow_pb2.VariableFlowReport:
+        return self._call("variable_flow", variable, function, **kwargs)
+
+    def stream_variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                             *, on_event: Callable[..., Any], **kwargs: Any) -> variable_flow_pb2.VariableFlowCompleted:
+        async def callback(event: variable_flow_pb2.VariableFlowEvent) -> None:
+            task = asyncio.current_task()
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_event, event)
+            finally:
+                self._row_callbacks.discard(task)
+        return self._call("stream_variable_flow", variable, function, on_event=callback, **kwargs)
+
     def stream_cfg(self, function: str | BindingSelection, *, path: MatchTarget | Path | None = None,
                    on_event: Callable[..., Any], **kwargs: Any) -> cfg_stream_pb2.CfgCompleted:
         async def callback(event: Any) -> None:
@@ -2297,6 +2395,24 @@ def _expression_runtime(owner: Client | AsyncClient, adapter: Any,
     if compile_arguments is not None:
         runtime.config_store.effective["extra_args"] = list(compile_arguments)
     return runtime
+
+
+def _variable_flow_request(client: Client | AsyncClient, variable: BindingSelection,
+                           function: BindingSelection, *, scope: ResourceScope[Any] | str | None = None,
+                           max_blocks: int = 10000, max_events: int = 10000,
+                           max_iterations: int = 100000) -> variable_flow_pb2.VariableFlowRequest:
+    if not isinstance(variable, BindingSelection) or not isinstance(function, BindingSelection):
+        raise MatchValueError("variable flow requires retained variable and function bindings")
+    values = {}
+    for name, value, limit in [("max_blocks", max_blocks, 100000), ("max_events", max_events, 100000),
+                               ("max_iterations", max_iterations, 1000000)]:
+        if type(value) is not int or not 1 <= value <= limit:
+            raise ValueError(f"{name} must be 1..{limit}")
+        values[name] = value
+    var = _value_request(client, "decl()", variable, scope=scope)
+    func = _value_request(client, "decl()", function, scope=scope)
+    return variable_flow_pb2.VariableFlowRequest(variable=var.binding, function=func.binding,
+                                                 resource_scope_id=var.resource_scope_id, **values)
 
 
 def _cfg_value_request(client: Client | AsyncClient, target: MatchTarget | Path,

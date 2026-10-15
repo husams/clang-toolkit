@@ -1,0 +1,98 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "match/v1/match_service.proto";
+
+// Both selections must identify exactly one node in the same pinned snapshot.
+message VariableFlowRequest {
+  ctk.match.v1.BindingMatchTarget variable = 1;
+  ctk.match.v1.BindingMatchTarget function = 2;
+  string resource_scope_id = 3;
+  optional uint32 max_blocks = 4;
+  optional uint32 max_events = 5;
+  optional uint32 max_iterations = 6;
+}
+message VariableFlowLocation {
+  string file = 1;
+  uint32 line = 2;
+  uint32 column = 3;
+}
+message VariableFlowStarted {
+  string variable = 1;
+  string function = 2;
+  uint64 snapshot_generation = 3;
+  uint64 declaration_id = 4; // Native declaration identity within this snapshot.
+  VariableFlowLocation declaration = 5;
+  uint32 entry_block = 6;
+  uint32 exit_block = 7;
+}
+message VariableUsage {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    DECLARE = 1;
+    INITIALIZE = 2;
+    READ = 3;
+    WRITE = 4;
+    READ_WRITE = 5;
+    ADDRESS_TAKEN = 6;
+    UNKNOWN_EFFECT = 7;
+  }
+  uint64 id = 1;
+  uint32 block = 2;
+  uint32 element = 3; // Zero-based CFG element position.
+  Kind kind = 4;
+  VariableFlowLocation location = 5;
+  bool provisional = 6; // Usage classification precedes dataflow convergence.
+}
+message VariableFlowFact {
+  enum Initialization {
+    INITIALIZATION_UNSPECIFIED = 0;
+    UNINITIALIZED = 1;
+    MAYBE_INITIALIZED = 2;
+    INITIALIZED = 3;
+    UNKNOWN = 4;
+  }
+  uint64 usage_id = 1;
+  bool reachable = 2;
+  Initialization initialization = 3; // State before this usage.
+  repeated uint64 reaching_assignments = 4; // Zero denotes uninitialized.
+  bool live_after = 5;
+  bool dead_store = 6;
+}
+message VariableFlowFinding {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    POSSIBLY_UNINITIALIZED = 1;
+    UNINITIALIZED_READ = 2;
+    DEAD_STORE = 3;
+    UNSUPPORTED_EFFECT = 4;
+  }
+  Kind kind = 1;
+  uint64 usage_id = 2;
+  string message = 3;
+  repeated uint32 witness_blocks = 4; // CFG route; not proof of path feasibility.
+}
+message VariableFlowCompleted {
+  uint64 usage_count = 1;
+  uint64 fact_count = 2;
+  uint64 finding_count = 3;
+  uint64 block_count = 4;
+  uint64 iterations = 5;
+  bool is_complete = 6; // False when an effect is outside the supported model.
+}
+message VariableFlowEvent {
+  oneof event {
+    VariableFlowStarted started = 1;
+    VariableUsage usage = 2;
+    VariableFlowFact fact = 3;
+    VariableFlowFinding finding = 4;
+    VariableFlowCompleted completed = 5;
+  }
+}
+// Explicit client collector; the streaming transport never sends this aggregate.
+message VariableFlowReport {
+  VariableFlowStarted analysis = 1;
+  repeated VariableUsage usages = 2;
+  repeated VariableFlowFact facts = 3;
+  repeated VariableFlowFinding findings = 4;
+  VariableFlowCompleted completed = 5;
+}

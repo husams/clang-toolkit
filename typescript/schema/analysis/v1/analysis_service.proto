@@ -7,6 +7,7 @@ import "analysis/v1/traverse_stream.proto";
 import "analysis/v1/cfg_request.proto";
 import "analysis/v1/cfg_response.proto";
 import "analysis/v1/cfg_stream.proto";
+import "analysis/v1/variable_flow.proto";
 
 import "analysis/v1/call_graph_request.proto";
 import "analysis/v1/call_graph_response.proto";
@@ -34,4 +35,7 @@ service AnalysisService {
   // Each event is byte bounded; count limits apply across the whole request.
   // An oversized block or cancellation fails without request completion.
   rpc StreamCfg(CfgRequest) returns (stream CfgStreamEvent);
+  // Provisional usage sites precede converged facts. Require completion and
+  // terminal OK; incomplete completion explicitly signals unsupported effects.
+  rpc StreamVariableFlow(VariableFlowRequest) returns (stream VariableFlowEvent);
 }

@@ -51,6 +51,9 @@ public:
   grpc::Status CallGraph(grpc::ServerContext *,
                          const ctk::analysis::v1::CallGraphRequest *,
                          ctk::analysis::v1::CallGraphResponse *) override;
+  grpc::Status StreamVariableFlow(
+      grpc::ServerContext *, const ctk::analysis::v1::VariableFlowRequest *,
+      grpc::ServerWriter<ctk::analysis::v1::VariableFlowEvent> *) override;
 
 private:
   application::TraversalController &controller_;

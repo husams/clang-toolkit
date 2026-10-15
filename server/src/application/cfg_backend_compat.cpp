@@ -2,6 +2,14 @@
 
 namespace ctk::clang_layer {
 CfgResult
+ICfgBackend::variable_flow(const ctk::analysis::v1::VariableFlowRequest &,
+                           std::shared_ptr<const NativeBindingState>,
+                           std::shared_ptr<const NativeBindingState>,
+                           const IMatchBackend::Checkpoint &, const CfgLimits &,
+                           const VariableSink &) {
+  return {MatchCode::FailedPrecondition, "variable flow is unavailable", {}};
+}
+CfgResult
 ICfgBackend::build_stream(const ctk::analysis::v1::CfgRequest &request,
                           std::shared_ptr<const NativeBindingState> previous,
                           const IMatchBackend::Checkpoint &checkpoint,

@@ -5,6 +5,7 @@
 #include "cfg_function_collector.hpp"
 #include "cfg_graph.hpp"
 #include "cfg_options.hpp"
+#include "variable_flow.hpp"
 #include <algorithm>
 #include <clang/Basic/SourceManager.h>
 namespace ctk::clang_layer {
@@ -13,6 +14,16 @@ class CfgBackend final : public ICfgBackend {
 public:
   explicit CfgBackend(std::shared_ptr<IQueryEngine> engine)
       : engine_(std::move(engine)) {}
+  CfgResult variable_flow(const ctk::analysis::v1::VariableFlowRequest &request,
+                          std::shared_ptr<const NativeBindingState> variable,
+                          std::shared_ptr<const NativeBindingState> function,
+                          const IMatchBackend::Checkpoint &checkpoint,
+                          const CfgLimits &limits,
+                          const VariableSink &sink) override {
+    return control_flow::variable_flow(request, std::move(variable),
+                                       std::move(function), checkpoint, limits,
+                                       sink);
+  }
   CfgResult build(const ctk::analysis::v1::CfgRequest &request,
                   const IMatchBackend::Checkpoint &checkpoint,
                   const CfgLimits &limits) override {

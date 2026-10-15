@@ -48,6 +48,15 @@ import type { TraverseRequest as _ctk_analysis_v1_TraverseRequest, TraverseReque
 import type { TraverseResponse as _ctk_analysis_v1_TraverseResponse, TraverseResponse__Output as _ctk_analysis_v1_TraverseResponse__Output } from './ctk/analysis/v1/TraverseResponse.js';
 import type { TraverseStreamEvent as _ctk_analysis_v1_TraverseStreamEvent, TraverseStreamEvent__Output as _ctk_analysis_v1_TraverseStreamEvent__Output } from './ctk/analysis/v1/TraverseStreamEvent.js';
 import type { ValueProjection as _ctk_analysis_v1_ValueProjection, ValueProjection__Output as _ctk_analysis_v1_ValueProjection__Output } from './ctk/analysis/v1/ValueProjection.js';
+import type { VariableFlowCompleted as _ctk_analysis_v1_VariableFlowCompleted, VariableFlowCompleted__Output as _ctk_analysis_v1_VariableFlowCompleted__Output } from './ctk/analysis/v1/VariableFlowCompleted.js';
+import type { VariableFlowEvent as _ctk_analysis_v1_VariableFlowEvent, VariableFlowEvent__Output as _ctk_analysis_v1_VariableFlowEvent__Output } from './ctk/analysis/v1/VariableFlowEvent.js';
+import type { VariableFlowFact as _ctk_analysis_v1_VariableFlowFact, VariableFlowFact__Output as _ctk_analysis_v1_VariableFlowFact__Output } from './ctk/analysis/v1/VariableFlowFact.js';
+import type { VariableFlowFinding as _ctk_analysis_v1_VariableFlowFinding, VariableFlowFinding__Output as _ctk_analysis_v1_VariableFlowFinding__Output } from './ctk/analysis/v1/VariableFlowFinding.js';
+import type { VariableFlowLocation as _ctk_analysis_v1_VariableFlowLocation, VariableFlowLocation__Output as _ctk_analysis_v1_VariableFlowLocation__Output } from './ctk/analysis/v1/VariableFlowLocation.js';
+import type { VariableFlowReport as _ctk_analysis_v1_VariableFlowReport, VariableFlowReport__Output as _ctk_analysis_v1_VariableFlowReport__Output } from './ctk/analysis/v1/VariableFlowReport.js';
+import type { VariableFlowRequest as _ctk_analysis_v1_VariableFlowRequest, VariableFlowRequest__Output as _ctk_analysis_v1_VariableFlowRequest__Output } from './ctk/analysis/v1/VariableFlowRequest.js';
+import type { VariableFlowStarted as _ctk_analysis_v1_VariableFlowStarted, VariableFlowStarted__Output as _ctk_analysis_v1_VariableFlowStarted__Output } from './ctk/analysis/v1/VariableFlowStarted.js';
+import type { VariableUsage as _ctk_analysis_v1_VariableUsage, VariableUsage__Output as _ctk_analysis_v1_VariableUsage__Output } from './ctk/analysis/v1/VariableUsage.js';
 import type { APAddrLabelDiff as _ctk_ast_v1_APAddrLabelDiff, APAddrLabelDiff__Output as _ctk_ast_v1_APAddrLabelDiff__Output } from './ctk/ast/v1/APAddrLabelDiff.js';
 import type { APArrayValue as _ctk_ast_v1_APArrayValue, APArrayValue__Output as _ctk_ast_v1_APArrayValue__Output } from './ctk/ast/v1/APArrayValue.js';
 import type { APDynamicAllocation as _ctk_ast_v1_APDynamicAllocation, APDynamicAllocation__Output as _ctk_ast_v1_APDynamicAllocation__Output } from './ctk/ast/v1/APDynamicAllocation.js';
@@ -499,6 +508,15 @@ export interface ProtoGrpcType {
         TraverseResponse: MessageTypeDefinition<_ctk_analysis_v1_TraverseResponse, _ctk_analysis_v1_TraverseResponse__Output>
         TraverseStreamEvent: MessageTypeDefinition<_ctk_analysis_v1_TraverseStreamEvent, _ctk_analysis_v1_TraverseStreamEvent__Output>
         ValueProjection: MessageTypeDefinition<_ctk_analysis_v1_ValueProjection, _ctk_analysis_v1_ValueProjection__Output>
+        VariableFlowCompleted: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowCompleted, _ctk_analysis_v1_VariableFlowCompleted__Output>
+        VariableFlowEvent: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowEvent, _ctk_analysis_v1_VariableFlowEvent__Output>
+        VariableFlowFact: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowFact, _ctk_analysis_v1_VariableFlowFact__Output>
+        VariableFlowFinding: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowFinding, _ctk_analysis_v1_VariableFlowFinding__Output>
+        VariableFlowLocation: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowLocation, _ctk_analysis_v1_VariableFlowLocation__Output>
+        VariableFlowReport: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowReport, _ctk_analysis_v1_VariableFlowReport__Output>
+        VariableFlowRequest: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowRequest, _ctk_analysis_v1_VariableFlowRequest__Output>
+        VariableFlowStarted: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowStarted, _ctk_analysis_v1_VariableFlowStarted__Output>
+        VariableUsage: MessageTypeDefinition<_ctk_analysis_v1_VariableUsage, _ctk_analysis_v1_VariableUsage__Output>
       }
     }
     ast: {

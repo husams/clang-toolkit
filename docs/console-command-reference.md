@@ -1214,6 +1214,26 @@ cfg in $functions[0].f
 print $flow.graphs.length
 ```
 
+## variableflow
+
+Track one retained local variable through its function CFG.
+
+```text
+variableflow VARIABLE_BINDING in FUNCTION_BINDING [blocks NUMBER] [events NUMBER] [iterations NUMBER]
+```
+
+- Both bindings must select exactly one node from the same pinned snapshot. Reuses native declarations without reparsing.
+- Supports direct non-volatile integer and Boolean locals: declarations, assignments, increments, branches, short circuit and loops. Calls are modeled through normal/CFG return paths; no callee expansion or alias analysis.
+- Address escape, reference binding, captures, volatile accesses and unmodeled effects yield explicit incomplete results and unknown facts, never clean findings.
+- Standalone output streams provisional usage events, then converged facts/findings and completion. Exhaust the stream and require terminal success. Assignment explicitly collects a report with analysis, usages, facts, findings and completed.
+- blocks: 1..100000 (default 10000), events: 1..100000 (default 10000), iterations: 1..1000000 (default 100000). Limits and cancellation fail without completion.
+- Reaching assignment zero means uninitialized. Usage IDs are report-local; declaration identity is snapshot-local. Witnesses are CFG routes, not proofs of feasible runtime paths.
+
+```text
+let report = variableflow $variables[0].v in $functions[0].f
+print $report.findings
+```
+
 ## callgraph
 
 Build the static native AST call graph for a file and return a typed value.

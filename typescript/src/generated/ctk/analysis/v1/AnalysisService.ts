@@ -16,6 +16,8 @@ import type { StartBatchRequest as _ctk_analysis_v1_StartBatchRequest, StartBatc
 import type { TraverseRequest as _ctk_analysis_v1_TraverseRequest, TraverseRequest__Output as _ctk_analysis_v1_TraverseRequest__Output } from '../../../ctk/analysis/v1/TraverseRequest.js';
 import type { TraverseResponse as _ctk_analysis_v1_TraverseResponse, TraverseResponse__Output as _ctk_analysis_v1_TraverseResponse__Output } from '../../../ctk/analysis/v1/TraverseResponse.js';
 import type { TraverseStreamEvent as _ctk_analysis_v1_TraverseStreamEvent, TraverseStreamEvent__Output as _ctk_analysis_v1_TraverseStreamEvent__Output } from '../../../ctk/analysis/v1/TraverseStreamEvent.js';
+import type { VariableFlowEvent as _ctk_analysis_v1_VariableFlowEvent, VariableFlowEvent__Output as _ctk_analysis_v1_VariableFlowEvent__Output } from '../../../ctk/analysis/v1/VariableFlowEvent.js';
+import type { VariableFlowRequest as _ctk_analysis_v1_VariableFlowRequest, VariableFlowRequest__Output as _ctk_analysis_v1_VariableFlowRequest__Output } from '../../../ctk/analysis/v1/VariableFlowRequest.js';
 
 export interface AnalysisServiceClient extends grpc.Client {
   BatchStatus(argument: _ctk_analysis_v1_BatchRunRequest, metadata: grpc.Metadata, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_BatchRun__Output>): grpc.ClientUnaryCall;
@@ -100,6 +102,11 @@ export interface AnalysisServiceClient extends grpc.Client {
   streamTraverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_TraverseStreamEvent__Output>;
   streamTraverse(argument: _ctk_analysis_v1_TraverseRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_TraverseStreamEvent__Output>;
 
+  StreamVariableFlow(argument: _ctk_analysis_v1_VariableFlowRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_VariableFlowEvent__Output>;
+  StreamVariableFlow(argument: _ctk_analysis_v1_VariableFlowRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_VariableFlowEvent__Output>;
+  streamVariableFlow(argument: _ctk_analysis_v1_VariableFlowRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_VariableFlowEvent__Output>;
+  streamVariableFlow(argument: _ctk_analysis_v1_VariableFlowRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_VariableFlowEvent__Output>;
+
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
@@ -132,6 +139,8 @@ export interface AnalysisServiceHandlers extends grpc.UntypedServiceImplementati
 
   StreamTraverse: grpc.handleServerStreamingCall<_ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseStreamEvent>;
 
+  StreamVariableFlow: grpc.handleServerStreamingCall<_ctk_analysis_v1_VariableFlowRequest__Output, _ctk_analysis_v1_VariableFlowEvent>;
+
   Traverse: grpc.handleUnaryCall<_ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseResponse>;
 
 }
@@ -147,5 +156,6 @@ export interface AnalysisServiceDefinition extends grpc.ServiceDefinition {
   StartBatch: MethodDefinition<_ctk_analysis_v1_StartBatchRequest, _ctk_analysis_v1_BatchRun, _ctk_analysis_v1_StartBatchRequest__Output, _ctk_analysis_v1_BatchRun__Output>
   StreamCfg: MethodDefinition<_ctk_analysis_v1_CfgRequest, _ctk_analysis_v1_CfgStreamEvent, _ctk_analysis_v1_CfgRequest__Output, _ctk_analysis_v1_CfgStreamEvent__Output>
   StreamTraverse: MethodDefinition<_ctk_analysis_v1_TraverseRequest, _ctk_analysis_v1_TraverseStreamEvent, _ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseStreamEvent__Output>
+  StreamVariableFlow: MethodDefinition<_ctk_analysis_v1_VariableFlowRequest, _ctk_analysis_v1_VariableFlowEvent, _ctk_analysis_v1_VariableFlowRequest__Output, _ctk_analysis_v1_VariableFlowEvent__Output>
   Traverse: MethodDefinition<_ctk_analysis_v1_TraverseRequest, _ctk_analysis_v1_TraverseResponse, _ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseResponse__Output>
 }

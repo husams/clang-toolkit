@@ -1,0 +1,10 @@
+Variable: x
+Line 4 DECLARE: before=UNINITIALIZED, reaching=[], dead_store=false
+Line 5 WRITE: before=UNINITIALIZED, reaching=[], dead_store=false
+Line 6 READ: before=MAYBE_INITIALIZED, reaching=[0, 5], dead_store=false
+Line 7 WRITE: before=MAYBE_INITIALIZED, reaching=[], dead_store=true
+Line 8 WRITE: before=INITIALIZED, reaching=[], dead_store=false
+Line 9 READ: before=INITIALIZED, reaching=[2], dead_store=false
+Line 7: DEAD_STORE
+Line 6: POSSIBLY_UNINITIALIZED
+Complete: true
