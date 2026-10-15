@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import * as vscode from "vscode";
 import { z } from "zod";
+import { registerLanguage } from "./language.js";
 import {
   type Action,
   predefined,
@@ -164,10 +165,11 @@ export class Prototype {
         await this.openResult(message.id);
         return;
       case "editBlock":
-        this.customDocument = await vscode.workspace.openTextDocument({
-          language: "ctk",
-          content: message.source,
-        });
+        if (!this.customDocument || this.customDocument.isClosed)
+          this.customDocument = await vscode.workspace.openTextDocument({
+            language: "ctk",
+            content: message.source,
+          });
         await vscode.window.showTextDocument(
           this.customDocument,
           vscode.ViewColumn.One,
@@ -492,88 +494,4 @@ export async function activate(
     );
   await registerLanguage(context);
   return prototype;
-}
-async function registerLanguage(
-  context: vscode.ExtensionContext,
-): Promise<void> {
-  const catalog = z
-    .array(
-      z.object({
-        name: z.string(),
-        category: z.string(),
-        summary: z.string(),
-        signatures: z.array(z.string()),
-      }),
-    )
-    .parse(
-      JSON.parse(
-        Buffer.from(
-          await vscode.workspace.fs.readFile(
-            vscode.Uri.joinPath(context.extensionUri, "media", "matchers.json"),
-          ),
-        ).toString("utf8"),
-      ),
-    );
-  context.subscriptions.push(
-    vscode.languages.registerCompletionItemProvider("ctk", {
-      provideCompletionItems(document) {
-        const items = catalog.map((entry) => {
-          const item = new vscode.CompletionItem(
-            entry.name,
-            vscode.CompletionItemKind.Function,
-          );
-          item.detail = `${entry.category} matcher`;
-          item.documentation = new vscode.MarkdownString(
-            `${entry.summary}\n\n${entry.signatures.map((signature) => `\`\`\`ctk\n${signature}\n\`\`\``).join("\n")}`,
-          );
-          item.insertText = new vscode.SnippetString(`${entry.name}($0)`);
-          return item;
-        });
-        for (const keyword of [
-          "let",
-          "emit",
-          "match",
-          "parse",
-          "in",
-          "yield",
-          "foreach",
-          "if",
-          "else",
-        ])
-          items.push(
-            new vscode.CompletionItem(
-              keyword,
-              vscode.CompletionItemKind.Keyword,
-            ),
-          );
-        for (const match of document
-          .getText()
-          .matchAll(/\blet\s+([A-Za-z_]\w*)/g))
-          if (match[1])
-            items.push(
-              new vscode.CompletionItem(
-                match[1],
-                vscode.CompletionItemKind.Variable,
-              ),
-            );
-        return items;
-      },
-    }),
-    vscode.languages.registerHoverProvider("ctk", {
-      provideHover(document, position) {
-        const range = document.getWordRangeAtPosition(position);
-        const entry = catalog.find(
-          (item) => item.name === document.getText(range),
-        );
-        return entry
-          ? new vscode.Hover(
-              new vscode.MarkdownString(
-                `**${entry.name}** · ${entry.category}\n\n${entry.summary}\n\n${entry.signatures.map((s) => `\`\`\`ctk\n${s}\n\`\`\``).join("\n")}`,
-              ),
-              range,
-            )
-          : undefined;
-      },
-    }),
-  );
 }

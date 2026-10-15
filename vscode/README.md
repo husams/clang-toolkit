@@ -6,6 +6,8 @@ One Semantic Analysis view runs predefined analyses, saved scripts and custom CT
 
 Requires Node 22+, pnpm, VS Code 1.100+ and a running native `ctk-server`. From `vscode/`:
 
+Console autocomplete also needs Python 3.14 with the CTK console dependencies. The extension discovers a nearby `.venv`, the uv-installed CTK environment, or `python3`; set `ctk.pythonPath` to the console's interpreter if needed.
+
 ```sh
 pnpm --dir ../typescript install --frozen-lockfile
 pnpm --dir ../typescript build
@@ -22,7 +24,9 @@ The Activity Bar hexagon opens Semantic Analysis. Choose an analysis, set inputs
 
 Workspace scope searches the active file's workspace folder (or the first folder if none is active). **Open Output** exposes script emissions and error details directly from the shared panel.
 
-Right-click a C++ file: **CTK → Run Script…** or **Run Predefined…**. These use the same catalog and parameter collection. Semantic Analysis has its own icon, with no search entry in the file menu. CTK editors have a Run button. Completion and hover use the checked-in LLVM matcher catalog offline; syntax colors distinguish commands, matcher categories, strings, numbers, variables and comments.
+Right-click a C++ file: **CTK → Run Script…** or **Run Predefined…**. These use the same catalog and parameter collection. Semantic Analysis has its own icon, with no search entry in the file menu. CTK editors have a Run button. Syntax colors distinguish commands, matcher categories, strings, numbers, variables and comments.
+
+Autocomplete uses the console's actual grammar-aware completion engine. Suggestions appear while typing and after `.`, `$`, `(`, comma and space. Match results, strings, lists, dictionaries and parsed trees receive console member suggestions inferred from their declarations. Local functions and helpers in `~/.ctk/lib` (or `ctk.libraryDirectory`) show signatures, default parameters and Markdown definitions. Function calls display argument hints. Earlier-line edits preserve later text and existing parentheses. Drafts and helper bodies are inspected without execution; members requiring unknown runtime values cannot be inferred. The sidebar block is a preview; **Edit in CTK editor** opens or reuses the editor with these features.
 
 ## Native scripts and parameters
 
@@ -40,6 +44,7 @@ Placeholders are unquoted: `${CLASS_NAME}` becomes an escaped string literal. `$
 ```sh
 pnpm check
 pnpm test
+pnpm test:console
 CTK_SERVER=/absolute/path/ctk-server pnpm test:live
 CTK_SERVER=/absolute/path/ctk-server pnpm test:host
 pnpm package

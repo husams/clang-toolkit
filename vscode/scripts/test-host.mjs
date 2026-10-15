@@ -23,6 +23,8 @@ await writeFile(
   JSON.stringify({
     "ctk.server": `unix://${socket}`,
     "ctk.compileArguments": ["-std=c++20"],
+    "ctk.pythonPath": process.env.CTK_PYTHON ?? resolve("../.venv/bin/python"),
+    "ctk.libraryDirectory": resolve("../skills/ctk-script/scripts"),
   }),
 );
 const server = spawn(

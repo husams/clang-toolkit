@@ -79,6 +79,10 @@ await writeFile(
 await mkdir("dist", { recursive: true });
 await mkdir("artifacts", { recursive: true });
 await cp("../typescript/schema", "schema", { recursive: true });
+await cp("../python/clang_toolkit", "console/clang_toolkit", {
+  recursive: true,
+  filter: (path) => !path.includes("__pycache__") && !path.endsWith(".pyc"),
+});
 const common = {
   bundle: true,
   platform: "node",

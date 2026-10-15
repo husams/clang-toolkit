@@ -43,6 +43,16 @@ Raw validation output is retained locally under `vscode/artifacts/validation/` a
 
 ## Prototype boundary
 
-This is a runnable prototype rather than a released extension. It runs the server's native DSL; Python-console-only helpers and runnable declarations are not implemented. Matcher completion covers the checked-in offline catalog and local `let` names; arbitrary user-defined function signatures are not yet inferred. The custom block opens in the native CTK editor for highlighting/completion; its sidebar preview is plain text. Native server and extension host must share source paths. No VS Code marketplace publication or global extension installation was performed.
+This is a runnable prototype rather than a released extension. Execution uses the server's native DSL; Python-console-only helpers and runnable declarations are not executed by the native server. Native server and extension host must share source paths. The prototype was subsequently installed locally for the user's trial; no marketplace publication was performed.
 
 The real host confirms webview rendering and language providers. Pixel-level mockup parity and manual picker/color acceptance remain to be reviewed; no screenshot-based visual acceptance is claimed.
+
+## Autocomplete correction, version 0.1.1
+
+The initial matcher-only provider did not provide the console's member or user-function behavior. The editor now uses the same `ReplCompleter` and `PrototypeCompleter` as the console, with safe draft type inference and helper/header inspection. It supplies contextual matcher/keyword suggestions, match/list/map/string/tree members, local and library function signatures/defaults, Markdown definitions, and argument hints. CTK-specific defaults enable automatic suggestion popups even when global inline-completion settings suppress them. Existing parentheses and text after an earlier-line cursor are preserved.
+
+The sidebar's custom block is explicitly a read-only preview; its editor button reuses the existing CTK document. Python 3.14 with console dependencies is discovered or configured through `ctk.pythonPath`. Completion never evaluates user drafts, calls helper bodies, or sends native queries. Members of unknown runtime return values are not invented.
+
+Seven focused Python regressions and the expanded real VS Code host test pass, covering member metadata, library and user-defined signatures, grammar contexts, strings/comments, earlier-line insertion, nested argument hints, actual source edits and CTK suggestion defaults. The previous repository-wide Python failures remain recorded above; no console/runtime or native-server source was changed by this correction.
+
+Installed version 0.1.1 was also verified manually in the user's normal VS Code profile: typing `.` after `x` in `autocomplete-demo.ctk` automatically opened the suggestion list containing `filter`, `isEmpty`, `length`, `one`, `root`, `sort`, `symbol` and `unique`, with console method descriptions. This worked with the user's inline completion provider still active. The existing unsaved user script was preserved, and isolated extension-test instances exited after validation.

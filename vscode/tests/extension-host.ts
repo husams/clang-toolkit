@@ -72,6 +72,72 @@ export async function run(): Promise<void> {
       new vscode.Position(0, 29),
     );
   assert.ok(completions?.items.some((item) => item.label === "isDefinition"));
+  const complete = async (source: string, cursor = source.length) => {
+    const draft = await vscode.workspace.openTextDocument({
+      language: "ctk",
+      content: source,
+    });
+    const items = await vscode.commands.executeCommand<vscode.CompletionList>(
+      "vscode.executeCompletionItemProvider",
+      draft.uri,
+      draft.positionAt(cursor),
+    );
+    return { draft, items: items?.items ?? [] };
+  };
+  const members = await complete(
+    'let x = match functionDecl().bind("symbol");\nx.',
+  );
+  assert.ok(
+    members.items.some(
+      (item) => item.label === "one" && item.insertText === "one(",
+    ),
+  );
+  assert.ok(members.items.some((item) => item.label === "symbol"));
+  const source = 'emit match functionDecl(\n  isDef()\n).bind("symbol");';
+  const earlier = await complete(source, source.indexOf("isDef") + 5);
+  const definition = earlier.items.find(
+    (item) => item.label === "isDefinition",
+  );
+  assert.ok(definition?.range instanceof vscode.Range);
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(
+    earlier.draft.uri,
+    definition.range,
+    String(definition.insertText),
+  );
+  await vscode.workspace.applyEdit(edit);
+  assert.equal(
+    earlier.draft.getText(),
+    source.replace("isDef", "isDefinition"),
+  );
+  const user = await complete(
+    "let scale(value, factor = 2) = { value * factor }\nsca",
+  );
+  assert.ok(
+    user.items.some(
+      (item) => item.label === "scale" && item.detail?.includes("factor = 2"),
+    ),
+  );
+  const helper = await complete("classByN");
+  assert.ok(helper.items.some((item) => item.label === "classByName"));
+  const signatureDoc = await vscode.workspace.openTextDocument({
+    language: "ctk",
+    content:
+      'let scale(value, factor = 2) = { value * factor }\nscale(other("a,b"), ',
+  });
+  const signatures = await vscode.commands.executeCommand<vscode.SignatureHelp>(
+    "vscode.executeSignatureHelpProvider",
+    signatureDoc.uri,
+    signatureDoc.positionAt(signatureDoc.getText().length),
+  );
+  assert.equal(signatures?.signatures[0]?.label, "scale(value, factor = 2)");
+  assert.equal(signatures.activeParameter, 1);
+  assert.equal(
+    vscode.workspace
+      .getConfiguration("editor", { languageId: "ctk" })
+      .get<{ other: string }>("quickSuggestions")?.other,
+    "on",
+  );
   assert.ok(
     (
       await vscode.commands.executeCommand<vscode.Hover[]>(
