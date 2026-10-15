@@ -43,6 +43,12 @@ def _make_list(context: Context, node: Any, count: int, thunk: Callable[[], list
     return result
 
 
+def _make_tuple(context: Context, node: Any, count: int, thunk: Callable[[], list[Any]]) -> tuple[Any, ...]:
+    if count > context.max_items:
+        raise _error(context, node, "tuple exceeds item limit", ExecutionLimitError)
+    return tuple(thunk())
+
+
 def _make_dict(context: Context, node: Any, count: int, thunk: Callable[[], list[tuple[Any, Any]]]) -> dict[Any, Any]:
     if count > context.max_items:
         raise _error(context, node, "dictionary exceeds item limit", ExecutionLimitError)
@@ -93,6 +99,12 @@ def _call(context: Context, node: Any, name: str, args: Callable[[], list[Any]])
         raise
     except Exception as error:
         raise _error(context, node, f"host function {name!r} failed: {error}") from error
+
+
+def _pipe(context: Context, node: Any, initial: Callable[[], Any], stages: list[Any]) -> Any:
+    from .runnables import run_pipe
+
+    return run_pipe(context, node, initial, stages)
 
 
 def _run_scoped(context: Context, function: Callable[[Context], Any]) -> Any:
@@ -237,6 +249,9 @@ class _Lowerer:
         elif kind == "list":
             items = child_values(node)
             expr = self.call("_make_list", context, nref, ast.Constant(len(items)), self.lambda0(ast.List([self.emit_expr(x) for x in items], ast.Load())))
+        elif kind == "tuple":
+            items = child_values(node)
+            expr = self.call("_make_tuple", context, nref, ast.Constant(len(items)), self.lambda0(ast.List([self.emit_expr(x) for x in items], ast.Load())))
         elif kind == "dict":
             raw = children(node)
             entries = tuple(raw.values()) if isinstance(raw, Mapping) else child_values(node)
@@ -264,8 +279,19 @@ class _Lowerer:
         elif kind == "inline_runnable":
             expr = self.emit_runnable(node, "_create_runnable")
         elif kind == "call":
-            args = [self.emit_expr(x) for x in child_values(node)]
+            args = [self.emit_expr(child_values(x)[0] if _kind(x) == "keyword_arg" else x) for x in child_values(node)]
             expr = self.call("_call", context, nref, ast.Constant(_name(node)), self.lambda0(ast.List(args, ast.Load())))
+        elif kind == "pipe":
+            values = child_values(node)
+            stages = []
+            for stage in values[1:]:
+                args = [] if _kind(stage) == "ref" else [
+                    self.emit_expr(child_values(item)[0] if _kind(item) == "keyword_arg" else item)
+                    for item in child_values(stage)
+                ]
+                stages.append(ast.Tuple([self.node_ref(stage), ast.Constant(_name(stage)),
+                                         self.lambda0(ast.List(args, ast.Load()))], ast.Load()))
+            expr = self.call("_pipe", context, nref, self.lambda0(self.emit_expr(values[0])), ast.List(stages, ast.Load()))
         elif kind == "recovery":
             body = ast.Lambda(ast.arguments([], [ast.arg("context")], None, [], [], None, []), self.emit_expr(child_values(node)[0]))
             fallback_fn = ast.Name(self.emit_block_function(child_values(node)[1]), ast.Load())
@@ -378,7 +404,7 @@ class _Lowerer:
         body = [
             ast.Expr(self.call("_check_items", context, self.node_ref(node), self.call("len", ast.Name(results, ast.Load())))),
             ast.Expr(self.call("_tick", context, self.node_ref(node))),
-            ast.Expr(ast.Call(ast.Attribute(context, "push_loop_scope", ast.Load()), [ast.Constant(_name(node)), ast.Name(item, ast.Load()), ast.Name(ordinal, ast.Load())], [])),
+            ast.Expr(self.call("_push_loop_scope", context, self.node_ref(node), ast.Constant(getattr(node, "value", None)), ast.Name(item, ast.Load()), ast.Name(ordinal, ast.Load()))),
             ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))],
                     [ast.ExceptHandler(ast.Name("_LoopBreak", ast.Load()), None, [ast.Break()]),
                      ast.ExceptHandler(ast.Name("_LoopContinue", ast.Load()), None, [ast.Continue()])],
@@ -492,13 +518,14 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_define_runnable": define_runnable, "_create_runnable": create_runnable,
         "_recover": recover, "_cleanup": cleanup, "_FatalErrors": FATAL_ERRORS,
         "_Exception": Exception, "_LoopBreak": LoopBreak, "_LoopContinue": LoopContinue,
-        "_make_dict": _make_dict, "_get": _get, "_index": _index, "_iterable": _iterable,
+        "_make_dict": _make_dict, "_make_tuple": _make_tuple, "_get": _get, "_index": _index, "_iterable": _iterable,
         "_logical": _logical, "_binary": _binary, "_unary": _unary,
         "_predicate": _predicate, "_predicate_binding": _predicate_binding,
-        "_call": _call, "_conditional": _conditional, "_run_scoped": _run_scoped,
+        "_call": _call, "_pipe": _pipe, "_conditional": _conditional, "_run_scoped": _run_scoped,
         "_print": _print, "_assign_ref": _assign_ref, "_assign_index": _assign_index, "_assign_get": _assign_get,
         "_loop_condition": loop_condition, "_complete_loop_iteration": complete_loop_iteration,
         "_bad_target": _bad_target, "_check_items": _check_items, "len": len, "enumerate": enumerate,
+        "_push_loop_scope": lambda context, node, pattern, item, ordinal: context.push_pattern_loop_scope(pattern, item, ordinal, node),
     }
     exec(compile(module, "<ctk-prototype-compiled>", "exec"), namespace)
     function = namespace["_ctk_compiled_program"]

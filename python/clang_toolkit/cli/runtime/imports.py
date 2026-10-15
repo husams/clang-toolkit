@@ -45,6 +45,11 @@ def _snapshot_plain_containers(bindings: dict[str, object]) -> list[tuple[object
             snapshots.append((value, contents))
             for key, item in contents:
                 pending.extend((key, item))
+        elif type(value) is tuple:
+            if id(value) in visited:
+                continue
+            visited.add(id(value))
+            pending.extend(value)
     return snapshots
 
 

@@ -57,9 +57,25 @@ MATCHER_HELP = {
 
 def help_entry(topic: str) -> CommandHelp | None:
     """Resolve commands and all bundled Clang matchers through one help surface."""
-    entry = COMMAND_HELP.get(topic) or MATCHER_HELP.get(topic)
+    entry = (
+        _PIPE_ENTRY if topic == "pipes"
+        else COMMAND_HELP.get(topic) or MATCHER_HELP.get(topic)
+    )
     if entry is None and topic.startswith("matchers "):
         entry = MATCHER_HELP.get(topic.removeprefix("matchers "))
+    if entry is not None and topic == "pipes":
+        from clang_toolkit.cli.callable_help import builtin_callable_help
+
+        entry = replace(
+            entry,
+            arguments=(
+                *entry.arguments,
+                *(
+                    f"{item.signature}: {item.definition}"
+                    for item in builtin_callable_help().values()
+                ),
+            ),
+        )
     return entry
 
 
@@ -1017,6 +1033,28 @@ _ENTRIES = (
     ),
 )
 
+_PIPE_ENTRY = CommandHelp(
+    "pipes",
+    "Compose console values with callable stages and tuple-aware callbacks.",
+    (
+        "VALUE | stage(arguments)",
+        "let result = VALUE | stage(arguments) | stage(arguments)",
+    ),
+    (
+        "Each stage receives the value on its left as its first argument; its result flows to the next stage.",
+        "Built-in stages include collection, tuple, string, and formatting helpers. Their signatures are shown by stage completion.",
+        "A callback with two or more required parameters receives tuple elements as separate arguments. A unary callback receives the whole item, even when it has optional parameters.",
+        "Use an explicit tuple parameter pattern such as `(name, count)` when a callback should receive the tuple as one value.",
+        "User-defined console runnables can be pipeline stages. These features belong to the compiled interactive console; native server scripts and server-side batch bodies retain their separate language.",
+    ),
+    (
+        "let positive = pairs | filter((name, count) = count > 0)",
+        "let ordered = pairs | sort_by((name, count) = count, reverse = true)",
+        "print values | json(indent = 2)",
+        "print 10 | my_filter(1)",
+    ),
+)
+
 COMMAND_HELP = {entry.topic: entry for entry in _ENTRIES}
 HAS_NATIVE_ANALYSIS_GRAMMAR = any(
     rule.origin.name == "cfg_option" for rule in parser().rules
@@ -1248,6 +1286,8 @@ def reference_markdown() -> str:
         "",
     ]
     for entry in COMMAND_HELP.values():
+        if entry.topic == "pipes":
+            continue
         sections.extend(
             (
                 f"## {entry.topic}",

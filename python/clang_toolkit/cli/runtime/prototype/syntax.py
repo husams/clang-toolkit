@@ -51,6 +51,12 @@ def _nodes(items: list[Any] | tuple[Any, ...]) -> tuple[Node, ...]:
     return tuple(item for item in items if isinstance(item, Node))
 
 
+def _pattern_names(pattern: Any) -> tuple[str, ...]:
+    if isinstance(pattern, str):
+        return () if pattern == "_" else (pattern,)
+    return tuple(name for item in pattern for name in _pattern_names(item))
+
+
 @v_args(meta=True)
 class _Builder(Transformer[Any, Any]):
     @staticmethod
@@ -93,8 +99,30 @@ class _Builder(Transformer[Any, Any]):
 
     def parameter(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)
-        return Node("parameter", str(items[0]), _nodes(items), line, column,
+        nodes = _nodes(items)
+        pattern = nodes[0]
+        return Node("parameter", pattern.value, nodes[1:], line, column,
                     (meta.start_pos, meta.end_pos))
+
+    def name_pattern(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("pattern_name", str(items[0]), line=line, column=column)
+
+    def discard_pattern(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("pattern_discard", "_", line=line, column=column)
+
+    def empty_pattern(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("pattern_tuple", (), line=line, column=column)
+
+    def tuple_single_pattern(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("pattern_tuple", tuple(item.value for item in _nodes(items)), line=line, column=column)
+
+    def tuple_pattern(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("pattern_tuple", tuple(item.value for item in _nodes(items)), line=line, column=column)
 
     def parameters(self, meta: Any, items: list[Any]) -> tuple[Node, ...]:
         return _nodes(items)
@@ -108,11 +136,14 @@ class _Builder(Transformer[Any, Any]):
     def _runnable(self, meta: Any, items: list[Any], name: str, kind: str) -> Node:
         specs = next((item for item in items if isinstance(item, tuple)), ())
         parameters = tuple(item.value for item in specs)
-        if len(set(parameters)) != len(parameters):
+        names = [parameter for pattern in parameters for parameter in _pattern_names(pattern)]
+        if len(set(names)) != len(names):
             raise ValueError(f"{name} has duplicate parameter names")
         default_seen = False
         for item in specs:
             if item.children:
+                if isinstance(item.value, tuple):
+                    raise ValueError(f"{name}: tuple-pattern parameters cannot have defaults")
                 default_seen = True
             elif default_seen:
                 raise ValueError(f"{name}: required parameters must precede defaults")
@@ -146,20 +177,27 @@ class _Builder(Transformer[Any, Any]):
         return node if node.kind == "block" else Node("block", children=(node,), line=node.line, column=node.column)
 
     def recovery_tail(self, meta: Any, items: list[Any]) -> Node:
-        return self._action_block(items[0])
+        return Node("recovery_tail", children=(self._action_block(items[0]),))
 
     def recovery_expr(self, meta: Any, items: list[Any]) -> Node:
         nodes = _nodes(items)
+        if len(nodes) == 2 and nodes[1].kind == "recovery_tail":
+            return Node("recovery", children=(nodes[0], nodes[1].children[0]),
+                        line=nodes[0].line, column=nodes[0].column)
         if len(nodes) == 1:
             return nodes[0]
         line, column = self._location(meta, items)
         return Node("recovery", children=nodes, line=line, column=column)
 
     def foreach_expr(self, meta: Any, items: list[Any]) -> Node:
-        name = next(str(item) for item in items if isinstance(item, Token) and item.type == "CNAME")
-        iterable, block = [item for item in items if isinstance(item, Node)]
+        nodes = _nodes(items)
+        pattern = nodes[0]
+        names = _pattern_names(pattern.value)
+        if len(set(names)) != len(names):
+            raise ValueError("foreach tuple pattern has duplicate names")
+        iterable, block = nodes[1:]
         line, column = self._location(meta, items)
-        return Node("foreach", value=name, children=(iterable, block), line=line, column=column)
+        return Node("foreach", value=pattern.value, children=(iterable, block), line=line, column=column)
 
     def while_expr(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)
@@ -386,6 +424,27 @@ class _Builder(Transformer[Any, Any]):
         line, column = self._location(meta, items)
         return Node("call", value=name, children=arguments, line=line, column=column)
 
+    def keyword_argument(self, meta: Any, items: list[Any]) -> Node:
+        name = next(str(item) for item in items if isinstance(item, Token) and item.type == "CNAME")
+        expression = next(item for item in items if isinstance(item, Node))
+        line, column = self._location(meta, items)
+        return Node("keyword_arg", name, (expression,), line, column)
+
+    def pipe_expr(self, meta: Any, items: list[Any]) -> Node:
+        nodes = _nodes(items)
+        recovery = nodes[-1] if nodes and nodes[-1].kind == "recovery_tail" else None
+        if recovery is not None:
+            nodes = nodes[:-1]
+        if len(nodes) == 1:
+            expression = nodes[0]
+        else:
+            line, column = self._location(meta, items)
+            expression = Node("pipe", children=nodes, line=line, column=column)
+        if recovery is not None:
+            return Node("recovery", children=(expression, recovery.children[0]),
+                        line=expression.line, column=expression.column)
+        return expression
+
     def arguments(self, meta: Any, items: list[Any]) -> tuple[Node, ...]:
         return _nodes(items)
 
@@ -396,6 +455,18 @@ class _Builder(Transformer[Any, Any]):
 
     def grouped_expression(self, meta: Any, items: list[Any]) -> Node:
         return next(item for item in items if isinstance(item, Node))
+
+    def empty_tuple(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("tuple", children=(), line=line, column=column)
+
+    def tuple_items(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("tuple", children=_nodes(items), line=line, column=column)
+
+    def tuple_singleton(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("tuple", children=_nodes(items), line=line, column=column)
 
     def inner_expression(self, meta: Any, items: list[Any]) -> Node:
         return next(item for item in items if isinstance(item, Node))

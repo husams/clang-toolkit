@@ -89,6 +89,13 @@ class Context:
         self._loop_indices: dict[int, dict[str, int]] = {}
         self.functions.setdefault("len", lambda value: _bounded_len(value, self.max_items))
         self.functions.setdefault("range", lambda *args: _bounded_range(args, self.max_items))
+        self.filter_names: set[str] = set()
+        from .filters import make_filters
+
+        filters = make_filters(self)
+        self.filter_names = set(filters)
+        for name, function in filters.items():
+            self.functions.setdefault(name, function)
 
     @property
     def scopes(self) -> tuple[dict[str, Any], ...]:
@@ -100,6 +107,15 @@ class Context:
     def push_loop_scope(self, name: str, item: Any, ordinal: int) -> None:
         self.push_scope({name: item})
         self._loop_indices[id(self._scopes[-1])] = {name: ordinal}
+
+    def push_pattern_loop_scope(self, pattern: Any, item: Any, ordinal: int, node: Any = None) -> None:
+        from .runnables import bind_pattern
+
+        scope: dict[str, Any] = {}
+        bind_pattern(scope, pattern, item, self, node)
+        self.push_scope(scope)
+        if isinstance(pattern, str) and pattern != "_":
+            self._loop_indices[id(self._scopes[-1])] = {pattern: ordinal}
 
     def loop_index(self, name: str) -> int | None:
         scope = self.lookup_scope(name)
@@ -125,9 +141,11 @@ class Context:
 
     def lookup(self, name: str, node: Any = None) -> Any:
         scope = self.lookup_scope(name)
-        if scope is None:
-            raise _error(self, node, f"undefined binding {name!r}")
-        return scope[name]
+        if scope is not None:
+            return scope[name]
+        if name in self.functions:
+            return self.functions[name]
+        raise _error(self, node, f"undefined binding {name!r}")
 
     def binding_state(self, name: str, node: Any = None) -> tuple[bool, Any]:
         """Return lexical binding presence and its value without raising if absent."""
@@ -172,6 +190,10 @@ class Context:
         self.step_count = self.steps
         if self.steps > self.max_steps:
             raise _error(self, node, "execution step limit exceeded", ExecutionLimitError)
+
+    def consume_step(self, node: Any = None) -> None:
+        """Consume one bounded step for filter callbacks and iterator items."""
+        self.tick(node)
 
 
 def _location(node: Any) -> str:
@@ -327,6 +349,8 @@ def _binary(ctx: Context, op: str, left: Any, right: Any, node: Any) -> Any:
         else:
             left, right = _numeric_pair(ctx, left, right, node)
         return {"<": left < right, "<=": left <= right, ">": left > right, ">=": left >= right}[op]
+    if op == "+" and isinstance(left, str) and isinstance(right, str):
+        return left + right
     left, right = _numeric_pair(ctx, left, right, node)
     if op in {"+", "-", "*"}:
         if type(left) is int and type(right) is int:
@@ -503,7 +527,13 @@ def index_value(value: Any, key: Any, ctx: Context, node: Any) -> Any:
     try:
         if isinstance(value, Mapping):
             return value[key]
-        if isinstance(value, (list, tuple, str)):
+        if isinstance(value, tuple):
+            if type(key) is not int:
+                raise TypeError("tuple index must be an integer")
+            if key < -len(value) or key >= len(value):
+                raise IndexError("tuple index out of range")
+            return value[key]
+        if isinstance(value, (list, str)):
             if type(key) is not int:
                 raise TypeError("sequence index must be an integer")
             return value[key]
@@ -511,7 +541,8 @@ def index_value(value: Any, key: Any, ctx: Context, node: Any) -> Any:
 
         return semantic_index_value(value, key)
     except Exception as error:
-        raise _error(ctx, node, f"invalid index {key!r} for {type(value).__name__}") from error
+        detail = "tuple index out of range" if isinstance(value, tuple) and isinstance(error, IndexError) else f"invalid index {key!r} for {type(value).__name__}"
+        raise _error(ctx, node, detail) from error
 
 
 def _entry_nodes(node: Any) -> tuple[Any, ...]:
@@ -622,6 +653,10 @@ def eval_expr(ctx: Context, node: Any) -> Any:
             raise _error(ctx, node, "list exceeds item limit", ExecutionLimitError)
         values = [eval_expr(ctx, item) for item in child_values(node)]
         return values
+    if kind == "tuple":
+        if len(child_values(node)) > ctx.max_items:
+            raise _error(ctx, node, "tuple exceeds item limit", ExecutionLimitError)
+        return tuple(eval_expr(ctx, item) for item in child_values(node))
     if kind == "dict":
         if len(_entry_nodes(node)) > ctx.max_items:
             raise _error(ctx, node, "dictionary exceeds item limit", ExecutionLimitError)
@@ -665,13 +700,23 @@ def eval_expr(ctx: Context, node: Any) -> Any:
 
         try:
             return invoke_named(ctx, node, name,
-                                lambda: [eval_expr(ctx, arg) for arg in child_values(node)])
+                                lambda: [eval_expr(ctx, child_values(arg)[0] if _kind(arg) == "keyword_arg" else arg)
+                                         for arg in child_values(node)])
         except PrototypeError as error:
             if _location(node) and _location(node) not in str(error):
                 raise _error(ctx, node, str(error), type(error)) from error
             raise
         except Exception as error:
             raise _error(ctx, node, f"host function {name!r} failed: {error}") from error
+    if kind == "pipe":
+        from .runnables import run_pipe
+        values = child_values(node)
+        stages = []
+        for stage in values[1:]:
+            stages.append((stage, _name(stage),
+                           lambda stage=stage: [eval_expr(ctx, child_values(arg)[0] if _kind(arg) == "keyword_arg" else arg)
+                                                for arg in child_values(stage)]))
+        return run_pipe(ctx, node, lambda: eval_expr(ctx, values[0]), stages)
     if kind == "recovery":
         from .control import recover
 
@@ -784,7 +829,7 @@ def eval_statement(ctx: Context, node: Any, *, value_context: bool = False) -> A
         return eval_condition_loop(ctx, node, collect=value_context)
     if kind == "block":
         return eval_block(ctx, node)
-    if kind in {"conditional", "list", "dict", "literal", "ref", "get", "index", "call", "binary", "predicate", "unary", "host", "recovery", "inline_runnable"}:
+    if kind in {"conditional", "list", "tuple", "dict", "literal", "ref", "get", "index", "call", "pipe", "binary", "predicate", "unary", "host", "recovery", "inline_runnable"}:
         return eval_expr(ctx, node)
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 
@@ -823,7 +868,7 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
 
     if not ticked:
         ctx.tick(node)
-    name = _name(node)
+    pattern = node_value(node)
     iterable = eval_expr(ctx, _expr(node, 0, "iterable"))
     body = _expr(node, 1, "block")
     iterator = iterable_value(ctx, node, iterable)
@@ -832,7 +877,7 @@ def eval_foreach(ctx: Context, node: Any, *, ticked: bool = False) -> list[Any]:
         if len(result) >= ctx.max_items:
             raise _error(ctx, node, "foreach result exceeds item limit", ExecutionLimitError)
         ctx.tick(node)
-        ctx.push_loop_scope(name, item, ordinal)
+        ctx.push_pattern_loop_scope(pattern, item, ordinal, node)
         try:
             result.append(eval_block(ctx, body, scoped=False))
         except LoopBreak:

@@ -207,14 +207,26 @@ class PrototypeRuntime(Runtime):
         return super().completion_suggestions(reference if reference.startswith("$") else "$" + reference)
 
     def callable_help(self) -> dict[str, Any]:
-        from clang_toolkit.cli.callable_help import describe_callable
+        from clang_toolkit.cli.callable_help import (
+            builtin_callable_help,
+            describe_callable,
+        )
         from clang_toolkit.cli.runtime.matcher_functions import MatcherFunction
 
         values = dict(self.bindings)
         for scope in self._scopes:
             values.update(scope)
-        return {name: describe_callable(name, value) for name, value in values.items()
-                if isinstance(value, (RunnableBlock, MatcherFunction))}
+        context = self._prototype_context or _ReplContext(self._prototype_session)
+        descriptions = builtin_callable_help(context.functions)
+        descriptions.update(
+            {
+                name: describe_callable(name, value)
+                for name, value in values.items()
+                if isinstance(value, (RunnableBlock, MatcherFunction))
+                or callable(value)
+            }
+        )
+        return descriptions
 
     def completion_presence_fields(self, reference: str) -> tuple[str, ...]:
         return super().completion_presence_fields(reference if reference.startswith("$") else "$" + reference)
