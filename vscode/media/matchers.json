@@ -1,0 +1,4218 @@
+[
+  {
+    "name": "accessSpecDecl",
+    "category": "node",
+    "summary": "Matches C++ access specifier declarations.",
+    "signatures": [
+      "Matcher<Decl> accessSpecDecl(Matcher<AccessSpecDecl>...)"
+    ]
+  },
+  {
+    "name": "addrLabelExpr",
+    "category": "node",
+    "summary": "Matches address of label statements (GNU extension).",
+    "signatures": [
+      "Matcher<Stmt> addrLabelExpr(Matcher<AddrLabelExpr>...)"
+    ]
+  },
+  {
+    "name": "alignOfExpr",
+    "category": "traversal",
+    "summary": "Same as unaryExprOrTypeTraitExpr, but only matching alignof.",
+    "signatures": [
+      "Matcher<Stmt> alignOfExpr(Matcher<UnaryExprOrTypeTraitExpr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "allOf",
+    "category": "narrowing",
+    "summary": "Matches if all given matchers match.",
+    "signatures": [
+      "Matcher<*> allOf(Matcher<*>, ..., Matcher<*>)"
+    ]
+  },
+  {
+    "name": "anyOf",
+    "category": "narrowing",
+    "summary": "Matches if any of the given matchers matches.",
+    "signatures": [
+      "Matcher<*> anyOf(Matcher<*>, ..., Matcher<*>)"
+    ]
+  },
+  {
+    "name": "anything",
+    "category": "narrowing",
+    "summary": "Matches any node.",
+    "signatures": [
+      "Matcher<*> anything()"
+    ]
+  },
+  {
+    "name": "argumentCountAtLeast",
+    "category": "narrowing",
+    "summary": "Checks that a call expression or a constructor call expression has at least the specified number of arguments (including absent default arguments).",
+    "signatures": [
+      "Matcher<CXXConstructExpr> argumentCountAtLeast(unsigned N)",
+      "Matcher<CXXUnresolvedConstructExpr> argumentCountAtLeast(unsigned N)",
+      "Matcher<CallExpr> argumentCountAtLeast(unsigned N)",
+      "Matcher<ObjCMessageExpr> argumentCountAtLeast(unsigned N)"
+    ]
+  },
+  {
+    "name": "argumentCountIs",
+    "category": "narrowing",
+    "summary": "Checks that a call expression or a constructor call expression has a specific number of arguments (including absent default arguments).",
+    "signatures": [
+      "Matcher<CXXConstructExpr> argumentCountIs(unsigned N)",
+      "Matcher<CXXUnresolvedConstructExpr> argumentCountIs(unsigned N)",
+      "Matcher<CallExpr> argumentCountIs(unsigned N)",
+      "Matcher<ObjCMessageExpr> argumentCountIs(unsigned N)"
+    ]
+  },
+  {
+    "name": "arrayInitIndexExpr",
+    "category": "node",
+    "summary": "The arrayInitIndexExpr consists of two subexpressions: a common expression (the source array) that is evaluated once up-front, and a per-element initializer that runs once for each array element. Within the per-element initializer, the current index may be obtained via an ArrayInitIndexExpr.",
+    "signatures": [
+      "Matcher<Stmt> arrayInitIndexExpr(Matcher<ArrayInitIndexExpr>...)"
+    ]
+  },
+  {
+    "name": "arrayInitLoopExpr",
+    "category": "node",
+    "summary": "Matches a loop initializing the elements of an array in a number of contexts: * in the implicit copy/move constructor for a class with an array member * when a lambda-expression captures an array by value * when a decomposition declaration decomposes an array",
+    "signatures": [
+      "Matcher<Stmt> arrayInitLoopExpr(Matcher<ArrayInitLoopExpr>...)"
+    ]
+  },
+  {
+    "name": "arraySubscriptExpr",
+    "category": "node",
+    "summary": "Matches array subscript expressions.",
+    "signatures": [
+      "Matcher<Stmt> arraySubscriptExpr(Matcher<ArraySubscriptExpr>...)"
+    ]
+  },
+  {
+    "name": "arrayType",
+    "category": "node",
+    "summary": "Matches all kinds of arrays.",
+    "signatures": [
+      "Matcher<Type> arrayType(Matcher<ArrayType>...)"
+    ]
+  },
+  {
+    "name": "arrayTypeLoc",
+    "category": "node",
+    "summary": "Matches `ArrayTypeLoc`s.",
+    "signatures": [
+      "Matcher<TypeLoc> arrayTypeLoc(Matcher<ArrayTypeLoc>...)"
+    ]
+  },
+  {
+    "name": "asString",
+    "category": "narrowing",
+    "summary": "Matches if the matched type is represented by the given string.",
+    "signatures": [
+      "Matcher<QualType> asString(std::string Name)"
+    ]
+  },
+  {
+    "name": "asmStmt",
+    "category": "node",
+    "summary": "Matches asm statements.",
+    "signatures": [
+      "Matcher<Stmt> asmStmt(Matcher<AsmStmt>...)"
+    ]
+  },
+  {
+    "name": "atomicExpr",
+    "category": "node",
+    "summary": "Matches atomic builtins. Example matches __atomic_load_n(ptr, 1) void foo() { int *ptr; __atomic_load_n(ptr, 1); }",
+    "signatures": [
+      "Matcher<Stmt> atomicExpr(Matcher<AtomicExpr>...)"
+    ]
+  },
+  {
+    "name": "atomicType",
+    "category": "node",
+    "summary": "Matches atomic types.",
+    "signatures": [
+      "Matcher<Type> atomicType(Matcher<AtomicType>...)"
+    ]
+  },
+  {
+    "name": "attr",
+    "category": "node",
+    "summary": "Matches attributes. Attributes may be attached with a variety of different syntaxes (including keywords, C++11 attributes, GNU ``__attribute``` and MSVC `__declspec``, and ``#pragma``s). They may also be implicit.",
+    "signatures": [
+      "Matcher<Attr> attr(Matcher<Attr>...)"
+    ]
+  },
+  {
+    "name": "autoType",
+    "category": "node",
+    "summary": "Matches types nodes representing C++11 auto types.",
+    "signatures": [
+      "Matcher<Type> autoType(Matcher<AutoType>...)"
+    ]
+  },
+  {
+    "name": "autoreleasePoolStmt",
+    "category": "node",
+    "summary": "Matches an Objective-C autorelease pool statement.",
+    "signatures": [
+      "Matcher<Stmt> autoreleasePoolStmt(Matcher<ObjCAutoreleasePoolStmt>...)"
+    ]
+  },
+  {
+    "name": "binaryConditionalOperator",
+    "category": "node",
+    "summary": "Matches binary conditional operator expressions (GNU extension).",
+    "signatures": [
+      "Matcher<Stmt> binaryConditionalOperator(Matcher<BinaryConditionalOperator>...)"
+    ]
+  },
+  {
+    "name": "binaryOperation",
+    "category": "traversal",
+    "summary": "Matches nodes which can be used with binary operators.",
+    "signatures": [
+      "Matcher<*> binaryOperation(Matcher<*>...Matcher<*>)"
+    ]
+  },
+  {
+    "name": "binaryOperator",
+    "category": "node",
+    "summary": "Matches binary operator expressions.",
+    "signatures": [
+      "Matcher<Stmt> binaryOperator(Matcher<BinaryOperator>...)"
+    ]
+  },
+  {
+    "name": "bindingDecl",
+    "category": "node",
+    "summary": "Matches binding declarations Example matches foo and bar (matcher = bindingDecl()",
+    "signatures": [
+      "Matcher<Decl> bindingDecl(Matcher<BindingDecl>...)"
+    ]
+  },
+  {
+    "name": "blockDecl",
+    "category": "node",
+    "summary": "Matches block declarations.",
+    "signatures": [
+      "Matcher<Decl> blockDecl(Matcher<BlockDecl>...)"
+    ]
+  },
+  {
+    "name": "blockExpr",
+    "category": "node",
+    "summary": "Matches a reference to a block.",
+    "signatures": [
+      "Matcher<Stmt> blockExpr(Matcher<BlockExpr>...)"
+    ]
+  },
+  {
+    "name": "blockPointerType",
+    "category": "node",
+    "summary": "Matches block pointer types, i.e. types syntactically represented as \"void (^)(int)\".",
+    "signatures": [
+      "Matcher<Type> blockPointerType(Matcher<BlockPointerType>...)"
+    ]
+  },
+  {
+    "name": "booleanType",
+    "category": "narrowing",
+    "summary": "Matches type bool.",
+    "signatures": [
+      "Matcher<Type> booleanType()"
+    ]
+  },
+  {
+    "name": "breakStmt",
+    "category": "node",
+    "summary": "Matches break statements.",
+    "signatures": [
+      "Matcher<Stmt> breakStmt(Matcher<BreakStmt>...)"
+    ]
+  },
+  {
+    "name": "builtinType",
+    "category": "node",
+    "summary": "Matches builtin Types.",
+    "signatures": [
+      "Matcher<Type> builtinType(Matcher<BuiltinType>...)"
+    ]
+  },
+  {
+    "name": "cStyleCastExpr",
+    "category": "node",
+    "summary": "Matches a C-style cast expression.",
+    "signatures": [
+      "Matcher<Stmt> cStyleCastExpr(Matcher<CStyleCastExpr>...)"
+    ]
+  },
+  {
+    "name": "callExpr",
+    "category": "node",
+    "summary": "Matches call expressions.",
+    "signatures": [
+      "Matcher<Stmt> callExpr(Matcher<CallExpr>...)"
+    ]
+  },
+  {
+    "name": "callee",
+    "category": "traversal",
+    "summary": "Matches if the call or fold expression's callee expression matches.",
+    "signatures": [
+      "Matcher<CXXFoldExpr> callee(Matcher<Stmt> InnerMatcher)",
+      "Matcher<CallExpr> callee(Matcher<Decl> InnerMatcher)",
+      "Matcher<CallExpr> callee(Matcher<Stmt> InnerMatcher)",
+      "Matcher<ObjCMessageExpr> callee(Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "capturesThis",
+    "category": "narrowing",
+    "summary": "Matches a `LambdaCapture` that refers to 'this'.",
+    "signatures": [
+      "Matcher<LambdaCapture> capturesThis()"
+    ]
+  },
+  {
+    "name": "capturesVar",
+    "category": "traversal",
+    "summary": "Matches a `LambdaCapture` that refers to the specified `VarDecl`. The `VarDecl` can be a separate variable that is captured by value or reference, or a synthesized variable if the capture has an initializer.",
+    "signatures": [
+      "Matcher<LambdaCapture> capturesVar(Matcher<ValueDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "caseStmt",
+    "category": "node",
+    "summary": "Matches case statements inside switch statements.",
+    "signatures": [
+      "Matcher<Stmt> caseStmt(Matcher<CaseStmt>...)"
+    ]
+  },
+  {
+    "name": "castExpr",
+    "category": "node",
+    "summary": "Matches any cast nodes of Clang's AST.",
+    "signatures": [
+      "Matcher<Stmt> castExpr(Matcher<CastExpr>...)"
+    ]
+  },
+  {
+    "name": "characterLiteral",
+    "category": "node",
+    "summary": "Matches character literals (also matches wchar_t).",
+    "signatures": [
+      "Matcher<Stmt> characterLiteral(Matcher<CharacterLiteral>...)"
+    ]
+  },
+  {
+    "name": "chooseExpr",
+    "category": "node",
+    "summary": "Matches GNU __builtin_choose_expr.",
+    "signatures": [
+      "Matcher<Stmt> chooseExpr(Matcher<ChooseExpr>...)"
+    ]
+  },
+  {
+    "name": "classTemplateDecl",
+    "category": "node",
+    "summary": "Matches C++ class template declarations.",
+    "signatures": [
+      "Matcher<Decl> classTemplateDecl(Matcher<ClassTemplateDecl>...)"
+    ]
+  },
+  {
+    "name": "classTemplatePartialSpecializationDecl",
+    "category": "node",
+    "summary": "Matches C++ class template partial specializations.",
+    "signatures": [
+      "Matcher<Decl> classTemplatePartialSpecializationDecl(Matcher<ClassTemplatePartialSpecializationDecl>...)"
+    ]
+  },
+  {
+    "name": "classTemplateSpecializationDecl",
+    "category": "node",
+    "summary": "Matches C++ class template specializations.",
+    "signatures": [
+      "Matcher<Decl> classTemplateSpecializationDecl(Matcher<ClassTemplateSpecializationDecl>...)"
+    ]
+  },
+  {
+    "name": "coawaitExpr",
+    "category": "node",
+    "summary": "Matches co_await expressions.",
+    "signatures": [
+      "Matcher<Stmt> coawaitExpr(Matcher<CoawaitExpr>...)"
+    ]
+  },
+  {
+    "name": "complexType",
+    "category": "node",
+    "summary": "Matches C99 complex types.",
+    "signatures": [
+      "Matcher<Type> complexType(Matcher<ComplexType>...)"
+    ]
+  },
+  {
+    "name": "compoundLiteralExpr",
+    "category": "node",
+    "summary": "Matches compound (i.e. non-scalar) literals",
+    "signatures": [
+      "Matcher<Stmt> compoundLiteralExpr(Matcher<CompoundLiteralExpr>...)"
+    ]
+  },
+  {
+    "name": "compoundStmt",
+    "category": "node",
+    "summary": "Matches compound statements.",
+    "signatures": [
+      "Matcher<Stmt> compoundStmt(Matcher<CompoundStmt>...)"
+    ]
+  },
+  {
+    "name": "conceptDecl",
+    "category": "node",
+    "summary": "Matches concept declarations.",
+    "signatures": [
+      "Matcher<Decl> conceptDecl(Matcher<ConceptDecl>...)"
+    ]
+  },
+  {
+    "name": "conditionalOperator",
+    "category": "node",
+    "summary": "Matches conditional operator expressions.",
+    "signatures": [
+      "Matcher<Stmt> conditionalOperator(Matcher<ConditionalOperator>...)"
+    ]
+  },
+  {
+    "name": "constantArrayType",
+    "category": "node",
+    "summary": "Matches C arrays with a specified constant size.",
+    "signatures": [
+      "Matcher<Type> constantArrayType(Matcher<ConstantArrayType>...)"
+    ]
+  },
+  {
+    "name": "constantExpr",
+    "category": "node",
+    "summary": "Matches a constant expression wrapper.",
+    "signatures": [
+      "Matcher<Stmt> constantExpr(Matcher<ConstantExpr>...)"
+    ]
+  },
+  {
+    "name": "containsDeclaration",
+    "category": "traversal",
+    "summary": "Matches the n'th declaration of a declaration statement.",
+    "signatures": [
+      "Matcher<DeclStmt> containsDeclaration(unsigned N, Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "continueStmt",
+    "category": "node",
+    "summary": "Matches continue statements.",
+    "signatures": [
+      "Matcher<Stmt> continueStmt(Matcher<ContinueStmt>...)"
+    ]
+  },
+  {
+    "name": "convertVectorExpr",
+    "category": "node",
+    "summary": "Matches builtin function __builtin_convertvector.",
+    "signatures": [
+      "Matcher<Stmt> convertVectorExpr(Matcher<ConvertVectorExpr>...)"
+    ]
+  },
+  {
+    "name": "coreturnStmt",
+    "category": "node",
+    "summary": "Matches co_return statements.",
+    "signatures": [
+      "Matcher<Stmt> coreturnStmt(Matcher<CoreturnStmt>...)"
+    ]
+  },
+  {
+    "name": "coroutineBodyStmt",
+    "category": "node",
+    "summary": "Matches coroutine body statements.",
+    "signatures": [
+      "Matcher<Stmt> coroutineBodyStmt(Matcher<CoroutineBodyStmt>...)"
+    ]
+  },
+  {
+    "name": "coyieldExpr",
+    "category": "node",
+    "summary": "Matches co_yield expressions.",
+    "signatures": [
+      "Matcher<Stmt> coyieldExpr(Matcher<CoyieldExpr>...)"
+    ]
+  },
+  {
+    "name": "cudaKernelCallExpr",
+    "category": "node",
+    "summary": "Matches CUDA kernel call expression.",
+    "signatures": [
+      "Matcher<Stmt> cudaKernelCallExpr(Matcher<CUDAKernelCallExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxBaseSpecifier",
+    "category": "node",
+    "summary": "Matches class bases.",
+    "signatures": [
+      "Matcher<CXXBaseSpecifier> cxxBaseSpecifier(Matcher<CXXBaseSpecifier>...)"
+    ]
+  },
+  {
+    "name": "cxxBindTemporaryExpr",
+    "category": "node",
+    "summary": "Matches nodes where temporaries are created.",
+    "signatures": [
+      "Matcher<Stmt> cxxBindTemporaryExpr(Matcher<CXXBindTemporaryExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxBoolLiteral",
+    "category": "node",
+    "summary": "Matches bool literals.",
+    "signatures": [
+      "Matcher<Stmt> cxxBoolLiteral(Matcher<CXXBoolLiteralExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxCatchStmt",
+    "category": "node",
+    "summary": "Matches catch statements.",
+    "signatures": [
+      "Matcher<Stmt> cxxCatchStmt(Matcher<CXXCatchStmt>...)"
+    ]
+  },
+  {
+    "name": "cxxConstCastExpr",
+    "category": "node",
+    "summary": "Matches a const_cast expression.",
+    "signatures": [
+      "Matcher<Stmt> cxxConstCastExpr(Matcher<CXXConstCastExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxConstructExpr",
+    "category": "node",
+    "summary": "Matches constructor call expressions (including implicit ones).",
+    "signatures": [
+      "Matcher<Stmt> cxxConstructExpr(Matcher<CXXConstructExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxConstructorDecl",
+    "category": "node",
+    "summary": "Matches C++ constructor declarations.",
+    "signatures": [
+      "Matcher<Decl> cxxConstructorDecl(Matcher<CXXConstructorDecl>...)"
+    ]
+  },
+  {
+    "name": "cxxConversionDecl",
+    "category": "node",
+    "summary": "Matches conversion operator declarations.",
+    "signatures": [
+      "Matcher<Decl> cxxConversionDecl(Matcher<CXXConversionDecl>...)"
+    ]
+  },
+  {
+    "name": "cxxCtorInitializer",
+    "category": "node",
+    "summary": "Matches constructor initializers.",
+    "signatures": [
+      "Matcher<CXXCtorInitializer> cxxCtorInitializer(Matcher<CXXCtorInitializer>...)"
+    ]
+  },
+  {
+    "name": "cxxDeductionGuideDecl",
+    "category": "node",
+    "summary": "Matches user-defined and implicitly generated deduction guide.",
+    "signatures": [
+      "Matcher<Decl> cxxDeductionGuideDecl(Matcher<CXXDeductionGuideDecl>...)"
+    ]
+  },
+  {
+    "name": "cxxDefaultArgExpr",
+    "category": "node",
+    "summary": "Matches the value of a default argument at the call site.",
+    "signatures": [
+      "Matcher<Stmt> cxxDefaultArgExpr(Matcher<CXXDefaultArgExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxDeleteExpr",
+    "category": "node",
+    "summary": "Matches delete expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxDeleteExpr(Matcher<CXXDeleteExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxDependentScopeMemberExpr",
+    "category": "node",
+    "summary": "Matches member expressions where the actual member referenced could not be resolved because the base expression or the member name was dependent.",
+    "signatures": [
+      "Matcher<Stmt> cxxDependentScopeMemberExpr(Matcher<CXXDependentScopeMemberExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxDestructorDecl",
+    "category": "node",
+    "summary": "Matches explicit C++ destructor declarations.",
+    "signatures": [
+      "Matcher<Decl> cxxDestructorDecl(Matcher<CXXDestructorDecl>...)"
+    ]
+  },
+  {
+    "name": "cxxDynamicCastExpr",
+    "category": "node",
+    "summary": "Matches a dynamic_cast expression.",
+    "signatures": [
+      "Matcher<Stmt> cxxDynamicCastExpr(Matcher<CXXDynamicCastExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxFoldExpr",
+    "category": "node",
+    "summary": "Matches C++17 fold expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxFoldExpr(Matcher<CXXFoldExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxForRangeStmt",
+    "category": "node",
+    "summary": "Matches range-based for statements.",
+    "signatures": [
+      "Matcher<Stmt> cxxForRangeStmt(Matcher<CXXForRangeStmt>...)"
+    ]
+  },
+  {
+    "name": "cxxFunctionalCastExpr",
+    "category": "node",
+    "summary": "Matches functional cast expressions",
+    "signatures": [
+      "Matcher<Stmt> cxxFunctionalCastExpr(Matcher<CXXFunctionalCastExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxMemberCallExpr",
+    "category": "node",
+    "summary": "Matches member call expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxMemberCallExpr(Matcher<CXXMemberCallExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxMethodDecl",
+    "category": "node",
+    "summary": "Matches method declarations.",
+    "signatures": [
+      "Matcher<Decl> cxxMethodDecl(Matcher<CXXMethodDecl>...)"
+    ]
+  },
+  {
+    "name": "cxxNewExpr",
+    "category": "node",
+    "summary": "Matches new expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxNewExpr(Matcher<CXXNewExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxNoexceptExpr",
+    "category": "node",
+    "summary": "Matches noexcept expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxNoexceptExpr(Matcher<CXXNoexceptExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxNullPtrLiteralExpr",
+    "category": "node",
+    "summary": "Matches nullptr literal.",
+    "signatures": [
+      "Matcher<Stmt> cxxNullPtrLiteralExpr(Matcher<CXXNullPtrLiteralExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxOperatorCallExpr",
+    "category": "node",
+    "summary": "Matches overloaded operator calls.",
+    "signatures": [
+      "Matcher<Stmt> cxxOperatorCallExpr(Matcher<CXXOperatorCallExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxRecordDecl",
+    "category": "node",
+    "summary": "Matches C++ class declarations.",
+    "signatures": [
+      "Matcher<Decl> cxxRecordDecl(Matcher<CXXRecordDecl>...)"
+    ]
+  },
+  {
+    "name": "cxxReinterpretCastExpr",
+    "category": "node",
+    "summary": "Matches a reinterpret_cast expression.",
+    "signatures": [
+      "Matcher<Stmt> cxxReinterpretCastExpr(Matcher<CXXReinterpretCastExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxRewrittenBinaryOperator",
+    "category": "node",
+    "summary": "Matches rewritten binary operators",
+    "signatures": [
+      "Matcher<Stmt> cxxRewrittenBinaryOperator(Matcher<CXXRewrittenBinaryOperator>...)"
+    ]
+  },
+  {
+    "name": "cxxStaticCastExpr",
+    "category": "node",
+    "summary": "Matches a C++ static_cast expression.",
+    "signatures": [
+      "Matcher<Stmt> cxxStaticCastExpr(Matcher<CXXStaticCastExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxStdInitializerListExpr",
+    "category": "node",
+    "summary": "Matches C++ initializer list expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxStdInitializerListExpr(Matcher<CXXStdInitializerListExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxTemporaryObjectExpr",
+    "category": "node",
+    "summary": "Matches functional cast expressions having N != 1 arguments",
+    "signatures": [
+      "Matcher<Stmt> cxxTemporaryObjectExpr(Matcher<CXXTemporaryObjectExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxThisExpr",
+    "category": "node",
+    "summary": "Matches implicit and explicit this expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxThisExpr(Matcher<CXXThisExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxThrowExpr",
+    "category": "node",
+    "summary": "Matches throw expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxThrowExpr(Matcher<CXXThrowExpr>...)"
+    ]
+  },
+  {
+    "name": "cxxTryStmt",
+    "category": "node",
+    "summary": "Matches try statements.",
+    "signatures": [
+      "Matcher<Stmt> cxxTryStmt(Matcher<CXXTryStmt>...)"
+    ]
+  },
+  {
+    "name": "cxxUnresolvedConstructExpr",
+    "category": "node",
+    "summary": "Matches unresolved constructor call expressions.",
+    "signatures": [
+      "Matcher<Stmt> cxxUnresolvedConstructExpr(Matcher<CXXUnresolvedConstructExpr>...)"
+    ]
+  },
+  {
+    "name": "decayedType",
+    "category": "node",
+    "summary": "Matches decayed type Example matches i[] in declaration of f. (matcher = valueDecl(hasType(decayedType(hasDecayedType(pointerType()))))) Example matches i[1]. (matcher = expr(hasType(decayedType(hasDecayedType(pointerType()))))) void f(int i[]) { i[1] = 0; }",
+    "signatures": [
+      "Matcher<Type> decayedType(Matcher<DecayedType>...)"
+    ]
+  },
+  {
+    "name": "decl",
+    "category": "node",
+    "summary": "Matches declarations.",
+    "signatures": [
+      "Matcher<Decl> decl(Matcher<Decl>...)"
+    ]
+  },
+  {
+    "name": "declCountIs",
+    "category": "narrowing",
+    "summary": "Matches declaration statements that contain a specific number of declarations.",
+    "signatures": [
+      "Matcher<DeclStmt> declCountIs(unsigned N)"
+    ]
+  },
+  {
+    "name": "declRefExpr",
+    "category": "node",
+    "summary": "Matches expressions that refer to declarations.",
+    "signatures": [
+      "Matcher<Stmt> declRefExpr(Matcher<DeclRefExpr>...)"
+    ]
+  },
+  {
+    "name": "declStmt",
+    "category": "node",
+    "summary": "Matches declaration statements.",
+    "signatures": [
+      "Matcher<Stmt> declStmt(Matcher<DeclStmt>...)"
+    ]
+  },
+  {
+    "name": "declaratorDecl",
+    "category": "node",
+    "summary": "Matches declarator declarations (field, variable, function and non-type template parameter declarations).",
+    "signatures": [
+      "Matcher<Decl> declaratorDecl(Matcher<DeclaratorDecl>...)"
+    ]
+  },
+  {
+    "name": "declaresSameEntityAsBoundNode",
+    "category": "narrowing",
+    "summary": "Matches a declaration if it declares the same entity as the node previously bound to ID.",
+    "signatures": [
+      "Matcher<Decl> declaresSameEntityAsBoundNode(std::string ID)"
+    ]
+  },
+  {
+    "name": "decltypeType",
+    "category": "node",
+    "summary": "Matches types nodes representing C++11 decltype(<expr>) types.",
+    "signatures": [
+      "Matcher<Type> decltypeType(Matcher<DecltypeType>...)"
+    ]
+  },
+  {
+    "name": "decompositionDecl",
+    "category": "node",
+    "summary": "Matches decomposition-declarations.",
+    "signatures": [
+      "Matcher<Decl> decompositionDecl(Matcher<DecompositionDecl>...)"
+    ]
+  },
+  {
+    "name": "deducedTemplateSpecializationType",
+    "category": "node",
+    "summary": "Matches C++17 deduced template specialization types, e.g. deduced class template types.",
+    "signatures": [
+      "Matcher<Type> deducedTemplateSpecializationType(Matcher<DeducedTemplateSpecializationType>...)"
+    ]
+  },
+  {
+    "name": "defaultStmt",
+    "category": "node",
+    "summary": "Matches default statements inside switch statements.",
+    "signatures": [
+      "Matcher<Stmt> defaultStmt(Matcher<DefaultStmt>...)"
+    ]
+  },
+  {
+    "name": "dependentCoawaitExpr",
+    "category": "node",
+    "summary": "Matches co_await expressions where the type of the promise is dependent",
+    "signatures": [
+      "Matcher<Stmt> dependentCoawaitExpr(Matcher<DependentCoawaitExpr>...)"
+    ]
+  },
+  {
+    "name": "dependentNameType",
+    "category": "node",
+    "summary": "Matches a dependent name type",
+    "signatures": [
+      "Matcher<Type> dependentNameType(Matcher<DependentNameType>...)"
+    ]
+  },
+  {
+    "name": "dependentScopeDeclRefExpr",
+    "category": "node",
+    "summary": "Matches expressions that refer to dependent scope declarations.",
+    "signatures": [
+      "Matcher<Stmt> dependentScopeDeclRefExpr(Matcher<DependentScopeDeclRefExpr>...)"
+    ]
+  },
+  {
+    "name": "dependentSizedArrayType",
+    "category": "node",
+    "summary": "Matches C++ arrays whose size is a value-dependent expression.",
+    "signatures": [
+      "Matcher<Type> dependentSizedArrayType(Matcher<DependentSizedArrayType>...)"
+    ]
+  },
+  {
+    "name": "dependentSizedExtVectorType",
+    "category": "node",
+    "summary": "Matches C++ extended vector type where either the type or size is dependent.",
+    "signatures": [
+      "Matcher<Type> dependentSizedExtVectorType(Matcher<DependentSizedExtVectorType>...)"
+    ]
+  },
+  {
+    "name": "designatedInitExpr",
+    "category": "node",
+    "summary": "Matches C99 designated initializer expressions [C99 6.7.8].",
+    "signatures": [
+      "Matcher<Stmt> designatedInitExpr(Matcher<DesignatedInitExpr>...)"
+    ]
+  },
+  {
+    "name": "designatorCountIs",
+    "category": "narrowing",
+    "summary": "Matches designated initializer expressions that contain a specific number of designators.",
+    "signatures": [
+      "Matcher<DesignatedInitExpr> designatorCountIs(unsigned N)"
+    ]
+  },
+  {
+    "name": "doStmt",
+    "category": "node",
+    "summary": "Matches do statements.",
+    "signatures": [
+      "Matcher<Stmt> doStmt(Matcher<DoStmt>...)"
+    ]
+  },
+  {
+    "name": "eachOf",
+    "category": "traversal",
+    "summary": "Matches if any of the given matchers matches.",
+    "signatures": [
+      "Matcher<*> eachOf(Matcher<*>, ..., Matcher<*>)"
+    ]
+  },
+  {
+    "name": "enumConstantDecl",
+    "category": "node",
+    "summary": "Matches enum constants.",
+    "signatures": [
+      "Matcher<Decl> enumConstantDecl(Matcher<EnumConstantDecl>...)"
+    ]
+  },
+  {
+    "name": "enumDecl",
+    "category": "node",
+    "summary": "Matches enum declarations.",
+    "signatures": [
+      "Matcher<Decl> enumDecl(Matcher<EnumDecl>...)"
+    ]
+  },
+  {
+    "name": "enumType",
+    "category": "node",
+    "summary": "Matches enum types.",
+    "signatures": [
+      "Matcher<Type> enumType(Matcher<EnumType>...)"
+    ]
+  },
+  {
+    "name": "equals",
+    "category": "narrowing",
+    "summary": "Matches literals that are equal to the given value of type ValueT.",
+    "signatures": [
+      "Matcher<CXXBoolLiteralExpr> equals(bool Value)",
+      "Matcher<CXXBoolLiteralExpr> equals(const ValueT Value)",
+      "Matcher<CXXBoolLiteralExpr> equals(double Value)",
+      "Matcher<CXXBoolLiteralExpr> equals(unsigned Value)",
+      "Matcher<CharacterLiteral> equals(bool Value)",
+      "Matcher<CharacterLiteral> equals(const ValueT Value)",
+      "Matcher<CharacterLiteral> equals(double Value)",
+      "Matcher<CharacterLiteral> equals(unsigned Value)",
+      "Matcher<FloatingLiteral> equals(const ValueT Value)",
+      "Matcher<FloatingLiteral> equals(double Value)",
+      "Matcher<IntegerLiteral> equals(bool Value)",
+      "Matcher<IntegerLiteral> equals(const ValueT Value)",
+      "Matcher<IntegerLiteral> equals(double Value)",
+      "Matcher<IntegerLiteral> equals(unsigned Value)"
+    ]
+  },
+  {
+    "name": "equalsBoundNode",
+    "category": "narrowing",
+    "summary": "Matches if a node equals a previously bound node.",
+    "signatures": [
+      "Matcher<Decl> equalsBoundNode(std::string ID)",
+      "Matcher<QualType> equalsBoundNode(std::string ID)",
+      "Matcher<Stmt> equalsBoundNode(std::string ID)",
+      "Matcher<Type> equalsBoundNode(std::string ID)"
+    ]
+  },
+  {
+    "name": "equalsIntegralValue",
+    "category": "narrowing",
+    "summary": "Matches a TemplateArgument of integral type with a given value.",
+    "signatures": [
+      "Matcher<TemplateArgument> equalsIntegralValue(std::string Value)"
+    ]
+  },
+  {
+    "name": "explicitCastExpr",
+    "category": "node",
+    "summary": "Matches explicit cast expressions.",
+    "signatures": [
+      "Matcher<Stmt> explicitCastExpr(Matcher<ExplicitCastExpr>...)"
+    ]
+  },
+  {
+    "name": "exportDecl",
+    "category": "node",
+    "summary": "Matches any export declaration.",
+    "signatures": [
+      "Matcher<Decl> exportDecl(Matcher<ExportDecl>...)"
+    ]
+  },
+  {
+    "name": "expr",
+    "category": "node",
+    "summary": "Matches expressions.",
+    "signatures": [
+      "Matcher<Stmt> expr(Matcher<Expr>...)"
+    ]
+  },
+  {
+    "name": "exprWithCleanups",
+    "category": "node",
+    "summary": "Matches expressions that introduce cleanups to be run at the end of the sub-expression's evaluation.",
+    "signatures": [
+      "Matcher<Stmt> exprWithCleanups(Matcher<ExprWithCleanups>...)"
+    ]
+  },
+  {
+    "name": "fieldDecl",
+    "category": "node",
+    "summary": "Matches field declarations.",
+    "signatures": [
+      "Matcher<Decl> fieldDecl(Matcher<FieldDecl>...)"
+    ]
+  },
+  {
+    "name": "fileScopeAsmDecl",
+    "category": "node",
+    "summary": "Matches top level asm declarations.",
+    "signatures": [
+      "Matcher<Decl> fileScopeAsmDecl(Matcher<FileScopeAsmDecl>...)"
+    ]
+  },
+  {
+    "name": "fixedPointLiteral",
+    "category": "node",
+    "summary": "Matches fixed-point literals eg. 0.5r, 0.5hr, 0.5lr, 0.5uhr, 0.5ur, 0.5ulr 1.0k, 1.0hk, 1.0lk, 1.0uhk, 1.0uk, 1.0ulk Exponents 1.0e10k Hexadecimal numbers 0x0.2p2r",
+    "signatures": [
+      "Matcher<Stmt> fixedPointLiteral(Matcher<FixedPointLiteral>...)"
+    ]
+  },
+  {
+    "name": "floatLiteral",
+    "category": "node",
+    "summary": "Matches float literals of all sizes / encodings, e.g. 1.0, 1.0f, 1.0L and 1e10.",
+    "signatures": [
+      "Matcher<Stmt> floatLiteral(Matcher<FloatingLiteral>...)"
+    ]
+  },
+  {
+    "name": "forCallable",
+    "category": "traversal",
+    "summary": "Matches declaration of the function, method, or block the statement belongs to.",
+    "signatures": [
+      "Matcher<Stmt> forCallable(Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forDecomposition",
+    "category": "traversal",
+    "summary": "Matches the DecompositionDecl the binding belongs to.",
+    "signatures": [
+      "Matcher<BindingDecl> forDecomposition(Matcher<ValueDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forEach",
+    "category": "traversal",
+    "summary": "Matches AST nodes that have child AST nodes that match the provided matcher.",
+    "signatures": [
+      "Matcher<*> forEach(Matcher<*>)"
+    ]
+  },
+  {
+    "name": "forEachArgumentWithParam",
+    "category": "traversal",
+    "summary": "Matches all arguments and their respective ParmVarDecl.",
+    "signatures": [
+      "Matcher<CXXConstructExpr> forEachArgumentWithParam(Matcher<Expr> ArgMatcher, Matcher<ParmVarDecl> ParamMatcher)",
+      "Matcher<CallExpr> forEachArgumentWithParam(Matcher<Expr> ArgMatcher, Matcher<ParmVarDecl> ParamMatcher)"
+    ]
+  },
+  {
+    "name": "forEachArgumentWithParamType",
+    "category": "traversal",
+    "summary": "Matches all arguments and their respective types for a CallExpr or CXXConstructExpr. It is very similar to forEachArgumentWithParam but it works on calls through function pointers as well.",
+    "signatures": [
+      "Matcher<CXXConstructExpr> forEachArgumentWithParamType(Matcher<Expr> ArgMatcher, Matcher<QualType> ParamMatcher)",
+      "Matcher<CallExpr> forEachArgumentWithParamType(Matcher<Expr> ArgMatcher, Matcher<QualType> ParamMatcher)"
+    ]
+  },
+  {
+    "name": "forEachConstructorInitializer",
+    "category": "traversal",
+    "summary": "Matches each constructor initializer in a constructor definition.",
+    "signatures": [
+      "Matcher<CXXConstructorDecl> forEachConstructorInitializer(Matcher<CXXCtorInitializer> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forEachDescendant",
+    "category": "traversal",
+    "summary": "Matches AST nodes that have descendant AST nodes that match the provided matcher.",
+    "signatures": [
+      "Matcher<*> forEachDescendant(Matcher<*>)"
+    ]
+  },
+  {
+    "name": "forEachLambdaCapture",
+    "category": "traversal",
+    "summary": "Matches each lambda capture in a lambda expression.",
+    "signatures": [
+      "Matcher<LambdaExpr> forEachLambdaCapture(Matcher<LambdaCapture> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forEachOverridden",
+    "category": "traversal",
+    "summary": "Matches each method overridden by the given method. This matcher may produce multiple matches.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> forEachOverridden(Matcher<CXXMethodDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forEachSwitchCase",
+    "category": "traversal",
+    "summary": "Matches each case or default statement belonging to the given switch statement. This matcher may produce multiple matches.",
+    "signatures": [
+      "Matcher<SwitchStmt> forEachSwitchCase(Matcher<SwitchCase> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forEachTemplateArgument",
+    "category": "traversal",
+    "summary": "Matches templateSpecializationType, class template specialization, variable template specialization, and function template specialization nodes where the template argument matches the inner matcher. This matcher may produce multiple matches.",
+    "signatures": [
+      "Matcher<ClassTemplateSpecializationDecl> forEachTemplateArgument(Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<FunctionDecl> forEachTemplateArgument(Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<TemplateSpecializationType> forEachTemplateArgument(Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<VarTemplateSpecializationDecl> forEachTemplateArgument(Matcher<TemplateArgument> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forField",
+    "category": "traversal",
+    "summary": "Matches the field declaration of a constructor initializer.",
+    "signatures": [
+      "Matcher<CXXCtorInitializer> forField(Matcher<FieldDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forFunction",
+    "category": "traversal",
+    "summary": "Matches declaration of the function the statement belongs to.",
+    "signatures": [
+      "Matcher<Stmt> forFunction(Matcher<FunctionDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "forStmt",
+    "category": "node",
+    "summary": "Matches for statements.",
+    "signatures": [
+      "Matcher<Stmt> forStmt(Matcher<ForStmt>...)"
+    ]
+  },
+  {
+    "name": "friendDecl",
+    "category": "node",
+    "summary": "Matches friend declarations.",
+    "signatures": [
+      "Matcher<Decl> friendDecl(Matcher<FriendDecl>...)"
+    ]
+  },
+  {
+    "name": "functionDecl",
+    "category": "node",
+    "summary": "Matches function declarations.",
+    "signatures": [
+      "Matcher<Decl> functionDecl(Matcher<FunctionDecl>...)"
+    ]
+  },
+  {
+    "name": "functionProtoType",
+    "category": "node",
+    "summary": "Matches FunctionProtoType nodes.",
+    "signatures": [
+      "Matcher<Type> functionProtoType(Matcher<FunctionProtoType>...)"
+    ]
+  },
+  {
+    "name": "functionTemplateDecl",
+    "category": "node",
+    "summary": "Matches C++ function template declarations.",
+    "signatures": [
+      "Matcher<Decl> functionTemplateDecl(Matcher<FunctionTemplateDecl>...)"
+    ]
+  },
+  {
+    "name": "functionType",
+    "category": "node",
+    "summary": "Matches FunctionType nodes.",
+    "signatures": [
+      "Matcher<Type> functionType(Matcher<FunctionType>...)"
+    ]
+  },
+  {
+    "name": "genericSelectionExpr",
+    "category": "node",
+    "summary": "Matches C11 _Generic expression.",
+    "signatures": [
+      "Matcher<Stmt> genericSelectionExpr(Matcher<GenericSelectionExpr>...)"
+    ]
+  },
+  {
+    "name": "gnuNullExpr",
+    "category": "node",
+    "summary": "Matches GNU __null expression.",
+    "signatures": [
+      "Matcher<Stmt> gnuNullExpr(Matcher<GNUNullExpr>...)"
+    ]
+  },
+  {
+    "name": "gotoStmt",
+    "category": "node",
+    "summary": "Matches goto statements.",
+    "signatures": [
+      "Matcher<Stmt> gotoStmt(Matcher<GotoStmt>...)"
+    ]
+  },
+  {
+    "name": "has",
+    "category": "traversal",
+    "summary": "Matches AST nodes that have child AST nodes that match the provided matcher.",
+    "signatures": [
+      "Matcher<*> has(Matcher<*>)"
+    ]
+  },
+  {
+    "name": "hasAncestor",
+    "category": "traversal",
+    "summary": "Matches AST nodes that have an ancestor that matches the provided matcher.",
+    "signatures": [
+      "Matcher<*> hasAncestor(Matcher<*>)"
+    ]
+  },
+  {
+    "name": "hasAnyArgument",
+    "category": "traversal",
+    "summary": "Matches any argument of a call expression or a constructor call expression, or an ObjC-message-send expression.",
+    "signatures": [
+      "Matcher<CXXConstructExpr> hasAnyArgument(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXUnresolvedConstructExpr> hasAnyArgument(Matcher<Expr> InnerMatcher)",
+      "Matcher<CallExpr> hasAnyArgument(Matcher<Expr> InnerMatcher)",
+      "Matcher<ObjCMessageExpr> hasAnyArgument(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyBase",
+    "category": "traversal",
+    "summary": "Matches C++ classes that have a direct or indirect base matching BaseSpecMatcher.",
+    "signatures": [
+      "Matcher<CXXRecordDecl> hasAnyBase(Matcher<CXXBaseSpecifier> BaseSpecMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyBinding",
+    "category": "traversal",
+    "summary": "Matches any binding of a DecompositionDecl.",
+    "signatures": [
+      "Matcher<DecompositionDecl> hasAnyBinding(Matcher<BindingDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyBody",
+    "category": "traversal",
+    "summary": "Matches a function declaration that has a given body present in the AST. Note that this matcher matches all the declarations of a function whose body is present in the AST.",
+    "signatures": [
+      "Matcher<FunctionDecl> hasAnyBody(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyCapture",
+    "category": "traversal",
+    "summary": "Matches any capture in a lambda expression.",
+    "signatures": [
+      "Matcher<LambdaExpr> hasAnyCapture(Matcher<LambdaCapture> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyClause",
+    "category": "traversal",
+    "summary": "Matches any clause in an OpenMP directive.",
+    "signatures": [
+      "Matcher<OMPExecutableDirective> hasAnyClause(Matcher<OMPClause> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyConstructorInitializer",
+    "category": "traversal",
+    "summary": "Matches a constructor initializer.",
+    "signatures": [
+      "Matcher<CXXConstructorDecl> hasAnyConstructorInitializer(Matcher<CXXCtorInitializer> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyDeclaration",
+    "category": "traversal",
+    "summary": "Matches an OverloadExpr if any of the declarations in the set of overloads matches the given matcher.",
+    "signatures": [
+      "Matcher<OverloadExpr> hasAnyDeclaration(Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyName",
+    "category": "narrowing",
+    "summary": "Matches NamedDecl nodes that have any of the specified names.",
+    "signatures": [
+      "Matcher<NamedDecl> hasAnyName(StringRef, ..., StringRef)"
+    ]
+  },
+  {
+    "name": "hasAnyOperatorName",
+    "category": "narrowing",
+    "summary": "Matches operator expressions (binary or unary) that have any of the specified names.",
+    "signatures": [
+      "Matcher<BinaryOperator> hasAnyOperatorName(StringRef, ..., StringRef)",
+      "Matcher<CXXOperatorCallExpr> hasAnyOperatorName(StringRef, ..., StringRef)",
+      "Matcher<CXXRewrittenBinaryOperator> hasAnyOperatorName(StringRef, ..., StringRef)",
+      "Matcher<UnaryOperator> hasAnyOperatorName(StringRef, ..., StringRef)"
+    ]
+  },
+  {
+    "name": "hasAnyOverloadedOperatorName",
+    "category": "narrowing",
+    "summary": "Matches overloaded operator names.",
+    "signatures": [
+      "Matcher<CXXOperatorCallExpr> hasAnyOverloadedOperatorName(StringRef, ..., StringRef)",
+      "Matcher<FunctionDecl> hasAnyOverloadedOperatorName(StringRef, ..., StringRef)"
+    ]
+  },
+  {
+    "name": "hasAnyParameter",
+    "category": "traversal",
+    "summary": "Matches any parameter of a function or an ObjC method declaration or a block.",
+    "signatures": [
+      "Matcher<BlockDecl> hasAnyParameter(Matcher<ParmVarDecl> InnerMatcher)",
+      "Matcher<FunctionDecl> hasAnyParameter(Matcher<ParmVarDecl> InnerMatcher)",
+      "Matcher<ObjCMethodDecl> hasAnyParameter(Matcher<ParmVarDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyPlacementArg",
+    "category": "traversal",
+    "summary": "Matches any placement new expression arguments.",
+    "signatures": [
+      "Matcher<CXXNewExpr> hasAnyPlacementArg(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnySelector",
+    "category": "narrowing",
+    "summary": "Matches when at least one of the supplied string equals to the Selector.getAsString()",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> hasAnySelector(StringRef, ..., StringRef)"
+    ]
+  },
+  {
+    "name": "hasAnySubstatement",
+    "category": "traversal",
+    "summary": "Matches compound statements where at least one substatement matches a given matcher. Also matches StmtExprs that have CompoundStmt as children.",
+    "signatures": [
+      "Matcher<CompoundStmt> hasAnySubstatement(Matcher<Stmt> InnerMatcher)",
+      "Matcher<StmtExpr> hasAnySubstatement(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyTemplateArgument",
+    "category": "traversal",
+    "summary": "Matches templateSpecializationTypes, class template specializations, variable template specializations, and function template specializations that have at least one TemplateArgument matching the given InnerMatcher.",
+    "signatures": [
+      "Matcher<ClassTemplateSpecializationDecl> hasAnyTemplateArgument(Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<FunctionDecl> hasAnyTemplateArgument(Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<TemplateSpecializationType> hasAnyTemplateArgument(Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<VarTemplateSpecializationDecl> hasAnyTemplateArgument(Matcher<TemplateArgument> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyTemplateArgumentLoc",
+    "category": "traversal",
+    "summary": "Matches template specialization `TypeLoc`s, class template specializations, variable template specializations, and function template specializations that have at least one `TemplateArgumentLoc` matching the given `InnerMatcher`.",
+    "signatures": [
+      "Matcher<ClassTemplateSpecializationDecl> hasAnyTemplateArgumentLoc(Matcher<TemplateArgumentLoc> InnerMatcher)",
+      "Matcher<DeclRefExpr> hasAnyTemplateArgumentLoc(Matcher<TemplateArgumentLoc> InnerMatcher)",
+      "Matcher<FunctionDecl> hasAnyTemplateArgumentLoc(Matcher<TemplateArgumentLoc> InnerMatcher)",
+      "Matcher<TemplateSpecializationTypeLoc> hasAnyTemplateArgumentLoc(Matcher<TemplateArgumentLoc> InnerMatcher)",
+      "Matcher<VarTemplateSpecializationDecl> hasAnyTemplateArgumentLoc(Matcher<TemplateArgumentLoc> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAnyUsingShadowDecl",
+    "category": "traversal",
+    "summary": "Matches any using shadow declaration.",
+    "signatures": [
+      "Matcher<BaseUsingDecl> hasAnyUsingShadowDecl(Matcher<UsingShadowDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasArgument",
+    "category": "traversal",
+    "summary": "Matches the n'th argument of a call expression or a constructor call expression.",
+    "signatures": [
+      "Matcher<CXXConstructExpr> hasArgument(unsigned N, Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXUnresolvedConstructExpr> hasArgument(unsigned N, Matcher<Expr> InnerMatcher)",
+      "Matcher<CallExpr> hasArgument(unsigned N, Matcher<Expr> InnerMatcher)",
+      "Matcher<ObjCMessageExpr> hasArgument(unsigned N, Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasArgumentOfType",
+    "category": "traversal",
+    "summary": "Matches unary expressions that have a specific type of argument.",
+    "signatures": [
+      "Matcher<UnaryExprOrTypeTraitExpr> hasArgumentOfType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasArraySize",
+    "category": "traversal",
+    "summary": "Matches array new expressions with a given array size.",
+    "signatures": [
+      "Matcher<CXXNewExpr> hasArraySize(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasAttr",
+    "category": "narrowing",
+    "summary": "Matches declaration that has a given attribute.",
+    "signatures": [
+      "Matcher<Decl> hasAttr(attr::Kind AttrKind)"
+    ]
+  },
+  {
+    "name": "hasAutomaticStorageDuration",
+    "category": "narrowing",
+    "summary": "Matches a variable declaration that has automatic storage duration.",
+    "signatures": [
+      "Matcher<VarDecl> hasAutomaticStorageDuration()"
+    ]
+  },
+  {
+    "name": "hasBase",
+    "category": "traversal",
+    "summary": "Matches the base expression of an array subscript expression.",
+    "signatures": [
+      "Matcher<ArraySubscriptExpr> hasBase(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasBinding",
+    "category": "traversal",
+    "summary": "Matches the Nth binding of a DecompositionDecl.",
+    "signatures": [
+      "Matcher<DecompositionDecl> hasBinding(unsigned N, Matcher<BindingDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasBitWidth",
+    "category": "narrowing",
+    "summary": "Matches non-static data members that are bit-fields of the specified bit width.",
+    "signatures": [
+      "Matcher<FieldDecl> hasBitWidth(unsigned Width)"
+    ]
+  },
+  {
+    "name": "hasBody",
+    "category": "traversal",
+    "summary": "Matches a 'for', 'while', 'while' statement or a function or coroutine definition that has a given body. Note that in case of functions or coroutines this matcher only matches the definition itself and not the other declarations of the same function or coroutine.",
+    "signatures": [
+      "Matcher<CXXForRangeStmt> hasBody(Matcher<Stmt> InnerMatcher)",
+      "Matcher<CoroutineBodyStmt> hasBody(Matcher<Stmt> InnerMatcher)",
+      "Matcher<DoStmt> hasBody(Matcher<Stmt> InnerMatcher)",
+      "Matcher<ForStmt> hasBody(Matcher<Stmt> InnerMatcher)",
+      "Matcher<FunctionDecl> hasBody(Matcher<Stmt> InnerMatcher)",
+      "Matcher<WhileStmt> hasBody(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasCanonicalType",
+    "category": "traversal",
+    "summary": "Matches QualTypes whose canonical type matches InnerMatcher.",
+    "signatures": [
+      "Matcher<QualType> hasCanonicalType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasCaseConstant",
+    "category": "traversal",
+    "summary": "If the given case statement does not use the GNU case range extension, matches the constant given in the statement.",
+    "signatures": [
+      "Matcher<CaseStmt> hasCaseConstant(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasCastKind",
+    "category": "narrowing",
+    "summary": "Matches casts that has a given cast kind.",
+    "signatures": [
+      "Matcher<CastExpr> hasCastKind(CastKind Kind)"
+    ]
+  },
+  {
+    "name": "hasCondition",
+    "category": "traversal",
+    "summary": "Matches the condition expression of an if statement, for loop, while loop, do-while loop, switch statement or conditional operator.",
+    "signatures": [
+      "Matcher<AbstractConditionalOperator> hasCondition(Matcher<Expr> InnerMatcher)",
+      "Matcher<DoStmt> hasCondition(Matcher<Expr> InnerMatcher)",
+      "Matcher<ForStmt> hasCondition(Matcher<Expr> InnerMatcher)",
+      "Matcher<IfStmt> hasCondition(Matcher<Expr> InnerMatcher)",
+      "Matcher<SwitchStmt> hasCondition(Matcher<Expr> InnerMatcher)",
+      "Matcher<WhileStmt> hasCondition(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasConditionVariableStatement",
+    "category": "traversal",
+    "summary": "Matches the condition variable statement in an if statement, for loop, while loop or switch statement.",
+    "signatures": [
+      "Matcher<ForStmt> hasConditionVariableStatement(Matcher<DeclStmt> InnerMatcher)",
+      "Matcher<IfStmt> hasConditionVariableStatement(Matcher<DeclStmt> InnerMatcher)",
+      "Matcher<SwitchStmt> hasConditionVariableStatement(Matcher<DeclStmt> InnerMatcher)",
+      "Matcher<WhileStmt> hasConditionVariableStatement(Matcher<DeclStmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasDecayedType",
+    "category": "traversal",
+    "summary": "Matches the decayed type, whose decayed type matches InnerMatcher",
+    "signatures": [
+      "Matcher<DecayedType> hasDecayedType(Matcher<QualType> InnerType)"
+    ]
+  },
+  {
+    "name": "hasDeclContext",
+    "category": "traversal",
+    "summary": "Matches declarations whose declaration context, interpreted as a Decl, matches InnerMatcher.",
+    "signatures": [
+      "Matcher<Decl> hasDeclContext(Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasDeclaration",
+    "category": "traversal",
+    "summary": "Matches a node if the declaration associated with that node matches the given matcher.",
+    "signatures": [
+      "Matcher<AddrLabelExpr> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<CXXConstructExpr> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<CXXNewExpr> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<CallExpr> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<DeclRefExpr> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<EnumType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<InjectedClassNameType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<LabelStmt> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<MemberExpr> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<QualType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<RecordType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<TagType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<TemplateSpecializationType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<TemplateTypeParmType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<TypedefType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<UnresolvedUsingType> hasDeclaration(Matcher<Decl> InnerMatcher)",
+      "Matcher<UsingType> hasDeclaration(Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasDeducedType",
+    "category": "traversal",
+    "summary": "Matches AutoType nodes where the deduced type is a specific type.",
+    "signatures": [
+      "Matcher<AutoType> hasDeducedType(Matcher<Type>)"
+    ]
+  },
+  {
+    "name": "hasDefaultArgument",
+    "category": "narrowing",
+    "summary": "Matches a declaration that has default arguments.",
+    "signatures": [
+      "Matcher<ParmVarDecl> hasDefaultArgument()"
+    ]
+  },
+  {
+    "name": "hasDefinition",
+    "category": "narrowing",
+    "summary": "Matches a class declaration that is defined.",
+    "signatures": [
+      "Matcher<CXXRecordDecl> hasDefinition()"
+    ]
+  },
+  {
+    "name": "hasDependentName",
+    "category": "narrowing",
+    "summary": "Matches the dependent name of a DependentScopeDeclRefExpr or DependentNameType",
+    "signatures": [
+      "Matcher<DependentNameType> hasDependentName(std::string N)",
+      "Matcher<DependentScopeDeclRefExpr> hasDependentName(std::string N)"
+    ]
+  },
+  {
+    "name": "hasDescendant",
+    "category": "traversal",
+    "summary": "Matches AST nodes that have descendant AST nodes that match the provided matcher.",
+    "signatures": [
+      "Matcher<*> hasDescendant(Matcher<*>)"
+    ]
+  },
+  {
+    "name": "hasDestinationType",
+    "category": "traversal",
+    "summary": "Matches casts whose destination type matches a given matcher.",
+    "signatures": [
+      "Matcher<ExplicitCastExpr> hasDestinationType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasDirectBase",
+    "category": "traversal",
+    "summary": "Matches C++ classes that have a direct base matching BaseSpecMatcher.",
+    "signatures": [
+      "Matcher<CXXRecordDecl> hasDirectBase(Matcher<CXXBaseSpecifier> BaseSpecMatcher)"
+    ]
+  },
+  {
+    "name": "hasDynamicExceptionSpec",
+    "category": "narrowing",
+    "summary": "Matches functions that have a dynamic exception specification.",
+    "signatures": [
+      "Matcher<FunctionDecl> hasDynamicExceptionSpec()",
+      "Matcher<FunctionProtoType> hasDynamicExceptionSpec()"
+    ]
+  },
+  {
+    "name": "hasEitherOperand",
+    "category": "traversal",
+    "summary": "Matches if either the left hand side or the right hand side of a binary operator or fold expression matches.",
+    "signatures": [
+      "Matcher<BinaryOperator> hasEitherOperand(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXFoldExpr> hasEitherOperand(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXOperatorCallExpr> hasEitherOperand(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXRewrittenBinaryOperator> hasEitherOperand(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasElementType",
+    "category": "traversal",
+    "summary": "Matches arrays and C99 complex types that have a specific element type.",
+    "signatures": [
+      "Matcher<ArrayType> hasElementType(Matcher<Type>)",
+      "Matcher<ComplexType> hasElementType(Matcher<Type>)"
+    ]
+  },
+  {
+    "name": "hasElse",
+    "category": "traversal",
+    "summary": "Matches the else-statement of an if statement.",
+    "signatures": [
+      "Matcher<IfStmt> hasElse(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasExplicitSpecifier",
+    "category": "traversal",
+    "summary": "Matches the expression in an explicit specifier if present in the given declaration.",
+    "signatures": [
+      "Matcher<FunctionDecl> hasExplicitSpecifier(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasExternalFormalLinkage",
+    "category": "narrowing",
+    "summary": "Matches a declaration that has external formal linkage.",
+    "signatures": [
+      "Matcher<NamedDecl> hasExternalFormalLinkage()"
+    ]
+  },
+  {
+    "name": "hasFalseExpression",
+    "category": "traversal",
+    "summary": "Matches the false branch expression of a conditional operator (binary or ternary).",
+    "signatures": [
+      "Matcher<AbstractConditionalOperator> hasFalseExpression(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasFoldInit",
+    "category": "traversal",
+    "summary": "Matches the operand that does not contain the parameter pack.",
+    "signatures": [
+      "Matcher<CXXFoldExpr> hasFoldInit(Matcher<Expr> InnerMacher)"
+    ]
+  },
+  {
+    "name": "hasGlobalStorage",
+    "category": "narrowing",
+    "summary": "Matches a variable declaration that does not have local storage.",
+    "signatures": [
+      "Matcher<VarDecl> hasGlobalStorage()"
+    ]
+  },
+  {
+    "name": "hasImplicitDestinationType",
+    "category": "traversal",
+    "summary": "Matches implicit casts whose destination type matches a given matcher.",
+    "signatures": [
+      "Matcher<ImplicitCastExpr> hasImplicitDestinationType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasInClassInitializer",
+    "category": "traversal",
+    "summary": "Matches non-static data members that have an in-class initializer.",
+    "signatures": [
+      "Matcher<FieldDecl> hasInClassInitializer(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasIncrement",
+    "category": "traversal",
+    "summary": "Matches the increment statement of a for loop.",
+    "signatures": [
+      "Matcher<ForStmt> hasIncrement(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasIndex",
+    "category": "traversal",
+    "summary": "Matches the index expression of an array subscript expression.",
+    "signatures": [
+      "Matcher<ArraySubscriptExpr> hasIndex(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasInit",
+    "category": "traversal",
+    "summary": "Matches the n'th item of an initializer list expression.",
+    "signatures": [
+      "Matcher<InitListExpr> hasInit(unsigned N, Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasInitStatement",
+    "category": "traversal",
+    "summary": "Matches selection statements with initializer.",
+    "signatures": [
+      "Matcher<CXXForRangeStmt> hasInitStatement(Matcher<Stmt> InnerMatcher)",
+      "Matcher<IfStmt> hasInitStatement(Matcher<Stmt> InnerMatcher)",
+      "Matcher<SwitchStmt> hasInitStatement(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasInitializer",
+    "category": "traversal",
+    "summary": "Matches a variable declaration that has an initializer expression that matches the given matcher.",
+    "signatures": [
+      "Matcher<VarDecl> hasInitializer(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasKeywordSelector",
+    "category": "narrowing",
+    "summary": "Matches when the selector is a keyword selector",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> hasKeywordSelector()"
+    ]
+  },
+  {
+    "name": "hasLHS",
+    "category": "traversal",
+    "summary": "Matches the left hand side of binary operator expressions.",
+    "signatures": [
+      "Matcher<ArraySubscriptExpr> hasLHS(Matcher<Expr> InnerMatcher)",
+      "Matcher<BinaryOperator> hasLHS(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXFoldExpr> hasLHS(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXOperatorCallExpr> hasLHS(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXRewrittenBinaryOperator> hasLHS(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasLocalQualifiers",
+    "category": "narrowing",
+    "summary": "Matches QualType nodes that have local CV-qualifiers attached to the node, not hidden within a typedef.",
+    "signatures": [
+      "Matcher<QualType> hasLocalQualifiers()"
+    ]
+  },
+  {
+    "name": "hasLocalStorage",
+    "category": "narrowing",
+    "summary": "Matches a variable declaration that has function scope and is a non-static local variable.",
+    "signatures": [
+      "Matcher<VarDecl> hasLocalStorage()"
+    ]
+  },
+  {
+    "name": "hasLoopInit",
+    "category": "traversal",
+    "summary": "Matches the initialization statement of a for loop.",
+    "signatures": [
+      "Matcher<ForStmt> hasLoopInit(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasLoopVariable",
+    "category": "traversal",
+    "summary": "Matches the initialization statement of a for loop.",
+    "signatures": [
+      "Matcher<CXXForRangeStmt> hasLoopVariable(Matcher<VarDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasMemberName",
+    "category": "narrowing",
+    "summary": "Matches template-dependent, but known, member names.",
+    "signatures": [
+      "Matcher<CXXDependentScopeMemberExpr> hasMemberName(std::string N)"
+    ]
+  },
+  {
+    "name": "hasMethod",
+    "category": "traversal",
+    "summary": "Matches the first method of a class or struct that satisfies InnerMatcher.",
+    "signatures": [
+      "Matcher<CXXRecordDecl> hasMethod(Matcher<CXXMethodDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasName",
+    "category": "narrowing",
+    "summary": "Matches NamedDecl nodes that have the specified name.",
+    "signatures": [
+      "Matcher<NamedDecl> hasName(StringRef Name)"
+    ]
+  },
+  {
+    "name": "hasNullSelector",
+    "category": "narrowing",
+    "summary": "Matches when the selector is the empty selector",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> hasNullSelector()"
+    ]
+  },
+  {
+    "name": "hasObjectExpression",
+    "category": "traversal",
+    "summary": "Matches a member expression where the object expression is matched by a given matcher. Implicit object expressions are included; that is, it matches use of implicit `this`.",
+    "signatures": [
+      "Matcher<CXXDependentScopeMemberExpr> hasObjectExpression(Matcher<Expr> InnerMatcher)",
+      "Matcher<MemberExpr> hasObjectExpression(Matcher<Expr> InnerMatcher)",
+      "Matcher<UnresolvedMemberExpr> hasObjectExpression(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasOperands",
+    "category": "traversal",
+    "summary": "Matches if both matchers match with opposite sides of the binary operator or fold expression.",
+    "signatures": [
+      "Matcher<BinaryOperator> hasOperands(Matcher<Expr> Matcher1, Matcher<Expr> Matcher2)",
+      "Matcher<CXXFoldExpr> hasOperands(Matcher<Expr> Matcher1, Matcher<Expr> Matcher2)",
+      "Matcher<CXXOperatorCallExpr> hasOperands(Matcher<Expr> Matcher1, Matcher<Expr> Matcher2)",
+      "Matcher<CXXRewrittenBinaryOperator> hasOperands(Matcher<Expr> Matcher1, Matcher<Expr> Matcher2)"
+    ]
+  },
+  {
+    "name": "hasOperatorName",
+    "category": "narrowing",
+    "summary": "Matches the operator Name of operator expressions and fold expressions (binary or unary).",
+    "signatures": [
+      "Matcher<BinaryOperator> hasOperatorName(std::string Name)",
+      "Matcher<CXXFoldExpr> hasOperatorName(std::string Name)",
+      "Matcher<CXXOperatorCallExpr> hasOperatorName(std::string Name)",
+      "Matcher<CXXRewrittenBinaryOperator> hasOperatorName(std::string Name)",
+      "Matcher<UnaryOperator> hasOperatorName(std::string Name)"
+    ]
+  },
+  {
+    "name": "hasOverloadedOperatorName",
+    "category": "narrowing",
+    "summary": "Matches overloaded operator names.",
+    "signatures": [
+      "Matcher<CXXOperatorCallExpr> hasOverloadedOperatorName(StringRef Name)",
+      "Matcher<FunctionDecl> hasOverloadedOperatorName(StringRef Name)"
+    ]
+  },
+  {
+    "name": "hasParameter",
+    "category": "traversal",
+    "summary": "Matches the n'th parameter of a function or an ObjC method declaration or a block.",
+    "signatures": [
+      "Matcher<BlockDecl> hasParameter(unsigned N, Matcher<ParmVarDecl> InnerMatcher)",
+      "Matcher<FunctionDecl> hasParameter(unsigned N, Matcher<ParmVarDecl> InnerMatcher)",
+      "Matcher<ObjCMethodDecl> hasParameter(unsigned N, Matcher<ParmVarDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasParent",
+    "category": "traversal",
+    "summary": "Matches AST nodes that have a parent that matches the provided matcher.",
+    "signatures": [
+      "Matcher<*> hasParent(Matcher<*>)"
+    ]
+  },
+  {
+    "name": "hasPattern",
+    "category": "traversal",
+    "summary": "Matches the operand that contains the parameter pack.",
+    "signatures": [
+      "Matcher<CXXFoldExpr> hasPattern(Matcher<Expr> InnerMacher)"
+    ]
+  },
+  {
+    "name": "hasPlacementArg",
+    "category": "traversal",
+    "summary": "Matches placement new expression arguments.",
+    "signatures": [
+      "Matcher<CXXNewExpr> hasPlacementArg(unsigned Index, Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasPointeeLoc",
+    "category": "traversal",
+    "summary": "Matches pointer `TypeLoc`s that have a pointee `TypeLoc` matching `PointeeMatcher`.",
+    "signatures": [
+      "Matcher<PointerTypeLoc> hasPointeeLoc(Matcher<TypeLoc> PointeeMatcher)"
+    ]
+  },
+  {
+    "name": "hasPrefix",
+    "category": "traversal",
+    "summary": "Matches on the prefix of a NestedNameSpecifierLoc.",
+    "signatures": [
+      "Matcher<NestedNameSpecifierLoc> hasPrefix(Matcher<NestedNameSpecifierLoc> InnerMatcher)",
+      "Matcher<NestedNameSpecifier> hasPrefix(Matcher<NestedNameSpecifier> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasQualifier",
+    "category": "traversal",
+    "summary": "Matches Types whose qualifier, a NestedNameSpecifier, matches InnerMatcher if the qualifier exists.",
+    "signatures": [
+      "Matcher<Type> hasQualifier(Matcher<NestedNameSpecifier> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasRHS",
+    "category": "traversal",
+    "summary": "Matches the right hand side of binary operator expressions.",
+    "signatures": [
+      "Matcher<ArraySubscriptExpr> hasRHS(Matcher<Expr> InnerMatcher)",
+      "Matcher<BinaryOperator> hasRHS(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXFoldExpr> hasRHS(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXOperatorCallExpr> hasRHS(Matcher<Expr> InnerMatcher)",
+      "Matcher<CXXRewrittenBinaryOperator> hasRHS(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasRangeInit",
+    "category": "traversal",
+    "summary": "Matches the range initialization statement of a for loop.",
+    "signatures": [
+      "Matcher<CXXForRangeStmt> hasRangeInit(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasReceiver",
+    "category": "traversal",
+    "summary": "Matches if the Objective-C message is sent to an instance, and the inner matcher matches on that instance.",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> hasReceiver(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasReceiverType",
+    "category": "traversal",
+    "summary": "Matches on the receiver of an ObjectiveC Message expression.",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> hasReceiverType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasReferentLoc",
+    "category": "traversal",
+    "summary": "Matches reference `TypeLoc`s that have a referent `TypeLoc` matching `ReferentMatcher`.",
+    "signatures": [
+      "Matcher<ReferenceTypeLoc> hasReferentLoc(Matcher<TypeLoc> ReferentMatcher)"
+    ]
+  },
+  {
+    "name": "hasReplacementType",
+    "category": "traversal",
+    "summary": "Matches template type parameter substitutions that have a replacement type that matches the provided matcher.",
+    "signatures": [
+      "Matcher<SubstTemplateTypeParmType> hasReplacementType(Matcher<Type>)"
+    ]
+  },
+  {
+    "name": "hasReturnTypeLoc",
+    "category": "traversal",
+    "summary": "Matches a function declared with the specified return `TypeLoc`.",
+    "signatures": [
+      "Matcher<FunctionDecl> hasReturnTypeLoc(Matcher<TypeLoc> ReturnMatcher)"
+    ]
+  },
+  {
+    "name": "hasReturnValue",
+    "category": "traversal",
+    "summary": "Matches the return value expression of a return statement",
+    "signatures": [
+      "Matcher<ReturnStmt> hasReturnValue(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasSelector",
+    "category": "narrowing",
+    "summary": "Matches when BaseName == Selector.getAsString()",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> hasSelector(std::string BaseName)"
+    ]
+  },
+  {
+    "name": "hasSingleDecl",
+    "category": "traversal",
+    "summary": "Matches the Decl of a DeclStmt which has a single declaration.",
+    "signatures": [
+      "Matcher<DeclStmt> hasSingleDecl(Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasSize",
+    "category": "narrowing",
+    "summary": "Matches nodes that have the specified size.",
+    "signatures": [
+      "Matcher<ConstantArrayType> hasSize(unsigned N)",
+      "Matcher<StringLiteral> hasSize(unsigned N)"
+    ]
+  },
+  {
+    "name": "hasSizeExpr",
+    "category": "traversal",
+    "summary": "Matches VariableArrayType nodes that have a specific size expression.",
+    "signatures": [
+      "Matcher<VariableArrayType> hasSizeExpr(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasSourceExpression",
+    "category": "traversal",
+    "summary": "Matches if the cast's source expression or opaque value's source expression matches the given matcher.",
+    "signatures": [
+      "Matcher<CastExpr> hasSourceExpression(Matcher<Expr> InnerMatcher)",
+      "Matcher<OpaqueValueExpr> hasSourceExpression(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasSpecializedTemplate",
+    "category": "traversal",
+    "summary": "Matches the specialized template of a specialization declaration.",
+    "signatures": [
+      "Matcher<ClassTemplateSpecializationDecl> hasSpecializedTemplate(Matcher<ClassTemplateDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasStaticStorageDuration",
+    "category": "narrowing",
+    "summary": "Matches a variable declaration that has static storage duration. It includes the variable declared at namespace scope and those declared with \"static\" and \"extern\" storage class specifiers.",
+    "signatures": [
+      "Matcher<VarDecl> hasStaticStorageDuration()"
+    ]
+  },
+  {
+    "name": "hasStructuredBlock",
+    "category": "traversal",
+    "summary": "Matches the structured-block of the OpenMP executable directive",
+    "signatures": [
+      "Matcher<OMPExecutableDirective> hasStructuredBlock(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasSyntacticForm",
+    "category": "traversal",
+    "summary": "Matches the syntactic form of init list expressions (if expression have it).",
+    "signatures": [
+      "Matcher<InitListExpr> hasSyntacticForm(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasTargetDecl",
+    "category": "traversal",
+    "summary": "Matches a using shadow declaration where the target declaration is matched by the given matcher.",
+    "signatures": [
+      "Matcher<UsingShadowDecl> hasTargetDecl(Matcher<NamedDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasTemplateArgument",
+    "category": "traversal",
+    "summary": "Matches templateSpecializationType, class template specializations, variable template specializations, and function template specializations where the n'th TemplateArgument matches the given InnerMatcher.",
+    "signatures": [
+      "Matcher<ClassTemplateSpecializationDecl> hasTemplateArgument(unsigned N, Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<FunctionDecl> hasTemplateArgument(unsigned N, Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<TemplateSpecializationType> hasTemplateArgument(unsigned N, Matcher<TemplateArgument> InnerMatcher)",
+      "Matcher<VarTemplateSpecializationDecl> hasTemplateArgument(unsigned N, Matcher<TemplateArgument> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasTemplateArgumentLoc",
+    "category": "traversal",
+    "summary": "Matches template specialization `TypeLoc`s, class template specializations, variable template specializations, and function template specializations where the n'th `TemplateArgumentLoc` matches the given `InnerMatcher`.",
+    "signatures": [
+      "Matcher<ClassTemplateSpecializationDecl> hasTemplateArgumentLoc(unsigned Index, Matcher<TemplateArgumentLoc> InnerMatcher)",
+      "Matcher<DeclRefExpr> hasTemplateArgumentLoc(unsigned Index, Matcher<TemplateArgumentLoc> InnerMatcher)",
+      "Matcher<FunctionDecl> hasTemplateArgumentLoc(unsigned Index, Matcher<TemplateArgumentLoc> InnerMatcher)",
+      "Matcher<TemplateSpecializationTypeLoc> hasTemplateArgumentLoc(unsigned Index, Matcher<TemplateArgumentLoc> InnerMatcher)",
+      "Matcher<VarTemplateSpecializationDecl> hasTemplateArgumentLoc(unsigned Index, Matcher<TemplateArgumentLoc> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasThen",
+    "category": "traversal",
+    "summary": "Matches the then-statement of an if statement.",
+    "signatures": [
+      "Matcher<IfStmt> hasThen(Matcher<Stmt> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasThreadStorageDuration",
+    "category": "narrowing",
+    "summary": "Matches a variable declaration that has thread storage duration.",
+    "signatures": [
+      "Matcher<VarDecl> hasThreadStorageDuration()"
+    ]
+  },
+  {
+    "name": "hasTrailingReturn",
+    "category": "narrowing",
+    "summary": "Matches a function declared with a trailing return type.",
+    "signatures": [
+      "Matcher<FunctionDecl> hasTrailingReturn()"
+    ]
+  },
+  {
+    "name": "hasTrueExpression",
+    "category": "traversal",
+    "summary": "Matches the true branch expression of a conditional operator.",
+    "signatures": [
+      "Matcher<AbstractConditionalOperator> hasTrueExpression(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasType",
+    "category": "traversal",
+    "summary": "Overloaded to match the declaration of the expression's or value declaration's type.",
+    "signatures": [
+      "Matcher<CXXBaseSpecifier> hasType(Matcher<Decl> InnerMatcher)",
+      "Matcher<CXXBaseSpecifier> hasType(Matcher<QualType> InnerMatcher)",
+      "Matcher<Expr> hasType(Matcher<Decl> InnerMatcher)",
+      "Matcher<Expr> hasType(Matcher<QualType> InnerMatcher)",
+      "Matcher<FriendDecl> hasType(Matcher<Decl> InnerMatcher)",
+      "Matcher<FriendDecl> hasType(Matcher<QualType> InnerMatcher)",
+      "Matcher<ObjCInterfaceDecl> hasType(Matcher<Decl> InnerMatcher)",
+      "Matcher<TypedefNameDecl> hasType(Matcher<QualType> InnerMatcher)",
+      "Matcher<ValueDecl> hasType(Matcher<Decl> InnerMatcher)",
+      "Matcher<ValueDecl> hasType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasTypeLoc",
+    "category": "traversal",
+    "summary": "Matches if the type location of a node matches the inner matcher.",
+    "signatures": [
+      "Matcher<BlockDecl> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<CXXBaseSpecifier> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<CXXCtorInitializer> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<CXXFunctionalCastExpr> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<CXXNewExpr> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<CXXTemporaryObjectExpr> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<CXXUnresolvedConstructExpr> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<CompoundLiteralExpr> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<DeclaratorDecl> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<ExplicitCastExpr> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<ObjCPropertyDecl> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<TemplateArgumentLoc> hasTypeLoc(Matcher<TypeLoc> Inner)",
+      "Matcher<TypedefNameDecl> hasTypeLoc(Matcher<TypeLoc> Inner)"
+    ]
+  },
+  {
+    "name": "hasUnaryOperand",
+    "category": "traversal",
+    "summary": "Matches if the operand of a unary operator matches.",
+    "signatures": [
+      "Matcher<CXXOperatorCallExpr> hasUnaryOperand(Matcher<Expr> InnerMatcher)",
+      "Matcher<UnaryOperator> hasUnaryOperand(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasUnarySelector",
+    "category": "narrowing",
+    "summary": "Matches when the selector is a Unary Selector",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> hasUnarySelector()"
+    ]
+  },
+  {
+    "name": "hasUnderlyingDecl",
+    "category": "traversal",
+    "summary": "Matches a NamedDecl whose underlying declaration matches the given matcher.",
+    "signatures": [
+      "Matcher<NamedDecl> hasUnderlyingDecl(Matcher<NamedDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasUnderlyingType",
+    "category": "traversal",
+    "summary": "Matches QualType nodes to find the underlying type.",
+    "signatures": [
+      "Matcher<Type> hasUnderlyingType(Matcher<QualType> Inner)"
+    ]
+  },
+  {
+    "name": "hasUnqualifiedDesugaredType",
+    "category": "traversal",
+    "summary": "Matches if the matched type matches the unqualified desugared type of the matched node.",
+    "signatures": [
+      "Matcher<Type> hasUnqualifiedDesugaredType(Matcher<Type> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasUnqualifiedLoc",
+    "category": "traversal",
+    "summary": "Matches `QualifiedTypeLoc`s that have an unqualified `TypeLoc` matching `InnerMatcher`.",
+    "signatures": [
+      "Matcher<QualifiedTypeLoc> hasUnqualifiedLoc(Matcher<TypeLoc> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "hasValueType",
+    "category": "traversal",
+    "summary": "Matches atomic types with a specific value type.",
+    "signatures": [
+      "Matcher<AtomicType> hasValueType(Matcher<Type>)"
+    ]
+  },
+  {
+    "name": "ifStmt",
+    "category": "node",
+    "summary": "Matches if statements.",
+    "signatures": [
+      "Matcher<Stmt> ifStmt(Matcher<IfStmt>...)"
+    ]
+  },
+  {
+    "name": "ignoringElidableConstructorCall",
+    "category": "traversal",
+    "summary": "Matches expressions that match InnerMatcher that are possibly wrapped in an elidable constructor and other corresponding bookkeeping nodes.",
+    "signatures": [
+      "Matcher<Expr> ignoringElidableConstructorCall(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "ignoringImpCasts",
+    "category": "traversal",
+    "summary": "Matches expressions that match InnerMatcher after any implicit casts are stripped off.",
+    "signatures": [
+      "Matcher<Expr> ignoringImpCasts(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "ignoringImplicit",
+    "category": "traversal",
+    "summary": "Matches expressions that match InnerMatcher after any implicit AST nodes are stripped off.",
+    "signatures": [
+      "Matcher<Expr> ignoringImplicit(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "ignoringParenCasts",
+    "category": "traversal",
+    "summary": "Matches expressions that match InnerMatcher after parentheses and casts are stripped off.",
+    "signatures": [
+      "Matcher<Expr> ignoringParenCasts(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "ignoringParenImpCasts",
+    "category": "traversal",
+    "summary": "Matches expressions that match InnerMatcher after implicit casts and parentheses are stripped off.",
+    "signatures": [
+      "Matcher<Expr> ignoringParenImpCasts(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "ignoringParens",
+    "category": "traversal",
+    "summary": "Overload ignoringParens for Expr.",
+    "signatures": [
+      "Matcher<Expr> ignoringParens(Matcher<Expr> InnerMatcher)",
+      "Matcher<QualType> ignoringParens(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "imaginaryLiteral",
+    "category": "node",
+    "summary": "Matches imaginary literals, which are based on integer and floating point literals e.g.: 1i, 1.0i",
+    "signatures": [
+      "Matcher<Stmt> imaginaryLiteral(Matcher<ImaginaryLiteral>...)"
+    ]
+  },
+  {
+    "name": "implicitCastExpr",
+    "category": "node",
+    "summary": "Matches the implicit cast nodes of Clang's AST.",
+    "signatures": [
+      "Matcher<Stmt> implicitCastExpr(Matcher<ImplicitCastExpr>...)"
+    ]
+  },
+  {
+    "name": "implicitValueInitExpr",
+    "category": "node",
+    "summary": "Matches implicit initializers of init list expressions.",
+    "signatures": [
+      "Matcher<Stmt> implicitValueInitExpr(Matcher<ImplicitValueInitExpr>...)"
+    ]
+  },
+  {
+    "name": "incompleteArrayType",
+    "category": "node",
+    "summary": "Matches C arrays with unspecified size.",
+    "signatures": [
+      "Matcher<Type> incompleteArrayType(Matcher<IncompleteArrayType>...)"
+    ]
+  },
+  {
+    "name": "indirectFieldDecl",
+    "category": "node",
+    "summary": "Matches indirect field declarations.",
+    "signatures": [
+      "Matcher<Decl> indirectFieldDecl(Matcher<IndirectFieldDecl>...)"
+    ]
+  },
+  {
+    "name": "initListExpr",
+    "category": "node",
+    "summary": "Matches init list expressions.",
+    "signatures": [
+      "Matcher<Stmt> initListExpr(Matcher<InitListExpr>...)"
+    ]
+  },
+  {
+    "name": "injectedClassNameType",
+    "category": "node",
+    "summary": "Matches injected class name types.",
+    "signatures": [
+      "Matcher<Type> injectedClassNameType(Matcher<InjectedClassNameType>...)"
+    ]
+  },
+  {
+    "name": "innerType",
+    "category": "traversal",
+    "summary": "Matches ParenType nodes where the inner type is a specific type.",
+    "signatures": [
+      "Matcher<ParenType> innerType(Matcher<Type>)"
+    ]
+  },
+  {
+    "name": "integerLiteral",
+    "category": "node",
+    "summary": "Matches integer literals of all sizes / encodings, e.g. 1, 1L, 0x1 and 1U.",
+    "signatures": [
+      "Matcher<Stmt> integerLiteral(Matcher<IntegerLiteral>...)"
+    ]
+  },
+  {
+    "name": "invocation",
+    "category": "traversal",
+    "summary": "Matches function calls and constructor calls",
+    "signatures": [
+      "Matcher<*> invocation(Matcher<*>...Matcher<*>)"
+    ]
+  },
+  {
+    "name": "isAllowedToContainClauseKind",
+    "category": "narrowing",
+    "summary": "Matches if the OpenMP directive is allowed to contain the specified OpenMP clause kind.",
+    "signatures": [
+      "Matcher<OMPExecutableDirective> isAllowedToContainClauseKind(OpenMPClauseKind CKind)"
+    ]
+  },
+  {
+    "name": "isAnonymous",
+    "category": "narrowing",
+    "summary": "Matches anonymous namespace declarations.",
+    "signatures": [
+      "Matcher<NamespaceDecl> isAnonymous()"
+    ]
+  },
+  {
+    "name": "isAnyCharacter",
+    "category": "narrowing",
+    "summary": "Matches QualType nodes that are of character type.",
+    "signatures": [
+      "Matcher<QualType> isAnyCharacter()"
+    ]
+  },
+  {
+    "name": "isAnyPointer",
+    "category": "narrowing",
+    "summary": "Matches QualType nodes that are of any pointer type; this includes the Objective-C object pointer type, which is different despite being syntactically similar.",
+    "signatures": [
+      "Matcher<QualType> isAnyPointer()"
+    ]
+  },
+  {
+    "name": "isArray",
+    "category": "narrowing",
+    "summary": "Matches array new expressions.",
+    "signatures": [
+      "Matcher<CXXNewExpr> isArray()"
+    ]
+  },
+  {
+    "name": "isArrow",
+    "category": "narrowing",
+    "summary": "Matches member expressions that are called with '->' as opposed to '.'.",
+    "signatures": [
+      "Matcher<CXXDependentScopeMemberExpr> isArrow()",
+      "Matcher<MemberExpr> isArrow()",
+      "Matcher<UnresolvedMemberExpr> isArrow()"
+    ]
+  },
+  {
+    "name": "isAssignmentOperator",
+    "category": "narrowing",
+    "summary": "Matches all kinds of assignment operators.",
+    "signatures": [
+      "Matcher<BinaryOperator> isAssignmentOperator()",
+      "Matcher<CXXOperatorCallExpr> isAssignmentOperator()",
+      "Matcher<CXXRewrittenBinaryOperator> isAssignmentOperator()"
+    ]
+  },
+  {
+    "name": "isAtPosition",
+    "category": "narrowing",
+    "summary": "Matches the ParmVarDecl nodes that are at the N'th position in the parameter list. The parameter list could be that of either a block, function, or objc-method.",
+    "signatures": [
+      "Matcher<ParmVarDecl> isAtPosition(unsigned N)"
+    ]
+  },
+  {
+    "name": "isBaseInitializer",
+    "category": "narrowing",
+    "summary": "Matches a constructor initializer if it is initializing a base, as opposed to a member.",
+    "signatures": [
+      "Matcher<CXXCtorInitializer> isBaseInitializer()"
+    ]
+  },
+  {
+    "name": "isBinaryFold",
+    "category": "narrowing",
+    "summary": "Matches binary fold expressions, i.e. fold expressions with an initializer.",
+    "signatures": [
+      "Matcher<CXXFoldExpr> isBinaryFold()"
+    ]
+  },
+  {
+    "name": "isBitField",
+    "category": "narrowing",
+    "summary": "Matches non-static data members that are bit-fields.",
+    "signatures": [
+      "Matcher<FieldDecl> isBitField()"
+    ]
+  },
+  {
+    "name": "isCatchAll",
+    "category": "narrowing",
+    "summary": "Matches a C++ catch statement that has a catch-all handler.",
+    "signatures": [
+      "Matcher<CXXCatchStmt> isCatchAll()"
+    ]
+  },
+  {
+    "name": "isClass",
+    "category": "narrowing",
+    "summary": "Matches TagDecl object that are spelled with \"class.\"",
+    "signatures": [
+      "Matcher<TagDecl> isClass()"
+    ]
+  },
+  {
+    "name": "isClassMessage",
+    "category": "narrowing",
+    "summary": "Returns true when the Objective-C message is sent to a class.",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> isClassMessage()"
+    ]
+  },
+  {
+    "name": "isClassMethod",
+    "category": "narrowing",
+    "summary": "Returns true when the Objective-C method declaration is a class method.",
+    "signatures": [
+      "Matcher<ObjCMethodDecl> isClassMethod()"
+    ]
+  },
+  {
+    "name": "isComparisonOperator",
+    "category": "narrowing",
+    "summary": "Matches comparison operators.",
+    "signatures": [
+      "Matcher<BinaryOperator> isComparisonOperator()",
+      "Matcher<CXXOperatorCallExpr> isComparisonOperator()",
+      "Matcher<CXXRewrittenBinaryOperator> isComparisonOperator()"
+    ]
+  },
+  {
+    "name": "isConst",
+    "category": "narrowing",
+    "summary": "Matches if the given method declaration is const.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isConst()"
+    ]
+  },
+  {
+    "name": "isConstQualified",
+    "category": "narrowing",
+    "summary": "Matches QualType nodes that are const-qualified, i.e., that include \"top-level\" const.",
+    "signatures": [
+      "Matcher<QualType> isConstQualified()"
+    ]
+  },
+  {
+    "name": "isConsteval",
+    "category": "narrowing",
+    "summary": "Matches consteval function declarations and if consteval/if ! consteval statements.",
+    "signatures": [
+      "Matcher<FunctionDecl> isConsteval()",
+      "Matcher<IfStmt> isConsteval()"
+    ]
+  },
+  {
+    "name": "isConstexpr",
+    "category": "narrowing",
+    "summary": "Matches constexpr variable and function declarations, and if constexpr.",
+    "signatures": [
+      "Matcher<FunctionDecl> isConstexpr()",
+      "Matcher<IfStmt> isConstexpr()",
+      "Matcher<VarDecl> isConstexpr()"
+    ]
+  },
+  {
+    "name": "isConstinit",
+    "category": "narrowing",
+    "summary": "Matches constinit variable declarations.",
+    "signatures": [
+      "Matcher<VarDecl> isConstinit()"
+    ]
+  },
+  {
+    "name": "isCopyAssignmentOperator",
+    "category": "narrowing",
+    "summary": "Matches if the given method declaration declares a copy assignment operator.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isCopyAssignmentOperator()"
+    ]
+  },
+  {
+    "name": "isCopyConstructor",
+    "category": "narrowing",
+    "summary": "Matches constructor declarations that are copy constructors.",
+    "signatures": [
+      "Matcher<CXXConstructorDecl> isCopyConstructor()"
+    ]
+  },
+  {
+    "name": "isDefaultConstructor",
+    "category": "narrowing",
+    "summary": "Matches constructor declarations that are default constructors.",
+    "signatures": [
+      "Matcher<CXXConstructorDecl> isDefaultConstructor()"
+    ]
+  },
+  {
+    "name": "isDefaulted",
+    "category": "narrowing",
+    "summary": "Matches defaulted function declarations.",
+    "signatures": [
+      "Matcher<FunctionDecl> isDefaulted()"
+    ]
+  },
+  {
+    "name": "isDefinition",
+    "category": "narrowing",
+    "summary": "Matches if a declaration has a body attached.",
+    "signatures": [
+      "Matcher<FunctionDecl> isDefinition()",
+      "Matcher<ObjCMethodDecl> isDefinition()",
+      "Matcher<TagDecl> isDefinition()",
+      "Matcher<VarDecl> isDefinition()"
+    ]
+  },
+  {
+    "name": "isDelegatingConstructor",
+    "category": "narrowing",
+    "summary": "Matches constructors that delegate to another constructor.",
+    "signatures": [
+      "Matcher<CXXConstructorDecl> isDelegatingConstructor()"
+    ]
+  },
+  {
+    "name": "isDeleted",
+    "category": "narrowing",
+    "summary": "Matches deleted function declarations.",
+    "signatures": [
+      "Matcher<FunctionDecl> isDeleted()"
+    ]
+  },
+  {
+    "name": "isDerivedFrom",
+    "category": "narrowing",
+    "summary": "Overloaded method as shortcut for isDerivedFrom(hasName(...)).",
+    "signatures": [
+      "Matcher<CXXRecordDecl> isDerivedFrom(std::string BaseName)",
+      "Matcher<ObjCInterfaceDecl> isDerivedFrom(std::string BaseName)",
+      "Matcher<CXXRecordDecl> isDerivedFrom(Matcher<NamedDecl> Base)",
+      "Matcher<ObjCInterfaceDecl> isDerivedFrom(Matcher<NamedDecl> Base)"
+    ]
+  },
+  {
+    "name": "isDirectlyDerivedFrom",
+    "category": "narrowing",
+    "summary": "Overloaded method as shortcut for isDirectlyDerivedFrom(hasName(...)).",
+    "signatures": [
+      "Matcher<CXXRecordDecl> isDirectlyDerivedFrom(std::string BaseName)",
+      "Matcher<ObjCInterfaceDecl> isDirectlyDerivedFrom(std::string BaseName)",
+      "Matcher<CXXRecordDecl> isDirectlyDerivedFrom(Matcher<NamedDecl> Base)",
+      "Matcher<ObjCInterfaceDecl> isDirectlyDerivedFrom(Matcher<NamedDecl> Base)"
+    ]
+  },
+  {
+    "name": "isEnum",
+    "category": "narrowing",
+    "summary": "Matches TagDecl object that are spelled with \"enum.\"",
+    "signatures": [
+      "Matcher<TagDecl> isEnum()"
+    ]
+  },
+  {
+    "name": "isExceptionVariable",
+    "category": "narrowing",
+    "summary": "Matches a variable declaration that is an exception variable from a C++ catch block, or an Objective-C statement.",
+    "signatures": [
+      "Matcher<VarDecl> isExceptionVariable()"
+    ]
+  },
+  {
+    "name": "isExpandedFromMacro",
+    "category": "narrowing",
+    "summary": "Matches statements that are (transitively) expanded from the named macro. Does not match if only part of the statement is expanded from that macro or if different parts of the statement are expanded from different appearances of the macro.",
+    "signatures": [
+      "Matcher<Decl> isExpandedFromMacro(std::string MacroName)",
+      "Matcher<Stmt> isExpandedFromMacro(std::string MacroName)",
+      "Matcher<TypeLoc> isExpandedFromMacro(std::string MacroName)"
+    ]
+  },
+  {
+    "name": "isExpansionInFileMatching",
+    "category": "narrowing",
+    "summary": "Matches AST nodes that were expanded within files whose name is partially matching a given regex.",
+    "signatures": [
+      "Matcher<Decl> isExpansionInFileMatching(StringRef RegExp, Regex::RegexFlags Flags = NoFlags)",
+      "Matcher<Stmt> isExpansionInFileMatching(StringRef RegExp, Regex::RegexFlags Flags = NoFlags)",
+      "Matcher<TypeLoc> isExpansionInFileMatching(StringRef RegExp, Regex::RegexFlags Flags = NoFlags)"
+    ]
+  },
+  {
+    "name": "isExpansionInMainFile",
+    "category": "narrowing",
+    "summary": "Matches AST nodes that were expanded within the main-file.",
+    "signatures": [
+      "Matcher<Decl> isExpansionInMainFile()",
+      "Matcher<Stmt> isExpansionInMainFile()",
+      "Matcher<TypeLoc> isExpansionInMainFile()"
+    ]
+  },
+  {
+    "name": "isExpansionInSystemHeader",
+    "category": "narrowing",
+    "summary": "Matches AST nodes that were expanded within system-header-files.",
+    "signatures": [
+      "Matcher<Decl> isExpansionInSystemHeader()",
+      "Matcher<Stmt> isExpansionInSystemHeader()",
+      "Matcher<TypeLoc> isExpansionInSystemHeader()"
+    ]
+  },
+  {
+    "name": "isExplicit",
+    "category": "narrowing",
+    "summary": "Matches constructor, conversion function, and deduction guide declarations that have an explicit specifier if this explicit specifier is resolved to true.",
+    "signatures": [
+      "Matcher<CXXConstructorDecl> isExplicit()",
+      "Matcher<CXXConversionDecl> isExplicit()",
+      "Matcher<CXXDeductionGuideDecl> isExplicit()"
+    ]
+  },
+  {
+    "name": "isExplicitObjectMemberFunction",
+    "category": "narrowing",
+    "summary": "Matches if the given method declaration declares a member function with an explicit object parameter.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isExplicitObjectMemberFunction()"
+    ]
+  },
+  {
+    "name": "isExplicitTemplateSpecialization",
+    "category": "narrowing",
+    "summary": "Matches explicit template specializations of function, class, or static member variable template instantiations.",
+    "signatures": [
+      "Matcher<CXXRecordDecl> isExplicitTemplateSpecialization()",
+      "Matcher<FunctionDecl> isExplicitTemplateSpecialization()",
+      "Matcher<VarDecl> isExplicitTemplateSpecialization()"
+    ]
+  },
+  {
+    "name": "isExpr",
+    "category": "traversal",
+    "summary": "Matches a sugar TemplateArgument that refers to a certain expression.",
+    "signatures": [
+      "Matcher<TemplateArgument> isExpr(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "isExternC",
+    "category": "narrowing",
+    "summary": "Matches extern \"C\" function or variable declarations.",
+    "signatures": [
+      "Matcher<FunctionDecl> isExternC()",
+      "Matcher<VarDecl> isExternC()"
+    ]
+  },
+  {
+    "name": "isFinal",
+    "category": "narrowing",
+    "summary": "Matches if the given method or class declaration is final.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isFinal()",
+      "Matcher<CXXRecordDecl> isFinal()"
+    ]
+  },
+  {
+    "name": "isFirstPrivateKind",
+    "category": "narrowing",
+    "summary": "Matches if the OpenMP ``default`` clause has ``firstprivate`` kind specified.",
+    "signatures": [
+      "Matcher<OMPDefaultClause> isFirstPrivateKind()"
+    ]
+  },
+  {
+    "name": "isImplicit",
+    "category": "narrowing",
+    "summary": "Matches an entity that has been implicitly added by the compiler (e.g. implicit default/copy constructors).",
+    "signatures": [
+      "Matcher<Attr> isImplicit()",
+      "Matcher<Decl> isImplicit()",
+      "Matcher<LambdaCapture> isImplicit()"
+    ]
+  },
+  {
+    "name": "isInAnonymousNamespace",
+    "category": "narrowing",
+    "summary": "Matches declarations in an anonymous namespace.",
+    "signatures": [
+      "Matcher<Decl> isInAnonymousNamespace()"
+    ]
+  },
+  {
+    "name": "isInStdNamespace",
+    "category": "narrowing",
+    "summary": "Matches declarations in the namespace `std`, but not in nested namespaces.",
+    "signatures": [
+      "Matcher<Decl> isInStdNamespace()"
+    ]
+  },
+  {
+    "name": "isInTemplateInstantiation",
+    "category": "narrowing",
+    "summary": "Matches statements inside of a template instantiation.",
+    "signatures": [
+      "Matcher<Stmt> isInTemplateInstantiation()"
+    ]
+  },
+  {
+    "name": "isInitCapture",
+    "category": "narrowing",
+    "summary": "Matches a variable serving as the implicit variable for a lambda init- capture.",
+    "signatures": [
+      "Matcher<VarDecl> isInitCapture()"
+    ]
+  },
+  {
+    "name": "isInline",
+    "category": "narrowing",
+    "summary": "Matches functions, variables and namespace declarations that are marked with the inline keyword.",
+    "signatures": [
+      "Matcher<FunctionDecl> isInline()",
+      "Matcher<NamespaceDecl> isInline()",
+      "Matcher<VarDecl> isInline()"
+    ]
+  },
+  {
+    "name": "isInstanceMessage",
+    "category": "narrowing",
+    "summary": "Returns true when the Objective-C message is sent to an instance.",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> isInstanceMessage()"
+    ]
+  },
+  {
+    "name": "isInstanceMethod",
+    "category": "narrowing",
+    "summary": "Returns true when the Objective-C method declaration is an instance method.",
+    "signatures": [
+      "Matcher<ObjCMethodDecl> isInstanceMethod()"
+    ]
+  },
+  {
+    "name": "isInstantiated",
+    "category": "narrowing",
+    "summary": "Matches declarations that are template instantiations or are inside template instantiations.",
+    "signatures": [
+      "Matcher<Decl> isInstantiated()"
+    ]
+  },
+  {
+    "name": "isInstantiationDependent",
+    "category": "narrowing",
+    "summary": "Matches expressions that are instantiation-dependent even if it is neither type- nor value-dependent.",
+    "signatures": [
+      "Matcher<Expr> isInstantiationDependent()"
+    ]
+  },
+  {
+    "name": "isInteger",
+    "category": "narrowing",
+    "summary": "Matches QualType nodes that are of integer type.",
+    "signatures": [
+      "Matcher<QualType> isInteger()"
+    ]
+  },
+  {
+    "name": "isIntegral",
+    "category": "narrowing",
+    "summary": "Matches a TemplateArgument that is an integral value.",
+    "signatures": [
+      "Matcher<TemplateArgument> isIntegral()"
+    ]
+  },
+  {
+    "name": "isLambda",
+    "category": "narrowing",
+    "summary": "Matches the generated class of lambda expressions.",
+    "signatures": [
+      "Matcher<CXXRecordDecl> isLambda()"
+    ]
+  },
+  {
+    "name": "isLeftFold",
+    "category": "narrowing",
+    "summary": "Matches left-folding fold expressions.",
+    "signatures": [
+      "Matcher<CXXFoldExpr> isLeftFold()"
+    ]
+  },
+  {
+    "name": "isListInitialization",
+    "category": "narrowing",
+    "summary": "Matches a constructor call expression which uses list initialization.",
+    "signatures": [
+      "Matcher<CXXConstructExpr> isListInitialization()"
+    ]
+  },
+  {
+    "name": "isMain",
+    "category": "narrowing",
+    "summary": "Determines whether the function is \"main\", which is the entry point into an executable program.",
+    "signatures": [
+      "Matcher<FunctionDecl> isMain()"
+    ]
+  },
+  {
+    "name": "isMemberInitializer",
+    "category": "narrowing",
+    "summary": "Matches a constructor initializer if it is initializing a member, as opposed to a base.",
+    "signatures": [
+      "Matcher<CXXCtorInitializer> isMemberInitializer()"
+    ]
+  },
+  {
+    "name": "isMoveAssignmentOperator",
+    "category": "narrowing",
+    "summary": "Matches if the given method declaration declares a move assignment operator.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isMoveAssignmentOperator()"
+    ]
+  },
+  {
+    "name": "isMoveConstructor",
+    "category": "narrowing",
+    "summary": "Matches constructor declarations that are move constructors.",
+    "signatures": [
+      "Matcher<CXXConstructorDecl> isMoveConstructor()"
+    ]
+  },
+  {
+    "name": "isNoReturn",
+    "category": "narrowing",
+    "summary": "Matches FunctionDecls that have a noreturn attribute.",
+    "signatures": [
+      "Matcher<FunctionDecl> isNoReturn()"
+    ]
+  },
+  {
+    "name": "isNoThrow",
+    "category": "narrowing",
+    "summary": "Matches functions that have a non-throwing exception specification.",
+    "signatures": [
+      "Matcher<FunctionDecl> isNoThrow()",
+      "Matcher<FunctionProtoType> isNoThrow()"
+    ]
+  },
+  {
+    "name": "isNoneKind",
+    "category": "narrowing",
+    "summary": "Matches if the OpenMP ``default`` clause has ``none`` kind specified.",
+    "signatures": [
+      "Matcher<OMPDefaultClause> isNoneKind()"
+    ]
+  },
+  {
+    "name": "isOverride",
+    "category": "narrowing",
+    "summary": "Matches if the given method declaration overrides another method.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isOverride()"
+    ]
+  },
+  {
+    "name": "isPrivate",
+    "category": "narrowing",
+    "summary": "Matches private C++ declarations and C++ base specifiers that specify private inheritance.",
+    "signatures": [
+      "Matcher<CXXBaseSpecifier> isPrivate()",
+      "Matcher<Decl> isPrivate()"
+    ]
+  },
+  {
+    "name": "isPrivateKind",
+    "category": "narrowing",
+    "summary": "Matches if the OpenMP ``default`` clause has ``private`` kind specified.",
+    "signatures": [
+      "Matcher<OMPDefaultClause> isPrivateKind()"
+    ]
+  },
+  {
+    "name": "isProtected",
+    "category": "narrowing",
+    "summary": "Matches protected C++ declarations and C++ base specifiers that specify protected inheritance.",
+    "signatures": [
+      "Matcher<CXXBaseSpecifier> isProtected()",
+      "Matcher<Decl> isProtected()"
+    ]
+  },
+  {
+    "name": "isPublic",
+    "category": "narrowing",
+    "summary": "Matches public C++ declarations and C++ base specifiers that specify public inheritance.",
+    "signatures": [
+      "Matcher<CXXBaseSpecifier> isPublic()",
+      "Matcher<Decl> isPublic()"
+    ]
+  },
+  {
+    "name": "isPure",
+    "category": "narrowing",
+    "summary": "Matches if the given method declaration is pure.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isPure()"
+    ]
+  },
+  {
+    "name": "isRightFold",
+    "category": "narrowing",
+    "summary": "Matches right-folding fold expressions.",
+    "signatures": [
+      "Matcher<CXXFoldExpr> isRightFold()"
+    ]
+  },
+  {
+    "name": "isSameOrDerivedFrom",
+    "category": "narrowing",
+    "summary": "Overloaded method as shortcut for isSameOrDerivedFrom(hasName(...)).",
+    "signatures": [
+      "Matcher<CXXRecordDecl> isSameOrDerivedFrom(std::string BaseName)",
+      "Matcher<ObjCInterfaceDecl> isSameOrDerivedFrom(std::string BaseName)",
+      "Matcher<CXXRecordDecl> isSameOrDerivedFrom(Matcher<NamedDecl> Base)",
+      "Matcher<ObjCInterfaceDecl> isSameOrDerivedFrom(Matcher<NamedDecl> Base)"
+    ]
+  },
+  {
+    "name": "isScoped",
+    "category": "narrowing",
+    "summary": "Matches C++11 scoped enum declaration.",
+    "signatures": [
+      "Matcher<EnumDecl> isScoped()"
+    ]
+  },
+  {
+    "name": "isSharedKind",
+    "category": "narrowing",
+    "summary": "Matches if the OpenMP ``default`` clause has ``shared`` kind specified.",
+    "signatures": [
+      "Matcher<OMPDefaultClause> isSharedKind()"
+    ]
+  },
+  {
+    "name": "isSignedInteger",
+    "category": "narrowing",
+    "summary": "Matches QualType nodes that are of signed integer type.",
+    "signatures": [
+      "Matcher<QualType> isSignedInteger()"
+    ]
+  },
+  {
+    "name": "isStandaloneDirective",
+    "category": "narrowing",
+    "summary": "Matches standalone OpenMP directives, i.e., directives that can't have a structured block.",
+    "signatures": [
+      "Matcher<OMPExecutableDirective> isStandaloneDirective()"
+    ]
+  },
+  {
+    "name": "isStaticLocal",
+    "category": "narrowing",
+    "summary": "Matches a static variable with local scope.",
+    "signatures": [
+      "Matcher<VarDecl> isStaticLocal()"
+    ]
+  },
+  {
+    "name": "isStaticStorageClass",
+    "category": "narrowing",
+    "summary": "Matches variable/function declarations that have \"static\" storage class specifier (\"static\" keyword) written in the source.",
+    "signatures": [
+      "Matcher<FunctionDecl> isStaticStorageClass()",
+      "Matcher<VarDecl> isStaticStorageClass()"
+    ]
+  },
+  {
+    "name": "isStruct",
+    "category": "narrowing",
+    "summary": "Matches TagDecl object that are spelled with \"struct.\"",
+    "signatures": [
+      "Matcher<TagDecl> isStruct()"
+    ]
+  },
+  {
+    "name": "isTemplateInstantiation",
+    "category": "narrowing",
+    "summary": "Matches template instantiations of function, class, or static member variable template instantiations.",
+    "signatures": [
+      "Matcher<CXXRecordDecl> isTemplateInstantiation()",
+      "Matcher<FunctionDecl> isTemplateInstantiation()",
+      "Matcher<VarDecl> isTemplateInstantiation()"
+    ]
+  },
+  {
+    "name": "isTypeDependent",
+    "category": "narrowing",
+    "summary": "Matches expressions that are type-dependent because the template type is not yet instantiated.",
+    "signatures": [
+      "Matcher<Expr> isTypeDependent()"
+    ]
+  },
+  {
+    "name": "isUnaryFold",
+    "category": "narrowing",
+    "summary": "Matches unary fold expressions, i.e. fold expressions without an initializer.",
+    "signatures": [
+      "Matcher<CXXFoldExpr> isUnaryFold()"
+    ]
+  },
+  {
+    "name": "isUnion",
+    "category": "narrowing",
+    "summary": "Matches TagDecl object that are spelled with \"union.\"",
+    "signatures": [
+      "Matcher<TagDecl> isUnion()"
+    ]
+  },
+  {
+    "name": "isUnsignedInteger",
+    "category": "narrowing",
+    "summary": "Matches QualType nodes that are of unsigned integer type.",
+    "signatures": [
+      "Matcher<QualType> isUnsignedInteger()"
+    ]
+  },
+  {
+    "name": "isUserProvided",
+    "category": "narrowing",
+    "summary": "Matches method declarations that are user-provided.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isUserProvided()"
+    ]
+  },
+  {
+    "name": "isValueDependent",
+    "category": "narrowing",
+    "summary": "Matches expression that are value-dependent because they contain a non-type template parameter.",
+    "signatures": [
+      "Matcher<Expr> isValueDependent()"
+    ]
+  },
+  {
+    "name": "isVariadic",
+    "category": "narrowing",
+    "summary": "Matches if a function declaration is variadic.",
+    "signatures": [
+      "Matcher<FunctionDecl> isVariadic()"
+    ]
+  },
+  {
+    "name": "isVirtual",
+    "category": "narrowing",
+    "summary": "Matches declarations of virtual methods and C++ base specifiers that specify virtual inheritance.",
+    "signatures": [
+      "Matcher<CXXBaseSpecifier> isVirtual()",
+      "Matcher<CXXMethodDecl> isVirtual()"
+    ]
+  },
+  {
+    "name": "isVirtualAsWritten",
+    "category": "narrowing",
+    "summary": "Matches if the given method declaration has an explicit \"virtual\".",
+    "signatures": [
+      "Matcher<CXXMethodDecl> isVirtualAsWritten()"
+    ]
+  },
+  {
+    "name": "isVolatileQualified",
+    "category": "narrowing",
+    "summary": "Matches QualType nodes that are volatile-qualified, i.e., that include \"top-level\" volatile.",
+    "signatures": [
+      "Matcher<QualType> isVolatileQualified()"
+    ]
+  },
+  {
+    "name": "isWeak",
+    "category": "narrowing",
+    "summary": "Matches weak function declarations.",
+    "signatures": [
+      "Matcher<FunctionDecl> isWeak()"
+    ]
+  },
+  {
+    "name": "isWritten",
+    "category": "narrowing",
+    "summary": "Matches a constructor initializer if it is explicitly written in code (as opposed to implicitly added by the compiler).",
+    "signatures": [
+      "Matcher<CXXCtorInitializer> isWritten()"
+    ]
+  },
+  {
+    "name": "lValueReferenceType",
+    "category": "node",
+    "summary": "Matches lvalue reference types.",
+    "signatures": [
+      "Matcher<Type> lValueReferenceType(Matcher<LValueReferenceType>...)"
+    ]
+  },
+  {
+    "name": "labelDecl",
+    "category": "node",
+    "summary": "Matches a declaration of label.",
+    "signatures": [
+      "Matcher<Decl> labelDecl(Matcher<LabelDecl>...)"
+    ]
+  },
+  {
+    "name": "labelStmt",
+    "category": "node",
+    "summary": "Matches label statements.",
+    "signatures": [
+      "Matcher<Stmt> labelStmt(Matcher<LabelStmt>...)"
+    ]
+  },
+  {
+    "name": "lambdaCapture",
+    "category": "node",
+    "summary": "Matches lambda captures.",
+    "signatures": [
+      "Matcher<LambdaCapture> lambdaCapture(Matcher<LambdaCapture>...)"
+    ]
+  },
+  {
+    "name": "lambdaExpr",
+    "category": "node",
+    "summary": "Matches lambda expressions.",
+    "signatures": [
+      "Matcher<Stmt> lambdaExpr(Matcher<LambdaExpr>...)"
+    ]
+  },
+  {
+    "name": "linkageSpecDecl",
+    "category": "node",
+    "summary": "Matches a declaration of a linkage specification.",
+    "signatures": [
+      "Matcher<Decl> linkageSpecDecl(Matcher<LinkageSpecDecl>...)"
+    ]
+  },
+  {
+    "name": "loc",
+    "category": "traversal",
+    "summary": "Matches NestedNameSpecifierLocs for which the given inner NestedNameSpecifier-matcher matches.",
+    "signatures": [
+      "Matcher<NestedNameSpecifierLoc> loc(Matcher<NestedNameSpecifier> InnerMatcher)",
+      "Matcher<TypeLoc> loc(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "macroQualifiedType",
+    "category": "node",
+    "summary": "Matches qualified types when the qualifier is applied via a macro.",
+    "signatures": [
+      "Matcher<Type> macroQualifiedType(Matcher<MacroQualifiedType>...)"
+    ]
+  },
+  {
+    "name": "mapAnyOf",
+    "category": "narrowing",
+    "summary": "Matches any of the NodeMatchers with InnerMatchers nested within",
+    "signatures": [
+      "unspecified mapAnyOf(nodeMatcherFunction...)"
+    ]
+  },
+  {
+    "name": "matchesName",
+    "category": "narrowing",
+    "summary": "Matches NamedDecl nodes whose fully qualified names contain a substring matched by the given RegExp.",
+    "signatures": [
+      "Matcher<NamedDecl> matchesName(StringRef RegExp, Regex::RegexFlags Flags = NoFlags)"
+    ]
+  },
+  {
+    "name": "matchesSelector",
+    "category": "narrowing",
+    "summary": "Matches ObjC selectors whose name contains a substring matched by the given RegExp. matcher = objCMessageExpr(matchesSelector(\"loadHTMLStringmatches the outer message expr in the code below, but NOT the message invocation for self.bodyView. [self.bodyView loadHTMLString:html baseURL:NULL];",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> matchesSelector(StringRef RegExp, Regex::RegexFlags Flags = NoFlags)"
+    ]
+  },
+  {
+    "name": "materializeTemporaryExpr",
+    "category": "node",
+    "summary": "Matches nodes where temporaries are materialized.",
+    "signatures": [
+      "Matcher<Stmt> materializeTemporaryExpr(Matcher<MaterializeTemporaryExpr>...)"
+    ]
+  },
+  {
+    "name": "member",
+    "category": "traversal",
+    "summary": "Matches a member expression where the member is matched by a given matcher.",
+    "signatures": [
+      "Matcher<MemberExpr> member(Matcher<ValueDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "memberExpr",
+    "category": "node",
+    "summary": "Matches member expressions.",
+    "signatures": [
+      "Matcher<Stmt> memberExpr(Matcher<MemberExpr>...)"
+    ]
+  },
+  {
+    "name": "memberHasSameNameAsBoundNode",
+    "category": "narrowing",
+    "summary": "Matches template-dependent, but known, member names against an already-bound node",
+    "signatures": [
+      "Matcher<CXXDependentScopeMemberExpr> memberHasSameNameAsBoundNode(std::string BindingID)"
+    ]
+  },
+  {
+    "name": "memberPointerType",
+    "category": "node",
+    "summary": "Matches member pointer types. Given struct A { int i; } A::* ptr = A::i; memberPointerType() matches \"A::* ptr\"",
+    "signatures": [
+      "Matcher<Type> memberPointerType(Matcher<MemberPointerType>...)"
+    ]
+  },
+  {
+    "name": "namedDecl",
+    "category": "node",
+    "summary": "Matches a declaration of anything that could have a name.",
+    "signatures": [
+      "Matcher<Decl> namedDecl(Matcher<NamedDecl>...)"
+    ]
+  },
+  {
+    "name": "namespaceAliasDecl",
+    "category": "node",
+    "summary": "Matches a declaration of a namespace alias.",
+    "signatures": [
+      "Matcher<Decl> namespaceAliasDecl(Matcher<NamespaceAliasDecl>...)"
+    ]
+  },
+  {
+    "name": "namespaceDecl",
+    "category": "node",
+    "summary": "Matches a declaration of a namespace.",
+    "signatures": [
+      "Matcher<Decl> namespaceDecl(Matcher<NamespaceDecl>...)"
+    ]
+  },
+  {
+    "name": "nestedNameSpecifier",
+    "category": "node",
+    "summary": "Matches nested name specifiers.",
+    "signatures": [
+      "Matcher<NestedNameSpecifier> nestedNameSpecifier(Matcher<NestedNameSpecifier>...)"
+    ]
+  },
+  {
+    "name": "nestedNameSpecifierLoc",
+    "category": "node",
+    "summary": "Same as nestedNameSpecifier but matches NestedNameSpecifierLoc.",
+    "signatures": [
+      "Matcher<NestedNameSpecifierLoc> nestedNameSpecifierLoc(Matcher<NestedNameSpecifierLoc>...)"
+    ]
+  },
+  {
+    "name": "nonTypeTemplateParmDecl",
+    "category": "node",
+    "summary": "Matches non-type template parameter declarations.",
+    "signatures": [
+      "Matcher<Decl> nonTypeTemplateParmDecl(Matcher<NonTypeTemplateParmDecl>...)"
+    ]
+  },
+  {
+    "name": "nullPointerConstant",
+    "category": "narrowing",
+    "summary": "Matches expressions that resolve to a null pointer constant, such as GNU's __null, C++11's nullptr, or C's NULL macro.",
+    "signatures": [
+      "Matcher<Expr> nullPointerConstant()"
+    ]
+  },
+  {
+    "name": "nullStmt",
+    "category": "node",
+    "summary": "Matches null statements.",
+    "signatures": [
+      "Matcher<Stmt> nullStmt(Matcher<NullStmt>...)"
+    ]
+  },
+  {
+    "name": "numSelectorArgs",
+    "category": "narrowing",
+    "summary": "Matches when the selector has the specified number of arguments",
+    "signatures": [
+      "Matcher<ObjCMessageExpr> numSelectorArgs(unsigned N)"
+    ]
+  },
+  {
+    "name": "objcCatchStmt",
+    "category": "node",
+    "summary": "Matches Objective-C @catch statements.",
+    "signatures": [
+      "Matcher<Stmt> objcCatchStmt(Matcher<ObjCAtCatchStmt>...)"
+    ]
+  },
+  {
+    "name": "objcCategoryDecl",
+    "category": "node",
+    "summary": "Matches Objective-C category declarations.",
+    "signatures": [
+      "Matcher<Decl> objcCategoryDecl(Matcher<ObjCCategoryDecl>...)"
+    ]
+  },
+  {
+    "name": "objcCategoryImplDecl",
+    "category": "node",
+    "summary": "Matches Objective-C category definitions.",
+    "signatures": [
+      "Matcher<Decl> objcCategoryImplDecl(Matcher<ObjCCategoryImplDecl>...)"
+    ]
+  },
+  {
+    "name": "objcFinallyStmt",
+    "category": "node",
+    "summary": "Matches Objective-C @finally statements.",
+    "signatures": [
+      "Matcher<Stmt> objcFinallyStmt(Matcher<ObjCAtFinallyStmt>...)"
+    ]
+  },
+  {
+    "name": "objcImplementationDecl",
+    "category": "node",
+    "summary": "Matches Objective-C implementation declarations.",
+    "signatures": [
+      "Matcher<Decl> objcImplementationDecl(Matcher<ObjCImplementationDecl>...)"
+    ]
+  },
+  {
+    "name": "objcInterfaceDecl",
+    "category": "node",
+    "summary": "Matches Objective-C interface declarations.",
+    "signatures": [
+      "Matcher<Decl> objcInterfaceDecl(Matcher<ObjCInterfaceDecl>...)"
+    ]
+  },
+  {
+    "name": "objcIvarDecl",
+    "category": "node",
+    "summary": "Matches Objective-C instance variable declarations.",
+    "signatures": [
+      "Matcher<Decl> objcIvarDecl(Matcher<ObjCIvarDecl>...)"
+    ]
+  },
+  {
+    "name": "objcIvarRefExpr",
+    "category": "node",
+    "summary": "Matches a reference to an ObjCIvar.",
+    "signatures": [
+      "Matcher<Stmt> objcIvarRefExpr(Matcher<ObjCIvarRefExpr>...)"
+    ]
+  },
+  {
+    "name": "objcMessageExpr",
+    "category": "node",
+    "summary": "Matches ObjectiveC Message invocation expressions.",
+    "signatures": [
+      "Matcher<Stmt> objcMessageExpr(Matcher<ObjCMessageExpr>...)"
+    ]
+  },
+  {
+    "name": "objcMethodDecl",
+    "category": "node",
+    "summary": "Matches Objective-C method declarations.",
+    "signatures": [
+      "Matcher<Decl> objcMethodDecl(Matcher<ObjCMethodDecl>...)"
+    ]
+  },
+  {
+    "name": "objcObjectPointerType",
+    "category": "node",
+    "summary": "Matches an Objective-C object pointer type, which is different from a pointer type, despite being syntactically similar.",
+    "signatures": [
+      "Matcher<Type> objcObjectPointerType(Matcher<ObjCObjectPointerType>...)"
+    ]
+  },
+  {
+    "name": "objcPropertyDecl",
+    "category": "node",
+    "summary": "Matches Objective-C property declarations.",
+    "signatures": [
+      "Matcher<Decl> objcPropertyDecl(Matcher<ObjCPropertyDecl>...)"
+    ]
+  },
+  {
+    "name": "objcProtocolDecl",
+    "category": "node",
+    "summary": "Matches Objective-C protocol declarations.",
+    "signatures": [
+      "Matcher<Decl> objcProtocolDecl(Matcher<ObjCProtocolDecl>...)"
+    ]
+  },
+  {
+    "name": "objcStringLiteral",
+    "category": "node",
+    "summary": "Matches ObjectiveC String literal expressions.",
+    "signatures": [
+      "Matcher<Stmt> objcStringLiteral(Matcher<ObjCStringLiteral>...)"
+    ]
+  },
+  {
+    "name": "objcThrowStmt",
+    "category": "node",
+    "summary": "Matches Objective-C statements.",
+    "signatures": [
+      "Matcher<Stmt> objcThrowStmt(Matcher<ObjCAtThrowStmt>...)"
+    ]
+  },
+  {
+    "name": "objcTryStmt",
+    "category": "node",
+    "summary": "Matches Objective-C @try statements.",
+    "signatures": [
+      "Matcher<Stmt> objcTryStmt(Matcher<ObjCAtTryStmt>...)"
+    ]
+  },
+  {
+    "name": "ofClass",
+    "category": "traversal",
+    "summary": "Matches the class declaration that the given method declaration belongs to.",
+    "signatures": [
+      "Matcher<CXXMethodDecl> ofClass(Matcher<CXXRecordDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "ofKind",
+    "category": "narrowing",
+    "summary": "Matches unary expressions of a certain kind.",
+    "signatures": [
+      "Matcher<UnaryExprOrTypeTraitExpr> ofKind(UnaryExprOrTypeTrait Kind)"
+    ]
+  },
+  {
+    "name": "ompDefaultClause",
+    "category": "node",
+    "summary": "Matches OpenMP ``default`` clause.",
+    "signatures": [
+      "Matcher<OMPClause> ompDefaultClause(Matcher<OMPDefaultClause>...)"
+    ]
+  },
+  {
+    "name": "ompExecutableDirective",
+    "category": "node",
+    "summary": "Matches any ``#pragma omp`` executable directive.",
+    "signatures": [
+      "Matcher<Stmt> ompExecutableDirective(Matcher<OMPExecutableDirective>...)"
+    ]
+  },
+  {
+    "name": "on",
+    "category": "traversal",
+    "summary": "Matches on the implicit object argument of a member call expression, after stripping off any parentheses or implicit casts.",
+    "signatures": [
+      "Matcher<CXXMemberCallExpr> on(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "onImplicitObjectArgument",
+    "category": "traversal",
+    "summary": "Matches on the implicit object argument of a member call expression. Unlike `on`, matches the argument directly without stripping away anything.",
+    "signatures": [
+      "Matcher<CXXMemberCallExpr> onImplicitObjectArgument(Matcher<Expr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "opaqueValueExpr",
+    "category": "node",
+    "summary": "Matches opaque value expressions. They are used as helpers to reference another expressions and can be met in BinaryConditionalOperators, for example.",
+    "signatures": [
+      "Matcher<Stmt> opaqueValueExpr(Matcher<OpaqueValueExpr>...)"
+    ]
+  },
+  {
+    "name": "optionally",
+    "category": "traversal",
+    "summary": "Matches any node regardless of the submatcher.",
+    "signatures": [
+      "Matcher<*> optionally(Matcher<*>)"
+    ]
+  },
+  {
+    "name": "parameterCountIs",
+    "category": "narrowing",
+    "summary": "Matches FunctionDecls and FunctionProtoTypes that have a specific parameter count.",
+    "signatures": [
+      "Matcher<FunctionDecl> parameterCountIs(unsigned N)",
+      "Matcher<FunctionProtoType> parameterCountIs(unsigned N)"
+    ]
+  },
+  {
+    "name": "parenExpr",
+    "category": "node",
+    "summary": "Matches parentheses used in expressions.",
+    "signatures": [
+      "Matcher<Stmt> parenExpr(Matcher<ParenExpr>...)"
+    ]
+  },
+  {
+    "name": "parenListExpr",
+    "category": "node",
+    "summary": "Matches paren list expressions. ParenListExprs don't have a predefined type and are used for late parsing. In the final AST, they can be met in template declarations.",
+    "signatures": [
+      "Matcher<Stmt> parenListExpr(Matcher<ParenListExpr>...)"
+    ]
+  },
+  {
+    "name": "parenType",
+    "category": "node",
+    "summary": "Matches ParenType nodes.",
+    "signatures": [
+      "Matcher<Type> parenType(Matcher<ParenType>...)"
+    ]
+  },
+  {
+    "name": "parmVarDecl",
+    "category": "node",
+    "summary": "Matches parameter variable declarations.",
+    "signatures": [
+      "Matcher<Decl> parmVarDecl(Matcher<ParmVarDecl>...)"
+    ]
+  },
+  {
+    "name": "pointee",
+    "category": "traversal",
+    "summary": "Narrows PointerType (and similar) matchers to those where the pointee matches a given matcher.",
+    "signatures": [
+      "Matcher<BlockPointerType> pointee(Matcher<Type>)",
+      "Matcher<MemberPointerType> pointee(Matcher<Type>)",
+      "Matcher<ObjCObjectPointerType> pointee(Matcher<Type>)",
+      "Matcher<PointerType> pointee(Matcher<Type>)",
+      "Matcher<ReferenceType> pointee(Matcher<Type>)"
+    ]
+  },
+  {
+    "name": "pointerType",
+    "category": "node",
+    "summary": "Matches pointer types, but does not match Objective-C object pointer types.",
+    "signatures": [
+      "Matcher<Type> pointerType(Matcher<PointerType>...)"
+    ]
+  },
+  {
+    "name": "pointerTypeLoc",
+    "category": "node",
+    "summary": "Matches pointer `TypeLoc`s.",
+    "signatures": [
+      "Matcher<TypeLoc> pointerTypeLoc(Matcher<PointerTypeLoc>...)"
+    ]
+  },
+  {
+    "name": "pointsTo",
+    "category": "traversal",
+    "summary": "Overloaded to match the pointee type's declaration.",
+    "signatures": [
+      "Matcher<QualType> pointsTo(Matcher<Decl> InnerMatcher)",
+      "Matcher<QualType> pointsTo(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "predefinedExpr",
+    "category": "node",
+    "summary": "Matches predefined identifier expressions [C99 6.4.2.2].",
+    "signatures": [
+      "Matcher<Stmt> predefinedExpr(Matcher<PredefinedExpr>...)"
+    ]
+  },
+  {
+    "name": "qualType",
+    "category": "node",
+    "summary": "Matches QualTypes in the clang AST.",
+    "signatures": [
+      "Matcher<QualType> qualType(Matcher<QualType>...)"
+    ]
+  },
+  {
+    "name": "qualifiedTypeLoc",
+    "category": "node",
+    "summary": "Matches `QualifiedTypeLoc`s in the clang AST.",
+    "signatures": [
+      "Matcher<TypeLoc> qualifiedTypeLoc(Matcher<QualifiedTypeLoc>...)"
+    ]
+  },
+  {
+    "name": "rValueReferenceType",
+    "category": "node",
+    "summary": "Matches rvalue reference types.",
+    "signatures": [
+      "Matcher<Type> rValueReferenceType(Matcher<RValueReferenceType>...)"
+    ]
+  },
+  {
+    "name": "realFloatingPointType",
+    "category": "narrowing",
+    "summary": "Matches any real floating-point type (float, double, long double).",
+    "signatures": [
+      "Matcher<Type> realFloatingPointType()"
+    ]
+  },
+  {
+    "name": "recordDecl",
+    "category": "node",
+    "summary": "Matches class, struct, and union declarations.",
+    "signatures": [
+      "Matcher<Decl> recordDecl(Matcher<RecordDecl>...)"
+    ]
+  },
+  {
+    "name": "recordType",
+    "category": "node",
+    "summary": "Matches record types (e.g. structs, classes).",
+    "signatures": [
+      "Matcher<Type> recordType(Matcher<RecordType>...)"
+    ]
+  },
+  {
+    "name": "referenceType",
+    "category": "node",
+    "summary": "Matches both lvalue and rvalue reference types.",
+    "signatures": [
+      "Matcher<Type> referenceType(Matcher<ReferenceType>...)"
+    ]
+  },
+  {
+    "name": "referenceTypeLoc",
+    "category": "node",
+    "summary": "Matches reference `TypeLoc`s.",
+    "signatures": [
+      "Matcher<TypeLoc> referenceTypeLoc(Matcher<ReferenceTypeLoc>...)"
+    ]
+  },
+  {
+    "name": "references",
+    "category": "traversal",
+    "summary": "Overloaded to match the referenced type's declaration.",
+    "signatures": [
+      "Matcher<QualType> references(Matcher<Decl> InnerMatcher)",
+      "Matcher<QualType> references(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "refersToDeclaration",
+    "category": "traversal",
+    "summary": "Matches a canonical TemplateArgument that refers to a certain declaration.",
+    "signatures": [
+      "Matcher<TemplateArgument> refersToDeclaration(Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "refersToIntegralType",
+    "category": "traversal",
+    "summary": "Matches a TemplateArgument that refers to an integral type.",
+    "signatures": [
+      "Matcher<TemplateArgument> refersToIntegralType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "refersToTemplate",
+    "category": "traversal",
+    "summary": "Matches a TemplateArgument that refers to a certain template.",
+    "signatures": [
+      "Matcher<TemplateArgument> refersToTemplate(Matcher<TemplateName> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "refersToType",
+    "category": "traversal",
+    "summary": "Matches a TemplateArgument that refers to a certain type.",
+    "signatures": [
+      "Matcher<TemplateArgument> refersToType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "requiresZeroInitialization",
+    "category": "narrowing",
+    "summary": "Matches a constructor call expression which requires zero initialization.",
+    "signatures": [
+      "Matcher<CXXConstructExpr> requiresZeroInitialization()"
+    ]
+  },
+  {
+    "name": "returnStmt",
+    "category": "node",
+    "summary": "Matches return statements.",
+    "signatures": [
+      "Matcher<Stmt> returnStmt(Matcher<ReturnStmt>...)"
+    ]
+  },
+  {
+    "name": "returns",
+    "category": "traversal",
+    "summary": "Matches the return type of a function declaration.",
+    "signatures": [
+      "Matcher<FunctionDecl> returns(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "sizeOfExpr",
+    "category": "traversal",
+    "summary": "Same as unaryExprOrTypeTraitExpr, but only matching sizeof.",
+    "signatures": [
+      "Matcher<Stmt> sizeOfExpr(Matcher<UnaryExprOrTypeTraitExpr> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "specifiesNamespace",
+    "category": "traversal",
+    "summary": "Matches nested name specifiers that specify a namespace matching the given namespace matcher.",
+    "signatures": [
+      "Matcher<NestedNameSpecifier> specifiesNamespace(Matcher<NamespaceDecl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "specifiesType",
+    "category": "traversal",
+    "summary": "Matches nested name specifiers that specify a type matching the given QualType matcher without qualifiers.",
+    "signatures": [
+      "Matcher<NestedNameSpecifier> specifiesType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "specifiesTypeLoc",
+    "category": "traversal",
+    "summary": "Matches nested name specifier locs that specify a type matching the given TypeLoc.",
+    "signatures": [
+      "Matcher<NestedNameSpecifierLoc> specifiesTypeLoc(Matcher<TypeLoc> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "statementCountIs",
+    "category": "narrowing",
+    "summary": "Checks that a compound statement contains a specific number of child statements.",
+    "signatures": [
+      "Matcher<CompoundStmt> statementCountIs(unsigned N)"
+    ]
+  },
+  {
+    "name": "staticAssertDecl",
+    "category": "node",
+    "summary": "Matches a C++ static_assert declaration.",
+    "signatures": [
+      "Matcher<Decl> staticAssertDecl(Matcher<StaticAssertDecl>...)"
+    ]
+  },
+  {
+    "name": "stmt",
+    "category": "node",
+    "summary": "Matches statements.",
+    "signatures": [
+      "Matcher<Stmt> stmt(Matcher<Stmt>...)"
+    ]
+  },
+  {
+    "name": "stmtExpr",
+    "category": "node",
+    "summary": "Matches statement expression (GNU extension).",
+    "signatures": [
+      "Matcher<Stmt> stmtExpr(Matcher<StmtExpr>...)"
+    ]
+  },
+  {
+    "name": "stringLiteral",
+    "category": "node",
+    "summary": "Matches string literals (also matches wide string literals).",
+    "signatures": [
+      "Matcher<Stmt> stringLiteral(Matcher<StringLiteral>...)"
+    ]
+  },
+  {
+    "name": "substNonTypeTemplateParmExpr",
+    "category": "node",
+    "summary": "Matches substitutions of non-type template parameters.",
+    "signatures": [
+      "Matcher<Stmt> substNonTypeTemplateParmExpr(Matcher<SubstNonTypeTemplateParmExpr>...)"
+    ]
+  },
+  {
+    "name": "substTemplateTypeParmType",
+    "category": "node",
+    "summary": "Matches types that represent the result of substituting a type for a template type parameter.",
+    "signatures": [
+      "Matcher<Type> substTemplateTypeParmType(Matcher<SubstTemplateTypeParmType>...)"
+    ]
+  },
+  {
+    "name": "switchCase",
+    "category": "node",
+    "summary": "Matches case and default statements inside switch statements.",
+    "signatures": [
+      "Matcher<Stmt> switchCase(Matcher<SwitchCase>...)"
+    ]
+  },
+  {
+    "name": "switchStmt",
+    "category": "node",
+    "summary": "Matches switch statements.",
+    "signatures": [
+      "Matcher<Stmt> switchStmt(Matcher<SwitchStmt>...)"
+    ]
+  },
+  {
+    "name": "tagDecl",
+    "category": "node",
+    "summary": "Matches tag declarations.",
+    "signatures": [
+      "Matcher<Decl> tagDecl(Matcher<TagDecl>...)"
+    ]
+  },
+  {
+    "name": "tagType",
+    "category": "node",
+    "summary": "Matches tag types (record and enum types).",
+    "signatures": [
+      "Matcher<Type> tagType(Matcher<TagType>...)"
+    ]
+  },
+  {
+    "name": "templateArgument",
+    "category": "node",
+    "summary": "Matches template arguments.",
+    "signatures": [
+      "Matcher<TemplateArgument> templateArgument(Matcher<TemplateArgument>...)"
+    ]
+  },
+  {
+    "name": "templateArgumentCountIs",
+    "category": "narrowing",
+    "summary": "Matches if the number of template arguments equals N.",
+    "signatures": [
+      "Matcher<ClassTemplateSpecializationDecl> templateArgumentCountIs(unsigned N)",
+      "Matcher<FunctionDecl> templateArgumentCountIs(unsigned N)",
+      "Matcher<TemplateSpecializationType> templateArgumentCountIs(unsigned N)",
+      "Matcher<VarTemplateSpecializationDecl> templateArgumentCountIs(unsigned N)"
+    ]
+  },
+  {
+    "name": "templateArgumentLoc",
+    "category": "node",
+    "summary": "Matches template arguments (with location info).",
+    "signatures": [
+      "Matcher<TemplateArgumentLoc> templateArgumentLoc(Matcher<TemplateArgumentLoc>...)"
+    ]
+  },
+  {
+    "name": "templateName",
+    "category": "node",
+    "summary": "Matches template name.",
+    "signatures": [
+      "Matcher<TemplateName> templateName(Matcher<TemplateName>...)"
+    ]
+  },
+  {
+    "name": "templateSpecializationType",
+    "category": "node",
+    "summary": "Matches template specialization types.",
+    "signatures": [
+      "Matcher<Type> templateSpecializationType(Matcher<TemplateSpecializationType>...)"
+    ]
+  },
+  {
+    "name": "templateSpecializationTypeLoc",
+    "category": "node",
+    "summary": "Matches template specialization `TypeLoc`s.",
+    "signatures": [
+      "Matcher<TypeLoc> templateSpecializationTypeLoc(Matcher<TemplateSpecializationTypeLoc>...)"
+    ]
+  },
+  {
+    "name": "templateTemplateParmDecl",
+    "category": "node",
+    "summary": "Matches template template parameter declarations.",
+    "signatures": [
+      "Matcher<Decl> templateTemplateParmDecl(Matcher<TemplateTemplateParmDecl>...)"
+    ]
+  },
+  {
+    "name": "templateTypeParmDecl",
+    "category": "node",
+    "summary": "Matches template type parameter declarations.",
+    "signatures": [
+      "Matcher<Decl> templateTypeParmDecl(Matcher<TemplateTypeParmDecl>...)"
+    ]
+  },
+  {
+    "name": "templateTypeParmType",
+    "category": "node",
+    "summary": "Matches template type parameter types.",
+    "signatures": [
+      "Matcher<Type> templateTypeParmType(Matcher<TemplateTypeParmType>...)"
+    ]
+  },
+  {
+    "name": "thisPointerType",
+    "category": "traversal",
+    "summary": "Overloaded to match the type's declaration.",
+    "signatures": [
+      "Matcher<CXXMemberCallExpr> thisPointerType(Matcher<Decl> InnerMatcher)",
+      "Matcher<CXXMemberCallExpr> thisPointerType(Matcher<QualType> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "throughUsingDecl",
+    "category": "traversal",
+    "summary": "Matches if a node refers to a declaration through a specific using shadow declaration.",
+    "signatures": [
+      "Matcher<DeclRefExpr> throughUsingDecl(Matcher<UsingShadowDecl> Inner)",
+      "Matcher<UsingType> throughUsingDecl(Matcher<UsingShadowDecl> Inner)"
+    ]
+  },
+  {
+    "name": "to",
+    "category": "traversal",
+    "summary": "Matches a DeclRefExpr that refers to a declaration that matches the specified matcher.",
+    "signatures": [
+      "Matcher<DeclRefExpr> to(Matcher<Decl> InnerMatcher)"
+    ]
+  },
+  {
+    "name": "translationUnitDecl",
+    "category": "node",
+    "summary": "Matches the top declaration context.",
+    "signatures": [
+      "Matcher<Decl> translationUnitDecl(Matcher<TranslationUnitDecl>...)"
+    ]
+  },
+  {
+    "name": "type",
+    "category": "node",
+    "summary": "Matches Types in the clang AST.",
+    "signatures": [
+      "Matcher<Type> type(Matcher<Type>...)"
+    ]
+  },
+  {
+    "name": "typeAliasDecl",
+    "category": "node",
+    "summary": "Matches type alias declarations.",
+    "signatures": [
+      "Matcher<Decl> typeAliasDecl(Matcher<TypeAliasDecl>...)"
+    ]
+  },
+  {
+    "name": "typeAliasTemplateDecl",
+    "category": "node",
+    "summary": "Matches type alias template declarations.",
+    "signatures": [
+      "Matcher<Decl> typeAliasTemplateDecl(Matcher<TypeAliasTemplateDecl>...)"
+    ]
+  },
+  {
+    "name": "typeLoc",
+    "category": "node",
+    "summary": "Matches TypeLocs in the clang AST.",
+    "signatures": [
+      "Matcher<TypeLoc> typeLoc(Matcher<TypeLoc>...)"
+    ]
+  },
+  {
+    "name": "typedefDecl",
+    "category": "node",
+    "summary": "Matches typedef declarations.",
+    "signatures": [
+      "Matcher<Decl> typedefDecl(Matcher<TypedefDecl>...)"
+    ]
+  },
+  {
+    "name": "typedefNameDecl",
+    "category": "node",
+    "summary": "Matches typedef name declarations.",
+    "signatures": [
+      "Matcher<Decl> typedefNameDecl(Matcher<TypedefNameDecl>...)"
+    ]
+  },
+  {
+    "name": "typedefType",
+    "category": "node",
+    "summary": "Matches typedef types.",
+    "signatures": [
+      "Matcher<Type> typedefType(Matcher<TypedefType>...)"
+    ]
+  },
+  {
+    "name": "unaryExprOrTypeTraitExpr",
+    "category": "node",
+    "summary": "Matches sizeof (C99), alignof (C++11) and vec_step (OpenCL)",
+    "signatures": [
+      "Matcher<Stmt> unaryExprOrTypeTraitExpr(Matcher<UnaryExprOrTypeTraitExpr>...)"
+    ]
+  },
+  {
+    "name": "unaryOperator",
+    "category": "node",
+    "summary": "Matches unary operator expressions.",
+    "signatures": [
+      "Matcher<Stmt> unaryOperator(Matcher<UnaryOperator>...)"
+    ]
+  },
+  {
+    "name": "unaryTransformType",
+    "category": "node",
+    "summary": "Matches types nodes representing unary type transformations.",
+    "signatures": [
+      "Matcher<Type> unaryTransformType(Matcher<UnaryTransformType>...)"
+    ]
+  },
+  {
+    "name": "unless",
+    "category": "narrowing",
+    "summary": "Matches if the provided matcher does not match.",
+    "signatures": [
+      "Matcher<*> unless(Matcher<*>)"
+    ]
+  },
+  {
+    "name": "unresolvedLookupExpr",
+    "category": "node",
+    "summary": "Matches reference to a name that can be looked up during parsing but could not be resolved to a specific declaration.",
+    "signatures": [
+      "Matcher<Stmt> unresolvedLookupExpr(Matcher<UnresolvedLookupExpr>...)"
+    ]
+  },
+  {
+    "name": "unresolvedMemberExpr",
+    "category": "node",
+    "summary": "Matches unresolved member expressions.",
+    "signatures": [
+      "Matcher<Stmt> unresolvedMemberExpr(Matcher<UnresolvedMemberExpr>...)"
+    ]
+  },
+  {
+    "name": "unresolvedUsingTypenameDecl",
+    "category": "node",
+    "summary": "Matches unresolved using value declarations that involve the typename.",
+    "signatures": [
+      "Matcher<Decl> unresolvedUsingTypenameDecl(Matcher<UnresolvedUsingTypenameDecl>...)"
+    ]
+  },
+  {
+    "name": "unresolvedUsingValueDecl",
+    "category": "node",
+    "summary": "Matches unresolved using value declarations.",
+    "signatures": [
+      "Matcher<Decl> unresolvedUsingValueDecl(Matcher<UnresolvedUsingValueDecl>...)"
+    ]
+  },
+  {
+    "name": "userDefinedLiteral",
+    "category": "node",
+    "summary": "Matches user defined literal operator call.",
+    "signatures": [
+      "Matcher<Stmt> userDefinedLiteral(Matcher<UserDefinedLiteral>...)"
+    ]
+  },
+  {
+    "name": "usesADL",
+    "category": "narrowing",
+    "summary": "Matches call expressions which were resolved using ADL.",
+    "signatures": [
+      "Matcher<CallExpr> usesADL()"
+    ]
+  },
+  {
+    "name": "usingDecl",
+    "category": "node",
+    "summary": "Matches using declarations.",
+    "signatures": [
+      "Matcher<Decl> usingDecl(Matcher<UsingDecl>...)"
+    ]
+  },
+  {
+    "name": "usingDirectiveDecl",
+    "category": "node",
+    "summary": "Matches using namespace declarations.",
+    "signatures": [
+      "Matcher<Decl> usingDirectiveDecl(Matcher<UsingDirectiveDecl>...)"
+    ]
+  },
+  {
+    "name": "usingEnumDecl",
+    "category": "node",
+    "summary": "Matches using-enum declarations.",
+    "signatures": [
+      "Matcher<Decl> usingEnumDecl(Matcher<UsingEnumDecl>...)"
+    ]
+  },
+  {
+    "name": "usingShadowDecl",
+    "category": "node",
+    "summary": "Matches shadow declarations introduced into a scope by a (resolved) using declaration.",
+    "signatures": [
+      "Matcher<Decl> usingShadowDecl(Matcher<UsingShadowDecl>...)"
+    ]
+  },
+  {
+    "name": "usingType",
+    "category": "node",
+    "summary": "Matches types specified through a using declaration.",
+    "signatures": [
+      "Matcher<Type> usingType(Matcher<UsingType>...)"
+    ]
+  },
+  {
+    "name": "valueDecl",
+    "category": "node",
+    "summary": "Matches any value declaration.",
+    "signatures": [
+      "Matcher<Decl> valueDecl(Matcher<ValueDecl>...)"
+    ]
+  },
+  {
+    "name": "varDecl",
+    "category": "node",
+    "summary": "Matches variable declarations.",
+    "signatures": [
+      "Matcher<Decl> varDecl(Matcher<VarDecl>...)"
+    ]
+  },
+  {
+    "name": "variableArrayType",
+    "category": "node",
+    "summary": "Matches C arrays with a specified size that is not an integer-constant-expression.",
+    "signatures": [
+      "Matcher<Type> variableArrayType(Matcher<VariableArrayType>...)"
+    ]
+  },
+  {
+    "name": "voidType",
+    "category": "narrowing",
+    "summary": "Matches type void.",
+    "signatures": [
+      "Matcher<Type> voidType()"
+    ]
+  },
+  {
+    "name": "whileStmt",
+    "category": "node",
+    "summary": "Matches while statements.",
+    "signatures": [
+      "Matcher<Stmt> whileStmt(Matcher<WhileStmt>...)"
+    ]
+  },
+  {
+    "name": "withInitializer",
+    "category": "traversal",
+    "summary": "Matches the initializer expression of a constructor initializer.",
+    "signatures": [
+      "Matcher<CXXCtorInitializer> withInitializer(Matcher<Expr> InnerMatcher)"
+    ]
+  }
+]

@@ -131,7 +131,7 @@ describe("retained Match streaming", () => {
               isPackExpansion: false,
             },
             availability: [],
-            supportedScopes: [],
+            supportedScopes: [3],
             isComplete: true,
             location: {
               file: "/tmp/example.cc",
@@ -177,7 +177,7 @@ describe("retained Match streaming", () => {
         isPackExpansion: false,
       },
       availability: [],
-      supportedScopes: [],
+      supportedScopes: ["BINDING_MATCH_SCOPE_CHILDREN"],
       location: { file: "/tmp/example.cc", line: 4, column: 7 },
       range: {
         expansionBegin: { line: 4, column: 7 },
@@ -205,7 +205,7 @@ describe("retained Match streaming", () => {
       location: { file: "/tmp/example.cc" },
       symbolIdentity: "c:@S@Derived",
       documentation: "Copied declaration documentation",
-      supportedScopes: [],
+      supportedScopes: ["BINDING_MATCH_SCOPE_CHILDREN"],
     });
     rows.discard();
   });

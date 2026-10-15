@@ -1,0 +1,169 @@
+body {
+  padding: 0;
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+main {
+  padding: 12px;
+}
+label,
+legend {
+  display: block;
+  margin: 12px 0 6px;
+}
+button,
+select,
+input,
+textarea {
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+  padding: 7px 8px;
+}
+button {
+  cursor: pointer;
+}
+select,
+input:not([type="checkbox"]),
+textarea,
+.select {
+  width: 100%;
+}
+.select {
+  text-align: left;
+}
+button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+.primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: transparent;
+}
+.primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+#run {
+  flex: 1;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+}
+fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+}
+fieldset input {
+  accent-color: var(--vscode-focusBorder);
+}
+textarea,
+pre,
+code {
+  font-family: var(--vscode-editor-font-family);
+}
+textarea {
+  resize: vertical;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--vscode-textCodeBlock-background);
+  padding: 8px;
+}
+.muted,
+.excerpt {
+  color: var(--vscode-descriptionForeground);
+}
+#target {
+  overflow-wrap: anywhere;
+  font-size: 0.9em;
+}
+#status {
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 16px;
+  padding-top: 12px;
+  overflow-wrap: anywhere;
+}
+#errors {
+  color: var(--vscode-errorForeground);
+  overflow-wrap: anywhere;
+}
+summary {
+  cursor: pointer;
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+.match {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  text-align: left;
+  background: transparent;
+}
+.match:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.match.selected {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+.name,
+.excerpt {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.excerpt {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  margin: 4px 0 0 20px;
+}
+.kind {
+  color: var(
+    --vscode-symbolIcon-classForeground,
+    var(--vscode-textLink-foreground)
+  );
+  margin-right: 6px;
+}
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+}
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: the hidden attribute must override component display rules. */
+  display: none !important;
+}

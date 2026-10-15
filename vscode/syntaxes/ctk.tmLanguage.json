@@ -1,0 +1,70 @@
+{
+  "name": "CTK Script",
+  "scopeName": "source.ctk",
+  "patterns": [
+    {
+      "name": "comment.line.double-slash.ctk",
+      "begin": "//|#",
+      "end": "$"
+    },
+    {
+      "name": "comment.block.ctk",
+      "begin": "/\\*",
+      "end": "\\*/"
+    },
+    {
+      "name": "string.quoted.double.ctk",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ctk",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "string.quoted.single.ctk",
+      "begin": "'",
+      "end": "'",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ctk",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "constant.language.ctk",
+      "match": "\\b(true|false|null)\\b"
+    },
+    {
+      "name": "constant.numeric.ctk",
+      "match": "\\b[0-9]+(?:\\.[0-9]+)?\\b"
+    },
+    {
+      "name": "keyword.control.ctk",
+      "match": "\\b(let|emit|yield|in|match|parse|if|else|foreach|while|repeat|until|break|continue|return|import|as|do|done)\\b"
+    },
+    {
+      "name": "variable.parameter.ctk",
+      "match": "\\$\\{[A-Z][A-Z0-9_]*\\}"
+    },
+    {
+      "name": "variable.other.ctk",
+      "match": "\\$[A-Za-z_][A-Za-z0-9_]*"
+    },
+    {
+      "name": "entity.name.type.ctk",
+      "match": "\\b(?:accessSpecDecl|addrLabelExpr|arrayInitIndexExpr|arrayInitLoopExpr|arraySubscriptExpr|arrayType|arrayTypeLoc|asmStmt|atomicExpr|atomicType|attr|autoType|autoreleasePoolStmt|binaryConditionalOperator|binaryOperator|bindingDecl|blockDecl|blockExpr|blockPointerType|breakStmt|builtinType|cStyleCastExpr|callExpr|caseStmt|castExpr|characterLiteral|chooseExpr|classTemplateDecl|classTemplatePartialSpecializationDecl|classTemplateSpecializationDecl|coawaitExpr|complexType|compoundLiteralExpr|compoundStmt|conceptDecl|conditionalOperator|constantArrayType|constantExpr|continueStmt|convertVectorExpr|coreturnStmt|coroutineBodyStmt|coyieldExpr|cudaKernelCallExpr|cxxBaseSpecifier|cxxBindTemporaryExpr|cxxBoolLiteral|cxxCatchStmt|cxxConstCastExpr|cxxConstructExpr|cxxConstructorDecl|cxxConversionDecl|cxxCtorInitializer|cxxDeductionGuideDecl|cxxDefaultArgExpr|cxxDeleteExpr|cxxDependentScopeMemberExpr|cxxDestructorDecl|cxxDynamicCastExpr|cxxFoldExpr|cxxForRangeStmt|cxxFunctionalCastExpr|cxxMemberCallExpr|cxxMethodDecl|cxxNewExpr|cxxNoexceptExpr|cxxNullPtrLiteralExpr|cxxOperatorCallExpr|cxxRecordDecl|cxxReinterpretCastExpr|cxxRewrittenBinaryOperator|cxxStaticCastExpr|cxxStdInitializerListExpr|cxxTemporaryObjectExpr|cxxThisExpr|cxxThrowExpr|cxxTryStmt|cxxUnresolvedConstructExpr|decayedType|decl|declRefExpr|declStmt|declaratorDecl|decltypeType|decompositionDecl|deducedTemplateSpecializationType|defaultStmt|dependentCoawaitExpr|dependentNameType|dependentScopeDeclRefExpr|dependentSizedArrayType|dependentSizedExtVectorType|designatedInitExpr|doStmt|enumConstantDecl|enumDecl|enumType|explicitCastExpr|exportDecl|expr|exprWithCleanups|fieldDecl|fileScopeAsmDecl|fixedPointLiteral|floatLiteral|forStmt|friendDecl|functionDecl|functionProtoType|functionTemplateDecl|functionType|genericSelectionExpr|gnuNullExpr|gotoStmt|ifStmt|imaginaryLiteral|implicitCastExpr|implicitValueInitExpr|incompleteArrayType|indirectFieldDecl|initListExpr|injectedClassNameType|integerLiteral|lValueReferenceType|labelDecl|labelStmt|lambdaCapture|lambdaExpr|linkageSpecDecl|macroQualifiedType|materializeTemporaryExpr|memberExpr|memberPointerType|namedDecl|namespaceAliasDecl|namespaceDecl|nestedNameSpecifier|nestedNameSpecifierLoc|nonTypeTemplateParmDecl|nullStmt|objcCatchStmt|objcCategoryDecl|objcCategoryImplDecl|objcFinallyStmt|objcImplementationDecl|objcInterfaceDecl|objcIvarDecl|objcIvarRefExpr|objcMessageExpr|objcMethodDecl|objcObjectPointerType|objcPropertyDecl|objcProtocolDecl|objcStringLiteral|objcThrowStmt|objcTryStmt|ompDefaultClause|ompExecutableDirective|opaqueValueExpr|parenExpr|parenListExpr|parenType|parmVarDecl|pointerType|pointerTypeLoc|predefinedExpr|qualType|qualifiedTypeLoc|rValueReferenceType|recordDecl|recordType|referenceType|referenceTypeLoc|returnStmt|staticAssertDecl|stmt|stmtExpr|stringLiteral|substNonTypeTemplateParmExpr|substTemplateTypeParmType|switchCase|switchStmt|tagDecl|tagType|templateArgument|templateArgumentLoc|templateName|templateSpecializationType|templateSpecializationTypeLoc|templateTemplateParmDecl|templateTypeParmDecl|templateTypeParmType|translationUnitDecl|type|typeAliasDecl|typeAliasTemplateDecl|typeLoc|typedefDecl|typedefNameDecl|typedefType|unaryExprOrTypeTraitExpr|unaryOperator|unaryTransformType|unresolvedLookupExpr|unresolvedMemberExpr|unresolvedUsingTypenameDecl|unresolvedUsingValueDecl|userDefinedLiteral|usingDecl|usingDirectiveDecl|usingEnumDecl|usingShadowDecl|usingType|valueDecl|varDecl|variableArrayType|whileStmt)\\b(?=\\s*\\()"
+    },
+    {
+      "name": "support.function.ctk",
+      "match": "\\b(?:allOf|anyOf|anything|argumentCountAtLeast|argumentCountIs|asString|booleanType|capturesThis|declCountIs|declaresSameEntityAsBoundNode|designatorCountIs|equals|equalsBoundNode|equalsIntegralValue|hasAnyName|hasAnyOperatorName|hasAnyOverloadedOperatorName|hasAnySelector|hasAttr|hasAutomaticStorageDuration|hasBitWidth|hasCastKind|hasDefaultArgument|hasDefinition|hasDependentName|hasDynamicExceptionSpec|hasExternalFormalLinkage|hasGlobalStorage|hasKeywordSelector|hasLocalQualifiers|hasLocalStorage|hasMemberName|hasName|hasNullSelector|hasOperatorName|hasOverloadedOperatorName|hasSelector|hasSize|hasStaticStorageDuration|hasThreadStorageDuration|hasTrailingReturn|hasUnarySelector|isAllowedToContainClauseKind|isAnonymous|isAnyCharacter|isAnyPointer|isArray|isArrow|isAssignmentOperator|isAtPosition|isBaseInitializer|isBinaryFold|isBitField|isCatchAll|isClass|isClassMessage|isClassMethod|isComparisonOperator|isConst|isConstQualified|isConsteval|isConstexpr|isConstinit|isCopyAssignmentOperator|isCopyConstructor|isDefaultConstructor|isDefaulted|isDefinition|isDelegatingConstructor|isDeleted|isDerivedFrom|isDirectlyDerivedFrom|isEnum|isExceptionVariable|isExpandedFromMacro|isExpansionInFileMatching|isExpansionInMainFile|isExpansionInSystemHeader|isExplicit|isExplicitObjectMemberFunction|isExplicitTemplateSpecialization|isExternC|isFinal|isFirstPrivateKind|isImplicit|isInAnonymousNamespace|isInStdNamespace|isInTemplateInstantiation|isInitCapture|isInline|isInstanceMessage|isInstanceMethod|isInstantiated|isInstantiationDependent|isInteger|isIntegral|isLambda|isLeftFold|isListInitialization|isMain|isMemberInitializer|isMoveAssignmentOperator|isMoveConstructor|isNoReturn|isNoThrow|isNoneKind|isOverride|isPrivate|isPrivateKind|isProtected|isPublic|isPure|isRightFold|isSameOrDerivedFrom|isScoped|isSharedKind|isSignedInteger|isStandaloneDirective|isStaticLocal|isStaticStorageClass|isStruct|isTemplateInstantiation|isTypeDependent|isUnaryFold|isUnion|isUnsignedInteger|isUserProvided|isValueDependent|isVariadic|isVirtual|isVirtualAsWritten|isVolatileQualified|isWeak|isWritten|mapAnyOf|matchesName|matchesSelector|memberHasSameNameAsBoundNode|nullPointerConstant|numSelectorArgs|ofKind|parameterCountIs|realFloatingPointType|requiresZeroInitialization|statementCountIs|templateArgumentCountIs|unless|usesADL|voidType|alignOfExpr|binaryOperation|callee|capturesVar|containsDeclaration|eachOf|forCallable|forDecomposition|forEach|forEachArgumentWithParam|forEachArgumentWithParamType|forEachConstructorInitializer|forEachDescendant|forEachLambdaCapture|forEachOverridden|forEachSwitchCase|forEachTemplateArgument|forField|forFunction|has|hasAncestor|hasAnyArgument|hasAnyBase|hasAnyBinding|hasAnyBody|hasAnyCapture|hasAnyClause|hasAnyConstructorInitializer|hasAnyDeclaration|hasAnyParameter|hasAnyPlacementArg|hasAnySubstatement|hasAnyTemplateArgument|hasAnyTemplateArgumentLoc|hasAnyUsingShadowDecl|hasArgument|hasArgumentOfType|hasArraySize|hasBase|hasBinding|hasBody|hasCanonicalType|hasCaseConstant|hasCondition|hasConditionVariableStatement|hasDecayedType|hasDeclContext|hasDeclaration|hasDeducedType|hasDescendant|hasDestinationType|hasDirectBase|hasEitherOperand|hasElementType|hasElse|hasExplicitSpecifier|hasFalseExpression|hasFoldInit|hasImplicitDestinationType|hasInClassInitializer|hasIncrement|hasIndex|hasInit|hasInitStatement|hasInitializer|hasLHS|hasLoopInit|hasLoopVariable|hasMethod|hasObjectExpression|hasOperands|hasParameter|hasParent|hasPattern|hasPlacementArg|hasPointeeLoc|hasPrefix|hasQualifier|hasRHS|hasRangeInit|hasReceiver|hasReceiverType|hasReferentLoc|hasReplacementType|hasReturnTypeLoc|hasReturnValue|hasSingleDecl|hasSizeExpr|hasSourceExpression|hasSpecializedTemplate|hasStructuredBlock|hasSyntacticForm|hasTargetDecl|hasTemplateArgument|hasTemplateArgumentLoc|hasThen|hasTrueExpression|hasType|hasTypeLoc|hasUnaryOperand|hasUnderlyingDecl|hasUnderlyingType|hasUnqualifiedDesugaredType|hasUnqualifiedLoc|hasValueType|ignoringElidableConstructorCall|ignoringImpCasts|ignoringImplicit|ignoringParenCasts|ignoringParenImpCasts|ignoringParens|innerType|invocation|isExpr|loc|member|ofClass|on|onImplicitObjectArgument|optionally|pointee|pointsTo|references|refersToDeclaration|refersToIntegralType|refersToTemplate|refersToType|returns|sizeOfExpr|specifiesNamespace|specifiesType|specifiesTypeLoc|thisPointerType|throughUsingDecl|to|withInitializer)\\b(?=\\s*\\()"
+    },
+    {
+      "name": "entity.name.function.ctk",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+    }
+  ]
+}

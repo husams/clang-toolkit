@@ -1,0 +1,12 @@
+node_modules/**
+src/**
+tests/**
+scripts/**
+.vscode-test/**
+artifacts/**
+pnpm-lock.yaml
+tsconfig.json
+biome.json
+.vscode/**
+.gitignore
+dist/extension-tests.cjs*
