@@ -1,0 +1,36 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "analysis/v1/cfg_graph.proto";
+import "analysis/v1/cfg_block.proto";
+
+// Events are provisional until exactly one request completion and terminal OK.
+// Graphs are sequential; block IDs may refer to blocks not yet delivered.
+message CfgStreamEvent {
+  oneof event {
+    CfgGraphStarted graph_started = 1;
+    CfgBlockEvent block = 2;
+    CfgGraphCompleted graph_completed = 3;
+    CfgCompleted completed = 4;
+  }
+}
+message CfgGraphStarted {
+  uint64 graph_index = 1;
+  uint64 snapshot_generation = 2;
+  // Function, entry/exit, linearity and function availability; no blocks.
+  CfgGraph graph = 3;
+}
+message CfgBlockEvent {
+  uint64 graph_index = 1;
+  CfgBlock block = 2;
+}
+message CfgGraphCompleted {
+  uint64 graph_index = 1;
+  uint64 block_count = 2;
+  uint64 element_count = 3;
+  bool is_complete = 4;
+}
+message CfgCompleted {
+  uint64 graph_count = 1;
+  uint64 block_count = 2;
+  uint64 element_count = 3;
+}

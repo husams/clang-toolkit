@@ -1,7 +1,7 @@
 #pragma once
 #include "analysis/v1/analysis_service.grpc.pb.h"
-#include "ctk/application/call_graph_controller.hpp"
 #include "ctk/application/batch_registry.hpp"
+#include "ctk/application/call_graph_controller.hpp"
 #include "ctk/application/cfg_controller.hpp"
 #include "ctk/application/script_controller.hpp"
 #include "ctk/application/traversal_controller.hpp"
@@ -44,6 +44,9 @@ public:
       grpc::ServerWriter<ctk::analysis::v1::TraverseStreamEvent> *) override;
   grpc::Status Cfg(grpc::ServerContext *, const ctk::analysis::v1::CfgRequest *,
                    ctk::analysis::v1::CfgResponse *) override;
+  grpc::Status
+  StreamCfg(grpc::ServerContext *, const ctk::analysis::v1::CfgRequest *,
+            grpc::ServerWriter<ctk::analysis::v1::CfgStreamEvent> *) override;
 
   grpc::Status CallGraph(grpc::ServerContext *,
                          const ctk::analysis::v1::CallGraphRequest *,

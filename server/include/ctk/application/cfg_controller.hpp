@@ -8,12 +8,18 @@ public:
   explicit CfgController(
       CursorSettings settings = {},
       std::shared_ptr<ctk::clang_layer::ICfgBackend> backend = {},
-      std::shared_ptr<OperationExecutor> executor = {});
+      std::shared_ptr<OperationExecutor> executor = {},
+      MatchController *matches = nullptr);
   ~CfgController();
   ctk::clang_layer::CfgResult
   build(const ctk::analysis::v1::CfgRequest &,
         const ctk::clang_layer::IMatchBackend::Checkpoint &,
         const std::string &owner = "local-user");
+  ctk::clang_layer::CfgResult
+  build_stream(const ctk::analysis::v1::CfgRequest &,
+               const ctk::clang_layer::IMatchBackend::Checkpoint &,
+               const ctk::clang_layer::ICfgBackend::EventSink &,
+               const std::string &owner = "local-user");
   void stop_admission();
 
 private:

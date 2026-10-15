@@ -30,6 +30,8 @@ from clang_toolkit._generated.match.v1 import match_stream_pb2
 from clang_toolkit._generated.match.v1 import resources_pb2
 from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2
 from clang_toolkit._generated.analysis.v1 import traverse_stream_pb2, traverse_request_pb2
+from clang_toolkit._generated.analysis.v1 import cfg_stream_pb2, cfg_request_pb2
+from clang_toolkit.cfg_stream import CfgStreamState
 from clang_toolkit._generated.analysis.v1 import batch_pb2
 from clang_toolkit.batches import BatchRun, batch_run, start_batch_request
 from clang_toolkit.analysis_error import AnalysisError
@@ -1013,29 +1015,83 @@ class AsyncClient:
         response.depth_limited = completed.depth_limited
         return response
 
-    async def cfg(self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, function: str, *,
-                  working_directory: str | Path | None = None,
-                  compile_arguments: Sequence[str] = (), options: CfgOptions | None = None,
-                  max_functions: int | None = None, max_blocks: int | None = None,
-                  max_elements: int | None = None, projection: str = "shallow",
-                  main_file_only: bool = False, payload_depth: int = 24,
-                  payload_nodes: int = 10000,
-                  scope: ResourceScope[AsyncClient] | str | None = None) -> cfg_response_pb2.CfgResponse:
-        path, input_descriptor = _analysis_input(path)
-        request = cfg_request(path, function, working_directory=working_directory,
-            compile_arguments=compile_arguments, options=options, max_functions=max_functions,
-            max_blocks=max_blocks, max_elements=max_elements, projection=projection,
-            main_file_only=main_file_only, payload_depth=payload_depth,
-            payload_nodes=payload_nodes)
-        _apply_input_descriptor(request.file, input_descriptor)
-        request.resource_scope_id = _scope_id(scope)
+    async def cfg_stream(self, target: MatchTarget | Path, function: str | None = None,
+                         **kwargs: Any) -> AsyncIterator[cfg_stream_pb2.CfgStreamEvent]:
+        """Yield provisional CFG events; exhaust for completion and terminal OK.
+
+        Use aclosing when stopping early. Retained trees and bindings reuse the
+        pinned AST; function must be omitted for an exact function binding.
+        """
+        request = _cfg_value_request(self, target, function, **kwargs)
+        async with aclosing(self._cfg_events(request)) as events:
+            async for event in events:
+                yield event
+
+    async def _cfg_events(self, request: cfg_request_pb2.CfgRequest
+                          ) -> AsyncIterator[cfg_stream_pb2.CfgStreamEvent]:
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
+        self._begin_value_operation()
+        call = None
+        consumed = False
+        state = CfgStreamState()
         try:
-            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).Cfg(
+            call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamCfg(
                 self._compilation_request(request), timeout=self.config.rpc_timeout)
+            async for event in call:
+                state.consume(event)
+                yield event
+            state.finish()
+            status = call.code()
+            if inspect.isawaitable(status):
+                status = await status
+            if status != grpc.StatusCode.OK:
+                raise AnalysisError(status, "CFG stream did not finish successfully")
+            consumed = True
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
+        finally:
+            if call is not None and not consumed and not call.done():
+                call.cancel()
+            self._end_value_operation()
+
+    async def _stream_cfg_request(self, request: cfg_request_pb2.CfgRequest, *,
+                                  on_event: Callable[..., Any]) -> cfg_stream_pb2.CfgCompleted:
+        completed = None
+        async with aclosing(self._cfg_events(request)) as events:
+            async for event in events:
+                result = on_event(event)
+                if inspect.isawaitable(result):
+                    await result
+                if event.HasField("completed"):
+                    completed = event.completed
+        assert completed is not None
+        return completed
+
+    async def stream_cfg(self, target: MatchTarget | Path, function: str | None = None, *,
+                         on_event: Callable[..., Any], **kwargs: Any) -> cfg_stream_pb2.CfgCompleted:
+        """Consume events with backpressure and return completion counts."""
+        request = _cfg_value_request(self, target, function, **kwargs)
+        return await self._stream_cfg_request(request, on_event=on_event)
+
+    async def cfg(self, path: MatchTarget | Path, function: str | None = None,
+                  **kwargs: Any) -> cfg_response_pb2.CfgResponse:
+        """Explicit collector; use cfg_stream or stream_cfg for bounded memory."""
+        return await self._collect_cfg_request(_cfg_value_request(self, path, function, **kwargs))
+
+    async def _collect_cfg_request(self, request: cfg_request_pb2.CfgRequest) -> cfg_response_pb2.CfgResponse:
+        response = cfg_response_pb2.CfgResponse()
+        def collect(event: cfg_stream_pb2.CfgStreamEvent) -> None:
+            if event.HasField("graph_started"):
+                response.graphs.add().CopyFrom(event.graph_started.graph)
+            elif event.HasField("block"):
+                graph = response.graphs[event.block.graph_index]
+                graph.blocks.add().CopyFrom(event.block.block)
+                graph.availability.extend(event.block.block.availability)
+            elif event.HasField("graph_completed"):
+                response.graphs[event.graph_completed.graph_index].is_complete = event.graph_completed.is_complete
+        await self._stream_cfg_request(request, on_event=collect)
+        return response
 
     async def run_script(
                          self, source: str, *,
@@ -2022,12 +2078,20 @@ class Client:
         return asyncio.run(run())
 
     def cfg(
-            self, function: str, *,
-            path: str | Path | FileHandle[Client] | InputDescriptor | None = None,
+            self, function: str | BindingSelection, *,
+            path: MatchTarget | Path | None = None,
             **kwargs: Any) -> cfg_response_pb2.CfgResponse:
-        if path is None:
-            raise ValueError("CFG requires a file path; pass path=...")
-        return self._cursor_call("cfg", path, function, **kwargs)
+        request = _cfg_value_request(self, function if path is None else path,
+                                     None if path is None else function, **kwargs)
+        return self._cursor_call("_collect_cfg_request", request)
+
+    def stream_cfg(self, function: str | BindingSelection, *, path: MatchTarget | Path | None = None,
+                   on_event: Callable[..., Any], **kwargs: Any) -> cfg_stream_pb2.CfgCompleted:
+        request = _cfg_value_request(self, function if path is None else path,
+                                     None if path is None else function, **kwargs)
+        async def callback(event: Any) -> None:
+            await _invoke_sync_callback(on_event, event)
+        return self._cursor_call("_stream_cfg_request", request, on_event=callback)
 
     def run_script(
                    self, source: str, *,
@@ -2198,6 +2262,23 @@ class _AsyncExpressionAdapter:
     def traverse(self, target: MatchTarget | Path, **kwargs: Any) -> traverse_response_pb2.TraverseResponse:
         return self._call("traverse", target, **kwargs)
 
+    def cfg(self, function: str | BindingSelection, *, path: MatchTarget | Path | None = None,
+            **kwargs: Any) -> cfg_response_pb2.CfgResponse:
+        return self._call("cfg", function if path is None else path,
+                          None if path is None else function, **kwargs)
+
+    def stream_cfg(self, function: str | BindingSelection, *, path: MatchTarget | Path | None = None,
+                   on_event: Callable[..., Any], **kwargs: Any) -> cfg_stream_pb2.CfgCompleted:
+        async def callback(event: Any) -> None:
+            task = asyncio.current_task()
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_event, event)
+            finally:
+                self._row_callbacks.discard(task)
+        return self._call("stream_cfg", function if path is None else path,
+                          None if path is None else function, on_event=callback, **kwargs)
+
     def match(self, query: MatcherInput, *, files: Sequence[str] | None = None,
               **kwargs: Any) -> list[Any]:
         return self._call("match", query, files or (), **kwargs)
@@ -2216,6 +2297,29 @@ def _expression_runtime(owner: Client | AsyncClient, adapter: Any,
     if compile_arguments is not None:
         runtime.config_store.effective["extra_args"] = list(compile_arguments)
     return runtime
+
+
+def _cfg_value_request(client: Client | AsyncClient, target: MatchTarget | Path,
+                       function: str | None = None, *,
+                       scope: ResourceScope[Any] | str | None = None,
+                       working_directory: str | Path | None = None,
+                       compile_arguments: Sequence[str] = (), **kwargs: Any
+                       ) -> cfg_request_pb2.CfgRequest:
+    selected = _value_request(client, "decl()", target,
+        working_directory=working_directory, compile_arguments=compile_arguments, scope=scope)
+    if selected.HasField("binding"):
+        if function is not None:
+            raise ValueError("omit function name for an exact CFG binding")
+    elif not isinstance(function, str) or not function:
+        raise ValueError("CFG requires a function name and path=... or a retained tree")
+    request = cfg_request("unused", function or "unused", **kwargs)
+    if function is None:
+        request.ClearField("function")
+    request.ClearField("file")
+    kind = selected.WhichOneof("target")
+    getattr(request, kind).CopyFrom(getattr(selected, kind))
+    request.resource_scope_id = selected.resource_scope_id
+    return request
 
 
 def _traversal_value_request(client: Client | AsyncClient, target: MatchTarget | Path,

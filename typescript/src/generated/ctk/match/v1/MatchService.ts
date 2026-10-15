@@ -211,6 +211,11 @@ export interface MatchServiceClient extends grpc.Client {
   streamMatch(argument: _ctk_match_v1_MatchRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_match_v1_MatchStreamEvent__Output>;
   streamMatch(argument: _ctk_match_v1_MatchRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_match_v1_MatchStreamEvent__Output>;
 
+  StreamNavigate(argument: _ctk_match_v1_MatchRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_match_v1_MatchStreamEvent__Output>;
+  StreamNavigate(argument: _ctk_match_v1_MatchRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_match_v1_MatchStreamEvent__Output>;
+  streamNavigate(argument: _ctk_match_v1_MatchRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_match_v1_MatchStreamEvent__Output>;
+  streamNavigate(argument: _ctk_match_v1_MatchRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_match_v1_MatchStreamEvent__Output>;
+
 }
 
 export interface MatchServiceHandlers extends grpc.UntypedServiceImplementation {
@@ -254,6 +259,8 @@ export interface MatchServiceHandlers extends grpc.UntypedServiceImplementation 
 
   StreamMatch: grpc.handleServerStreamingCall<_ctk_match_v1_MatchRequest__Output, _ctk_match_v1_MatchStreamEvent>;
 
+  StreamNavigate: grpc.handleServerStreamingCall<_ctk_match_v1_MatchRequest__Output, _ctk_match_v1_MatchStreamEvent>;
+
 }
 
 export interface MatchServiceDefinition extends grpc.ServiceDefinition {
@@ -277,4 +284,5 @@ export interface MatchServiceDefinition extends grpc.ServiceDefinition {
   ResourceStatus: MethodDefinition<_ctk_match_v1_ResourceStatusRequest, _ctk_match_v1_ResourceStatusResponse, _ctk_match_v1_ResourceStatusRequest__Output, _ctk_match_v1_ResourceStatusResponse__Output>
   ServerStatus: MethodDefinition<_ctk_match_v1_ServerStatusRequest, _ctk_match_v1_ServerStatusResponse, _ctk_match_v1_ServerStatusRequest__Output, _ctk_match_v1_ServerStatusResponse__Output>
   StreamMatch: MethodDefinition<_ctk_match_v1_MatchRequest, _ctk_match_v1_MatchStreamEvent, _ctk_match_v1_MatchRequest__Output, _ctk_match_v1_MatchStreamEvent__Output>
+  StreamNavigate: MethodDefinition<_ctk_match_v1_MatchRequest, _ctk_match_v1_MatchStreamEvent, _ctk_match_v1_MatchRequest__Output, _ctk_match_v1_MatchStreamEvent__Output>
 }

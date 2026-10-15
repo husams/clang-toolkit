@@ -1,0 +1,13 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "analysis/v1/traversal_node.proto";
+message TraverseStreamEvent {
+  oneof event {
+    TraversalNode node = 1;
+    TraverseCompleted completed = 2;
+  }
+}
+message TraverseCompleted {
+  uint64 node_count = 1;
+  bool depth_limited = 2;
+}

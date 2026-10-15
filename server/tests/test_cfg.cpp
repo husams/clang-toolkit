@@ -78,6 +78,61 @@ TEST_F(ControlFlow, TypedOverloadsPreservePrunedEdgeSlotsAndOwnedBlocks) {
   std::filesystem::remove(directory.path() / "fixture.cc");
   EXPECT_EQ(result.response.SerializeAsString(), owned);
 }
+TEST_F(ControlFlow, StreamingPublishesOwnedBlocksAndHonorsSinkBackpressure) {
+  std::vector<ctk::analysis::v1::CfgStreamEvent> events;
+  auto result = controller.build_stream(
+      request, [] { return true; },
+      [&](const auto &event, std::string &) {
+        events.push_back(event);
+        return MatchCode::Ok;
+      });
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  EXPECT_EQ(result.graph_count, 2);
+  EXPECT_EQ(result.response.graphs_size(), 0);
+  std::uint64_t blocks = 0, elements = 0, started = 0, completed = 0;
+  for (const auto &event : events) {
+    if (event.has_graph_started()) {
+      EXPECT_TRUE(event.graph_started().graph().blocks().empty());
+      EXPECT_GT(event.graph_started().snapshot_generation(), 0);
+      EXPECT_EQ(event.graph_started().graph_index(), started++);
+    } else if (event.has_block()) {
+      ++blocks;
+      elements += event.block().block().elements_size();
+    } else if (event.has_graph_completed()) {
+      EXPECT_EQ(event.graph_completed().graph_index(), completed++);
+    }
+  }
+  EXPECT_EQ(result.block_count, blocks);
+  EXPECT_EQ(result.element_count, elements);
+  EXPECT_EQ(completed, 2);
+  int writes = 0;
+  auto stopped = controller.build_stream(
+      request, [] { return true; },
+      [&](const auto &, std::string &message) {
+        ++writes;
+        message = "consumer stopped";
+        return MatchCode::Cancelled;
+      });
+  EXPECT_EQ(stopped.code, MatchCode::Cancelled);
+  EXPECT_EQ(writes, 1);
+  EXPECT_EQ(stopped.response.graphs_size(), 0);
+}
+TEST_F(ControlFlow, StreamingCountFailureLeavesOnlyProvisionalEvents) {
+  request.set_max_blocks(1);
+  int blocks = 0, complete = 0;
+  auto result = controller.build_stream(
+      request, [] { return true; },
+      [&](const auto &event, std::string &) {
+        blocks += event.has_block();
+        complete += event.has_graph_completed();
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(result.code, MatchCode::ResourceExhausted);
+  EXPECT_EQ(blocks, 1);
+  EXPECT_EQ(complete, 0);
+  EXPECT_EQ(
+      controller.build(request, [] { return true; }).response.graphs_size(), 0);
+}
 TEST_F(ControlFlow, RichOptionsExposeConstructionContextsAndLifetimeEvents) {
   request.set_function("rich");
   auto *options = request.mutable_options();
@@ -148,8 +203,8 @@ TEST_F(ControlFlow, ProjectionAndMainFileScopeHandleHeaderFunctions) {
       << "#include \"header_cfg.hpp\"\n"
          "int local_cfg(int value) { return header_cfg(value); }\n";
   request.mutable_file()->set_file_path("main_cfg.cc");
-  request.mutable_file()->add_compile_arguments(
-      "-I" + directory.path().string());
+  request.mutable_file()->add_compile_arguments("-I" +
+                                                directory.path().string());
   request.set_function("header_cfg");
 
   auto shallow_request = request;

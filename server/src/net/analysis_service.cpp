@@ -18,7 +18,8 @@ grpc::Status AnalysisServiceAdapter::StartBatch(
     const ctk::analysis::v1::StartBatchRequest *request,
     ctk::analysis::v1::BatchRun *response) {
   std::string message;
-  const auto code = batches_.start(*request, owner(*context), *response, message);
+  const auto code =
+      batches_.start(*request, owner(*context), *response, message);
   return match_status(code, message, *context);
 }
 grpc::Status AnalysisServiceAdapter::BatchStatus(
@@ -26,7 +27,8 @@ grpc::Status AnalysisServiceAdapter::BatchStatus(
     const ctk::analysis::v1::BatchRunRequest *request,
     ctk::analysis::v1::BatchRun *response) {
   std::string message;
-  const auto code = batches_.status(*request, owner(*context), *response, message);
+  const auto code =
+      batches_.status(*request, owner(*context), *response, message);
   return match_status(code, message, *context);
 }
 grpc::Status AnalysisServiceAdapter::CancelBatch(
@@ -34,7 +36,8 @@ grpc::Status AnalysisServiceAdapter::CancelBatch(
     const ctk::analysis::v1::BatchControlRequest *request,
     ctk::analysis::v1::BatchRun *response) {
   std::string message;
-  const auto code = batches_.cancel(*request, owner(*context), *response, message);
+  const auto code =
+      batches_.cancel(*request, owner(*context), *response, message);
   return match_status(code, message, *context);
 }
 grpc::Status AnalysisServiceAdapter::ResumeBatch(
@@ -42,7 +45,8 @@ grpc::Status AnalysisServiceAdapter::ResumeBatch(
     const ctk::analysis::v1::BatchControlRequest *request,
     ctk::analysis::v1::BatchRun *response) {
   std::string message;
-  const auto code = batches_.resume(*request, owner(*context), *response, message);
+  const auto code =
+      batches_.resume(*request, owner(*context), *response, message);
   return match_status(code, message, *context);
 }
 grpc::Status AnalysisServiceAdapter::RetryBatch(
@@ -50,16 +54,16 @@ grpc::Status AnalysisServiceAdapter::RetryBatch(
     const ctk::analysis::v1::BatchControlRequest *request,
     ctk::analysis::v1::BatchRun *response) {
   std::string message;
-  const auto code = batches_.retry(*request, owner(*context), *response, message);
+  const auto code =
+      batches_.retry(*request, owner(*context), *response, message);
   return match_status(code, message, *context);
 }
 grpc::Status AnalysisServiceAdapter::RunScript(
     grpc::ServerContext *context,
     const ctk::analysis::v1::ScriptRequest *request,
     ctk::analysis::v1::ScriptResponse *response) {
-  auto result =
-      scripts_.run(*request, [context] { return !context->IsCancelled(); },
-                   owner(*context));
+  auto result = scripts_.run(
+      *request, [context] { return !context->IsCancelled(); }, owner(*context));
   if (result.code == ctk::clang_layer::MatchCode::Ok)
     response->Swap(&result.response);
   return match_status(result.code, result.message, *context);
@@ -107,20 +111,45 @@ grpc::Status
 AnalysisServiceAdapter::Cfg(grpc::ServerContext *context,
                             const ctk::analysis::v1::CfgRequest *request,
                             ctk::analysis::v1::CfgResponse *response) {
-  auto result =
-      cfg_.build(*request, [context] { return !context->IsCancelled(); },
-                 owner(*context));
+  auto result = cfg_.build(
+      *request, [context] { return !context->IsCancelled(); }, owner(*context));
   if (result.code == ctk::clang_layer::MatchCode::Ok)
     response->Swap(&result.response);
+  return match_status(result.code, result.message, *context);
+}
+grpc::Status AnalysisServiceAdapter::StreamCfg(
+    grpc::ServerContext *context, const ctk::analysis::v1::CfgRequest *request,
+    grpc::ServerWriter<ctk::analysis::v1::CfgStreamEvent> *writer) {
+  auto result = cfg_.build_stream(
+      *request, [context] { return !context->IsCancelled(); },
+      [writer](const ctk::analysis::v1::CfgStreamEvent &event,
+               std::string &message) {
+        if (!writer->Write(event)) {
+          message = "CFG stream closed";
+          return ctk::clang_layer::MatchCode::Cancelled;
+        }
+        return ctk::clang_layer::MatchCode::Ok;
+      },
+      owner(*context));
+  if (result.code == ctk::clang_layer::MatchCode::Ok) {
+    ctk::analysis::v1::CfgStreamEvent event;
+    auto *completed = event.mutable_completed();
+    completed->set_graph_count(result.graph_count);
+    completed->set_block_count(result.block_count);
+    completed->set_element_count(result.element_count);
+    if (!writer->Write(event)) {
+      result.code = ctk::clang_layer::MatchCode::Cancelled;
+      result.message = "CFG stream closed before completion";
+    }
+  }
   return match_status(result.code, result.message, *context);
 }
 grpc::Status AnalysisServiceAdapter::CallGraph(
     grpc::ServerContext *context,
     const ctk::analysis::v1::CallGraphRequest *request,
     ctk::analysis::v1::CallGraphResponse *response) {
-  auto result =
-      calls_.build(*request, [context] { return !context->IsCancelled(); },
-                   owner(*context));
+  auto result = calls_.build(
+      *request, [context] { return !context->IsCancelled(); }, owner(*context));
   if (result.code == ctk::clang_layer::MatchCode::Ok)
     response->Swap(&result.response);
   return match_status(result.code, result.message, *context);

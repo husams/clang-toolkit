@@ -46,6 +46,7 @@ parameters: NAME (COMMA NAME)*
         | BINDING RENAME reference TO reference -> binding_rename
         | CFG cfg_expression            -> cfg
         | CFG cfg_expression IN path_target_expression cfg_option* graph_option* -> cfg_file
+        | CFG IN path_target_expression cfg_option* graph_option* -> cfg_binding
         | CALLGRAPH -> callgraph
         | CALLGRAPH path_target_expression call_graph_option* graph_option* -> callgraph_file
         | HELP help_topic?               -> help

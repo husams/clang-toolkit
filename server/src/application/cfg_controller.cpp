@@ -12,10 +12,15 @@ struct CfgController::Impl {
   ctk::clang_layer::CfgLimits limits;
   std::shared_ptr<OperationExecutor> executor;
   std::shared_ptr<ResourceManager> resources;
+  MatchController *matches;
   Impl(CursorSettings settings,
        std::shared_ptr<ctk::clang_layer::ICfgBackend> native,
-       std::shared_ptr<OperationExecutor> work)
-      : backend(std::move(native)), resources(settings.resources),
+       std::shared_ptr<OperationExecutor> work, MatchController *source)
+      : backend(std::move(native)),
+        resources(settings.resources ? settings.resources
+                  : source           ? source->resource_manager()
+                                     : nullptr),
+        matches(source),
         limits{1000, 100000, 1000000, settings.results.max_bytes},
         executor(work ? std::move(work)
                       : make_operation_executor(settings.workers,
@@ -24,28 +29,69 @@ struct CfgController::Impl {
 CfgController::CfgController(
     CursorSettings settings,
     std::shared_ptr<ctk::clang_layer::ICfgBackend> backend,
-    std::shared_ptr<OperationExecutor> executor) {
+    std::shared_ptr<OperationExecutor> executor, MatchController *matches) {
   if (settings.results.max_bytes == 0)
     throw std::invalid_argument("CFG byte limit must be positive");
 #ifdef CTK_WITH_CLANG
   if (!backend)
     backend = ctk::clang_layer::make_cfg_backend();
 #endif
-  impl_ =
-      std::make_unique<Impl>(settings, std::move(backend), std::move(executor));
+  impl_ = std::make_unique<Impl>(settings, std::move(backend),
+                                 std::move(executor), matches);
 }
 CfgController::~CfgController() = default;
 CfgResult CfgController::build(
     const ctk::analysis::v1::CfgRequest &request,
     const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
     const std::string &owner) {
-  const auto invalid = detail::invalid_file_target(request.file());
-  if (!request.has_file() || !invalid.empty())
+  ctk::analysis::v1::CfgResponse collected;
+  std::size_t bytes = 0;
+  auto result = build_stream(
+      request, checkpoint,
+      [&](const ctk::analysis::v1::CfgStreamEvent &event,
+          std::string &message) {
+        if (event.ByteSizeLong() + 16 > impl_->limits.max_bytes - bytes) {
+          message = "CFG response byte limit exceeded";
+          return MatchCode::ResourceExhausted;
+        }
+        bytes += event.ByteSizeLong() + 16;
+        if (event.has_graph_started())
+          collected.add_graphs()->CopyFrom(event.graph_started().graph());
+        else if (event.has_block()) {
+          auto *graph = collected.mutable_graphs(event.block().graph_index());
+          graph->add_blocks()->CopyFrom(event.block().block());
+          for (const auto &field : event.block().block().availability())
+            graph->add_availability()->CopyFrom(field);
+        } else if (event.has_graph_completed())
+          collected.mutable_graphs(event.graph_completed().graph_index())
+              ->set_is_complete(event.graph_completed().is_complete());
+        return MatchCode::Ok;
+      },
+      owner);
+  if (result.code == MatchCode::Ok)
+    result.response.Swap(&collected);
+  return result;
+}
+CfgResult CfgController::build_stream(
+    const ctk::analysis::v1::CfgRequest &request,
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint,
+    const ctk::clang_layer::ICfgBackend::EventSink &sink,
+    const std::string &owner) {
+  const auto invalid = request.has_file()
+                           ? detail::invalid_file_target(request.file())
+                           : std::string{};
+  if (!sink ||
+      request.target_case() == ctk::analysis::v1::CfgRequest::TARGET_NOT_SET ||
+      !invalid.empty())
     return {MatchCode::InvalidArgument,
-            invalid.empty() ? "file target is required" : invalid,
+            invalid.empty() ? "CFG target and event sink are required"
+                            : invalid,
             {}};
-  if (request.function().empty())
-    return {MatchCode::InvalidArgument, "function name is required", {}};
+  if (request.has_binding() ? !request.function().empty()
+                            : request.function().empty())
+    return {MatchCode::InvalidArgument,
+            "function name is required except for an exact binding",
+            {}};
   if ((request.has_max_functions() &&
        (request.max_functions() == 0 ||
         request.max_functions() > impl_->limits.max_functions)) ||
@@ -74,13 +120,49 @@ CfgResult CfgController::build(
   auto promise = std::make_shared<std::promise<CfgResult>>();
   auto future = promise->get_future();
   if (!impl_->executor->enqueue([this, promise, request, scoped_checkpoint,
-                                 owner, work] {
+                                 owner, work, sink] {
         try {
           auto resource_scope = detail::make_snapshot_scope(
               impl_->resources, owner, request.resource_scope_id(),
               work->token());
-          auto result =
-              impl_->backend->build(request, scoped_checkpoint, impl_->limits);
+          std::shared_ptr<const ctk::clang_layer::NativeBindingState> state;
+          if (!request.has_file()) {
+            if (!impl_->matches) {
+              promise->set_value({MatchCode::FailedPrecondition,
+                                  "retained CFG is unavailable",
+                                  {}});
+              return;
+            }
+            ctk::match::v1::MatchRequest target;
+            target.set_query("unused");
+            target.set_resource_scope_id(request.resource_scope_id());
+            if (request.has_session())
+              target.mutable_session()->CopyFrom(request.session());
+            else if (request.has_binding())
+              target.mutable_binding()->CopyFrom(request.binding());
+            else
+              target.mutable_file_handle()->CopyFrom(request.file_handle());
+            const auto resolved = impl_->matches->native_state(
+                owner, target, state, work->token());
+            if (resolved.code != MatchCode::Ok) {
+              promise->set_value({resolved.code, resolved.message, {}});
+              return;
+            }
+          }
+          auto result = impl_->backend->build_stream(
+              request, state, scoped_checkpoint, impl_->limits,
+              [&](const ctk::analysis::v1::CfgStreamEvent &event,
+                  std::string &message) {
+                if (!scoped_checkpoint()) {
+                  message = "CFG analysis cancelled";
+                  return MatchCode::Cancelled;
+                }
+                if (event.ByteSizeLong() > impl_->limits.max_bytes) {
+                  message = "CFG stream event byte limit exceeded";
+                  return MatchCode::ResourceExhausted;
+                }
+                return sink(event, message);
+              });
           if (result.code == MatchCode::Ok && !scoped_checkpoint())
             result = {MatchCode::Cancelled,
                       "CFG analysis cancelled before publication",

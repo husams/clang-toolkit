@@ -95,7 +95,7 @@ def test_nested_matcher_arguments_use_nested_catalog_without_commands():
 
 
 def test_cfg_and_callgraph_targets_do_not_offer_matcher_catalog(tmp_path):
-    assert complete("cfg ", cwd=tmp_path) == []
+    assert complete("cfg ", cwd=tmp_path) == ["in"]
     assert complete("callgraph ", cwd=tmp_path) == []
 
 
