@@ -269,6 +269,7 @@ def highlight(source: str) -> StyleAndTextTuples:
             "<=",
             ">",
             ">=",
+            "|",
             "+=",
             "-=",
             "*=",
@@ -467,10 +468,33 @@ class PrototypeCompleter(Completer):
             return
         if tokens and _kind(tokens[-1]) in {"COMMENT", "OPEN_STRING"}:
             return
-        match = re.search(r"[A-Za-z_][A-Za-z0-9_]*$|(?<=\.)$", before)
-        if match is None:
+        help_query = re.search(
+            r"(?:^|[;\n])\s*help\s+([A-Za-z_][A-Za-z0-9_]*)?$", before
+        )
+        if help_query is not None:
+            partial_topic = help_query.group(1) or ""
+            suffix = re.match(r"[A-Za-z_0-9]+", document.text_after_cursor)
+            word_suffix = suffix[0] if suffix else ""
+            if "pipes".startswith(partial_topic) and "pipes".endswith(word_suffix):
+                text = "pipes"[:-len(word_suffix)] if word_suffix else "pipes"
+                yield Completion(
+                    text,
+                    start_position=-len(partial_topic),
+                    display="pipes",
+                    display_meta="console pipeline syntax and filter stages",
+                )
             return
-        partial = match.group(0)
+        pipeline_partial = _pipeline_stage_partial(before, cursor, tokens)
+        pipeline_arguments = _pipeline_call_arguments(before, cursor, tokens)
+        match = re.search(r"[A-Za-z_][A-Za-z0-9_]*$|(?<=\.)$", before)
+        if match is None and pipeline_partial is None and pipeline_arguments is None:
+            return
+        partial = (
+            match.group(0) if match is not None
+            else pipeline_partial if pipeline_partial is not None
+            else pipeline_arguments[1] if pipeline_arguments is not None
+            else ""
+        )
         tail = re.match(r"[A-Za-z_0-9]+", document.text_after_cursor)
         word_suffix = tail[0] if tail else ""
 
@@ -496,6 +520,37 @@ class PrototypeCompleter(Completer):
             else {}
         )
         functions = set(functions) | set(descriptions)
+        if pipeline_arguments is not None:
+            stage_name, argument_partial = pipeline_arguments
+            description = descriptions.get(stage_name)
+            if description is not None:
+                for name in description.pipeline_parameters:
+                    if not name.startswith(argument_partial) or name in known:
+                        continue
+                    yield Completion(
+                        name + "=",
+                        start_position=-len(argument_partial),
+                        display=name + "=",
+                        display_meta=f"stage argument · {stage_name} (input supplied by |)",
+                    )
+            return
+        if pipeline_partial is not None:
+            for name in sorted(functions):
+                text = insertion(name, call=True)
+                if text is None or text in known:
+                    continue
+                hint = (
+                    descriptions[name].pipeline_hint
+                    if name in descriptions
+                    else f"user defined · {name}(…)"
+                )
+                yield Completion(
+                    text,
+                    start_position=-len(pipeline_partial),
+                    display=name + ("(" if text.endswith("(") else ""),
+                    display_meta=hint,
+                )
+            return
         if re.search(r"(?:^|[;\n])\s*help\s+[^;\n]*$", before):
             return
         if before[: match.start()].endswith("."):
@@ -559,3 +614,39 @@ class PrototypeCompleter(Completer):
                 yield Completion(
                     text, start_position=-len(partial), display_meta="script keyword"
                 )
+
+
+def _pipeline_stage_partial(source: str, cursor: int, tokens: list[Token]) -> str | None:
+    """Return the editable stage name after a pipeline separator, if present."""
+    pipes = [
+        token for token in tokens
+        if (_kind(token) == "PIPE" or str(token) == "|")
+        and int(token.end_pos) <= cursor
+    ]
+    if not pipes:
+        return None
+    start = int(pipes[-1].end_pos)
+    suffix = source[start:cursor]
+    match = re.fullmatch(r"\s*([A-Za-z_][A-Za-z0-9_]*)?", suffix)
+    return match[1] or "" if match is not None else None
+
+
+def _pipeline_call_arguments(
+    source: str, cursor: int, tokens: list[Token]
+) -> tuple[str, str] | None:
+    """Find a simple named-argument prefix in the current pipeline stage call."""
+    pipes = [
+        token for token in tokens
+        if (_kind(token) == "PIPE" or str(token) == "|")
+        and int(token.end_pos) <= cursor
+    ]
+    if not pipes:
+        return None
+    suffix = source[int(pipes[-1].end_pos):cursor]
+    match = re.fullmatch(
+        r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)?",
+        suffix,
+    )
+    if match is None:
+        return None
+    return match[1], match[2] or ""

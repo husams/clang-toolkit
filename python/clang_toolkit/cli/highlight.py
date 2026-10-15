@@ -99,6 +99,7 @@ TOKEN_STYLES = {
     "BIND": "bind",
     "ERROR": "error",
     "EQUAL": "operator",
+    "PIPE": "operator",
     **{
         kind: "punctuation"
         for kind in (
