@@ -23,17 +23,18 @@ _sym_db = _symbol_database.Default()
 
 
 from ...match.v1 import match_service_pb2 as match_dot_v1_dot_match__service__pb2
+from ...match.v1 import resources_pb2 as match_dot_v1_dot_resources__pb2
 from . import cfg_options_pb2 as analysis_dot_v1_dot_cfg__options__pb2
 from . import value_projection_pb2 as analysis_dot_v1_dot_value__projection__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x61nalysis/v1/cfg_request.proto\x12\x0f\x63tk.analysis.v1\x1a\x1cmatch/v1/match_service.proto\x1a\x1d\x61nalysis/v1/cfg_options.proto\x1a\"analysis/v1/value_projection.proto\"\xe4\x02\n\nCfgRequest\x12+\n\x04\x66ile\x18\x01 \x01(\x0b\x32\x1d.ctk.match.v1.FileMatchTarget\x12\x10\n\x08\x66unction\x18\x02 \x01(\t\x12,\n\x07options\x18\x03 \x01(\x0b\x32\x1b.ctk.analysis.v1.CfgOptions\x12\x1a\n\rmax_functions\x18\x04 \x01(\x04H\x00\x88\x01\x01\x12\x17\n\nmax_blocks\x18\x05 \x01(\x04H\x01\x88\x01\x01\x12\x19\n\x0cmax_elements\x18\x06 \x01(\x04H\x02\x88\x01\x01\x12\x34\n\nprojection\x18\x07 \x01(\x0b\x32 .ctk.analysis.v1.ValueProjection\x12\x16\n\x0emain_file_only\x18\x08 \x01(\x08\x12\x19\n\x11resource_scope_id\x18\t \x01(\tB\x10\n\x0e_max_functionsB\r\n\x0b_max_blocksB\x0f\n\r_max_elementsb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x61nalysis/v1/cfg_request.proto\x12\x0f\x63tk.analysis.v1\x1a\x1cmatch/v1/match_service.proto\x1a\x18match/v1/resources.proto\x1a\x1d\x61nalysis/v1/cfg_options.proto\x1a\"analysis/v1/value_projection.proto\"\x91\x04\n\nCfgRequest\x12-\n\x04\x66ile\x18\x01 \x01(\x0b\x32\x1d.ctk.match.v1.FileMatchTargetH\x00\x12\x33\n\x07session\x18\n \x01(\x0b\x32 .ctk.match.v1.SessionMatchTargetH\x00\x12\x33\n\x07\x62inding\x18\x0b \x01(\x0b\x32 .ctk.match.v1.BindingMatchTargetH\x00\x12\x35\n\x0b\x66ile_handle\x18\x0c \x01(\x0b\x32\x1e.ctk.match.v1.FileHandleTargetH\x00\x12\x10\n\x08\x66unction\x18\x02 \x01(\t\x12,\n\x07options\x18\x03 \x01(\x0b\x32\x1b.ctk.analysis.v1.CfgOptions\x12\x1a\n\rmax_functions\x18\x04 \x01(\x04H\x01\x88\x01\x01\x12\x17\n\nmax_blocks\x18\x05 \x01(\x04H\x02\x88\x01\x01\x12\x19\n\x0cmax_elements\x18\x06 \x01(\x04H\x03\x88\x01\x01\x12\x34\n\nprojection\x18\x07 \x01(\x0b\x32 .ctk.analysis.v1.ValueProjection\x12\x16\n\x0emain_file_only\x18\x08 \x01(\x08\x12\x19\n\x11resource_scope_id\x18\t \x01(\tB\x08\n\x06targetB\x10\n\x0e_max_functionsB\r\n\x0b_max_blocksB\x0f\n\r_max_elementsb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'analysis.v1.cfg_request_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CFGREQUEST']._serialized_start=148
-  _globals['_CFGREQUEST']._serialized_end=504
+  _globals['_CFGREQUEST']._serialized_start=174
+  _globals['_CFGREQUEST']._serialized_end=703
 # @@protoc_insertion_point(module_scope)

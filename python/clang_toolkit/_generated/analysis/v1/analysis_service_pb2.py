@@ -27,6 +27,7 @@ from . import traverse_response_pb2 as analysis_dot_v1_dot_traverse__response__p
 from . import traverse_stream_pb2 as analysis_dot_v1_dot_traverse__stream__pb2
 from . import cfg_request_pb2 as analysis_dot_v1_dot_cfg__request__pb2
 from . import cfg_response_pb2 as analysis_dot_v1_dot_cfg__response__pb2
+from . import cfg_stream_pb2 as analysis_dot_v1_dot_cfg__stream__pb2
 from . import call_graph_request_pb2 as analysis_dot_v1_dot_call__graph__request__pb2
 from . import call_graph_response_pb2 as analysis_dot_v1_dot_call__graph__response__pb2
 from . import script_request_pb2 as analysis_dot_v1_dot_script__request__pb2
@@ -34,13 +35,13 @@ from . import script_response_pb2 as analysis_dot_v1_dot_script__response__pb2
 from . import batch_pb2 as analysis_dot_v1_dot_batch__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"analysis/v1/analysis_service.proto\x12\x0f\x63tk.analysis.v1\x1a\"analysis/v1/traverse_request.proto\x1a#analysis/v1/traverse_response.proto\x1a!analysis/v1/traverse_stream.proto\x1a\x1d\x61nalysis/v1/cfg_request.proto\x1a\x1e\x61nalysis/v1/cfg_response.proto\x1a$analysis/v1/call_graph_request.proto\x1a%analysis/v1/call_graph_response.proto\x1a analysis/v1/script_request.proto\x1a!analysis/v1/script_response.proto\x1a\x17\x61nalysis/v1/batch.proto2\xaa\x06\n\x0f\x41nalysisService\x12K\n\nStartBatch\x12\".ctk.analysis.v1.StartBatchRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12J\n\x0b\x42\x61tchStatus\x12 .ctk.analysis.v1.BatchRunRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12N\n\x0b\x43\x61ncelBatch\x12$.ctk.analysis.v1.BatchControlRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12N\n\x0bResumeBatch\x12$.ctk.analysis.v1.BatchControlRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12M\n\nRetryBatch\x12$.ctk.analysis.v1.BatchControlRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12L\n\tRunScript\x12\x1e.ctk.analysis.v1.ScriptRequest\x1a\x1f.ctk.analysis.v1.ScriptResponse\x12O\n\x08Traverse\x12 .ctk.analysis.v1.TraverseRequest\x1a!.ctk.analysis.v1.TraverseResponse\x12Z\n\x0eStreamTraverse\x12 .ctk.analysis.v1.TraverseRequest\x1a$.ctk.analysis.v1.TraverseStreamEvent0\x01\x12R\n\tCallGraph\x12!.ctk.analysis.v1.CallGraphRequest\x1a\".ctk.analysis.v1.CallGraphResponse\x12@\n\x03\x43\x66g\x12\x1b.ctk.analysis.v1.CfgRequest\x1a\x1c.ctk.analysis.v1.CfgResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"analysis/v1/analysis_service.proto\x12\x0f\x63tk.analysis.v1\x1a\"analysis/v1/traverse_request.proto\x1a#analysis/v1/traverse_response.proto\x1a!analysis/v1/traverse_stream.proto\x1a\x1d\x61nalysis/v1/cfg_request.proto\x1a\x1e\x61nalysis/v1/cfg_response.proto\x1a\x1c\x61nalysis/v1/cfg_stream.proto\x1a$analysis/v1/call_graph_request.proto\x1a%analysis/v1/call_graph_response.proto\x1a analysis/v1/script_request.proto\x1a!analysis/v1/script_response.proto\x1a\x17\x61nalysis/v1/batch.proto2\xf7\x06\n\x0f\x41nalysisService\x12K\n\nStartBatch\x12\".ctk.analysis.v1.StartBatchRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12J\n\x0b\x42\x61tchStatus\x12 .ctk.analysis.v1.BatchRunRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12N\n\x0b\x43\x61ncelBatch\x12$.ctk.analysis.v1.BatchControlRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12N\n\x0bResumeBatch\x12$.ctk.analysis.v1.BatchControlRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12M\n\nRetryBatch\x12$.ctk.analysis.v1.BatchControlRequest\x1a\x19.ctk.analysis.v1.BatchRun\x12L\n\tRunScript\x12\x1e.ctk.analysis.v1.ScriptRequest\x1a\x1f.ctk.analysis.v1.ScriptResponse\x12O\n\x08Traverse\x12 .ctk.analysis.v1.TraverseRequest\x1a!.ctk.analysis.v1.TraverseResponse\x12Z\n\x0eStreamTraverse\x12 .ctk.analysis.v1.TraverseRequest\x1a$.ctk.analysis.v1.TraverseStreamEvent0\x01\x12R\n\tCallGraph\x12!.ctk.analysis.v1.CallGraphRequest\x1a\".ctk.analysis.v1.CallGraphResponse\x12@\n\x03\x43\x66g\x12\x1b.ctk.analysis.v1.CfgRequest\x1a\x1c.ctk.analysis.v1.CfgResponse\x12K\n\tStreamCfg\x12\x1b.ctk.analysis.v1.CfgRequest\x1a\x1f.ctk.analysis.v1.CfgStreamEvent0\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'analysis.v1.analysis_service_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_ANALYSISSERVICE']._serialized_start=398
-  _globals['_ANALYSISSERVICE']._serialized_end=1208
+  _globals['_ANALYSISSERVICE']._serialized_start=428
+  _globals['_ANALYSISSERVICE']._serialized_end=1315
 # @@protoc_insertion_point(module_scope)

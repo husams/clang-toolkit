@@ -1190,24 +1190,27 @@ print $graph.nodes.length
 
 ## cfg
 
-Build control-flow graphs for an exact qualified function name in a file.
+Stream control-flow blocks from a file, parsed tree or retained function.
 
 ```text
 cfg FUNCTION in PATH [option NAME BOOL] [functions NUMBER] [blocks NUMBER] [elements NUMBER] [projection shallow|recursive] [main-file BOOL] [payload-depth NUMBER] [payload-nodes NUMBER]
+cfg in BINDING [option NAME BOOL] [functions NUMBER] [blocks NUMBER] [elements NUMBER] [projection shallow|recursive]
 ```
 
-- FUNCTION: bare, qualified or quoted exact name. PATH: quoted file or path/File reference.
+- FUNCTION: bare, qualified or quoted exact name. PATH: file path, parsed tree or open file handle. BINDING: retained concrete function/method binding; omit FUNCTION to select its exact native declaration.
 - option NAME BOOL: a CfgOptions boolean field. prune_trivially_false_edges defaults to true; others to false.
 - Option names: prune_trivially_false_edges, add_eh_edges, add_initializers, add_implicit_dtors, add_temporary_dtors, add_lifetime, add_scopes, add_loop_exit, add_static_init_branches, add_cxx_new_allocator, add_cxx_default_init_expr_in_ctors, add_cxx_default_init_expr_in_aggregates, add_rich_cxx_constructors, mark_elided_cxx_constructors, add_virtual_base_branches, omit_implicit_value_initializers, assume_reachable_default_in_switch_statements, always_add_statements
 - functions: 1..1000 (default 100); blocks: 1..100000 (default 10000); elements: 1..1000000 (default 100000).
 - projection: shallow by default; recursive expands nested semantic payloads. payload-depth: 1..64 (default 24); payload-nodes: 1..100000 (default 10000 per payload). These limits are independent of function/block/element limits.
 - main-file true restricts graph construction to the main source file; default false includes headers.
-- Assign a graph expression such as let flow = cfg FUNCTION in PATH to navigate graphs/blocks/elements. A standalone cfg command retains ProtoJSON output.
+- Standalone cfg streams graph_started, block, graph_completed and completed ProtoJSON events. Events remain provisional until completion and terminal success; individual events and total work are bounded.
+- Assignment explicitly collects graphs/blocks/elements: let flow = cfg FUNCTION in tree or let flow = cfg in rows[0].f. Retained targets reuse the pinned AST without reparsing or changing matches; expired targets fail.
 - Options may occur once. Uses configured extra_args. Legacy cfg FUNCTION is recognized but reports a local error requiring in PATH.
 
 ```text
 cfg one in "examples/parse_match.cc" option add_implicit_dtors true blocks 10000 projection shallow main-file true payload-depth 2 payload-nodes 1000
 let flow = cfg one in "examples/parse_match.cc" projection shallow main-file true
+cfg in $functions[0].f
 print $flow.graphs.length
 ```
 

@@ -6,6 +6,7 @@ import "analysis/v1/traverse_response.proto";
 import "analysis/v1/traverse_stream.proto";
 import "analysis/v1/cfg_request.proto";
 import "analysis/v1/cfg_response.proto";
+import "analysis/v1/cfg_stream.proto";
 
 import "analysis/v1/call_graph_request.proto";
 import "analysis/v1/call_graph_response.proto";
@@ -29,4 +30,8 @@ service AnalysisService {
   rpc StreamTraverse(TraverseRequest) returns (stream TraverseStreamEvent);
   rpc CallGraph(CallGraphRequest) returns (CallGraphResponse);
   rpc Cfg(CfgRequest) returns (CfgResponse);
+  // Native CFGs are built per function, then serialized one block at a time.
+  // Each event is byte bounded; count limits apply across the whole request.
+  // An oversized block or cancellation fails without request completion.
+  rpc StreamCfg(CfgRequest) returns (stream CfgStreamEvent);
 }

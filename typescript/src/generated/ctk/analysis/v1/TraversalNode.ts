@@ -7,6 +7,9 @@ export interface TraversalNode {
   'parentIndex'?: (number | string | Long);
   'depth'?: (number);
   'value'?: (_ctk_match_v1_MatchBinding | null);
+  'index'?: (number | string | Long);
+  'nativeKind'?: (string);
+  'leaf'?: (boolean);
   '_parentIndex'?: "parentIndex";
 }
 
@@ -14,5 +17,8 @@ export interface TraversalNode__Output {
   'parentIndex'?: (string);
   'depth': (number);
   'value': (_ctk_match_v1_MatchBinding__Output | null);
+  'index': (string);
+  'nativeKind': (string);
+  'leaf': (boolean);
   '_parentIndex'?: "parentIndex";
 }

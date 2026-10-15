@@ -75,7 +75,7 @@ if(CTK_BUILD_NETWORK)
     src/application/cursor_registry.cpp
     src/application/resource_manager.cpp
     src/application/file_target_validation.cpp
-    src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/call_graph_controller.cpp
+    src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/cfg_backend_compat.cpp src/application/call_graph_controller.cpp
     src/application/script_controller.cpp src/application/native_script_environment.cpp src/application/script_options.cpp)
   target_sources(ctk_core PRIVATE src/application/batch_registry.cpp)
   target_include_directories(ctk_core PRIVATE "${CTK_YAML_INCLUDE_DIR}")

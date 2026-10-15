@@ -12,12 +12,16 @@ import type { CallGraphNode as _ctk_analysis_v1_CallGraphNode, CallGraphNode__Ou
 import type { CallGraphRequest as _ctk_analysis_v1_CallGraphRequest, CallGraphRequest__Output as _ctk_analysis_v1_CallGraphRequest__Output } from './ctk/analysis/v1/CallGraphRequest.js';
 import type { CallGraphResponse as _ctk_analysis_v1_CallGraphResponse, CallGraphResponse__Output as _ctk_analysis_v1_CallGraphResponse__Output } from './ctk/analysis/v1/CallGraphResponse.js';
 import type { CfgBlock as _ctk_analysis_v1_CfgBlock, CfgBlock__Output as _ctk_analysis_v1_CfgBlock__Output } from './ctk/analysis/v1/CfgBlock.js';
+import type { CfgBlockEvent as _ctk_analysis_v1_CfgBlockEvent, CfgBlockEvent__Output as _ctk_analysis_v1_CfgBlockEvent__Output } from './ctk/analysis/v1/CfgBlockEvent.js';
 import type { CfgCleanup as _ctk_analysis_v1_CfgCleanup, CfgCleanup__Output as _ctk_analysis_v1_CfgCleanup__Output } from './ctk/analysis/v1/CfgCleanup.js';
+import type { CfgCompleted as _ctk_analysis_v1_CfgCompleted, CfgCompleted__Output as _ctk_analysis_v1_CfgCompleted__Output } from './ctk/analysis/v1/CfgCompleted.js';
 import type { CfgConstructionContext as _ctk_analysis_v1_CfgConstructionContext, CfgConstructionContext__Output as _ctk_analysis_v1_CfgConstructionContext__Output } from './ctk/analysis/v1/CfgConstructionContext.js';
 import type { CfgDestructor as _ctk_analysis_v1_CfgDestructor, CfgDestructor__Output as _ctk_analysis_v1_CfgDestructor__Output } from './ctk/analysis/v1/CfgDestructor.js';
 import type { CfgEdge as _ctk_analysis_v1_CfgEdge, CfgEdge__Output as _ctk_analysis_v1_CfgEdge__Output } from './ctk/analysis/v1/CfgEdge.js';
 import type { CfgElement as _ctk_analysis_v1_CfgElement, CfgElement__Output as _ctk_analysis_v1_CfgElement__Output } from './ctk/analysis/v1/CfgElement.js';
 import type { CfgGraph as _ctk_analysis_v1_CfgGraph, CfgGraph__Output as _ctk_analysis_v1_CfgGraph__Output } from './ctk/analysis/v1/CfgGraph.js';
+import type { CfgGraphCompleted as _ctk_analysis_v1_CfgGraphCompleted, CfgGraphCompleted__Output as _ctk_analysis_v1_CfgGraphCompleted__Output } from './ctk/analysis/v1/CfgGraphCompleted.js';
+import type { CfgGraphStarted as _ctk_analysis_v1_CfgGraphStarted, CfgGraphStarted__Output as _ctk_analysis_v1_CfgGraphStarted__Output } from './ctk/analysis/v1/CfgGraphStarted.js';
 import type { CfgInitializer as _ctk_analysis_v1_CfgInitializer, CfgInitializer__Output as _ctk_analysis_v1_CfgInitializer__Output } from './ctk/analysis/v1/CfgInitializer.js';
 import type { CfgLoopExit as _ctk_analysis_v1_CfgLoopExit, CfgLoopExit__Output as _ctk_analysis_v1_CfgLoopExit__Output } from './ctk/analysis/v1/CfgLoopExit.js';
 import type { CfgNewAllocator as _ctk_analysis_v1_CfgNewAllocator, CfgNewAllocator__Output as _ctk_analysis_v1_CfgNewAllocator__Output } from './ctk/analysis/v1/CfgNewAllocator.js';
@@ -26,6 +30,7 @@ import type { CfgRequest as _ctk_analysis_v1_CfgRequest, CfgRequest__Output as _
 import type { CfgResponse as _ctk_analysis_v1_CfgResponse, CfgResponse__Output as _ctk_analysis_v1_CfgResponse__Output } from './ctk/analysis/v1/CfgResponse.js';
 import type { CfgScopeEvent as _ctk_analysis_v1_CfgScopeEvent, CfgScopeEvent__Output as _ctk_analysis_v1_CfgScopeEvent__Output } from './ctk/analysis/v1/CfgScopeEvent.js';
 import type { CfgStatement as _ctk_analysis_v1_CfgStatement, CfgStatement__Output as _ctk_analysis_v1_CfgStatement__Output } from './ctk/analysis/v1/CfgStatement.js';
+import type { CfgStreamEvent as _ctk_analysis_v1_CfgStreamEvent, CfgStreamEvent__Output as _ctk_analysis_v1_CfgStreamEvent__Output } from './ctk/analysis/v1/CfgStreamEvent.js';
 import type { ScriptCompilationProfile as _ctk_analysis_v1_ScriptCompilationProfile, ScriptCompilationProfile__Output as _ctk_analysis_v1_ScriptCompilationProfile__Output } from './ctk/analysis/v1/ScriptCompilationProfile.js';
 import type { ScriptEmission as _ctk_analysis_v1_ScriptEmission, ScriptEmission__Output as _ctk_analysis_v1_ScriptEmission__Output } from './ctk/analysis/v1/ScriptEmission.js';
 import type { ScriptList as _ctk_analysis_v1_ScriptList, ScriptList__Output as _ctk_analysis_v1_ScriptList__Output } from './ctk/analysis/v1/ScriptList.js';
@@ -38,8 +43,10 @@ import type { ScriptTree as _ctk_analysis_v1_ScriptTree, ScriptTree__Output as _
 import type { ScriptValue as _ctk_analysis_v1_ScriptValue, ScriptValue__Output as _ctk_analysis_v1_ScriptValue__Output } from './ctk/analysis/v1/ScriptValue.js';
 import type { StartBatchRequest as _ctk_analysis_v1_StartBatchRequest, StartBatchRequest__Output as _ctk_analysis_v1_StartBatchRequest__Output } from './ctk/analysis/v1/StartBatchRequest.js';
 import type { TraversalNode as _ctk_analysis_v1_TraversalNode, TraversalNode__Output as _ctk_analysis_v1_TraversalNode__Output } from './ctk/analysis/v1/TraversalNode.js';
+import type { TraverseCompleted as _ctk_analysis_v1_TraverseCompleted, TraverseCompleted__Output as _ctk_analysis_v1_TraverseCompleted__Output } from './ctk/analysis/v1/TraverseCompleted.js';
 import type { TraverseRequest as _ctk_analysis_v1_TraverseRequest, TraverseRequest__Output as _ctk_analysis_v1_TraverseRequest__Output } from './ctk/analysis/v1/TraverseRequest.js';
 import type { TraverseResponse as _ctk_analysis_v1_TraverseResponse, TraverseResponse__Output as _ctk_analysis_v1_TraverseResponse__Output } from './ctk/analysis/v1/TraverseResponse.js';
+import type { TraverseStreamEvent as _ctk_analysis_v1_TraverseStreamEvent, TraverseStreamEvent__Output as _ctk_analysis_v1_TraverseStreamEvent__Output } from './ctk/analysis/v1/TraverseStreamEvent.js';
 import type { ValueProjection as _ctk_analysis_v1_ValueProjection, ValueProjection__Output as _ctk_analysis_v1_ValueProjection__Output } from './ctk/analysis/v1/ValueProjection.js';
 import type { APAddrLabelDiff as _ctk_ast_v1_APAddrLabelDiff, APAddrLabelDiff__Output as _ctk_ast_v1_APAddrLabelDiff__Output } from './ctk/ast/v1/APAddrLabelDiff.js';
 import type { APArrayValue as _ctk_ast_v1_APArrayValue, APArrayValue__Output as _ctk_ast_v1_APArrayValue__Output } from './ctk/ast/v1/APArrayValue.js';
@@ -393,6 +400,7 @@ import type { AttachSessionRequest as _ctk_match_v1_AttachSessionRequest, Attach
 import type { BindingMatchTarget as _ctk_match_v1_BindingMatchTarget, BindingMatchTarget__Output as _ctk_match_v1_BindingMatchTarget__Output } from './ctk/match/v1/BindingMatchTarget.js';
 import type { CacheResources as _ctk_match_v1_CacheResources, CacheResources__Output as _ctk_match_v1_CacheResources__Output } from './ctk/match/v1/CacheResources.js';
 import type { CallSiteFacts as _ctk_match_v1_CallSiteFacts, CallSiteFacts__Output as _ctk_match_v1_CallSiteFacts__Output } from './ctk/match/v1/CallSiteFacts.js';
+import type { ClassTemplateFacts as _ctk_match_v1_ClassTemplateFacts, ClassTemplateFacts__Output as _ctk_match_v1_ClassTemplateFacts__Output } from './ctk/match/v1/ClassTemplateFacts.js';
 import type { CloseAllFilesRequest as _ctk_match_v1_CloseAllFilesRequest, CloseAllFilesRequest__Output as _ctk_match_v1_CloseAllFilesRequest__Output } from './ctk/match/v1/CloseAllFilesRequest.js';
 import type { CloseFileRequest as _ctk_match_v1_CloseFileRequest, CloseFileRequest__Output as _ctk_match_v1_CloseFileRequest__Output } from './ctk/match/v1/CloseFileRequest.js';
 import type { CloseFileResponse as _ctk_match_v1_CloseFileResponse, CloseFileResponse__Output as _ctk_match_v1_CloseFileResponse__Output } from './ctk/match/v1/CloseFileResponse.js';
@@ -455,12 +463,16 @@ export interface ProtoGrpcType {
         CallGraphRequest: MessageTypeDefinition<_ctk_analysis_v1_CallGraphRequest, _ctk_analysis_v1_CallGraphRequest__Output>
         CallGraphResponse: MessageTypeDefinition<_ctk_analysis_v1_CallGraphResponse, _ctk_analysis_v1_CallGraphResponse__Output>
         CfgBlock: MessageTypeDefinition<_ctk_analysis_v1_CfgBlock, _ctk_analysis_v1_CfgBlock__Output>
+        CfgBlockEvent: MessageTypeDefinition<_ctk_analysis_v1_CfgBlockEvent, _ctk_analysis_v1_CfgBlockEvent__Output>
         CfgCleanup: MessageTypeDefinition<_ctk_analysis_v1_CfgCleanup, _ctk_analysis_v1_CfgCleanup__Output>
+        CfgCompleted: MessageTypeDefinition<_ctk_analysis_v1_CfgCompleted, _ctk_analysis_v1_CfgCompleted__Output>
         CfgConstructionContext: MessageTypeDefinition<_ctk_analysis_v1_CfgConstructionContext, _ctk_analysis_v1_CfgConstructionContext__Output>
         CfgDestructor: MessageTypeDefinition<_ctk_analysis_v1_CfgDestructor, _ctk_analysis_v1_CfgDestructor__Output>
         CfgEdge: MessageTypeDefinition<_ctk_analysis_v1_CfgEdge, _ctk_analysis_v1_CfgEdge__Output>
         CfgElement: MessageTypeDefinition<_ctk_analysis_v1_CfgElement, _ctk_analysis_v1_CfgElement__Output>
         CfgGraph: MessageTypeDefinition<_ctk_analysis_v1_CfgGraph, _ctk_analysis_v1_CfgGraph__Output>
+        CfgGraphCompleted: MessageTypeDefinition<_ctk_analysis_v1_CfgGraphCompleted, _ctk_analysis_v1_CfgGraphCompleted__Output>
+        CfgGraphStarted: MessageTypeDefinition<_ctk_analysis_v1_CfgGraphStarted, _ctk_analysis_v1_CfgGraphStarted__Output>
         CfgInitializer: MessageTypeDefinition<_ctk_analysis_v1_CfgInitializer, _ctk_analysis_v1_CfgInitializer__Output>
         CfgLoopExit: MessageTypeDefinition<_ctk_analysis_v1_CfgLoopExit, _ctk_analysis_v1_CfgLoopExit__Output>
         CfgNewAllocator: MessageTypeDefinition<_ctk_analysis_v1_CfgNewAllocator, _ctk_analysis_v1_CfgNewAllocator__Output>
@@ -469,6 +481,7 @@ export interface ProtoGrpcType {
         CfgResponse: MessageTypeDefinition<_ctk_analysis_v1_CfgResponse, _ctk_analysis_v1_CfgResponse__Output>
         CfgScopeEvent: MessageTypeDefinition<_ctk_analysis_v1_CfgScopeEvent, _ctk_analysis_v1_CfgScopeEvent__Output>
         CfgStatement: MessageTypeDefinition<_ctk_analysis_v1_CfgStatement, _ctk_analysis_v1_CfgStatement__Output>
+        CfgStreamEvent: MessageTypeDefinition<_ctk_analysis_v1_CfgStreamEvent, _ctk_analysis_v1_CfgStreamEvent__Output>
         ScriptCompilationProfile: MessageTypeDefinition<_ctk_analysis_v1_ScriptCompilationProfile, _ctk_analysis_v1_ScriptCompilationProfile__Output>
         ScriptEmission: MessageTypeDefinition<_ctk_analysis_v1_ScriptEmission, _ctk_analysis_v1_ScriptEmission__Output>
         ScriptList: MessageTypeDefinition<_ctk_analysis_v1_ScriptList, _ctk_analysis_v1_ScriptList__Output>
@@ -481,8 +494,10 @@ export interface ProtoGrpcType {
         ScriptValue: MessageTypeDefinition<_ctk_analysis_v1_ScriptValue, _ctk_analysis_v1_ScriptValue__Output>
         StartBatchRequest: MessageTypeDefinition<_ctk_analysis_v1_StartBatchRequest, _ctk_analysis_v1_StartBatchRequest__Output>
         TraversalNode: MessageTypeDefinition<_ctk_analysis_v1_TraversalNode, _ctk_analysis_v1_TraversalNode__Output>
+        TraverseCompleted: MessageTypeDefinition<_ctk_analysis_v1_TraverseCompleted, _ctk_analysis_v1_TraverseCompleted__Output>
         TraverseRequest: MessageTypeDefinition<_ctk_analysis_v1_TraverseRequest, _ctk_analysis_v1_TraverseRequest__Output>
         TraverseResponse: MessageTypeDefinition<_ctk_analysis_v1_TraverseResponse, _ctk_analysis_v1_TraverseResponse__Output>
+        TraverseStreamEvent: MessageTypeDefinition<_ctk_analysis_v1_TraverseStreamEvent, _ctk_analysis_v1_TraverseStreamEvent__Output>
         ValueProjection: MessageTypeDefinition<_ctk_analysis_v1_ValueProjection, _ctk_analysis_v1_ValueProjection__Output>
       }
     }
@@ -894,6 +909,7 @@ export interface ProtoGrpcType {
         CacheResources: MessageTypeDefinition<_ctk_match_v1_CacheResources, _ctk_match_v1_CacheResources__Output>
         CallDispatch: EnumTypeDefinition
         CallSiteFacts: MessageTypeDefinition<_ctk_match_v1_CallSiteFacts, _ctk_match_v1_CallSiteFacts__Output>
+        ClassTemplateFacts: MessageTypeDefinition<_ctk_match_v1_ClassTemplateFacts, _ctk_match_v1_ClassTemplateFacts__Output>
         CloseAllFilesRequest: MessageTypeDefinition<_ctk_match_v1_CloseAllFilesRequest, _ctk_match_v1_CloseAllFilesRequest__Output>
         CloseFileRequest: MessageTypeDefinition<_ctk_match_v1_CloseFileRequest, _ctk_match_v1_CloseFileRequest__Output>
         CloseFileResponse: MessageTypeDefinition<_ctk_match_v1_CloseFileResponse, _ctk_match_v1_CloseFileResponse__Output>
@@ -922,6 +938,7 @@ export interface ProtoGrpcType {
         MatchStreamCompleted: MessageTypeDefinition<_ctk_match_v1_MatchStreamCompleted, _ctk_match_v1_MatchStreamCompleted__Output>
         MatchStreamEvent: MessageTypeDefinition<_ctk_match_v1_MatchStreamEvent, _ctk_match_v1_MatchStreamEvent__Output>
         MatchTraversalMode: EnumTypeDefinition
+        NavigationAxis: EnumTypeDefinition
         OpenFileRequest: MessageTypeDefinition<_ctk_match_v1_OpenFileRequest, _ctk_match_v1_OpenFileRequest__Output>
         OpenResourceScopeRequest: MessageTypeDefinition<_ctk_match_v1_OpenResourceScopeRequest, _ctk_match_v1_OpenResourceScopeRequest__Output>
         ParseRequest: MessageTypeDefinition<_ctk_match_v1_ParseRequest, _ctk_match_v1_ParseRequest__Output>

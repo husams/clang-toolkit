@@ -96,7 +96,7 @@ _COMMAND_VALUE_KINDS = frozenset(
         "session_label", "session_start", "session_add", "session_match", "session_pause",
         "session_resume", "session_close", "session_list", "session_attach",
         "session_close_retained", "server_status", "cache_status", "cache_prune",
-        "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file",
+        "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file", "cfg_binding",
         "callgraph", "callgraph_file", "help", "help_shortcut", "traverse", "script",
         "peek", "step",
         "cursor_open", "cursor_continue", "cursor_restart", "cursor_close",
@@ -393,13 +393,11 @@ class Runtime:
             display = (f"{len(value)} neighbours" if kind == "peek"
                        else self._render_display_value(value))
             return value, self._emit_output(display)
-        if kind == "cfg_file":
+        if kind in {"cfg_file", "cfg_binding"}:
             from .control_flow import execute_cfg
-            from .graph_options import render_graph
 
             value = execute_cfg(self, statement, source)
-            display = None if value_context else self._emit_output(render_graph(value))
-            return value, display
+            return value, None
         if kind == "callgraph_file":
             from .call_graph import execute_call_graph
             from .graph_options import render_graph
@@ -729,11 +727,11 @@ class Runtime:
             ):
                 return self._foreach(expression, source=source)
             return self._emit_output(render(self._evaluate(expression)))
-        if kind == "cfg_file":
+        if kind in {"cfg_file", "cfg_binding"}:
             from .control_flow import execute_cfg
-            from .graph_options import render_graph
 
-            return self._emit_output(render_graph(execute_cfg(self, statement, source)))
+            execute_cfg(self, statement, source)
+            return ""
         if kind == "cfg":
             message = (
                 'cfg requires a file: cfg FUNCTION in "file.cc"; see help cfg'
@@ -1484,7 +1482,7 @@ class Runtime:
             from .call_graph import execute_call_graph
 
             return execute_call_graph(self, node)
-        if kind == "cfg_file_expression":
+        if kind in {"cfg_file_expression", "cfg_binding_expression"}:
             from .control_flow import execute_cfg
 
             return execute_cfg(self, node, "")

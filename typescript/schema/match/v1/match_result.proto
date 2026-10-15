@@ -15,12 +15,16 @@ enum BindingMatchScope {
   // Test the bound node and eligible descendants. Supported only for Decl
   // and Stmt roots and top-level Decl/Stmt matcher categories. Expr is a Stmt.
   BINDING_MATCH_SCOPE_SUBTREE = 2;
+  // Test immediate native visitor children only, excluding the selected root.
+  // Matcher relationship predicates still use the full retained AST context.
+  BINDING_MATCH_SCOPE_CHILDREN = 3;
 }
 
 // One named value copied from a native BoundNodes tuple.
 // supported_scopes describes continuation capabilities for this value:
-// Decl/Stmt support ROOT_ONLY and SUBTREE; Type/QualType support ROOT_ONLY;
-// Base specifiers and unsupported values support no scope.
+// Decl/Stmt support ROOT_ONLY and SUBTREE; Type/QualType support ROOT_ONLY.
+// Retained native bindings additionally support CHILDREN, including auxiliary
+// values whose children are available through the native traversal visitor.
 // No native pointer or node ID is sent.
 // Match values contain immediate facts about each bound node. Child AST values
 // are omitted with UNREQUESTED availability; query the retained binding to
@@ -52,6 +56,26 @@ message MatchBinding {
   string documentation = 10;
   // Present only when this binding is a CallExpr.
   CallSiteFacts call_site = 11;
+  // Bounded immediate facts for class records and class-template declarations.
+  // Argument/parameter descriptions contain no owned AST children.
+  ClassTemplateFacts class_template = 13;
+}
+
+message ClassTemplateFacts {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    ORDINARY = 1;
+    PRIMARY = 2;
+    SPECIALIZATION = 3;
+    PARTIAL_SPECIALIZATION = 4;
+  }
+  optional Kind kind = 1;
+  // Clang's qualified diagnostic spelling, including specialization arguments.
+  string display_name = 2;
+  ctk.ast.v1.DeclarationSymbol primary_template = 3;
+  repeated ctk.ast.v1.TemplateParameterDescription parameters = 4;
+  repeated ctk.ast.v1.TemplateArgumentDescription arguments = 5;
+  optional ctk.ast.v1.DeclTemplateSpecializationKind specialization_kind = 6;
 }
 
 // A source coordinate is valid only when `valid` is true. Coordinates use

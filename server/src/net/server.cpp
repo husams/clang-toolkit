@@ -52,9 +52,9 @@ calls_backend(std::shared_ptr<ctk::clang_layer::IQueryEngine> engine) {
   return {};
 #endif
 }
-application::CursorSettings cursor_settings(
-    const config::Settings &settings,
-    std::shared_ptr<application::ResourceManager> resources) {
+application::CursorSettings
+cursor_settings(const config::Settings &settings,
+                std::shared_ptr<application::ResourceManager> resources) {
   application::CursorSettings result;
   result.workers = static_cast<std::size_t>(settings.pool_size);
   result.pending_requests = static_cast<std::size_t>(settings.queue_size);
@@ -71,7 +71,8 @@ application::CursorSettings cursor_settings(
                                         static_cast<std::size_t>(*configured));
   return result;
 }
-application::BatchRegistryLimits batch_limits(const config::Settings &settings) {
+application::BatchRegistryLimits
+batch_limits(const config::Settings &settings) {
   application::BatchRegistryLimits result;
   result.max_jobs = static_cast<std::uint32_t>(settings.pool_size);
   return result;
@@ -108,7 +109,7 @@ GrpcServerHost::GrpcServerHost(config::Settings settings,
       traversals_(cursor_settings(settings_, resources_),
                   visitor(native_engine_), operations_, &matches_),
       cfg_(cursor_settings(settings_, resources_), cfg_backend(native_engine_),
-           operations_),
+           operations_, &matches_),
       calls_(cursor_settings(settings_, resources_),
              calls_backend(native_engine_), operations_),
       scripts_(cursor_settings(settings_, resources_), native_engine_,

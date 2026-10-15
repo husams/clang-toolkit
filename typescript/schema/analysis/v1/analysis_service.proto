@@ -3,8 +3,10 @@ package ctk.analysis.v1;
 
 import "analysis/v1/traverse_request.proto";
 import "analysis/v1/traverse_response.proto";
+import "analysis/v1/traverse_stream.proto";
 import "analysis/v1/cfg_request.proto";
 import "analysis/v1/cfg_response.proto";
+import "analysis/v1/cfg_stream.proto";
 
 import "analysis/v1/call_graph_request.proto";
 import "analysis/v1/call_graph_response.proto";
@@ -21,6 +23,15 @@ service AnalysisService {
   // Owned semantic values from a standalone native AST visitor. On node/byte
   // limits or cancellation, no partial response is returned.
   rpc Traverse(TraverseRequest) returns (TraverseResponse);
+  // Preorder nodes are written as visited, with transport backpressure. A
+  // successful stream has exactly one completion and terminal OK. Failures
+  // may follow provisional nodes, but never publish completion. No cursor is
+  // modified. Each event, rather than the aggregate stream, is byte bounded.
+  rpc StreamTraverse(TraverseRequest) returns (stream TraverseStreamEvent);
   rpc CallGraph(CallGraphRequest) returns (CallGraphResponse);
   rpc Cfg(CfgRequest) returns (CfgResponse);
+  // Native CFGs are built per function, then serialized one block at a time.
+  // Each event is byte bounded; count limits apply across the whole request.
+  // An oversized block or cancellation fails without request completion.
+  rpc StreamCfg(CfgRequest) returns (stream CfgStreamEvent);
 }
