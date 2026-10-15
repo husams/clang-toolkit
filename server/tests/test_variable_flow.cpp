@@ -14,12 +14,15 @@ protected:
   CfgController cfg{{}, {}, {}, &matches};
   pb::VariableFlowRequest request;
   std::vector<pb::VariableFlowEvent> events;
-  void select(const std::string &body, const std::string &standard = "c++20") {
+  void select(const std::string &body, const std::string &standard = "c++20",
+              const std::string &triple = {}) {
     std::ofstream(directory.path() / "flow.cc") << body;
     ctk::match::v1::MatchRequest target;
     target.mutable_file()->set_file_path("flow.cc");
     target.mutable_file()->set_working_directory(directory.path().string());
     target.mutable_file()->add_compile_arguments("-std=" + standard);
+    if (!triple.empty())
+      target.mutable_file()->add_compile_arguments("--target=" + triple);
     target.set_query("varDecl(hasName(\"x\"), "
                      "hasAncestor(functionDecl(hasName(\"example\")).bind("
                      "\"f\"))).bind(\"v\")");
@@ -52,6 +55,22 @@ protected:
       if (event.has_fact())
         result.push_back(event.fact());
     return result;
+  }
+  pb::VariableFlowFact at(unsigned line, pb::VariableUsage::Kind kind) {
+    for (const auto &event : events)
+      if (event.has_usage() && event.usage().location().line() == line &&
+          event.usage().kind() == kind)
+        for (const auto &fact : facts())
+          if (fact.usage_id() == event.usage().id())
+            return fact;
+    ADD_FAILURE() << "missing usage on line " << line;
+    return {};
+  }
+  void interval(const pb::VariableValueRange &value, const char *lower,
+                const char *upper) {
+    EXPECT_EQ(value.kind(), pb::VariableValueRange::INTERVAL);
+    EXPECT_EQ(value.lower(), lower);
+    EXPECT_EQ(value.upper(), upper);
   }
 };
 TEST_F(VariableFlow, BranchJoinAndOverwriteUseRetainedDeclarations) {
@@ -299,6 +318,251 @@ TEST_F(VariableFlow, UnbracedBranchAndLoopWritesRemainSupported) {
   auto result = run();
   ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
   EXPECT_TRUE(events.back().completed().is_complete());
+}
+TEST_F(VariableFlow, IntervalPageLoopRecoversCapInvariantAfterConvergence) {
+  select(
+      "int example(int rounds) {\nint x = 0;\n"
+      "for(int i=0;i<rounds;++i) {\nif(i%2==0) {\nx+=2;\n} else {\nx+=1;\n}\n"
+      "if(x>10) {\nx=10;\n}\n}\nreturn x;\n}\n");
+  request.set_value_domain(pb::INTERVAL);
+  std::filesystem::remove(directory.path() / "flow.cc");
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  EXPECT_EQ(events.front().started().value_domain(), pb::INTERVAL);
+  ASSERT_TRUE(events.back().completed().is_complete());
+  EXPECT_EQ(events.back().completed().finding_count(), 0);
+  auto init = at(2, pb::VariableUsage::INITIALIZE);
+  EXPECT_EQ(init.value_before().kind(), pb::VariableValueRange::UNINITIALIZED);
+  interval(init.value_after(), "0", "0");
+  auto even = at(5, pb::VariableUsage::READ_WRITE);
+  interval(even.value_before(), "0", "10");
+  interval(even.value_after(), "2", "12");
+  auto odd = at(7, pb::VariableUsage::READ_WRITE);
+  interval(odd.value_before(), "0", "10");
+  interval(odd.value_after(), "1", "11");
+  interval(at(9, pb::VariableUsage::READ).value_before(), "1", "12");
+  auto cap = at(10, pb::VariableUsage::WRITE);
+  interval(cap.value_before(), "11", "12");
+  interval(cap.value_after(), "10", "10");
+  interval(at(13, pb::VariableUsage::READ).value_before(), "0", "10");
+}
+TEST_F(VariableFlow, NumericBoundsAreAbsentUnlessRequested) {
+  select("int example(){int x=1;return x;}");
+  ASSERT_EQ(run().code, MatchCode::Ok);
+  EXPECT_EQ(events.front().started().value_domain(),
+            pb::VARIABLE_VALUE_DOMAIN_UNSPECIFIED);
+  for (const auto &fact : facts()) {
+    EXPECT_FALSE(fact.has_value_before());
+    EXPECT_FALSE(fact.has_value_after());
+  }
+  request.set_value_domain(static_cast<pb::VariableValueDomain>(99));
+  EXPECT_EQ(run().code, MatchCode::InvalidArgument);
+}
+TEST_F(VariableFlow, NumericUnknownInputsRefineAtBothBranchEdges) {
+  select("int example(int n){\nint x=n;\nif(x<0)x=0;\nif(x>10)x=10;\nreturn "
+         "x;\n}");
+  request.set_value_domain(pb::INTERVAL);
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  ASSERT_TRUE(events.back().completed().is_complete());
+  interval(at(5, pb::VariableUsage::READ).value_before(), "0", "10");
+}
+TEST_F(VariableFlow, NumericReversedGuardPrunesImpossibleWrite) {
+  select("int example(){\nint x=5;\nif(10<x) {\nx=99;\n}\nreturn x;\n}");
+  request.set_value_domain(pb::INTERVAL);
+  ASSERT_EQ(run().code, MatchCode::Ok);
+  EXPECT_TRUE(events.back().completed().is_complete());
+  EXPECT_EQ(at(4, pb::VariableUsage::WRITE).value_before().kind(),
+            pb::VariableValueRange::UNREACHABLE);
+  interval(at(6, pb::VariableUsage::READ).value_before(), "5", "5");
+}
+TEST_F(VariableFlow, NumericLoopDecrementAndZeroExitAreStable) {
+  select("int example(){\nint x=10;\nwhile(x>0){\n--x;\n}\nreturn x;\n}");
+  request.set_value_domain(pb::INTERVAL);
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  EXPECT_TRUE(events.back().completed().is_complete());
+  interval(at(4, pb::VariableUsage::READ_WRITE).value_before(), "1", "10");
+  interval(at(4, pb::VariableUsage::READ_WRITE).value_after(), "0", "9");
+  interval(at(6, pb::VariableUsage::READ).value_before(), "0", "0");
+}
+TEST_F(VariableFlow, NumericRangesPreserveUninitializedPossibilitySeparately) {
+  select("void use(int); void example(bool c){\nint x;\nif(c)x=3;\nuse(x);\n}");
+  request.set_value_domain(pb::INTERVAL);
+  ASSERT_EQ(run().code, MatchCode::Ok);
+  auto read = at(4, pb::VariableUsage::READ);
+  EXPECT_EQ(read.initialization(), pb::VariableFlowFact::MAYBE_INITIALIZED);
+  interval(read.value_before(), "3", "3");
+  EXPECT_TRUE(events.back().completed().is_complete());
+  bool warning = false;
+  for (const auto &event : events)
+    warning |= event.has_finding() &&
+               event.finding().kind() ==
+                   pb::VariableFlowFinding::POSSIBLY_UNINITIALIZED;
+  EXPECT_TRUE(warning);
+}
+TEST_F(VariableFlow, NumericOverflowAndUnsupportedEffectsCannotPublishBounds) {
+  for (auto source :
+       {"int example(){int x=__INT_MAX__; ++x; return x;}",
+        "void use(int); void example(){int x=__INT_MAX__; use(x+1);}",
+        "int example(){int x=1; x*=2; return x;}",
+        "int example(){int x=1; x=(x=5)+1; return x;}",
+        "int example(){signed char x=127; ++x; return x;}",
+        "unsigned example(){unsigned x=1; return x;}"}) {
+    SCOPED_TRACE(source);
+    select(source);
+    request.set_value_domain(pb::INTERVAL);
+    auto result = run();
+    ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+    EXPECT_FALSE(events.back().completed().is_complete());
+    bool numeric_issue = false;
+    for (const auto &event : events)
+      numeric_issue |= event.has_finding() &&
+                       (event.finding().kind() ==
+                            pb::VariableFlowFinding::POSSIBLE_OVERFLOW ||
+                        event.finding().kind() ==
+                            pb::VariableFlowFinding::UNSUPPORTED_EFFECT);
+    EXPECT_TRUE(numeric_issue);
+    for (const auto &fact : facts()) {
+      EXPECT_EQ(fact.value_before().kind(), pb::VariableValueRange::UNKNOWN);
+      EXPECT_EQ(fact.value_after().kind(), pb::VariableValueRange::UNKNOWN);
+    }
+  }
+}
+TEST_F(VariableFlow, NumericBoundsPreserveIntegersBeyondJsonDoublePrecision) {
+  select("__int128 example(){\n__int128 "
+         "x=18446744073709551615ULL;\nx+=1;\nreturn x;\n}");
+  request.set_value_domain(pb::INTERVAL);
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  EXPECT_TRUE(events.back().completed().is_complete());
+  interval(at(4, pb::VariableUsage::READ).value_before(),
+           "18446744073709551616", "18446744073709551616");
+}
+TEST_F(VariableFlow,
+       NumericNegatedTruthGuardRefinesZeroAndMergesDuplicateEdges) {
+  select("int example(int n){\nint x=n;\nif(!x){\nx=5;\n}\nif(x>0){}\nreturn "
+         "x;\n}");
+  request.set_value_domain(pb::INTERVAL);
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  EXPECT_TRUE(events.back().completed().is_complete());
+  interval(at(4, pb::VariableUsage::WRITE).value_before(), "0", "0");
+  interval(at(7, pb::VariableUsage::READ).value_before(), "-2147483648",
+           "2147483647");
+}
+TEST_F(VariableFlow, NumericForAndDoConditionsRefineTheCorrectSuccessors) {
+  for (auto body :
+       {"int example(){\nint x=0;\nfor(;x<3;){++x;}\nreturn x;\n}",
+        "int example(){\nint x=3;\ndo{--x;}while(x>0);\nreturn x;\n}"}) {
+    SCOPED_TRACE(body);
+    select(body);
+    request.set_value_domain(pb::INTERVAL);
+    auto result = run();
+    ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+    ASSERT_TRUE(events.back().completed().is_complete());
+    const char *expected =
+        std::string(body).find("for(") != std::string::npos ? "3" : "0";
+    interval(at(4, pb::VariableUsage::READ).value_before(), expected, expected);
+  }
+}
+TEST_F(VariableFlow, NumericLogicalAndRefinesBothConditionsBeforeTheWrite) {
+  select(
+      "int example(int n){\nint x=n;\nif(x>2 && x<5){\nx+=1;\n}\nreturn x;\n}");
+  request.set_value_domain(pb::INTERVAL);
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  ASSERT_TRUE(events.back().completed().is_complete());
+  interval(at(4, pb::VariableUsage::READ_WRITE).value_before(), "3", "4");
+  interval(at(4, pb::VariableUsage::READ_WRITE).value_after(), "4", "5");
+}
+TEST_F(VariableFlow, NumericLogicalOrRejectsBothFalseAlternatives) {
+  select("int example(){\nint x=3;\nif(x<2 || "
+         "x>4){\nx=6;\n}else{\nx=7;\n}\nreturn x;\n}");
+  request.set_value_domain(pb::INTERVAL);
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  ASSERT_TRUE(events.back().completed().is_complete());
+  EXPECT_EQ(at(4, pb::VariableUsage::WRITE).value_before().kind(),
+            pb::VariableValueRange::UNREACHABLE);
+  interval(at(8, pb::VariableUsage::READ).value_before(), "7", "7");
+}
+TEST_F(VariableFlow, NumericConditionalExpressionRefinesItsGuardedRead) {
+  select("int example(int n){\nint x=n;\nint y = x<0 ?\nx :\n0;\nreturn x;\n}");
+  request.set_value_domain(pb::INTERVAL);
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  ASSERT_TRUE(events.back().completed().is_complete());
+  interval(at(4, pb::VariableUsage::READ).value_before(), "-2147483648", "-1");
+  interval(at(6, pb::VariableUsage::READ).value_before(), "-2147483648",
+           "2147483647");
+}
+TEST_F(VariableFlow, NumericConversionsRespectPromotionsAndRejectLostValues) {
+  for (auto body :
+       {"int example(){\nshort x=-7;\nx=(long long)x+2;\nreturn x;\n}",
+        "int example(){\nint x=12;\nx=(signed char)x;\nreturn x;\n}",
+        "int example(){\nint x=-7;\nx=bool(x);\nreturn x;\n}"}) {
+    SCOPED_TRACE(body);
+    select(body);
+    request.set_value_domain(pb::INTERVAL);
+    auto result = run();
+    ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+    ASSERT_TRUE(events.back().completed().is_complete());
+    std::string source = body;
+    const char *expected = source.find("short x") != std::string::npos   ? "-5"
+                           : source.find("bool(x)") != std::string::npos ? "1"
+                                                                         : "12";
+    interval(at(4, pb::VariableUsage::READ).value_before(), expected, expected);
+  }
+  for (auto body : {"int example(){int x=128; x=(signed char)x; return x;}",
+                    "int example(){int x=-1; x=(unsigned)x; return x;}",
+                    "int example(){int x=-1; x+=1u; return x;}"}) {
+    SCOPED_TRACE(body);
+    select(body);
+    request.set_value_domain(pb::INTERVAL);
+    ASSERT_EQ(run().code, MatchCode::Ok);
+    EXPECT_FALSE(events.back().completed().is_complete());
+    for (const auto &fact : facts())
+      EXPECT_EQ(fact.value_after().kind(), pb::VariableValueRange::UNKNOWN);
+  }
+}
+TEST_F(VariableFlow, NumericUnboundedGrowthWidensAndReportsOverflow) {
+  select("void example(bool c){int x=0;while(c){++x;}}");
+  request.set_value_domain(pb::INTERVAL);
+  request.set_max_iterations(10000);
+  auto result = run();
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  EXPECT_FALSE(events.back().completed().is_complete());
+  bool overflow = false;
+  for (const auto &event : events)
+    overflow |=
+        event.has_finding() &&
+        event.finding().kind() == pb::VariableFlowFinding::POSSIBLE_OVERFLOW;
+  EXPECT_TRUE(overflow);
+}
+TEST_F(VariableFlow, NumericUnsupportedInputTypesCannotEraseReachableRoutes) {
+  // x86 supports integers wider than 128 bits in newer Clang releases. Older
+  // releases still exercise an unsupported unknown-input narrowing conversion.
+  const std::string prefix =
+      "#if defined(__BITINT_MAXWIDTH__) && __BITINT_MAXWIDTH__ >= 256\n"
+      "using Wide = _BitInt(256);\n#else\n"
+      "using Wide = unsigned long long;\n#endif\n";
+  for (auto source :
+       {"int example(Wide n){int x=(int)n;return x;}",
+        "Wide input(); int example(){int x=(int)input();return x;}"}) {
+    SCOPED_TRACE(source);
+    ASSERT_NO_FATAL_FAILURE(
+        select(prefix + source, "c++20", "x86_64-linux-gnu"));
+    request.set_value_domain(pb::INTERVAL);
+    auto result = run();
+    ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+    EXPECT_FALSE(events.back().completed().is_complete());
+    EXPECT_GT(events.back().completed().finding_count(), 0);
+    for (const auto &fact : facts()) {
+      EXPECT_EQ(fact.value_before().kind(), pb::VariableValueRange::UNKNOWN);
+      EXPECT_EQ(fact.value_after().kind(), pb::VariableValueRange::UNKNOWN);
+    }
+  }
 }
 } // namespace
 } // namespace ctk::application

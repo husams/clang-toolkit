@@ -2,6 +2,11 @@ syntax = "proto3";
 package ctk.analysis.v1;
 import "match/v1/match_service.proto";
 
+enum VariableValueDomain {
+  VARIABLE_VALUE_DOMAIN_UNSPECIFIED = 0;
+  INTERVAL = 1;
+}
+
 // Both selections must identify exactly one node in the same pinned snapshot.
 message VariableFlowRequest {
   ctk.match.v1.BindingMatchTarget variable = 1;
@@ -10,6 +15,7 @@ message VariableFlowRequest {
   optional uint32 max_blocks = 4;
   optional uint32 max_events = 5;
   optional uint32 max_iterations = 6;
+  VariableValueDomain value_domain = 7; // Unspecified preserves usage-only analysis.
 }
 message VariableFlowLocation {
   string file = 1;
@@ -24,6 +30,19 @@ message VariableFlowStarted {
   VariableFlowLocation declaration = 5;
   uint32 entry_block = 6;
   uint32 exit_block = 7;
+  VariableValueDomain value_domain = 8;
+}
+message VariableValueRange {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    INTERVAL = 1;
+    UNINITIALIZED = 2;
+    UNREACHABLE = 3;
+    UNKNOWN = 4;
+  }
+  Kind kind = 1;
+  string lower = 2; // Inclusive exact decimal; set only for INTERVAL.
+  string upper = 3;
 }
 message VariableUsage {
   enum Kind {
@@ -57,6 +76,8 @@ message VariableFlowFact {
   repeated uint64 reaching_assignments = 4; // Zero denotes uninitialized.
   bool live_after = 5;
   bool dead_store = 6;
+  VariableValueRange value_before = 7; // Present only when requested.
+  VariableValueRange value_after = 8;
 }
 message VariableFlowFinding {
   enum Kind {
@@ -65,6 +86,7 @@ message VariableFlowFinding {
     UNINITIALIZED_READ = 2;
     DEAD_STORE = 3;
     UNSUPPORTED_EFFECT = 4;
+    POSSIBLE_OVERFLOW = 5;
   }
   Kind kind = 1;
   uint64 usage_id = 2;

@@ -1219,7 +1219,7 @@ print $flow.graphs.length
 Track one retained local variable through its function CFG.
 
 ```text
-variableflow VARIABLE_BINDING in FUNCTION_BINDING [blocks NUMBER] [events NUMBER] [iterations NUMBER]
+variableflow VARIABLE_BINDING in FUNCTION_BINDING [values interval] [blocks NUMBER] [events NUMBER] [iterations NUMBER]
 ```
 
 - Both bindings must select exactly one node from the same pinned snapshot. Reuses native declarations without reparsing.
@@ -1228,6 +1228,7 @@ variableflow VARIABLE_BINDING in FUNCTION_BINDING [blocks NUMBER] [events NUMBER
 - Standalone output streams provisional usage events, then converged facts/findings and completion. Exhaust the stream and require terminal success. Assignment explicitly collects a report with analysis, usages, facts, findings and completed.
 - blocks: 1..100000 (default 10000), events: 1..100000 (default 10000), iterations: 1..1000000 (default 100000). Limits and cancellation fail without completion.
 - Reaching assignment zero means uninitialized. Usage IDs are report-local; declaration identity is snapshot-local. Witnesses are CFG routes, not proofs of feasible runtime paths.
+- values interval adds inclusive value_before/value_after bounds for signed integer locals up to 128 bits, with branch refinement and loop widening/narrowing. Bounds are conservative; unknown effects, unsupported conversions or possible overflow make numeric results incomplete. Decimal bounds preserve exact integers.
 
 ```text
 let report = variableflow $variables[0].v in $functions[0].f

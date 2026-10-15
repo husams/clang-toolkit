@@ -2,6 +2,7 @@
 #include "../captured_binding_state.hpp"
 #include "../native_snapshot_owner.hpp"
 #include "cfg_budget.hpp"
+#include "variable_ranges.hpp"
 #include <algorithm>
 #include <clang/AST/ExprCXX.h>
 #include <clang/AST/ParentMapContext.h>
@@ -73,6 +74,9 @@ struct Analysis {
   std::vector<Block> blocks;
   std::vector<Usage> usages;
   std::string unsupported;
+  std::vector<const clang::Stmt *> usage_statements;
+  bool value_intervals{};
+  VariableRanges ranges;
   void check() const {
     if (checkpoint && !checkpoint())
       throw BuildFailure(MatchCode::Cancelled, "variable flow cancelled");
@@ -305,6 +309,7 @@ struct Analysis {
             location(loc, ast, *value.mutable_location());
             block.usages.push_back(usages.size());
             usages.push_back(value);
+            usage_statements.push_back(statement->getStmt());
             pb::VariableFlowEvent event;
             event.mutable_usage()->CopyFrom(value);
             emit(event);
@@ -437,6 +442,17 @@ struct Analysis {
       emit(event);
       ++findings;
     }
+    if (!ranges.issue.empty()) {
+      pb::VariableFlowEvent event;
+      auto *finding = event.mutable_finding();
+      finding->set_kind(ranges.overflow
+                            ? pb::VariableFlowFinding::POSSIBLE_OVERFLOW
+                            : pb::VariableFlowFinding::UNSUPPORTED_EFFECT);
+      finding->set_usage_id(ranges.issue_usage);
+      finding->set_message(ranges.issue);
+      emit(event);
+      ++findings;
+    }
     for (const auto &block : blocks) {
       if (!block.native)
         continue;
@@ -476,6 +492,10 @@ struct Analysis {
         }
         auto initialization = fact->initialization();
         bool dead = fact->dead_store();
+        if (value_intervals) {
+          fact->mutable_value_before()->CopyFrom(ranges.before[i]);
+          fact->mutable_value_after()->CopyFrom(ranges.after[i]);
+        }
         emit(event);
         if (block.reachable && unsupported.empty() && reads(usage.kind()) &&
             state.contains(0)) {
@@ -513,7 +533,7 @@ struct Analysis {
     done->set_finding_count(findings);
     done->set_block_count(graph.size());
     done->set_iterations(iterations);
-    done->set_is_complete(unsupported.empty());
+    done->set_is_complete(unsupported.empty() && ranges.issue.empty());
     emit(event);
   }
 };
@@ -580,6 +600,7 @@ variable_flow(const pb::VariableFlowRequest &request,
                                                    : 100000,
                       limits.max_bytes};
     auto type = variable->getType();
+    analysis.value_intervals = request.value_domain() == pb::INTERVAL;
     if (!type->isIntegerType() || type.isVolatileQualified() ||
         variable->isExceptionVariable() ||
         variable->hasAttr<clang::CleanupAttr>())
@@ -595,9 +616,23 @@ variable_flow(const pb::VariableFlowRequest &request,
     location(variable->getLocation(), ast, *start->mutable_declaration());
     start->set_entry_block(graph->getEntry().getBlockID());
     start->set_exit_block(graph->getExit().getBlockID());
+    start->set_value_domain(request.value_domain());
     analysis.emit(event);
     analysis.classify();
     analysis.converge();
+    if (analysis.value_intervals) {
+      if (analysis.unsupported.empty())
+        analysis.ranges = variable_ranges(
+            ast, *variable, *graph, analysis.usages, analysis.usage_statements,
+            [&analysis] { analysis.step(); });
+      else {
+        analysis.ranges.before.resize(analysis.usages.size());
+        analysis.ranges.after.resize(analysis.usages.size());
+        for (auto *values : {&analysis.ranges.before, &analysis.ranges.after})
+          for (auto &value : *values)
+            value.set_kind(pb::VariableValueRange::UNKNOWN);
+      }
+    }
     analysis.publish();
     return {};
   } catch (const BuildFailure &error) {

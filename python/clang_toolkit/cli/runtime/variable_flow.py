@@ -19,6 +19,11 @@ def execute_variable_flow(runtime: Runtime, statement: Tree) -> MessageView:
     options = {}
     for option in statement.children[4:]:
         name = str(option.data).removeprefix("flow_")
+        if name == "values":
+            if "value_domain" in options:
+                raise EvaluationError("values may occur once")
+            options["value_domain"] = "interval"
+            continue
         key = "max_" + name
         if key in options:
             raise EvaluationError(f"{name} may occur once")

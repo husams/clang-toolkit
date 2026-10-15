@@ -10,6 +10,7 @@ export const _ctk_analysis_v1_VariableFlowFinding_Kind = {
   UNINITIALIZED_READ: 'UNINITIALIZED_READ',
   DEAD_STORE: 'DEAD_STORE',
   UNSUPPORTED_EFFECT: 'UNSUPPORTED_EFFECT',
+  POSSIBLE_OVERFLOW: 'POSSIBLE_OVERFLOW',
 } as const;
 
 export type _ctk_analysis_v1_VariableFlowFinding_Kind =
@@ -23,6 +24,8 @@ export type _ctk_analysis_v1_VariableFlowFinding_Kind =
   | 3
   | 'UNSUPPORTED_EFFECT'
   | 4
+  | 'POSSIBLE_OVERFLOW'
+  | 5
 
 export type _ctk_analysis_v1_VariableFlowFinding_Kind__Output = typeof _ctk_analysis_v1_VariableFlowFinding_Kind[keyof typeof _ctk_analysis_v1_VariableFlowFinding_Kind]
 

@@ -109,3 +109,51 @@ def test_request_ownership_limits_and_console_collection(tmp_path):
     assert runtime.evaluate('$report.completed.is_complete') is True
     assert client.variable_flow.call_args.args == (variable, function)
     assert client.variable_flow.call_args.kwargs == {"max_events": 17, "max_iterations": 88}
+    runtime.execute('let report = variableflow $v in $f values interval events 17')
+    assert client.variable_flow.call_args.kwargs == {"value_domain": "interval", "max_events": 17}
+    assert _variable_flow_request(client, variable, function, value_domain="interval").value_domain == pb.INTERVAL
+    for domain in ("unknown", 1, True):
+        with pytest.raises(ValueError, match="value_domain"):
+            _variable_flow_request(client, variable, function, value_domain=domain)
+
+
+@pytest.mark.parametrize("bounds, valid", [
+    (pb.VariableValueRange(kind=pb.VariableValueRange.INTERVAL, lower="0", upper="12"), True),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.INTERVAL, lower=str(-(1 << 127)), upper=str((1 << 127) - 1)), True),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.UNINITIALIZED), True),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.UNKNOWN), True),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.UNREACHABLE), True),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.INTERVAL, lower="2", upper="1"), False),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.INTERVAL, lower="01", upper="2"), False),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.INTERVAL, lower="-0", upper="2"), False),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.UNKNOWN, upper="2"), False),
+    (pb.VariableValueRange(kind=pb.VariableValueRange.INTERVAL, lower="0", upper=str(1 << 127)), False),
+    (pb.VariableValueRange(), False),
+])
+def test_numeric_stream_validates_exact_bounds_and_request_domain(bounds, valid):
+    from clang_toolkit.variable_flow import VariableFlowState
+    stream = events()
+    stream[0].started.value_domain = pb.INTERVAL
+    stream[2].fact.value_before.CopyFrom(bounds)
+    stream[2].fact.value_after.CopyFrom(bounds)
+    state = VariableFlowState(pb.INTERVAL)
+    if valid:
+        for event in stream:
+            state.consume(event)
+        state.finish()
+    else:
+        with pytest.raises(AnalysisError):
+            for event in stream:
+                state.consume(event)
+    with pytest.raises(AnalysisError):
+        VariableFlowState().consume(stream[0])
+
+
+def test_requested_ranges_cannot_be_silently_omitted():
+    from clang_toolkit.variable_flow import VariableFlowState
+    stream = events()
+    stream[0].started.value_domain = pb.INTERVAL
+    state = VariableFlowState(pb.INTERVAL)
+    with pytest.raises(AnalysisError):
+        for event in stream:
+            state.consume(event)
