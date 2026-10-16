@@ -68,7 +68,9 @@ CallGraphResult CallGraphController::build(
             "function cannot be combined with a binding target", {}};
   if (!ctk::analysis::v1::CallGraphDirection_IsValid(request.direction()))
     return {MatchCode::InvalidArgument, "unknown call graph direction", {}};
-  if ((request.has_max_depth() && request.max_depth() > 32) ||
+  if ((request.has_unlimited_depth() && request.unlimited_depth() &&
+       request.has_max_depth()) ||
+      (request.has_max_depth() && request.max_depth() > 32) ||
       (request.has_max_call_sites() &&
        (request.max_call_sites() == 0 || request.max_call_sites() > 1000000)))
     return {MatchCode::InvalidArgument,
@@ -163,7 +165,9 @@ CallGraphStreamResult CallGraphController::build_stream(
             "function cannot be combined with a binding target", {}};
   if (!ctk::analysis::v1::CallGraphDirection_IsValid(request.direction()))
     return {MatchCode::InvalidArgument, "unknown call graph direction", {}};
-  if ((request.has_max_depth() && request.max_depth() > 32) ||
+  if ((request.has_unlimited_depth() && request.unlimited_depth() &&
+       request.has_max_depth()) ||
+      (request.has_max_depth() && request.max_depth() > 32) ||
       (request.has_max_call_sites() &&
        (!request.max_call_sites() || request.max_call_sites() > 1000000)))
     return {MatchCode::InvalidArgument,

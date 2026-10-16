@@ -202,6 +202,9 @@ def test_callgraph_in_accepts_retained_tree_and_path_in_both_engines(
     assert client.stream_callgraph.call_args.args[0] == "fixture.cc"
     assert "max_depth" not in client.stream_callgraph.call_args.kwargs
     assert "direction" not in client.stream_callgraph.call_args.kwargs
+    result = dispatch_result(client, "callgraph in $tree depth all", runtime)
+    assert result.success
+    assert client.stream_callgraph.call_args.kwargs["max_depth"] == "all"
     runtime.close()
 
 

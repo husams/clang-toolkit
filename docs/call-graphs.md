@@ -18,6 +18,8 @@ It analyzes [a small payment workflow](../examples/callgraph_reuse.cc):
 let tree = parse "examples/callgraph_reuse.cc"
 let payments = match functionDecl(isDefinition(), hasName("demo::chargeCard")).bind("f") in tree
 let incoming = callgraph in payments[0].f direction in depth 2
+let api = match functionDecl(isDefinition(), hasName("demo::apiRequest")).bind("f") in tree
+let reachable = callgraph in api[0].f depth all
 
 foreach edge in incoming.edges do {
     if not edge.is_virtual_root_edge then {
@@ -29,6 +31,8 @@ foreach edge in incoming.edges do {
 The represented incoming relationships are checkout to chargeCard, retryPayment
 to chargeCard, and apiRequest to checkout, with the demo:: qualification. These
 are callers in this translation unit, not a whole-project inventory.
+The unlimited outgoing selection from apiRequest contains five callables and
+four native call records: apiRequest, checkout and its three leaves.
 
 The full checked-in example prints eight nodes (including the synthetic root),
 six call sites, three incoming ordinary edges, two route steps, six grouped
@@ -63,8 +67,14 @@ callgraph in tree main-file true format json
 
 For callable bindings, direction out, in or both selects an outgoing, incoming
 or bidirectional neighborhood. Depth zero selects only the seed. Depth is
-bounded to 32. Resource limits still cover the native work required to find the
-neighborhood.
+bounded to 32 by default. Use `depth all` (or `max_depth="all"` in Python) to
+follow every reachable callable in the selected direction; visited-node BFS
+terminates when the graph contains cycles. The result excludes disconnected
+callables and preserves every native call record. An unlimited selection is
+still limited by the node, edge, site, work and byte budgets. The response marks
+`selection_unlimited_depth` so clients can detect servers that do not support
+the request. Unlimited depth is valid only with one callable seed; reject it for
+whole-translation-unit and exact CallExpr selections.
 
 Exact bindings preserve overload identity. Empty, multiple, unrelated-node,
 dependent-function and invalid retained selections receive explicit diagnostics.
@@ -100,7 +110,8 @@ graph
   edges: [caller_node, callee_node, call, ...]
   call_sites: [caller_node, optional callee_node, location, range, facts, ...]
   snapshot_generation, source_file, source_revision, compilation_profile_id
-  optional focus_node, selection_direction, optional selection_max_depth
+  optional focus_node, selection_direction, optional selection_max_depth,
+  optional selection_unlimited_depth
   selection_boundary_edges, selection_boundary_call_sites
   is_complete, availability, main_file_only, external_edges_omitted
 ```
@@ -137,6 +148,16 @@ async def inspect(address, source):
             'functionDecl(isDefinition(), hasName("demo::chargeCard")).bind("f")', tree
         )
         return await client.callgraph(rows[0].binding("f"), direction="in", max_depth=2)
+
+async def all_reachable(address, source):
+    async with AsyncClient(address) as client:
+        tree = await client.parse(source)
+        rows = await client.match_in(
+            'functionDecl(isDefinition(), hasName("demo::apiRequest")).bind("f")', tree
+        )
+        return await client.callgraph(
+            rows[0].binding("f"), direction="out", max_depth="all"
+        )
 ```
 
 Client.callgraph is the synchronous collector. Both clients return a
@@ -187,7 +208,10 @@ These methods query the collected topology without an RPC or another native
 graph build. Ambiguous names require an exact signature. Neighborhoods keep
 repeated sites and reindex nodes and edges coherently. Paths and recursive
 components exclude synthetic-root relationships and terminate on cycles.
-Queries on an already focused graph are limited to that graph's coverage.
+Pass `depth="all"` to `callers` or `callees` to traverse every represented
+reachable node. Queries on an already focused graph remain limited to that
+graph's coverage, and carry forward inherited scope and boundary omissions;
+they cannot establish reachability beyond the collected input.
 Local neighborhood views omit the synthetic root and use UINT64_MAX in
 root_node to mark its absence; their ordinary endpoints and focus remain array
 indices. Native responses retain the explicit synthetic root.

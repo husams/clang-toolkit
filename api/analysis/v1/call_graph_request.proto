@@ -30,4 +30,7 @@ message CallGraphRequest {
   // Optional exact qualified callable name for file/session/file_handle.
   // Omit to analyze the complete translation unit or select through binding.
   string function = 16;
+  // Select every callable reachable from the focused callable. Mutually
+  // exclusive with max_depth; finite depths remain bounded to 0..32.
+  optional bool unlimited_depth = 17;
 }

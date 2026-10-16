@@ -15,7 +15,7 @@ from threading import Lock
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, cast, overload
+from typing import Any, Literal, Protocol, cast, overload
 
 import grpc
 from google.protobuf.message import DecodeError
@@ -1280,7 +1280,8 @@ class AsyncClient:
                         compile_arguments: Sequence[str] = (), visit_implicit_code: bool | None = None,
                         visit_template_instantiations: bool | None = None, max_nodes: int | None = None,
                         max_edges: int | None = None, max_call_sites: int | None = None,
-                        direction: str | int | None = None, max_depth: int | None = None,
+                        direction: str | int | None = None,
+                        max_depth: int | Literal["all"] | None = None,
                         projection: str = "shallow",
                         main_file_only: bool = False, payload_depth: int = 24,
                         payload_nodes: int = 10000,
@@ -1335,7 +1336,9 @@ class AsyncClient:
         self._begin_value_operation()
         call = None
         consumed = False
-        state = CallGraphStreamState()
+        state = CallGraphStreamState(
+            expect_unlimited_depth=request.unlimited_depth
+        )
         try:
             call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamCallGraph(
                 self._compilation_request(request), timeout=self.config.rpc_timeout)
@@ -1390,10 +1393,19 @@ class AsyncClient:
             self._ensure_stub()
             assert self._channel is not None and self.config is not None
             try:
-                return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).CallGraph(
+                response = await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).CallGraph(
                     self._compilation_request(request), timeout=self.config.rpc_timeout)
             except grpc.aio.AioRpcError as unary_error:
                 raise AnalysisError(unary_error.code(), unary_error.details()) from unary_error
+            if request.unlimited_depth and not (
+                response.HasField("selection_unlimited_depth")
+                and response.selection_unlimited_depth
+            ):
+                raise AnalysisError(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "server did not confirm unlimited call-graph depth support",
+                )
+            return response
         return response
 
     async def match_file(
@@ -2580,7 +2592,7 @@ def _call_graph_value_request(
     max_edges: int | None = None,
     max_call_sites: int | None = None,
     direction: str | int | None = None,
-    max_depth: int | None = None,
+    max_depth: int | Literal["all"] | None = None,
     projection: str = "shallow",
     main_file_only: bool = False,
     payload_depth: int = 24,
@@ -2602,7 +2614,10 @@ def _call_graph_value_request(
         raise ValueError("depth applies to callable targets, not call expressions")
     if max_call_sites is not None and (type(max_call_sites) is not int or not 1 <= max_call_sites <= 1000000):
         raise ValueError("max_call_sites must be 1..1000000")
-    if max_depth is not None and (type(max_depth) is not int or not 0 <= max_depth <= 32):
+    unlimited_depth = max_depth == "all"
+    if max_depth is not None and not unlimited_depth and (
+        type(max_depth) is not int or not 0 <= max_depth <= 32
+    ):
         raise ValueError("max_depth must be 0..32")
     directions = {
         "out": call_graph_request_pb2.CALL_GRAPH_DIRECTION_OUT,
@@ -2654,9 +2669,15 @@ def _call_graph_value_request(
     if function is not None:
         if direction_value is None:
             request.direction = call_graph_request_pb2.CALL_GRAPH_DIRECTION_OUT
-        request.max_depth = 1 if max_depth is None else max_depth
+        if unlimited_depth:
+            request.unlimited_depth = True
+        else:
+            request.max_depth = 1 if max_depth is None else max_depth
     elif max_depth is not None:
-        request.max_depth = max_depth
+        if unlimited_depth:
+            request.unlimited_depth = True
+        else:
+            request.max_depth = max_depth
     if scope is not None:
         request.resource_scope_id = _scope_id(scope)
     return request

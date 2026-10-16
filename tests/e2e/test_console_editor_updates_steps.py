@@ -72,8 +72,8 @@ def editor_evidence(editor_server, tmp_path):
     def visible():
         return "\n".join(screen.display)
 
-    def wait_for(predicate):
-        deadline = time.monotonic() + 15
+    def wait_for(predicate, *, timeout: float = 15):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if select.select([master], [], [], 0.1)[0]:
                 try:
@@ -96,14 +96,16 @@ def editor_evidence(editor_server, tmp_path):
     def paste(source):
         os.write(master, ("\x1b[200~" + source + "\x1b[201~").encode())
 
-    def submit(source, marker):
+    # Commands can compile libraries and initialize the first native query.
+    def submit(source, marker, *, timeout: float = 60):
         previous = len(history.read_commands())
         paste(source)
         os.write(master, b"\x0a")
         return wait_for(
             lambda: marker in visible()
             and "Ready" in screen.display[-1]
-            and len(history.read_commands()) > previous
+            and len(history.read_commands()) > previous,
+            timeout=timeout,
         )
 
     try:

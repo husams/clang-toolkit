@@ -24,6 +24,7 @@ export interface CallGraphRequest {
   'maxDepth'?: (number | string | Long);
   'maxCallSites'?: (number | string | Long);
   'function'?: (string);
+  'unlimitedDepth'?: (boolean);
   'target'?: "file"|"session"|"binding"|"fileHandle";
   '_visitImplicitCode'?: "visitImplicitCode";
   '_visitTemplateInstantiations'?: "visitTemplateInstantiations";
@@ -31,6 +32,7 @@ export interface CallGraphRequest {
   '_maxEdges'?: "maxEdges";
   '_maxDepth'?: "maxDepth";
   '_maxCallSites'?: "maxCallSites";
+  '_unlimitedDepth'?: "unlimitedDepth";
 }
 
 export interface CallGraphRequest__Output {
@@ -49,6 +51,7 @@ export interface CallGraphRequest__Output {
   'maxDepth'?: (string);
   'maxCallSites'?: (string);
   'function': (string);
+  'unlimitedDepth'?: (boolean);
   'target'?: "file"|"session"|"binding"|"fileHandle";
   '_visitImplicitCode'?: "visitImplicitCode";
   '_visitTemplateInstantiations'?: "visitTemplateInstantiations";
@@ -56,4 +59,5 @@ export interface CallGraphRequest__Output {
   '_maxEdges'?: "maxEdges";
   '_maxDepth'?: "maxDepth";
   '_maxCallSites'?: "maxCallSites";
+  '_unlimitedDepth'?: "unlimitedDepth";
 }

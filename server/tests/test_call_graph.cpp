@@ -234,6 +234,66 @@ TEST_F(CallGraph, IncomingDepthZeroAndAmbiguousSelectorsAreExplicit) {
   EXPECT_EQ(controller.build(request, [] { return true; }).code,
             MatchCode::NotFound);
 }
+TEST_F(CallGraph, UnlimitedDepthReachesLongCyclesAndRejectsConflictingDepth) {
+  std::ofstream source(directory.path() / "deep.cc");
+  for (int index = 0; index < 40; ++index)
+    source << "void f" << index << "();\n";
+  for (int index = 0; index < 40; ++index) {
+    source << "void f" << index << "() { ";
+    if (index < 39)
+      source << "f" << index + 1 << "(); ";
+    else
+      source << "f1(); ";
+    if (index == 0)
+      source << "f1(); ";
+    source << "}\n";
+  }
+  source << "void disconnected() {}\n";
+  source.close();
+  request.mutable_file()->set_file_path("deep.cc");
+  request.set_function("f0");
+
+  request.set_max_depth(1);
+  auto shallow = controller.build(request, [] { return true; });
+  ASSERT_EQ(shallow.code, MatchCode::Ok) << shallow.message;
+  EXPECT_EQ(shallow.response.nodes_size(), 3);
+  EXPECT_EQ(shallow.response.edges_size(), 2);
+  EXPECT_EQ(shallow.response.selection_max_depth(), 1U);
+
+  request.set_max_depth(32);
+  auto bounded = controller.build(request, [] { return true; });
+  ASSERT_EQ(bounded.code, MatchCode::Ok) << bounded.message;
+  EXPECT_EQ(bounded.response.nodes_size(), 34);
+  EXPECT_EQ(bounded.response.edges_size(), 33);
+  EXPECT_EQ(bounded.response.selection_max_depth(), 32U);
+
+  request.clear_max_depth();
+  request.set_unlimited_depth(true);
+  auto complete = controller.build(request, [] { return true; });
+  ASSERT_EQ(complete.code, MatchCode::Ok) << complete.message;
+  EXPECT_TRUE(complete.response.has_selection_unlimited_depth());
+  EXPECT_TRUE(complete.response.selection_unlimited_depth());
+  EXPECT_FALSE(complete.response.has_selection_max_depth());
+  EXPECT_EQ(complete.response.nodes_size(), 41);
+  EXPECT_EQ(complete.response.edges_size(), 41);
+  EXPECT_EQ(complete.response.call_sites_size(), 41);
+  int repeated = 0;
+  bool disconnected = false;
+  for (const auto &node : complete.response.nodes())
+    disconnected |= node.has_function() &&
+                    node.function().qualified_name() == "disconnected";
+  for (const auto &edge : complete.response.edges())
+    repeated += edge.caller_node() == complete.response.focus_node() &&
+                complete.response.nodes(edge.callee_node())
+                        .function()
+                        .qualified_name() == "f1";
+  EXPECT_EQ(repeated, 2);
+  EXPECT_FALSE(disconnected);
+
+  request.set_max_depth(1);
+  EXPECT_EQ(controller.build(request, [] { return true; }).code,
+            MatchCode::InvalidArgument);
+}
 TEST_F(CallGraph, FrozenProfileMismatchFailsBeforePublishingGraph) {
   request.mutable_file()->set_expected_profile_id("stale-profile");
   const auto result = controller.build(request, [] { return true; });

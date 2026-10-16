@@ -36,7 +36,7 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
         raise EvaluationError(
             "callgraph requires a file path or retained native target"
         )
-    options: dict[str, int | bool] = {}
+    options: dict[str, int | bool | str] = {}
     output_format = "compact"
     for option in statement.children[target_index + 1 :]:
         if option.data == "graph_json":
@@ -67,9 +67,13 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
                 options[key] = text == "true"
         else:
             minimum = 0 if key == "max_depth" else 1
-            if not text.isdigit() or not minimum <= int(text) <= maximum:
-                raise EvaluationError(f"{key} must be {minimum}..{maximum}")
-            options[key] = int(text)
+            if key == "max_depth" and text == "all":
+                options[key] = "all"
+            else:
+                if not text.isdigit() or not minimum <= int(text) <= maximum:
+                    suffix = " or all" if key == "max_depth" else ""
+                    raise EvaluationError(f"{key} must be {minimum}..{maximum}{suffix}")
+                options[key] = int(text)
     call_options = {
         "working_directory": runtime.cwd,
         "compile_arguments": runtime.config_store.effective["extra_args"],

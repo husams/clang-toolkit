@@ -84,7 +84,7 @@ match_scope: CURSOR_SCOPE NAME
 
 call_graph_option: NODES NUMBER -> call_graph_nodes
                  | EDGES NUMBER -> call_graph_edges
-                 | DEPTH NUMBER -> call_graph_depth
+                 | DEPTH (NUMBER | ALL) -> call_graph_depth
                  | CALLGRAPH_FORMAT CALLGRAPH_JSON -> graph_json
                  | DIRECTION NAME -> call_graph_direction
                  | CALLSITES NUMBER -> call_graph_sites

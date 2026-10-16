@@ -82,6 +82,46 @@ def test_bounded_neighborhood_excludes_synthetic_root_and_keeps_edge_multiplicit
         value.callees("pkg::A", depth=33)
 
 
+def test_unlimited_local_neighborhood_is_cycle_safe_and_keeps_partial_coverage():
+    response = pb.CallGraphResponse(
+        root_node=0,
+        is_complete=True,
+        external_edges_omitted=2,
+        selection_boundary_edges=3,
+        selection_boundary_call_sites=4,
+    )
+    response.nodes.add(node_index=0, is_virtual_root=True)
+    for index in range(1, 38):
+        response.nodes.add(node_index=index).function.qualified_name = f"f{index}"
+    response.nodes.add(node_index=38).function.qualified_name = "disconnected"
+    for index in range(1, 37):
+        response.edges.add(caller_node=index, callee_node=index + 1)
+        response.call_sites.add(caller_node=index, callee_node=index + 1)
+    response.edges.add(caller_node=37, callee_node=2)
+    response.edges.add(caller_node=1, callee_node=2)
+    response.call_sites.add(caller_node=37, callee_node=2)
+    response.call_sites.add(caller_node=1, callee_node=2)
+
+    selected = CallGraph(response).callees("f1", depth="all")
+    names = {node.function.qualified_name for node in selected.nodes}
+    assert len(selected.nodes) == 37
+    assert "f37" in names and "disconnected" not in names
+    assert len(selected.edges) == 38
+    assert len(selected.call_sites) == 38
+    assert selected.selection_unlimited_depth
+    assert not selected.HasField("selection_max_depth")
+    assert selected.external_edges_omitted == 2
+    assert selected.selection_boundary_edges == 3
+    assert selected.selection_boundary_call_sites == 4
+
+    partial = CallGraph(response).callees("f1", depth=1)
+    expanded = partial.callees(0, depth="all")
+    assert {node.function.qualified_name for node in expanded.nodes} == {"f1", "f2"}
+    assert expanded.selection_boundary_edges == partial.selection_boundary_edges
+    assert expanded.selection_boundary_call_sites == partial.selection_boundary_call_sites
+    assert expanded.external_edges_omitted == partial.external_edges_omitted
+
+
 def test_function_lookup_requires_an_overload_disambiguator():
     value = graph()
     with pytest.raises(CallGraphError, match="ambiguous"):
@@ -200,7 +240,7 @@ def test_local_queries_keep_source_metadata_and_handle_long_chains_iteratively()
     assert focused.root_node == (1 << 64) - 1
     assert focused.focus_node == 0
     assert focused.selection_max_depth == 0
-    assert focused.selection_boundary_edges == 1
+    assert focused.selection_boundary_edges == 8
     assert focused.snapshot_generation == 42
     assert response == original
 

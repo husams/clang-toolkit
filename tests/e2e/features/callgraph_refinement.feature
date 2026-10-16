@@ -19,6 +19,16 @@ Feature: Useful callgraphs from retained native inputs
       | unix      |
       | tcp       |
 
+  Scenario Outline: Unlimited depth reaches every callable in the selected component
+    Given an isolated callgraph server using <transport>
+    When I select all reachable calls from retained callable bindings
+    Then unlimited callgraph depth crosses 32 hops and terminates on cycles
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
   Scenario: Callgraph streams exceed the aggregate message limit
     Given an isolated callgraph server with small messages
     When I consume a callgraph larger than one message

@@ -3,7 +3,7 @@
 from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from clang_toolkit._generated.analysis.v1 import call_graph_response_pb2
 from clang_toolkit._generated.analysis.v1.call_graph_node_pb2 import CallGraphNode
@@ -114,7 +114,8 @@ class CallGraph:
         return iter(self._nodes.values())
 
     def function(
-        self, qualified_name: str | Any, *, signature: str | None = None, depth: int = 1
+        self, qualified_name: str | Any, *, signature: str | None = None,
+        depth: int = 1
     ) -> Any:
         """Find one function by qualified name and optional exact type spelling."""
         if isinstance(qualified_name, BindingSelection):
@@ -140,13 +141,17 @@ class CallGraph:
             )
         return matches[0]
 
-    def callers(self, target: int | str | Any, *, depth: int = 1) -> CallGraph:
+    def callers(
+        self, target: int | str | Any, *, depth: int | Literal["all"] = 1
+    ) -> CallGraph:
         """Return the bounded incoming neighborhood containing target."""
         if isinstance(target, BindingSelection):
             return self._select_binding(target, direction="in", depth=depth)
         return self._neighborhood(target, depth, reverse=True)
 
-    def callees(self, target: int | str | Any, *, depth: int = 1) -> CallGraph:
+    def callees(
+        self, target: int | str | Any, *, depth: int | Literal["all"] = 1
+    ) -> CallGraph:
         """Return the bounded outgoing neighborhood containing target."""
         if isinstance(target, BindingSelection):
             return self._select_binding(target, direction="out", depth=depth)
@@ -265,15 +270,16 @@ class CallGraph:
     def _neighborhood(
         self, target: int | str | Any, depth: int, *, reverse: bool
     ) -> CallGraph:
-        if type(depth) is not int or not 0 <= depth <= 32:
-            raise ValueError("depth must be 0..32")
+        unlimited = depth == "all"
+        if not unlimited and (type(depth) is not int or not 0 <= depth <= 32):
+            raise ValueError("depth must be 0..32 or 'all'")
         start = self._node_index(target)
         distances = {start: 0}
         queue = deque([start])
         adjacency = self._incoming if reverse else self._outgoing
         while queue:
             current = queue.popleft()
-            if distances[current] == depth:
+            if not unlimited and distances[current] == depth:
                 continue
             for neighbor in adjacency[current]:
                 if neighbor not in distances:
@@ -311,7 +317,7 @@ class CallGraph:
             if edge.caller_node not in selected or edge.callee_node not in selected:
                 continue
             source = edge.callee_node if reverse else edge.caller_node
-            if distances[source] >= depth:
+            if not unlimited and distances[source] >= depth:
                 continue
             output_edge = response.edges.add()
             copy_record(edge, output_edge)
@@ -322,7 +328,11 @@ class CallGraph:
             traversed = (
                 edge.caller_node in selected
                 and edge.callee_node in selected
-                and distances[edge.callee_node if reverse else edge.caller_node] < depth
+                and (
+                    unlimited
+                    or distances[edge.callee_node if reverse else edge.caller_node]
+                    < depth
+                )
             )
             if not traversed and (
                 edge.caller_node in selected or edge.callee_node in selected
@@ -337,13 +347,15 @@ class CallGraph:
             if call_site.HasField("callee_node"):
                 source = call_site.callee_node if reverse else call_site.caller_node
                 traversed = (
-                    caller_selected and callee_selected and distances[source] < depth
+                    caller_selected
+                    and callee_selected
+                    and (unlimited or distances[source] < depth)
                 )
             else:
                 traversed = (
                     not reverse
                     and caller_selected
-                    and distances[call_site.caller_node] < depth
+                    and (unlimited or distances[call_site.caller_node] < depth)
                 )
             if not traversed:
                 if caller_selected or callee_selected:
@@ -365,9 +377,14 @@ class CallGraph:
             if reverse
             else call_graph_request_pb2.CALL_GRAPH_DIRECTION_OUT
         )
-        response.selection_max_depth = depth
-        response.selection_boundary_edges = boundary_edges
-        response.selection_boundary_call_sites = boundary_call_sites
+        if unlimited:
+            response.ClearField("selection_max_depth")
+            response.selection_unlimited_depth = True
+        else:
+            response.selection_max_depth = depth
+            response.ClearField("selection_unlimited_depth")
+        response.selection_boundary_edges += boundary_edges
+        response.selection_boundary_call_sites += boundary_call_sites
         if completion_known and record_count:
             response.is_complete = is_complete
         else:
@@ -378,14 +395,17 @@ class CallGraph:
         return self._incoming if reverse else self._outgoing
 
     def _select_binding(
-        self, target: Any, *, direction: str = "out", depth: int = 1
+        self, target: Any, *, direction: str = "out",
+        depth: int | Literal["all"] = 1
     ) -> CallGraph:
         if self._selector is None:
             raise CallGraphError(
                 "exact retained selections are available on graphs returned by the console"
             )
-        if type(depth) is not int or not 0 <= depth <= 32:
-            raise ValueError("depth must be 0..32")
+        if depth != "all" and (
+            type(depth) is not int or not 0 <= depth <= 32
+        ):
+            raise ValueError("depth must be 0..32 or 'all'")
         response = self._selector(target, direction=direction, max_depth=depth)
         return CallGraph(response, selector=self._selector)
 
