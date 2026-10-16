@@ -59,6 +59,131 @@ def callgraph_server(transport, tmp_path, request, monkeypatch):
 
 
 @when(
+    "I inspect a header va_list callable through retained graph inputs",
+    target_fixture="header_va_list_graphs",
+)
+def header_va_list_graphs(callgraph_server):
+    server, source = callgraph_server
+    header = source.with_name("va_list.hpp")
+    header.write_text(
+        "namespace demo { inline void copyVaList(__builtin_va_list) {} "
+        "inline void chargeCard() { __builtin_va_list arguments; "
+        "copyVaList(arguments); } }\n",
+        encoding="utf-8",
+    )
+    source = source.with_name("va_list.cc")
+    source.write_text(
+        '#include "va_list.hpp"\nvoid entry() { demo::chargeCard(); }\n',
+        encoding="utf-8",
+    )
+    target_cases = [
+        ("x86_64-unknown-linux-gnu", "__va_list_tag::__va_list_tag", 1),
+        ("aarch64-unknown-linux-gnu", "std::__va_list::__va_list", 2),
+        ("armv7-unknown-linux-gnueabihf", "std::__va_list::__va_list", 2),
+    ]
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            results = []
+            for target, constructor, expected_constructors in target_cases:
+                compile_arguments = [
+                    "-std=c++20",
+                    f"-I{source.parent}",
+                    f"--target={target}",
+                ]
+                filename_graph = await client.callgraph(
+                    source, compile_arguments=compile_arguments
+                )
+                repeated_graph = await client.callgraph(
+                    source, compile_arguments=compile_arguments
+                )
+                tree = await client.parse(
+                    source, compile_arguments=compile_arguments
+                )
+                tree_graph = await client.callgraph(tree)
+                charge_card = await client.match_in(
+                    'functionDecl(isDefinition(), hasName("chargeCard")).bind("f")',
+                    tree,
+                )
+                matched_graph = await client.callgraph(
+                    charge_card[0].binding("f"), max_depth="all"
+                )
+                main_file_graph = await client.callgraph(
+                    source,
+                    compile_arguments=compile_arguments,
+                    main_file_only=True,
+                )
+                results.append(
+                    (
+                        target,
+                        constructor,
+                        expected_constructors,
+                        filename_graph,
+                        repeated_graph,
+                        tree_graph,
+                        matched_graph,
+                        main_file_graph,
+                    )
+                )
+            return results
+
+    return asyncio.run(run())
+
+
+@then("full-scope callgraphs preserve the header callable")
+def header_va_list_callgraphs_are_complete(header_va_list_graphs):
+    for (
+        target,
+        constructor,
+        expected_constructors,
+        filename,
+        repeated,
+        tree,
+        matched,
+        main_file,
+    ) in header_va_list_graphs:
+        for graph in (filename, tree):
+            assert graph.is_complete, target
+            names = {
+                node.function.qualified_name
+                for node in graph.nodes
+                if not node.is_virtual_root and node.HasField("function")
+            }
+            assert {"entry", "demo::chargeCard", constructor}.issubset(names), target
+            assert (
+                sum(
+                    node.HasField("function")
+                    and node.function.qualified_name == constructor
+                    for node in graph.nodes
+                )
+                >= expected_constructors
+            ), target
+            assert (
+                relationships(graph).count(("demo::chargeCard", constructor))
+                >= expected_constructors
+            ), target
+        assert matched.is_complete, target
+        assert (
+            matched.nodes[matched.focus_node].function.qualified_name
+            == "demo::chargeCard"
+        ), target
+        assert (
+            relationships(matched).count(("demo::chargeCard", constructor))
+            >= expected_constructors
+        ), target
+        assert filename.SerializeToString() == repeated.SerializeToString(), target
+        assert main_file.is_complete and main_file.main_file_only, target
+        main_file_names = {
+            node.function.qualified_name
+            for node in main_file.nodes
+            if not node.is_virtual_root and node.HasField("function")
+        }
+        assert "demo::chargeCard" not in main_file_names, target
+        assert constructor not in main_file_names, target
+        assert main_file.external_edges_omitted > 0, target
+
+
+@when(
     "I inspect callgraphs from files trees handles and matched nodes",
     target_fixture="retained_callgraph_evidence",
 )

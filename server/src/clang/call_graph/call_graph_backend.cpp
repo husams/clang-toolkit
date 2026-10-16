@@ -304,6 +304,13 @@ private:
             const_cast<clang::Decl *>(callable_key(requested_callable)));
       calls::DeclarationOrder order(budget);
       order.TraverseAST(ast);
+      // Callees owned by builtin types (such as __va_list_tag's implicit
+      // constructor) need not be reachable through the TU declaration walk.
+      // Keep existing AST ordinals, then append missing graph declarations in
+      // native insertion order: every inserted node is added to the root.
+      for (const auto &record : graph.getRoot()->callees())
+        if (auto *decl = record.Callee->getDecl())
+          order.VisitDecl(decl);
       std::vector<const clang::CallGraphNode *> nodes{graph.getRoot()};
       for (const auto &entry : graph) {
         const auto *node = entry.second.get();

@@ -1,4 +1,14 @@
 Feature: Useful callgraphs from retained native inputs
+  Scenario Outline: Header builtin declarations remain ordered for retained inputs
+    Given an isolated callgraph server using <transport>
+    When I inspect a header va_list callable through retained graph inputs
+    Then full-scope callgraphs preserve the header callable
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
   Scenario Outline: Filenames and retained inputs agree without reparsing
     Given an isolated callgraph server using <transport>
     When I inspect callgraphs from files trees handles and matched nodes

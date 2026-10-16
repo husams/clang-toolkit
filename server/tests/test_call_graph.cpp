@@ -1,9 +1,12 @@
 #include "ctk/application/call_graph_controller.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include <algorithm>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <map>
 #include <set>
+#include <tuple>
+#include <vector>
 namespace ctk::application {
 namespace {
 using ctk::clang_layer::MatchCode;
@@ -381,6 +384,74 @@ TEST_F(CallGraph, ProjectionAndMainFileScopeAreExplicitAndComplete) {
   for (const auto &node : main_only.response.nodes())
     if (node.has_function())
       EXPECT_NE(node.function().qualified_name(), "header_only");
+}
+TEST_F(CallGraph, HeaderVaListImplicitConstructorDoesNotBreakFullScopeGraph) {
+  std::ofstream(directory.path() / "va_list.hpp")
+      << "namespace demo { inline void copyVaList(__builtin_va_list) {} "
+         "inline void chargeCard() { __builtin_va_list arguments; "
+         "copyVaList(arguments); } }\n";
+  std::ofstream(directory.path() / "va_list.cc")
+      << "#include \"va_list.hpp\"\n"
+         "void entry() { demo::chargeCard(); }\n";
+  request.mutable_file()->set_file_path("va_list.cc");
+  const auto add_compile_arguments = [this](const std::string &target) {
+    request.mutable_file()->clear_compile_arguments();
+    request.mutable_file()->add_compile_arguments("-std=c++20");
+    request.mutable_file()->add_compile_arguments(
+        "-I" + directory.path().string());
+    request.mutable_file()->add_compile_arguments("--target=" + target);
+  };
+  for (const auto &[target, constructor, expected_constructors] :
+       {std::tuple{"x86_64-unknown-linux-gnu",
+                   "__va_list_tag::__va_list_tag", 1},
+        std::tuple{"aarch64-unknown-linux-gnu", "std::__va_list::__va_list",
+                   2},
+        std::tuple{"armv7-unknown-linux-gnueabihf",
+                   "std::__va_list::__va_list", 2}}) {
+    SCOPED_TRACE(target);
+    add_compile_arguments(target);
+    request.set_main_file_only(false);
+    const auto result = controller.build(request, [] { return true; });
+    ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+    const auto repeated = controller.build(request, [] { return true; });
+    ASSERT_EQ(repeated.code, MatchCode::Ok) << repeated.message;
+    EXPECT_EQ(result.response.SerializeAsString(),
+              repeated.response.SerializeAsString());
+
+    std::set<std::string> names;
+    std::map<std::string, std::vector<std::uint64_t>> node_indices;
+    for (const auto &node : result.response.nodes())
+      if (node.has_function()) {
+        names.insert(node.function().qualified_name());
+        node_indices[node.function().qualified_name()].push_back(
+            node.node_index());
+      }
+    EXPECT_TRUE(names.contains("entry"));
+    EXPECT_TRUE(names.contains("demo::chargeCard"));
+    ASSERT_TRUE(node_indices.contains(constructor));
+    ASSERT_GE(node_indices.at(constructor).size(),
+              static_cast<std::size_t>(expected_constructors));
+    std::size_t va_list_constructor_edges = 0;
+    for (const auto &edge : result.response.edges())
+      if (edge.caller_node() == node_indices.at("demo::chargeCard").front() &&
+          std::find(node_indices.at(constructor).begin(),
+                    node_indices.at(constructor).end(),
+                    edge.callee_node()) != node_indices.at(constructor).end())
+        ++va_list_constructor_edges;
+    EXPECT_GE(va_list_constructor_edges,
+              static_cast<std::size_t>(expected_constructors));
+
+    request.set_main_file_only(true);
+    const auto main_file = controller.build(request, [] { return true; });
+    ASSERT_EQ(main_file.code, MatchCode::Ok) << main_file.message;
+    EXPECT_TRUE(main_file.response.is_complete());
+    EXPECT_GT(main_file.response.external_edges_omitted(), 0U);
+    for (const auto &node : main_file.response.nodes())
+      if (node.has_function()) {
+        EXPECT_NE(node.function().qualified_name(), constructor);
+        EXPECT_NE(node.function().qualified_name(), "demo::chargeCard");
+      }
+  }
 }
 TEST_F(CallGraph, VisitorFlagsKeepCalleeDoorInstantiationsAndStableIndices) {
   auto baseline = controller.build(request, [] { return true; });
