@@ -1,11 +1,17 @@
 ---
 name: ctk-script
-description: Write, run, explain, and debug clang-toolkit .ctk scripts. Covers console queries, native navigation, class and inheritance helpers, runnable functions, pipe filters, tuple unpacking, loops, formatting, and script or batch execution. Distinguish the compiled console from the legacy and native server languages; use the SDK reasoning skill for Python API tasks.
+description: Write, run, explain, and debug clang-toolkit .ctk scripts. Includes ready-made CFG, local-variable and value-range analysis, class helpers, console queries, navigation, runnables, pipes, tuples and batches. Use the SDK reasoning skill for Python API tasks.
 ---
 
 # Write and use CTK scripts
 
 Produce runnable CTK statements that answer the user's question and verify them against the requested target when execution is authorized. Prefer direct binding fields and requested scalar output over dumping AST JSON.
+
+## Start with a ready-made script
+
+For CFGs, local usages or possible integer values, read [analysis.md](references/analysis.md) and run the matching bundled script with named arguments. It covers script selection, absolute skill paths, endpoints/build inputs, JSON exports, result interpretation and reuse of already parsed trees and matched nodes. Prefer these scripts when they cover the request; refine their selectors when an overload or shadowed declaration needs disambiguation.
+
+Use `--script` for executable analysis scripts. Import the definitions-only helper library for reusable class, inheritance and matcher functions; the guide distinguishes these two workflows.
 
 ## Choose the language
 
@@ -44,4 +50,4 @@ Use `row.f.qualified_name`, `row.f.decl_name`, and other discovered direct prope
 
 Return the exact script and observed output or an explicit unverified boundary when details are requested. Follow the user's response-length preference. Parsing syntax or reading a manual is not live verification.
 
-Pipe guidance and bundled helpers target the compiled and tree console engines from PR #33. Use bare names, `//` comments and `{expression}` interpolation in new console scripts. Native server-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check `help pipes` and server capabilities when installed behavior differs.
+Pipe guidance and bundled helpers target the compiled and tree console engines from PR #33. The flow recipes also require the native CFG/reuse, variable-flow and interval support merged in PRs #31, #32 and #34. Use bare names, `//` comments and `{expression}` interpolation in new console scripts. Native server-language guidance retains its 2026-10-11 baseline; each reference lists maintained sources for refresh. Check console help and server capabilities when installed behavior differs.

@@ -85,3 +85,40 @@ An earlier per-test CTest run failed
 post-rename test invocation also failed its five-second polling expectation.
 Both cases passed in the complete 336-test native run. No application code or
 test deadlines were changed for this skill publication.
+
+## Ready-made flow recipes (2026-10-16)
+
+The skill now bundles parameterized CFG-streaming, local-usage and interval-value
+scripts, with an agent guide covering named arguments, endpoints, compilation
+databases, exports, selection errors and retained-node reuse. The bundled loop
+fixture reproduces the maintained `examples/value_ranges.output.txt` transcript.
+
+An independent agent used the skill and a supplied private-server endpoint to
+run all three recipes without inspecting target C++ or runtime implementation.
+It observed one complete CFG with 11 blocks, six usage/fact pairs in each local
+report, no findings and complete interval results matching the guide.
+
+Automated checks passed:
+
+- All 2,225 Python unit tests.
+- All seven skill E2E scenarios, including the three new flow-recipe cases.
+  Both console engines ran scripts copied outside the checkout with spaces in
+  source, skill and export paths, against an isolated native server with a 4 KiB
+  response limit. Missing/ambiguous selections failed without exports;
+  unsupported multiplication produced explicit unknown/incomplete values.
+- Skill structural validation, Ruff formatting/lint and `git diff --check`.
+
+The combined skill checks ran with isolated user startup libraries:
+
+```sh
+PYTHONPATH=/private/tmp:$PYTHONPATH uv run pytest -p ctk_cfg_isolation \
+  tests/e2e/test_ctk_skill_helpers_steps.py \
+  tests/e2e/test_ctk_flow_scripts_steps.py -m e2e -q
+```
+
+`ctk_cfg_isolation` was a temporary test-only plugin that isolated default startup
+libraries while preserving explicitly supplied library directories. The new
+scenarios also pass their own empty library directory to each console process.
+Pytest-BDD emitted existing fixture-registration deprecation warnings. This
+publication changes skill resources and acceptance tests, not native runtime or
+API behavior; it does not extend the earlier platform/remote coverage.

@@ -1,0 +1,5 @@
+// Required named arguments: path, function. Stream events rather than a graph aggregate.
+let tree = parse arg.path
+let functions = match functionDecl(isDefinition(), unless(isImplicit()), hasName(arg.function)).bind("f") in tree
+let function_row = functions.one("function definition: {arg.function}")
+cfg in function_row.f
