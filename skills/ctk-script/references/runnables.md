@@ -172,19 +172,39 @@ language do not compile these Python bodies. This implementation does not add
 native language parity. Existing prefixed-reference scripts remain accepted for
 compatibility; new examples, help and completion use bare names.
 
+## Filters and tuple callbacks
+
+An ordinary runnable can serve as a filter: the pipeline supplies its first
+argument. Tuple patterns also work in named parameters.
+
+```ctk
+let my_filter(input, arg) = input + arg
+print 10 | my_filter(1)
+let describe((name, count), prefix = "") = "{prefix}{name}: {count}"
+print ("Widget", 5) | describe("item: ")
+let labels = [("Widget", 5)] | map((name, count) = "{name}: {count}")
+```
+
+Use the same `(name, count) = ...` form with `filter`, `sort_by` and `unique_by`.
+Two or more required callback parameters spread a tuple; a unary callback,
+including one with optional trailing defaults, receives the whole item.
+See [pipes.md](pipes.md) for shape checks, formatting and a complete report.
+
 ## Using callbacks with the bundled library
 
 ```ctk
 import "/Users/husam/.codex/skills/ctk-script/scripts/ctk_helpers.ctk"
-let doubled = mapValues([1, 2, 3], (x) = x * 2)
-let selected = filterValues(doubled, (x) = x > 2)
-print selected
+let doubled = [1, 2, 3] | map((x) = x * 2)
+let selected = doubled | filter((x) = x > 2)
+print selected | json
 ```
 
-`selected` holds `[4, 6]`; `print` renders one item per line. Resolve the import
+`selected` holds `[4, 6]`; `json` renders a single JSON array. Resolve the import
 path from the active skill installation.
-`mapValues` and `filterValues` are bundled runnable functions; callbacks receive
-one value. An inline brace body can perform several steps and use optional handlers.
+`mapValues(items, callback)` and `filterValues(items, callback)` remain compatible
+bundled functions, implemented with pipes. They always pass one complete item,
+including tuples; built-in `map` and `filter` support automatic tuple spreading.
+An inline brace body can perform several steps and use optional handlers.
 
 ## Maintained sources
 

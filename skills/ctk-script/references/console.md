@@ -96,11 +96,16 @@ print label
 
 The outputs are nine `true` values, then `21`, `set`, and `present`. `is defined` and `is set` reject member/index expressions: bind a field to a root variable before testing it. A missing root binding makes both predicates false; a null binding is defined but unset. They follow the REPL's name-lookup precedence, including environment/configuration and lexical shadowing. `has` on semantic fields preserves existing unrequested/unavailable diagnostics; inspect `fieldState` when field availability matters. Membership checks consume execution budget as they inspect items and diagnose an unsupported or invalid numeric value only if reached, so an earlier match can safely stop before a bad tail. `is` requires one selected node with supported AST metadata, performs its kind check locally, and errors on unknown kinds or unsupported/missing payloads. `help predicates` shows the local plain or workspace Markdown reference.
 
-Top-level newlines and semicolons separate statements; newlines inside parenthesised groups, lists, and dictionary literals are expression whitespace. Newlines separate statements inside brace blocks. The nearest unmatched `if` or `unless` claims `else`. From highest to lowest, expression precedence is member/index access, unary signs, `* / %`, `+ -`, comparisons and predicates, `not`, `and`, `or`, and conditional `?:` (right-associative). Chained comparisons/predicates are rejected; write `low < value and value < high`.
+Top-level newlines and semicolons separate statements; newlines inside parenthesised groups, lists, and dictionary literals are expression whitespace. Newlines separate statements inside brace blocks. The nearest unmatched `if` or `unless` claims `else`. From highest to lowest, expression precedence is member/index access, unary signs, `* / %`, `+ -`, comparisons and predicates, `not`, `and`, `or`, conditional `?:` (right-associative), and pipelines `|`. Chained comparisons/predicates are rejected; write `low < value and value < high`.
 
 Use braces or one-statement bodies with compiled loops: `foreach row in rows do { print row.index; print row.f.decl_name }` or `foreach row in rows do row.f.decl_name`. `row.index` is the current loop binding's read-only, zero-based visit ordinal. `row.value` selects the underlying item when its own fields collide with `index` or `value`. See [loops.md](loops.md) for complete `foreach`, `while`, `repeat … until`, `break`, and `continue` examples and their scope/result rules; `help loops` is available offline in both console views. The legacy `do ... done` terminator and `--continue-on-error` are available only with `--script-engine legacy`.
 
 ## Executable blocks and bundled utilities
+
+Read [pipes.md](pipes.md) for parameterized user filters, collection and string
+stages, structured output, `zip` and tuple unpacking. Prefer local pipelines such
+as `rows | map((row) = row.f.qualified_name) | sort | json` for reports; keep the
+live query result when you need native continuation.
 
 Read [runnables.md](runnables.md) for named and inline Python-compiled bodies, default parameters, lexical closures, `on error`/`on exit`, and loop control. Read [utilities.md](utilities.md) to import the bundled `classInfo`, `ancestors`, collection callbacks, function/call summaries, and ready-made matchers.
 
@@ -149,10 +154,8 @@ and the distinction between streaming output and assigned native results.
 ```text
 let named(name) = functionDecl(hasName(name));
 let functions = match named("demo::run").bind("f") in "/project/src/widget.cpp";
-let names = foreach row in functions do {
-    row.f.qualified_name;
-};
-print names;
+let names = functions | map((row) = row.f.qualified_name);
+print names | json;
 ```
 
 Assigned operations are silent. Assigned brace `foreach` collects the last value of each iteration; a `let` contributes its assigned value. Explicit file writes still occur. The compiled engine accepts an unbraced one-statement loop body or a brace block; `do ... done` is legacy-only.
@@ -163,8 +166,8 @@ let pushed = labels.push("third")
 let final = labels.pop()
 let settings = {answer: 42, labels: labels}
 settings["answer"] = 43
-let parts = split "a/b" by "/"
-let text = join parts with ","
+let parts = "a/b" | split_by("/")
+let text = parts | join(",")
 print final
 print settings.answer
 print text
@@ -184,10 +187,8 @@ For a names file and a CSV with `name,count` columns, the complete `inputs.ctk` 
 
 ```text
 let lines = read arg.names as text
-let names = foreach line in lines do {
-    line.strip()
-}
-print names.joinWith("|")
+let names = lines | map((line) = line | trim)
+print names | join("|")
 let people = read arg.people as csv
 foreach person in people do {
     print person.name.strip()
@@ -195,7 +196,7 @@ foreach person in people do {
 }
 ```
 
-Run it with `ctk inputs.ctk names=names.txt people=people.csv`. Supply files matching that header schema; use `.keys` or the actual headers when adapting it to another CSV. For example, `names.txt` can contain ` Alice ` and ` Bob ` on separate lines, and `people.csv` can contain `name,count` followed by ` Alice ,002` and ` Bob ,3`. With those inputs, it prints `Alice|Bob`, then each name and its count (`002` stays a string). The text loop returns each line after explicitly removing surrounding whitespace; without `.strip()` the original spaces and blank lines remain. The brace bodies are the compiled form; legacy scripts may also use `do ... done`.
+Run it with `ctk inputs.ctk names=names.txt people=people.csv`. Supply files matching that header schema; use `.keys` or the actual headers when adapting it to another CSV. For example, `names.txt` can contain ` Alice ` and ` Bob ` on separate lines, and `people.csv` can contain `name,count` followed by ` Alice ,002` and ` Bob ,3`. With those inputs, it prints `Alice|Bob`, then each name and its count (`002` stays a string). The mapping removes surrounding whitespace from each text line; without `trim` the original spaces and blank lines remain. The brace bodies are the compiled form; legacy scripts may also use `do ... done`.
 
 ## Scope and exports
 
