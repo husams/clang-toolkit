@@ -8,12 +8,18 @@ public:
   explicit CallGraphController(
       CursorSettings settings = {},
       std::shared_ptr<ctk::clang_layer::ICallGraphBackend> backend = {},
-      std::shared_ptr<OperationExecutor> executor = {});
+      std::shared_ptr<OperationExecutor> executor = {},
+      MatchController *matches = nullptr);
   ~CallGraphController();
   ctk::clang_layer::CallGraphResult
   build(const ctk::analysis::v1::CallGraphRequest &,
         const ctk::clang_layer::IMatchBackend::Checkpoint &,
         const std::string &owner = "local-user");
+  ctk::clang_layer::CallGraphStreamResult
+  build_stream(const ctk::analysis::v1::CallGraphRequest &,
+               const ctk::clang_layer::IMatchBackend::Checkpoint &,
+               const ctk::clang_layer::ICallGraphBackend::EventSink &,
+               const std::string &owner = "local-user");
   void stop_admission();
 
 private:

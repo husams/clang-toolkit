@@ -24,16 +24,25 @@ _sym_db = _symbol_database.Default()
 
 from . import call_graph_node_pb2 as analysis_dot_v1_dot_call__graph__node__pb2
 from . import call_graph_edge_pb2 as analysis_dot_v1_dot_call__graph__edge__pb2
+from . import call_graph_request_pb2 as analysis_dot_v1_dot_call__graph__request__pb2
 from ...ast.v1 import common_pb2 as ast_dot_v1_dot_common__pb2
+from ...ast.v1 import semantic_types_pb2 as ast_dot_v1_dot_semantic__types__pb2
+try:
+  ast_dot_v1_dot_semantic__pb2 = ast_dot_v1_dot_semantic__types__pb2.ast_dot_v1_dot_semantic__pb2
+except AttributeError:
+  ast_dot_v1_dot_semantic__pb2 = ast_dot_v1_dot_semantic__types__pb2.ast.v1.semantic_pb2
+from ...match.v1 import match_result_pb2 as match_dot_v1_dot_match__result__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%analysis/v1/call_graph_response.proto\x12\x0f\x63tk.analysis.v1\x1a!analysis/v1/call_graph_node.proto\x1a!analysis/v1/call_graph_edge.proto\x1a\x13\x61st/v1/common.proto\"\x9b\x02\n\x11\x43\x61llGraphResponse\x12\x11\n\troot_node\x18\x01 \x01(\x04\x12-\n\x05nodes\x18\x02 \x03(\x0b\x32\x1e.ctk.analysis.v1.CallGraphNode\x12-\n\x05\x65\x64ges\x18\x03 \x03(\x0b\x32\x1e.ctk.analysis.v1.CallGraphEdge\x12\x18\n\x0bis_complete\x18\x04 \x01(\x08H\x00\x88\x01\x01\x12\x33\n\x0c\x61vailability\x18\x05 \x03(\x0b\x32\x1d.ctk.ast.v1.FieldAvailability\x12\x16\n\x0emain_file_only\x18\x06 \x01(\x08\x12\x1e\n\x16\x65xternal_edges_omitted\x18\x07 \x01(\x04\x42\x0e\n\x0c_is_completeb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%analysis/v1/call_graph_response.proto\x12\x0f\x63tk.analysis.v1\x1a!analysis/v1/call_graph_node.proto\x1a!analysis/v1/call_graph_edge.proto\x1a$analysis/v1/call_graph_request.proto\x1a\x13\x61st/v1/common.proto\x1a\x1b\x61st/v1/semantic_types.proto\x1a\x1bmatch/v1/match_result.proto\"\xab\x05\n\x11\x43\x61llGraphResponse\x12\x11\n\troot_node\x18\x01 \x01(\x04\x12-\n\x05nodes\x18\x02 \x03(\x0b\x32\x1e.ctk.analysis.v1.CallGraphNode\x12-\n\x05\x65\x64ges\x18\x03 \x03(\x0b\x32\x1e.ctk.analysis.v1.CallGraphEdge\x12\x18\n\x0bis_complete\x18\x04 \x01(\x08H\x00\x88\x01\x01\x12\x33\n\x0c\x61vailability\x18\x05 \x03(\x0b\x32\x1d.ctk.ast.v1.FieldAvailability\x12\x16\n\x0emain_file_only\x18\x06 \x01(\x08\x12\x1e\n\x16\x65xternal_edges_omitted\x18\x07 \x01(\x04\x12\x36\n\ncall_sites\x18\x08 \x03(\x0b\x32\".ctk.analysis.v1.CallGraphCallSite\x12\x1b\n\x13snapshot_generation\x18\t \x01(\x04\x12\x13\n\x0bsource_file\x18\n \x01(\t\x12\x17\n\x0fsource_revision\x18\x0b \x01(\t\x12\x1e\n\x16\x63ompilation_profile_id\x18\x0c \x01(\t\x12\x17\n\nfocus_node\x18\r \x01(\x04H\x01\x88\x01\x01\x12@\n\x13selection_direction\x18\x0e \x01(\x0e\x32#.ctk.analysis.v1.CallGraphDirection\x12 \n\x13selection_max_depth\x18\x0f \x01(\x04H\x02\x88\x01\x01\x12 \n\x18selection_boundary_edges\x18\x10 \x01(\x04\x12%\n\x1dselection_boundary_call_sites\x18\x11 \x01(\x04\x42\x0e\n\x0c_is_completeB\r\n\x0b_focus_nodeB\x16\n\x14_selection_max_depth\"\xe9\x02\n\x11\x43\x61llGraphCallSite\x12\x13\n\x0b\x63\x61ller_node\x18\x01 \x01(\x04\x12\x18\n\x0b\x63\x61llee_node\x18\x02 \x01(\x04H\x00\x88\x01\x01\x12)\n\x04\x63\x61ll\x18\x03 \x01(\x0b\x32\x1b.ctk.ast.v1.ExpressionValue\x12\x30\n\x08location\x18\x04 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourcePoint\x12-\n\x05range\x18\x05 \x01(\x0b\x32\x1e.ctk.match.v1.MatchSourceRange\x12*\n\x05\x66\x61\x63ts\x18\x06 \x01(\x0b\x32\x1b.ctk.match.v1.CallSiteFacts\x12\x18\n\x0bis_complete\x18\x07 \x01(\x08H\x01\x88\x01\x01\x12\x33\n\x0c\x61vailability\x18\x08 \x03(\x0b\x32\x1d.ctk.ast.v1.FieldAvailabilityB\x0e\n\x0c_callee_nodeB\x0e\n\x0c_is_completeb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'analysis.v1.call_graph_response_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CALLGRAPHRESPONSE']._serialized_start=150
-  _globals['_CALLGRAPHRESPONSE']._serialized_end=433
+  _globals['_CALLGRAPHRESPONSE']._serialized_start=246
+  _globals['_CALLGRAPHRESPONSE']._serialized_end=929
+  _globals['_CALLGRAPHCALLSITE']._serialized_start=932
+  _globals['_CALLGRAPHCALLSITE']._serialized_end=1293
 # @@protoc_insertion_point(module_scope)

@@ -11,7 +11,7 @@ struct CallGraphFailure : std::runtime_error {
 struct CallGraphBudget {
   IMatchBackend::Checkpoint checkpoint;
   CallGraphLimits limits;
-  std::size_t edges = 0, bytes = 0;
+  std::size_t edges = 0, call_sites = 0, bytes = 0;
   void check() const {
     if (!checkpoint())
       throw CallGraphFailure(MatchCode::Cancelled, "call graph cancelled");

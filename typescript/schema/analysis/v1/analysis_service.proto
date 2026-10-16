@@ -11,6 +11,7 @@ import "analysis/v1/variable_flow.proto";
 
 import "analysis/v1/call_graph_request.proto";
 import "analysis/v1/call_graph_response.proto";
+import "analysis/v1/call_graph_stream.proto";
 import "analysis/v1/script_request.proto";
 import "analysis/v1/script_response.proto";
 import "analysis/v1/batch.proto";
@@ -30,6 +31,9 @@ service AnalysisService {
   // modified. Each event, rather than the aggregate stream, is byte bounded.
   rpc StreamTraverse(TraverseRequest) returns (stream TraverseStreamEvent);
   rpc CallGraph(CallGraphRequest) returns (CallGraphResponse);
+  // Bounded static call graph records are emitted independently with backpressure.
+  // A successful stream has one completion and terminal OK.
+  rpc StreamCallGraph(CallGraphRequest) returns (stream CallGraphStreamEvent);
   rpc Cfg(CfgRequest) returns (CfgResponse);
   // Native CFGs are built per function, then serialized one block at a time.
   // Each event is byte bounded; count limits apply across the whole request.

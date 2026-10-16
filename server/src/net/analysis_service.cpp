@@ -154,6 +154,36 @@ grpc::Status AnalysisServiceAdapter::CallGraph(
     response->Swap(&result.response);
   return match_status(result.code, result.message, *context);
 }
+grpc::Status AnalysisServiceAdapter::StreamCallGraph(
+    grpc::ServerContext *context,
+    const ctk::analysis::v1::CallGraphRequest *request,
+    grpc::ServerWriter<ctk::analysis::v1::CallGraphStreamEvent> *writer) {
+  auto result = calls_.build_stream(
+      *request, [context] { return !context->IsCancelled(); },
+      [writer](const ctk::analysis::v1::CallGraphStreamEvent &event,
+               std::string &message) {
+        if (!writer->Write(event)) {
+          message = "call graph stream closed";
+          return ctk::clang_layer::MatchCode::Cancelled;
+        }
+        return ctk::clang_layer::MatchCode::Ok;
+      },
+      owner(*context));
+  if (result.code == ctk::clang_layer::MatchCode::Ok) {
+    if (context->IsCancelled()) {
+      result.code = ctk::clang_layer::MatchCode::Cancelled;
+      result.message = "call graph stream cancelled before completion";
+    } else {
+      ctk::analysis::v1::CallGraphStreamEvent event;
+      event.mutable_completed()->CopyFrom(result.completed);
+      if (!writer->Write(event)) {
+        result.code = ctk::clang_layer::MatchCode::Cancelled;
+        result.message = "call graph stream closed before completion";
+      }
+    }
+  }
+  return match_status(result.code, result.message, *context);
+}
 grpc::Status AnalysisServiceAdapter::StreamVariableFlow(
     grpc::ServerContext *context,
     const ctk::analysis::v1::VariableFlowRequest *request,

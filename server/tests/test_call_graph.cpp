@@ -3,6 +3,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <map>
+#include <set>
 namespace ctk::application {
 namespace {
 using ctk::clang_layer::MatchCode;
@@ -98,6 +99,189 @@ TEST_F(CallGraph, NativeStaticDispatchAndIndirectCallLimitsAreHonest) {
   }
   EXPECT_TRUE(static_callee);
   EXPECT_FALSE(invented_indirect);
+  int indirect_sites = 0;
+  bool method_site_has_method_caller = false;
+  for (const auto &site : result.response.call_sites())
+    if (site.has_facts() &&
+        site.facts().caller_name() == "indirect" &&
+        site.facts().dispatch() == ctk::match::v1::CALL_DISPATCH_INDIRECT) {
+      ++indirect_sites;
+      EXPECT_FALSE(site.has_callee_node());
+      EXPECT_TRUE(site.location().valid());
+    }
+  for (const auto &site : result.response.call_sites())
+    if (site.has_callee_node() &&
+        site.callee_node() == nodes.at("leaf") &&
+        site.caller_node() <
+            static_cast<std::uint64_t>(result.response.nodes_size()))
+      method_site_has_method_caller |=
+          result.response.nodes(site.caller_node()).has_function() &&
+          result.response.nodes(site.caller_node())
+                  .function()
+                  .qualified_name() == "Derived::run";
+  EXPECT_EQ(indirect_sites, 1);
+  EXPECT_TRUE(method_site_has_method_caller);
+}
+TEST_F(CallGraph, DefaultArgumentSitesRetainEachCallingFunction) {
+  std::ofstream(directory.path() / "defaults.cc")
+      << "void leaf(){}\n"
+         "int sink(int value=(leaf(),1)){return value;}\n"
+         "void first(){sink();} void second(){sink();}\n"
+         "void (*callback)();\n"
+         "int indirect_sink(int value=(callback(),1)){return value;}\n"
+         "void first_indirect(){indirect_sink();} "
+         "void second_indirect(){indirect_sink();}\n"
+         "int outer(int value=(leaf(),1)){return value;}\n"
+         "int nested(int value=(outer(),2)){return value;}\n"
+         "void first_nested(){nested();} void second_nested(){nested();}\n"
+         "int lambda_default(int value = []{leaf(); return 1;}()){return value;}\n"
+         "void first_lambda(){lambda_default();}\n";
+  request.mutable_file()->set_file_path("defaults.cc");
+  const auto result = controller.build(request, [] { return true; });
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  std::map<std::uint64_t, std::string> names;
+  for (const auto &node : result.response.nodes())
+    if (node.has_function())
+      names.emplace(node.node_index(), node.function().qualified_name());
+  std::set<std::string> callers;
+  std::set<std::string> indirect_callers;
+  std::set<std::string> nested_callers;
+  std::set<std::string> all_leaf_callers;
+  bool lambda_body_retains_lambda_caller = false;
+  for (const auto &site : result.response.call_sites())
+    if (site.has_facts()) {
+      if (site.facts().dispatch() == ctk::match::v1::CALL_DISPATCH_DIRECT &&
+          site.facts().static_callee_name() == "leaf") {
+        const auto &caller = names[site.caller_node()];
+        all_leaf_callers.insert(caller);
+        if (caller == "first" || caller == "second")
+          callers.insert(caller);
+        if (caller == "first_nested" || caller == "second_nested")
+          nested_callers.insert(caller);
+        if (caller.find("operator()") != std::string::npos &&
+            caller != "first_lambda")
+          lambda_body_retains_lambda_caller = true;
+      }
+      if (site.facts().dispatch() == ctk::match::v1::CALL_DISPATCH_INDIRECT &&
+          site.location().valid())
+        indirect_callers.insert(names[site.caller_node()]);
+    }
+  EXPECT_EQ(callers, (std::set<std::string>{"first", "second"}));
+  EXPECT_EQ(indirect_callers,
+            (std::set<std::string>{"first_indirect", "second_indirect"}));
+  EXPECT_EQ(nested_callers,
+            (std::set<std::string>{"first_nested", "second_nested"}));
+  EXPECT_TRUE(lambda_body_retains_lambda_caller)
+      << "leaf callsite callers: " << testing::PrintToString(all_leaf_callers);
+}
+TEST_F(CallGraph, ExactCallableSelectionDefaultsToOneOutgoingLevel) {
+  request.set_function("twice");
+  request.set_max_depth(1);
+  auto result = controller.build(request, [] { return true; });
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  const auto &response = result.response;
+  EXPECT_EQ(response.source_file(),
+            (directory.path() / "fixture.cc").string());
+  EXPECT_GT(response.snapshot_generation(), 0U);
+  EXPECT_FALSE(response.compilation_profile_id().empty());
+  ASSERT_TRUE(response.has_focus_node());
+  ASSERT_LT(response.focus_node(),
+            static_cast<std::uint64_t>(response.nodes_size()));
+  EXPECT_EQ(response.nodes(response.focus_node()).function().qualified_name(),
+            "twice");
+  EXPECT_EQ(response.selection_direction(),
+            ctk::analysis::v1::CALL_GRAPH_DIRECTION_OUT);
+  EXPECT_EQ(response.selection_max_depth(), 1U);
+  EXPECT_EQ(response.nodes(0).is_virtual_root(), true);
+  EXPECT_TRUE(response.edges().empty() == false);
+  EXPECT_EQ(response.call_sites_size(), 3);
+  for (const auto &node : response.nodes())
+    if (node.has_function()) {
+      EXPECT_FALSE(node.symbol_identity().empty());
+      EXPECT_TRUE(node.location().valid());
+    }
+}
+TEST_F(CallGraph, IncomingDepthZeroAndAmbiguousSelectorsAreExplicit) {
+  std::ofstream(directory.path() / "direction.cc")
+      << "int later(){return 1;} int before(){return later();} "
+         "int next(){return later();}\n";
+  request.mutable_file()->set_file_path("direction.cc");
+  request.set_function("later");
+  request.set_direction(ctk::analysis::v1::CALL_GRAPH_DIRECTION_IN);
+  request.set_max_depth(1);
+  auto incoming = controller.build(request, [] { return true; });
+  ASSERT_EQ(incoming.code, MatchCode::Ok) << incoming.message;
+  const auto &graph = incoming.response;
+  ASSERT_TRUE(graph.has_focus_node());
+  EXPECT_EQ(graph.nodes(graph.focus_node()).function().qualified_name(),
+            "later");
+  std::set<std::string> names;
+  for (const auto &node : graph.nodes())
+    if (node.has_function())
+      names.insert(node.function().qualified_name());
+  EXPECT_TRUE(names.contains("before"));
+  EXPECT_TRUE(names.contains("next"));
+  EXPECT_EQ(graph.call_sites_size(), 2);
+
+  request.set_max_depth(0);
+  auto zero = controller.build(request, [] { return true; });
+  ASSERT_EQ(zero.code, MatchCode::Ok) << zero.message;
+  EXPECT_EQ(zero.response.edges_size(), 0);
+  EXPECT_EQ(zero.response.call_sites_size(), 0);
+  EXPECT_EQ(zero.response.selection_boundary_call_sites(), 2U);
+
+  request.set_function("missing");
+  EXPECT_EQ(controller.build(request, [] { return true; }).code,
+            MatchCode::NotFound);
+}
+TEST_F(CallGraph, FrozenProfileMismatchFailsBeforePublishingGraph) {
+  request.mutable_file()->set_expected_profile_id("stale-profile");
+  const auto result = controller.build(request, [] { return true; });
+  EXPECT_EQ(result.code, MatchCode::FailedPrecondition);
+  EXPECT_TRUE(result.response.nodes().empty());
+}
+TEST_F(CallGraph, StreamRecordsReconstructUnaryAvailabilityAndStayChunked) {
+  request.mutable_projection()->set_mode(
+      ctk::analysis::v1::ValueProjection::SHALLOW);
+  const auto unary = controller.build(request, [] { return true; });
+  ASSERT_EQ(unary.code, MatchCode::Ok) << unary.message;
+  ctk::analysis::v1::CallGraphResponse collected;
+  std::size_t total_event_bytes = 0;
+  const auto streamed = controller.build_stream(
+      request, [] { return true; },
+      [&](const ctk::analysis::v1::CallGraphStreamEvent &event,
+          std::string &) {
+        EXPECT_LT(event.ByteSizeLong(), 4096U);
+        total_event_bytes += event.ByteSizeLong();
+        if (event.has_graph_started())
+          collected.CopyFrom(event.graph_started().graph());
+        else if (event.has_node()) {
+          const auto &node = event.node().node();
+          collected.add_nodes()->CopyFrom(node);
+          for (const auto &field : node.availability())
+            collected.add_availability()->CopyFrom(field);
+        } else if (event.has_edge()) {
+          const auto &edge = event.edge().edge();
+          collected.add_edges()->CopyFrom(edge);
+          for (const auto &field : edge.availability())
+            collected.add_availability()->CopyFrom(field);
+        } else if (event.has_call_site()) {
+          const auto &site = event.call_site().call_site();
+          collected.add_call_sites()->CopyFrom(site);
+          for (const auto &field : site.availability())
+            collected.add_availability()->CopyFrom(field);
+        }
+        return MatchCode::Ok;
+      });
+  ASSERT_EQ(streamed.code, MatchCode::Ok) << streamed.message;
+  EXPECT_EQ(streamed.completed.graph_count(), 1U);
+  EXPECT_EQ(streamed.completed.node_count(), unary.response.nodes_size());
+  EXPECT_EQ(streamed.completed.edge_count(), unary.response.edges_size());
+  EXPECT_EQ(streamed.completed.call_site_count(),
+            unary.response.call_sites_size());
+  collected.set_is_complete(streamed.completed.is_complete());
+  EXPECT_EQ(collected.SerializeAsString(), unary.response.SerializeAsString());
+  EXPECT_GT(total_event_bytes, 4096U);
 }
 TEST_F(CallGraph, ProjectionAndMainFileScopeAreExplicitAndComplete) {
   std::ofstream(directory.path() / "external.hpp")

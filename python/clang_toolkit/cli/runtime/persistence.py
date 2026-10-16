@@ -207,6 +207,9 @@ def _plain_row(
 
 def _plain_encode(value: Any) -> Any:
     """Turn runtime values into ordinary JSON/YAML containers and scalars."""
+    response = _call_graph_response(value)
+    if response is not None:
+        return MessageToDict(response, preserving_proto_field_name=True)
     if isinstance(value, BindingSelection):
         try:
             return _plain_encode(semantic_view(value.value))
@@ -277,6 +280,19 @@ def _plain_encode(value: Any) -> Any:
 
 
 def _encode(value: Any) -> dict[str, Any]:
+    response = _call_graph_response(value)
+    if response is not None:
+        return {
+            "type": "semantic_message",
+            "value": {
+                "message_type": response.DESCRIPTOR.full_name,
+                "message": MessageToDict(
+                    response, preserving_proto_field_name=True
+                ),
+                "availability": [],
+                "path": "call_graph.response",
+            },
+        }
     if isinstance(value, BindingSelection):
         try:
             # Export one copied binding and its display metadata, never the
@@ -363,6 +379,15 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, MatchSet):
         return {"type": "match_snapshot", "value": [_encode(row) for row in value.rows]}
     raise PersistenceError(f"cannot save value of type {type(value).__name__}")
+
+
+def _call_graph_response(value: Any) -> Message | None:
+    """Return a CallGraph wrapper's known protobuf response without importing it."""
+    response = getattr(value, "response", None)
+    descriptor = getattr(response, "DESCRIPTOR", None)
+    if descriptor is not None and descriptor.full_name == "ctk.analysis.v1.CallGraphResponse":
+        return response
+    return None
 
 
 def _semantic_snapshot(value: MessageView | RepeatedView | MapView) -> dict[str, Any]:
