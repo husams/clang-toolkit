@@ -164,6 +164,28 @@ export function resolveArguments(
   }
   return resolved;
 }
+export function updatedActionValues(
+  previous: NodeAction | undefined,
+  values: Record<string, string>,
+  next: NodeAction,
+): Record<string, string> {
+  const updated: Record<string, string> = {};
+  for (const argument of next.arguments) {
+    const before = previous?.arguments.find(
+      (item) => item.name === argument.name,
+    );
+    const value = values[argument.name];
+    if (
+      before?.type === argument.type &&
+      value !== undefined &&
+      (before.default === undefined || value !== String(before.default))
+    )
+      updated[argument.name] = value;
+    else if (argument.default !== undefined)
+      updated[argument.name] = String(argument.default);
+  }
+  return updated;
+}
 export function validateCatalog(actions: NodeAction[]): NodeAction[] {
   const seen = new Set<string>();
   for (const action of actions) {

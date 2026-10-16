@@ -1,5 +1,22 @@
 # Node based Actions prototype
 
+## Live action metadata, 0.2.3
+
+- [x] Update the selected action's label, description and Options on unsaved editor changes.
+- [x] Preserve entered values, refresh untouched defaults and remove obsolete arguments.
+- [x] Keep the last valid metadata and disable Run while YAML is incomplete.
+- [x] Verify real webview labels/inputs, catalog discovery and execution without saving/reselecting.
+- [x] Package, install and manually verify unsaved metadata changes in the trial window.
+
+Validation: 22 extension tests, TypeScript/Biome and the complete real VS Code
+host passed. The host edits an unsaved name/argument list, observes the actual
+rendered controls, repairs invalid YAML, retains an entered value while adding
+and removing arguments, and runs the updated action without reparsing C++.
+Installed v0.2.3 and reloaded only the trial window. Manual unsaved edits renamed
+the action twice, added Function to find and Result limit controls, retained the
+entered `demo::adjust` value, and returned that one function on Run. The example
+was saved afterward; Actions remains open with the verified result.
+
 ## Custom action creation, 0.2.2
 
 - [x] Exercise Create action with both keyboard and mouse in the installed extension.

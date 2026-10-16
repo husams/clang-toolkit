@@ -5,6 +5,7 @@ import {
   newActionName,
   parseNodeAction,
   resolveArguments,
+  updatedActionValues,
   validateCatalog,
 } from "../src/actions.js";
 
@@ -14,6 +15,47 @@ const source = (
 ) =>
   `---\nname: find-function\ndescription: Find function definitions.\n${yaml}\n---\n${body}`;
 describe("YAML action files", () => {
+  it("updates argument defaults while preserving explicit values and removing obsolete inputs", () => {
+    const previous = parseNodeAction(
+      "action",
+      source(
+        "arguments:\n  - name: name\n    description: Name\n    default: before\n  - name: count\n    description: Count\n    type: number\n    default: 2\n  - name: removed\n    description: Removed\n    default: old",
+      ),
+    );
+    const next = parseNodeAction(
+      "action",
+      source(
+        "arguments:\n  - name: name\n    description: Renamed hint\n    default: after\n  - name: count\n    description: Count\n    type: number\n    default: 3\n  - name: added\n    description: Added\n    type: boolean\n    default: true",
+      ),
+    );
+    expect(
+      updatedActionValues(
+        previous,
+        { name: "chosen", count: "2", removed: "old" },
+        next,
+      ),
+    ).toEqual({ name: "chosen", count: "3", added: "true" });
+    expect(
+      updatedActionValues(previous, { name: "before", count: "4" }, next),
+    ).toEqual({ name: "after", count: "4", added: "true" });
+    const changedType = parseNodeAction(
+      "action",
+      source(
+        "arguments:\n  - name: count\n    description: Count\n    default: text",
+      ),
+    );
+    expect(updatedActionValues(previous, { count: "4" }, changedType)).toEqual({
+      count: "text",
+    });
+    const required = parseNodeAction(
+      "action",
+      source("arguments:\n  - name: name\n    description: Name"),
+    );
+    expect(updatedActionValues(undefined, {}, required)).toEqual({});
+    expect(updatedActionValues(required, { name: "chosen" }, required)).toEqual(
+      { name: "chosen" },
+    );
+  });
   it("creates unique names without overwriting existing or invalid action files", () => {
     expect(newActionName([], [])).toBe("my-action");
     const existing = parseNodeAction(

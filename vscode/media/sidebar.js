@@ -14,6 +14,12 @@ const values = (selector, key) =>
     ]),
   );
 const nodeValues = () => values("[data-argument]", "argument");
+element("node-options").addEventListener("input", () =>
+  post("nodeArguments", {
+    revision: state?.actions.action?.revision ?? "",
+    values: nodeValues(),
+  }),
+);
 function search(type) {
   post(type, {
     values: values("[data-parameter]", "parameter"),
@@ -221,7 +227,8 @@ function renderActions() {
     "button,input,select",
   ))
     button.disabled = a.running;
-  element("node-run").disabled = a.running || a.stale || !a.action;
+  element("node-run").disabled =
+    a.running || a.stale || a.invalidAction || !a.action;
   element("node-edit").disabled = a.running || !a.action;
   element("node-back").hidden = !a.back;
   element("node-root").hidden = !a.root;
@@ -294,6 +301,12 @@ function renderActions() {
   }
   post("nodeRendered", {
     view: a.view,
+    action: element("node-picker").textContent,
+    arguments: [...document.querySelectorAll("[data-argument]")].map(
+      (input) => input.dataset.argument,
+    ),
+    values: nodeValues(),
+    canRun: !element("node-run").disabled,
     nodes: element("node-results").querySelectorAll(".node-match").length,
     groups: element("node-results").querySelectorAll(":scope > details").length,
   });

@@ -11,6 +11,7 @@ import {
   newActionName,
   parseNodeAction,
   resolveArguments,
+  updatedActionValues,
   validateCatalog,
 } from "./actions.js";
 import { findPython } from "./console-service.js";
@@ -22,6 +23,15 @@ const messages = z.discriminatedUnion("type", [
     view: z.enum(["bindings", "files"]),
     nodes: z.number().int().nonnegative(),
     groups: z.number().int().nonnegative(),
+    action: z.string().optional(),
+    arguments: z.array(z.string()).optional(),
+    values: z.record(z.string(), z.string()).optional(),
+    canRun: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("nodeArguments"),
+    revision: z.string(),
+    values: z.record(z.string(), z.string()),
   }),
   z.object({ type: z.literal("nodeChoose"), followup: z.boolean().optional() }),
   z.object({
@@ -59,6 +69,8 @@ export class ActionsController implements vscode.Disposable {
   private selected: ActionNode | undefined;
   private history: History[] = [];
   private error = "";
+  private definitionError = "";
+  private definitionGeneration = 0;
   private stale = false;
   private busy = false;
   private execution: Promise<void> | undefined;
@@ -68,6 +80,10 @@ export class ActionsController implements vscode.Disposable {
     view: "bindings" | "files";
     nodes: number;
     groups: number;
+    action: string | undefined;
+    arguments: string[] | undefined;
+    values: Record<string, string> | undefined;
+    canRun: boolean | undefined;
   };
   private readonly status = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -112,9 +128,14 @@ export class ActionsController implements vscode.Disposable {
       watcher.onDidDelete(mark),
       vscode.workspace.onDidChangeTextDocument(
         ({ document, contentChanges }) => {
-          if (contentChanges.length && CXX.test(document.uri.fsPath)) mark();
+          if (!contentChanges.length) return;
+          if (CXX.test(document.uri.fsPath)) mark();
+          this.documentChanged(document);
         },
       ),
+      vscode.workspace.onDidCloseTextDocument((document) => {
+        void this.reloadDefinition(document.uri);
+      }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("ctk"))
           this.markStale("CTK settings changed; refresh analysis to use them.");
@@ -149,7 +170,8 @@ export class ActionsController implements vscode.Disposable {
       selected: this.selected?.nodeId,
       running: this.busy || Boolean(this.execution),
       stale: this.stale,
-      error: this.error,
+      error: this.definitionError || this.error,
+      invalidAction: Boolean(this.definitionError),
       view: this.mode,
       back: this.history.length > 1,
       root: Boolean(this.root && this.input?.id !== this.root.id),
@@ -169,6 +191,58 @@ export class ActionsController implements vscode.Disposable {
     this.output.appendLine(this.error);
     this.changed();
   }
+  private updateDefinition(action: NodeAction): void {
+    const previous =
+      this.action?.path === action.path ? this.action : undefined;
+    this.values = updatedActionValues(
+      previous,
+      previous ? this.values : {},
+      action,
+    );
+    this.action = action;
+    this.definitionError = "";
+    if (!this.stale) this.error = "";
+  }
+  private documentChanged(document: vscode.TextDocument): void {
+    if (document.uri.fsPath !== this.action?.path) return;
+    this.definitionGeneration++;
+    try {
+      this.updateDefinition(
+        parseNodeAction(
+          this.action.path,
+          document.getText(),
+          this.action.origin,
+        ),
+      );
+    } catch {
+      this.definitionError =
+        "Action definition is incomplete or invalid; finish editing its YAML header and CTK body.";
+    }
+    this.changed();
+  }
+  private async reloadDefinition(uri: vscode.Uri): Promise<void> {
+    const action = this.action;
+    if (uri.fsPath !== action?.path) return;
+    const generation = ++this.definitionGeneration;
+    try {
+      const next = await this.load(action.path, action.origin);
+      if (
+        generation !== this.definitionGeneration ||
+        this.action?.path !== action.path
+      )
+        return;
+      this.updateDefinition(next);
+    } catch {
+      if (
+        generation !== this.definitionGeneration ||
+        this.action?.path !== action.path
+      )
+        return;
+      this.definitionError =
+        "Cannot read the action definition; reopen or select another action.";
+    }
+    this.changed();
+  }
   async receive(raw: unknown): Promise<boolean> {
     const parsed = messages.safeParse(raw);
     if (!parsed.success) return false;
@@ -180,7 +254,15 @@ export class ActionsController implements vscode.Disposable {
             view: message.view,
             nodes: message.nodes,
             groups: message.groups,
+            action: message.action,
+            arguments: message.arguments,
+            values: message.values,
+            canRun: message.canRun,
           };
+          break;
+        case "nodeArguments":
+          if (message.revision === this.action?.revision)
+            this.values = message.values;
           break;
         case "nodeChoose":
           await this.choose(undefined, Boolean(message.followup));
@@ -262,7 +344,7 @@ export class ActionsController implements vscode.Disposable {
     origin: NodeAction["origin"],
   ): Promise<NodeAction> {
     const doc = vscode.workspace.textDocuments.find(
-      (d) => d.uri.fsPath === path,
+      (d) => !d.isClosed && d.uri.fsPath === path,
     );
     const source =
       doc?.getText() ??
@@ -328,6 +410,8 @@ export class ActionsController implements vscode.Disposable {
         file: this.selected.file,
       };
     this.action = action;
+    this.definitionGeneration++;
+    this.definitionError = "";
     this.values = Object.fromEntries(
       this.action.arguments
         .filter((a) => a.default !== undefined)
@@ -380,11 +464,12 @@ export class ActionsController implements vscode.Disposable {
   async current(document: vscode.TextDocument): Promise<void> {
     if (this.busy || this.execution)
       throw new Error("An action is already running.");
-    this.action = parseNodeAction(document.uri.fsPath, document.getText());
-    this.values = {};
+    this.definitionGeneration++;
+    const action = parseNodeAction(document.uri.fsPath, document.getText());
+    this.updateDefinition(action);
     this.changed();
     await this.reveal();
-    if (!this.action.arguments.some((a) => a.default === undefined))
+    if (!action.arguments.some((a) => a.default === undefined))
       await this.run();
   }
   private settings(file: string): ActionSettings {
@@ -448,8 +533,10 @@ export class ActionsController implements vscode.Disposable {
     if (action) this.action = action;
     if (values) this.values = values;
     if (!this.action) throw new Error("Select an action first.");
-    this.action = await this.load(this.action.path, this.action.origin);
-    const arguments_ = resolveArguments(this.action, this.values);
+    const currentAction = await this.load(this.action.path, this.action.origin);
+    this.updateDefinition(currentAction);
+    const currentValues = { ...this.values };
+    const arguments_ = resolveArguments(currentAction, currentValues);
     let file = this.root?.file ?? this.target?.fsPath;
     const active = vscode.window.activeTextEditor?.document;
     if (!file && active?.uri.scheme === "file" && CXX.test(active.uri.fsPath))
@@ -480,7 +567,7 @@ export class ActionsController implements vscode.Disposable {
     this.error = "";
     this.changed();
     this.status.command = "ctk.cancelAction";
-    this.status.text = `$(loading~spin) CTK · ${this.action.title} · cancel`;
+    this.status.text = `$(loading~spin) CTK · ${currentAction.title} · cancel`;
     this.status.tooltip = "Running action; click to cancel";
     try {
       this.sessionSettings = settings;
@@ -498,7 +585,7 @@ export class ActionsController implements vscode.Disposable {
         (text) => this.output.appendLine(text),
       );
       const report = await this.service.run(
-        this.action,
+        currentAction,
         arguments_,
         [file],
         settings,
@@ -514,8 +601,8 @@ export class ActionsController implements vscode.Disposable {
       this.selected = undefined;
       this.history.push({
         report,
-        action: this.action,
-        values: { ...this.values },
+        action: currentAction,
+        values: currentValues,
         input: report.input,
       });
       for (const text of report.output) this.output.appendLine(text);
@@ -587,6 +674,7 @@ export class ActionsController implements vscode.Disposable {
     this.target = undefined;
   }
   dispose(): void {
+    this.definitionGeneration++;
     this.service?.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { realpath } from "node:fs/promises";
 import * as vscode from "vscode";
-import type { ActionNode } from "../src/actions.js";
+import type { ActionNode, NodeAction } from "../src/actions.js";
 import type { Prototype } from "../src/extension.js";
 import { predefined, scriptAction } from "../src/model.js";
 export async function run(): Promise<void> {
@@ -344,13 +344,24 @@ export async function run(): Promise<void> {
   await assert.rejects(api.actions.run(), /already running/);
   await actionRun;
   type ActionSnapshot = {
+    action: NodeAction;
+    values: Record<string, string>;
+    invalidAction: boolean;
     results: ActionNode[];
     matches: number;
     parseCount: number;
     error: string;
     input: { id: string };
     stale: boolean;
-    rendered?: { view: string; nodes: number; groups: number };
+    rendered?: {
+      view: string;
+      nodes: number;
+      groups: number;
+      action?: string;
+      arguments?: string[];
+      values?: Record<string, string>;
+      canRun?: boolean;
+    };
   };
   const actionState = () => api.actions.snapshot() as ActionSnapshot;
   assert.equal(actionState().matches, 1, JSON.stringify(actionState()));
@@ -497,6 +508,91 @@ export async function run(): Promise<void> {
     3,
     "refresh must preserve the C++ target while editing the new action",
   );
+  const liveActionDoc = vscode.window.activeTextEditor?.document;
+  assert.ok(liveActionDoc?.uri.fsPath.endsWith("/my-action-2.ctk-action"));
+  const editMetadata = async (source: string) => {
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(
+      liveActionDoc.uri,
+      new vscode.Range(
+        liveActionDoc.positionAt(0),
+        liveActionDoc.positionAt(liveActionDoc.getText().length),
+      ),
+      source,
+    );
+    assert.equal(await vscode.workspace.applyEdit(edit), true);
+  };
+  const liveSource = (argumentsYaml: string) =>
+    `---\nname: live-functions\ndescription: Find a named function\narguments:\n${argumentsYaml}\n---\nmatch functionDecl(hasName(name)).bind("function") in node\n`;
+  const namedArgument =
+    "  - name: name\n    description: Function name\n    default: processOrder";
+  await editMetadata(liveSource(namedArgument));
+  assert.equal(liveActionDoc.isDirty, true);
+  assert.equal(
+    actionState().action.id,
+    "live-functions",
+    "unsaved metadata must update the picker",
+  );
+  assert.deepEqual(actionState().values, { name: "processOrder" });
+  const renderedMetadata = async (
+    names: string[],
+    values: Record<string, string>,
+    canRun = true,
+  ) => {
+    const end = Date.now() + 10000;
+    while (Date.now() < end) {
+      const rendered = actionState().rendered;
+      if (
+        rendered?.action?.startsWith("Live functions") &&
+        JSON.stringify(rendered.arguments) === JSON.stringify(names) &&
+        JSON.stringify(rendered.values) === JSON.stringify(values) &&
+        rendered.canRun === canRun
+      )
+        return;
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    assert.fail(
+      `Live action metadata was not rendered: ${JSON.stringify(actionState())}`,
+    );
+  };
+  await renderedMetadata(["name"], { name: "processOrder" });
+  await api.actions.receive({
+    type: "nodeArguments",
+    revision: actionState().action.revision,
+    values: { name: "adjust" },
+  });
+  await editMetadata("---\nname: live-functions\narguments: [\n---\n0");
+  assert.equal(actionState().invalidAction, true);
+  await renderedMetadata(["name"], { name: "adjust" }, false);
+  await editMetadata(
+    liveSource(
+      `${namedArgument.replace("processOrder", "unrelated")}\n  - name: limit\n    description: Result limit\n    type: number\n    default: 1`,
+    ),
+  );
+  assert.equal(actionState().invalidAction, false);
+  assert.deepEqual(actionState().values, { name: "adjust", limit: "1" });
+  await renderedMetadata(["name", "limit"], { name: "adjust", limit: "1" });
+  assert.ok(
+    (await api.actions.catalog()).some(
+      (action) => action.id === "live-functions",
+    ),
+  );
+  assert.ok(
+    !(await api.actions.catalog()).some(
+      (action) => action.id === "my-action-2",
+    ),
+  );
+  await api.actions.run();
+  assert.equal(actionState().matches, 1);
+  assert.equal(actionState().parseCount, 1);
+  await editMetadata(
+    liveSource(namedArgument.replace("processOrder", "unrelated")),
+  );
+  assert.deepEqual(
+    actionState().action.arguments.map((argument) => argument.name),
+    ["name"],
+  );
+  await renderedMetadata(["name"], { name: "adjust" });
   const cppDoc = await vscode.workspace.openTextDocument(actionTarget);
   const dirty = new vscode.WorkspaceEdit();
   dirty.insert(

@@ -36,6 +36,8 @@ Right-click a C++ file: **CTK → Select Action…** pins that file as the initi
 
 **Create action…** immediately opens a saved, editable template in a pinned editor tab and selects it in Actions. The file is named `my-action.ctk-action`, `my-action-2.ctk-action`, and so on, without overwriting existing files or colliding with action names. Edit its YAML name, description, arguments and CTK body directly. Creating from **Run action on selected node…** keeps that node as the input. Expired native contexts show a Refresh message; **Refresh**, then **Run** reparses the same C++ file even while the action editor is active.
 
+The selected action's name, description and Options update as you edit its YAML, including unsaved changes. Added/removed arguments and changed hints, types or defaults appear automatically. Explicitly entered values survive compatible edits; untouched defaults follow the YAML. Incomplete metadata keeps the last valid fields visible and disables Run until repaired. Reopening the picker also uses unsaved action names. Editing metadata does not rerun an action or discard its retained nodes/results.
+
 Create workspace actions as `.ctk/actions/*.ctk-action` (other workspace folders are discovered too):
 
 ```yaml

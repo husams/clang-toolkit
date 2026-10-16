@@ -188,3 +188,32 @@ with editor focus and the correct C++ input. Clicking Run returned five function
 matches and connected status. Existing user windows were preserved; isolated test
 windows closed after verification. The VSIX passed ZIP validation; SHA256 is
 `48cc04ce732a445bca42b507b7162b5cf3926735a95576f8bdd7f1cee3678dbc`.
+
+## Live YAML metadata, version 0.2.3
+
+Editing the selected action updates its picker label, description and Options
+directly from the current editor buffer, including unsaved changes. Added and
+removed arguments, descriptions, types and defaults refresh without reselecting
+the action. Compatible entered values survive; untouched defaults follow the
+updated YAML. Reopening the catalog reads unsaved names and omits the old name.
+
+Incomplete metadata retains the last valid controls, shows an editing message and
+disables Run until repaired. Reverting/closing an editor reloads its saved
+definition. Metadata changes do not execute code or discard the retained AST or
+results. Running code keeps its own definition/value snapshot for history even
+if the editor changes while it runs.
+
+Validation: TypeScript, Biome, 22 extension tests and the complete isolated VS Code
+host passed. The host verifies actual rendered labels, fields and defaults after
+unsaved edits, preserves a user value across invalid YAML and argument additions,
+checks argument removal and catalog names, then executes without saving or
+reparsing C++. The shared Python and native C++ implementations did not change;
+the existing repository-wide limitations recorded above remain.
+
+Installed v0.2.3 in the normal profile and reloaded the existing trial window.
+Manual edits in a new example renamed the selected action, added and changed its
+Options, preserved `demo::adjust` while adding a numeric argument, and returned
+one match for that function before saving. The example was saved afterward and
+left open with Options and results. Isolated test windows closed normally.
+The VSIX passed ZIP verification; SHA256 is
+`557e2398396d7884476e73cc6c27ec4591ce8777ab3ca230fb285843b854b630`.
