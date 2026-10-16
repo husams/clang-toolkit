@@ -172,12 +172,22 @@ export class ActionsController implements vscode.Disposable {
     );
   }
   snapshot(): unknown {
-    const results =
-      this.report?.results.map((r) => ({
-        ...r,
-        raw: undefined,
-        displayFile: vscode.workspace.asRelativePath(r.file),
-      })) ?? [];
+    const display = (r: ActionNode) => ({
+      ...r,
+      raw: undefined,
+      displayFile: vscode.workspace.asRelativePath(r.file),
+    });
+    const results = this.report?.results.map(display) ?? [];
+    const matchFiles = groupActionMatches(this.report?.results ?? []).map(
+      (file) => ({
+        file: file.file,
+        matches: file.matches.map((row) => ({
+          id: row.id,
+          anchor: display(row.anchor),
+          bindings: row.bindings.map(display),
+        })),
+      }),
+    );
     return {
       action: this.action
         ? { ...this.action, body: undefined, generated: undefined }
@@ -194,7 +204,7 @@ export class ActionsController implements vscode.Disposable {
           }
         : undefined,
       results,
-      matchFiles: groupActionMatches(results),
+      matchFiles,
       matches: this.report?.matches,
       truncated: this.report?.truncated ?? false,
       parseCount: this.report?.parseCount ?? 0,

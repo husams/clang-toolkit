@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import * as vscode from "vscode";
 import {
   type ActionNode,
@@ -352,6 +352,10 @@ export async function run(): Promise<void> {
     values: Record<string, string>;
     invalidAction: boolean;
     results: ActionNode[];
+    matchFiles: {
+      file: string;
+      matches: { id: string; bindings: ActionNode[] }[];
+    }[];
     matches: number;
     parseCount: number;
     error: string;
@@ -384,16 +388,20 @@ export async function run(): Promise<void> {
       const s = actionState();
       if (
         s.rendered &&
-        s.rendered.nodes === s.results.length &&
+        s.rendered.nodes ===
+          s.matchFiles.flatMap((file) =>
+            file.matches.flatMap((row) => row.bindings),
+          ).length &&
         s.rendered.groups > 0 &&
         s.rendered.rows.length === s.matches &&
         s.rendered.rows.every(
           (row) =>
             JSON.stringify(row.nodeIds) ===
             JSON.stringify(
-              s.results
-                .filter((node) => node.matchId === row.id)
-                .map((node) => node.nodeId),
+              s.matchFiles
+                .flatMap((file) => file.matches)
+                .find((match) => match.id === row.id)
+                ?.bindings.map((node) => node.nodeId),
             ),
         )
       )
@@ -727,8 +735,14 @@ export async function run(): Promise<void> {
     actionFolder,
     "related.ctk-action",
   );
-  const relatedActionSource =
-    '---\nname: related\ndescription: Find callers and callees together\narguments: []\n---\nmatch functionDecl(isDefinition(), forEachDescendant(callExpr(callee(functionDecl().bind("callee"))).bind("call"))).bind("caller") in node\n';
+  const relatedActionSource = await readFile(
+    vscode.Uri.joinPath(
+      extension.extensionUri,
+      "examples",
+      "caller-callee.ctk-action",
+    ).fsPath,
+    "utf8",
+  );
   await vscode.workspace.fs.writeFile(
     relatedActionUri,
     Buffer.from(relatedActionSource),
@@ -743,6 +757,16 @@ export async function run(): Promise<void> {
   assert.equal(actionState().parseCount, 1);
   const relatedRows = await renderedActions();
   assert.equal(
+    relatedRows.nodes,
+    4,
+    "two calls must display exactly one caller and one callee each",
+  );
+  assert.equal(
+    actionState().results.filter((node) => node.binding === "root").length,
+    2,
+    "automatic root handles remain retained even when their aliases are hidden",
+  );
+  assert.equal(
     relatedRows.groups,
     1,
     "header callees must stay with the source-file matches",
@@ -756,13 +780,23 @@ export async function run(): Promise<void> {
       false,
       "each match must start collapsed rather than showing a long binding list",
     );
-    assert.deepEqual([...row.bindings].sort(), [
-      "call",
-      "callee",
-      "caller",
-      "root",
-    ]);
+    assert.deepEqual([...row.bindings].sort(), ["callee", "caller"]);
   }
+  assert.deepEqual(
+    relatedRows.rows.map((row) => {
+      const nodes = actionState().results.filter(
+        (node) => node.matchId === row.id,
+      );
+      return [
+        nodes.find((node) => node.binding === "caller")?.name,
+        nodes.find((node) => node.binding === "callee")?.name,
+      ];
+    }),
+    [
+      ["firstCaller", "sharedTarget"],
+      ["secondCaller", "sharedTarget"],
+    ],
+  );
   const relatedCallee = actionState().results.find(
     (node) => node.binding === "callee",
   );

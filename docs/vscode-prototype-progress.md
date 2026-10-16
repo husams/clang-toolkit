@@ -310,3 +310,30 @@ revealed only its own bindings while Match [1] stayed closed. The trial remains
 in that state. Isolated test windows closed normally. VSIX ZIP verification
 passed; SHA256 is
 `cb578d67bbbc345fea50fe4a4a13ae37ee520c1d8152d8d4101dcfdd542ca244`.
+
+## Caller/callee example clarity, version 0.2.7
+
+The two fixture calls have different callers (`firstCaller` and `secondCaller`)
+and the same callee (`sharedTarget`). The earlier example also explicitly bound
+the call-expression node, whose label displayed the same target name, and showed
+the automatic root alias of the caller. This made the related rows look duplicated.
+The example now binds only `caller` and `callee`. The outline hides a `root` alias
+only when its complete native binding payload exactly equals a named binding in
+that same match. Root handles remain retained, unique roots remain visible, and
+all explicit binding names and matches remain distinct. Identical symbol names
+or source locations alone never cause bindings to be hidden.
+
+TypeScript, Biome, 29 extension tests and the complete real VS Code host passed.
+The host executes the shipped caller/callee example and asserts exactly four
+displayed nodes across two matches: `firstCaller → sharedTarget` and
+`secondCaller → sharedTarget`. It separately asserts both root handles remain
+retained and verifies header navigation and follow-up without reparsing. Native
+server and console sources are unchanged. Logs are under
+`vscode/artifacts/validation/caller-callee-20261016/`.
+
+Installed v0.2.7 and reloaded the existing trial window. Ran the corrected action
+through its actual picker and Run button, then expanded both matches. The native
+UI shows exactly `callee: sharedTarget` and `caller: firstCaller` in Match [1],
+and exactly `callee: sharedTarget` and `caller: secondCaller` in Match [2]. Both
+remain open for comparison. ZIP verification passed; VSIX SHA256 is
+`5cffc1312fea7d3a7fda8fe32b6fc96a043b72f174f12a3ca55a2c782743c490`.

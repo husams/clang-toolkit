@@ -21,6 +21,52 @@ const binding = (
 });
 
 describe("action match outline", () => {
+  it("hides only a root alias with an identical native payload and retains explicit aliases", () => {
+    const payload = {
+      node: { functionDecl: { name: "caller" } },
+      symbolIdentity: "caller",
+      range: { offset: 12 },
+    };
+    const nodes = ["caller", "alsoCaller", "root"].map((name) => ({
+      ...binding("one", name),
+      raw: { binding: structuredClone(payload) },
+    }));
+    const row = groupActionMatches(nodes)[0]?.matches[0];
+    expect(row?.bindings.map((node) => node.binding)).toEqual([
+      "caller",
+      "alsoCaller",
+    ]);
+    expect(row?.anchor.binding).toBe("root");
+    expect(nodes).toHaveLength(3);
+  });
+
+  it("keeps a unique root, even for nodes with the same symbol and source location", () => {
+    const caller = {
+      ...binding("one", "caller"),
+      raw: {
+        binding: {
+          node: { functionDecl: {} },
+          symbolIdentity: "caller",
+          range: { offset: 12 },
+        },
+      },
+    };
+    const root = {
+      ...binding("one", "root"),
+      raw: {
+        binding: {
+          node: { functionDecl: {} },
+          symbolIdentity: "caller",
+          range: { offset: 13 },
+        },
+      },
+    };
+    expect(groupActionMatches([caller, root])[0]?.matches[0]?.bindings).toEqual(
+      [caller, root],
+    );
+    expect(groupActionMatches([root])[0]?.matches[0]?.bindings).toEqual([root]);
+  });
+
   it("keeps related bindings and repeated nodes in their original matches, including interleaved rows", () => {
     const results = [
       binding("one", "callee", "/callee.hpp"),
