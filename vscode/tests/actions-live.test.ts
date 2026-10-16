@@ -184,17 +184,35 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       async () => {
         const host = service();
         const { libraryDirectory: _library, ...defaults } = settings;
+        const helperFile = resolve(directory, "helpers.cpp");
+        await writeFile(
+          helperFile,
+          "namespace demo { struct Order { int quantity; bool valid() const { return quantity > 0; } }; }\n",
+        );
         const report = await host.run(
           action(
             "normal-helpers",
-            'match functionDecl(isDefinition()).bind("function") in node',
+            'let normalise(items) = items | map(trim) | to_list\nlet names = normalise([" demo::Order "])\nlet selected = classByName(node, names[0])\nlet fields = classFields(selected)\nif fields.length == 1 then { match fieldDecl().bind("field") in selected } else { 42 }',
           ),
           {},
-          [file],
+          [helperFile],
           defaults,
           100,
         );
-        expect(report.matches).toBeGreaterThan(0);
+        expect(report.matches).toBe(1);
+        const field = report.results.find((r) => r.binding === "field");
+        expect(field?.name).toBe("demo::Order::quantity");
+        const again = await host.run(
+          action("field-again", 'match fieldDecl().bind("field") in node'),
+          {},
+          [helperFile],
+          defaults,
+          100,
+          () => {},
+          field!.nodeId,
+        );
+        expect(again.parseCount).toBe(1);
+        expect(again.matches).toBe(1);
       },
       60000,
     );

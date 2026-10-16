@@ -130,3 +130,30 @@ Validation:
 The user's current default `/Users/husam/.ctk/lib/ctk_helpers.ctk` also fails the compiled-console action preload at line 16 because it uses unsupported pipe (`|`) syntax. This was reproduced by the opt-in ambient-library native test; the two isolated retained-action scenarios still passed. Configuring `ctk.libraryDirectory` to this checkout's `skills/ctk-script/scripts` passes the real editor and native workflows, including helpers/user functions. An existing empty directory is usable when helpers are unnecessary. The user's helper library and main checkout were preserved. No broad console language update is claimed by this prototype.
 
 Validation logs are retained under `vscode/artifacts/validation/actions-20261016/` and excluded from Git/VSIX. Isolated extension-host windows exit after their checks; the user's existing trial installation is unchanged by this implementation. Screenshot-based visual acceptance is not claimed.
+
+## Helper compatibility correction, version 0.2.1
+
+The extension bundled a console older than the user's pipe-based helper library.
+The prototype now includes the existing merged console pipe/tuple implementation
+from PR #33 (0410df4), without changing the user's helper file. Execution,
+completion and scripts all receive this runtime in the rebuilt VSIX.
+
+The default-library native regression now calls `classByName` and `classFields`,
+uses a user-defined pipe function, returns a live field match and runs another
+match on that binding with the parse count remaining 1. All three retained-action
+scenarios pass against the unchanged default helper library. The real VS Code
+host also passes its complete script, completion and two-tab Actions workflow
+without a library-directory override. Version 0.2.1 contains an editable
+`order-fields.ctk-action` example and `actions-demo.cpp` trial fixture.
+
+Validation: 84 pipe/tuple unit checks, 20 extension checks and 15 Python editor
+adapter checks pass. Full Python units: 2,169 passed, 22 failed; those remaining
+failures use the legacy console engine, which cannot import the modern console
+library. Selected native console end-to-end checks: 14 passed, 9 failed for that
+same legacy-engine preload. No native C++ code changed; the preceding 363 native
+cases remain the applicable C++ verification. Logs are in
+`vscode/artifacts/validation/helper-fix-20261016/`.
+
+The completed VSIX installation is pending fresh user confirmation: automatic
+approval review rejected updating the normal VS Code profile with a locally
+built VSIX and explicitly requires confirmation at installation time.

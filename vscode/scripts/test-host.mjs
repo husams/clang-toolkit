@@ -24,7 +24,9 @@ await writeFile(
     "ctk.server": `unix://${socket}`,
     "ctk.compileArguments": ["-std=c++20"],
     "ctk.pythonPath": process.env.CTK_PYTHON ?? resolve("../.venv/bin/python"),
-    "ctk.libraryDirectory": resolve("../skills/ctk-script/scripts"),
+    ...(process.env.CTK_TEST_DEFAULT_LIBRARY === "1"
+      ? {}
+      : { "ctk.libraryDirectory": resolve("../skills/ctk-script/scripts") }),
   }),
 );
 const server = spawn(

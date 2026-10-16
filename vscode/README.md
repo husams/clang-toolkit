@@ -91,7 +91,7 @@ Picker parameters arrive as literal strings in `arg.NAME`; `arg.FILE` is the sel
 
 The server and extension host must share filesystem paths. Untrusted workspaces cannot execute analyses.
 
-On this machine, the current default `~/.ctk/lib/ctk_helpers.ctk` contains pipe syntax unsupported by the console version in this prototype worktree. That preload prevents execution before an action starts. Set `ctk.libraryDirectory` to a compatible helper folder (the checkout's `skills/ctk-script/scripts` was verified), or an existing empty folder when helpers are unnecessary. The extension reports the library error and preserves previous results. It does not rewrite the user's helper files. The optional ambient-library check can be reproduced with `CTK_TEST_DEFAULT_LIBRARY=1 pnpm test:live`.
+Version 0.2.1 bundles the merged console pipe/tuple implementation, so the current default `~/.ctk/lib/ctk_helpers.ctk` loads without changes. The default-library regression executes `classByName`, `classFields`, a user-defined pipe function and another action on the returned field while keeping the parse count at one. Run it with `CTK_TEST_DEFAULT_LIBRARY=1 pnpm test:live`. The regular console regression suite also covers pipelines, tuple callbacks, cancellation and imports. `examples/order-fields.ctk-action` demonstrates returning live field matches through a console helper.
 
 ## Validate and package
 
