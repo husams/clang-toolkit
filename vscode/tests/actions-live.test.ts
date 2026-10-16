@@ -179,6 +179,25 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         host.run(calls, {}, [file], settings, 100, () => {}, node!.nodeId),
       ).rejects.toThrow("expired");
     }, 60000);
+    it.runIf(process.env.CTK_TEST_DEFAULT_LIBRARY === "1")(
+      "also starts with the user's normal console helper preload",
+      async () => {
+        const host = service();
+        const { libraryDirectory: _library, ...defaults } = settings;
+        const report = await host.run(
+          action(
+            "normal-helpers",
+            'match functionDecl(isDefinition()).bind("function") in node',
+          ),
+          {},
+          [file],
+          defaults,
+          100,
+        );
+        expect(report.matches).toBeGreaterThan(0);
+      },
+      60000,
+    );
     it("cancels a console loop without losing live nodes and rejects source changes until refresh", async () => {
       const host = service(),
         find = action(

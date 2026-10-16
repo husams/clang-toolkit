@@ -175,7 +175,9 @@ function renderActions() {
   if (!a) return;
   element("node-context").textContent = a.input
     ? `Input: ${a.input.label} · ${a.input.file}`
-    : "Input: active C++ file root";
+    : a.target
+      ? `Input: file root · ${a.target}`
+      : "Input: active C++ file root";
   element("node-picker").textContent =
     `${a.action?.title ?? "Select action…"} ▾`;
   element("node-description").textContent =

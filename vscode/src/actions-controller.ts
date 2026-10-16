@@ -93,7 +93,18 @@ export class ActionsController implements vscode.Disposable {
     const watcher = vscode.workspace.createFileSystemWatcher(
       "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
     );
+    const remember = (editor: vscode.TextEditor | undefined): void => {
+      if (
+        !this.root &&
+        !this.busy &&
+        editor?.document.uri.scheme === "file" &&
+        CXX.test(editor.document.uri.fsPath)
+      )
+        this.target = editor.document.uri;
+    };
+    remember(vscode.window.activeTextEditor);
     this.disposables.push(
+      vscode.window.onDidChangeActiveTextEditor(remember),
       this.status,
       watcher,
       watcher.onDidChange(mark),
@@ -115,6 +126,9 @@ export class ActionsController implements vscode.Disposable {
         ? { ...this.action, body: undefined, generated: undefined }
         : undefined,
       values: this.values,
+      target: this.target
+        ? vscode.workspace.asRelativePath(this.target)
+        : undefined,
       input: this.input
         ? {
             ...this.input,

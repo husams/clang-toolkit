@@ -477,6 +477,17 @@ export async function run(): Promise<void> {
   );
   await assert.rejects(api.actions.run(), /stale/);
   await api.actions.close();
+  await cppDoc.save();
+  await vscode.window.showTextDocument(cppDoc);
+  await vscode.window.showTextDocument(actionDoc);
+  await vscode.commands.executeCommand("ctk.runCurrentScript");
+  assert.equal(
+    actionState().matches,
+    3,
+    "editor action must use the last selected C++ file without a second file picker",
+  );
+  assert.equal(actionState().parseCount, 1);
+  await api.actions.close();
   console.log(
     "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, both result views, retained-node follow-up, history, stale edits and completion",
   );

@@ -106,3 +106,27 @@ The extension now opens the standard completion popup after a 160 ms pause in cl
 Validation: 14 extension unit/console-worker tests passed, including three new automatic-trigger regressions for rapid typing, delayed cursor updates, non-class contexts, stale lookups, cancellation and disposal. The focused trigger tests passed again after the cursor-update guard changed; strict TypeScript, Biome, whitespace checks and the complete real VS Code host workflow passed. Native server, console runtime and semantic queries were unchanged; their earlier results remain above.
 
 Installed version 0.1.6 was reloaded in the normal trial profile with the original workspace settings. Typing the individual keys `d`, `e`, `m` in the second argument automatically displayed the real `demo::Order` class suggestion with `demo.cpp:2` and its struct declaration; no completion shortcut was used. The inline completion provider remained active. Tab accepted the suggestion and the completed demo was saved. All three pre-existing unsaved drafts were preserved, and isolated test instances exited.
+
+## YAML node actions, version 0.2.0 (2026-10-16)
+
+Semantic Analysis now has Symbol Search and Actions tabs. Actions use one native picker for predefined/workspace definitions and creation. YAML front matter supplies the unique name, description and typed/defaulted arguments; the CTK body becomes a function with an implicit first `node` argument. Required arguments expand Options, and argument descriptions appear as input hints. `.ctk-action` files have YAML highlighting and the existing console completion/signature providers in their CTK bodies, including source-offset mapping across front matter.
+
+A persistent compiled-console worker owns parsed roots and result collections. Opaque binding handles reference real retained native selections; serialized data is used only for display. Bindings outline and file/match/binding groups preserve every binding and match association. Select a binding, choose another action with the same picker, and run on that exact node without reparsing. Back restores earlier results; File root restores the original translation-unit input. Refresh/Close releases session handles. Source edits and settings changes invalidate the context; errors and cancellation preserve earlier successful results. At most 32 successful runs are retained. Actions start from one translation unit; Symbol Search retains workspace scope. Connection/task state and cancellation are in the status bar.
+
+Validation:
+
+| Check | Result |
+| --- | --- |
+| Strict TypeScript, Biome, whitespace | Passed |
+| Extension unit/worker suite | 20 passed |
+| Python editor adapter regressions | 15 passed |
+| Native extension integration | 9 passed; ambient-library check is opt-in |
+| Real VS Code host | Passed: both actual webview result views, source navigation, selected-node follow-up, parse count staying 1, Back, workspace YAML discovery, current unsaved action execution, completion edits preserving YAML/later CTK, stale-buffer rejection and overlapping-run protection |
+| Native build and C++ suite | 363 passed; initial serial tests plus remaining tests with a separate storage root per process |
+| Repository Python units | 2,085 passed, 22 failed; same external helper-library preload failures recorded for the original prototype |
+| Repository Python end-to-end | 93 passed, 59 failed, 649 warnings; includes external helper preloads and remaining native/console assertions |
+| VSIX | Version 0.2.0, with bundled action definitions, persistent host and YAML grammar/parser |
+
+The user's current default `/Users/husam/.ctk/lib/ctk_helpers.ctk` also fails the compiled-console action preload at line 16 because it uses unsupported pipe (`|`) syntax. This was reproduced by the opt-in ambient-library native test; the two isolated retained-action scenarios still passed. Configuring `ctk.libraryDirectory` to this checkout's `skills/ctk-script/scripts` passes the real editor and native workflows, including helpers/user functions. An existing empty directory is usable when helpers are unnecessary. The user's helper library and main checkout were preserved. No broad console language update is claimed by this prototype.
+
+Validation logs are retained under `vscode/artifacts/validation/actions-20261016/` and excluded from Git/VSIX. Isolated extension-host windows exit after their checks; the user's existing trial installation is unchanged by this implementation. Screenshot-based visual acceptance is not claimed.
