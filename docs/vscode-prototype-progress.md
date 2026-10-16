@@ -337,3 +337,14 @@ UI shows exactly `callee: sharedTarget` and `caller: firstCaller` in Match [1],
 and exactly `callee: sharedTarget` and `caller: secondCaller` in Match [2]. Both
 remain open for comparison. ZIP verification passed; VSIX SHA256 is
 `5cffc1312fea7d3a7fda8fe32b6fc96a043b72f174f12a3ca55a2c782743c490`.
+
+## Distinct callees in the trial example
+
+Added `vscode/examples/caller-callee.cpp` and updated the existing trial fixture
+so `firstCaller` calls `firstTarget`, while `secondCaller` calls `secondTarget`.
+Updated the README's expected pairs. The installed v0.2.7 extension is unchanged.
+In the actual trial window, Refresh and Run returned exactly two matches, each
+with one caller and its distinct callee. Both groups were expanded for comparison;
+selecting the second caller refreshed source navigation and CTK Result to the
+current `secondTarget` call. This fixture-only change was verified with the real
+native parser and installed UI; extension/backend code was not changed.
