@@ -82,7 +82,7 @@ cursor_option: ROW NUMBER -> cursor_row
 
 match_scope: CURSOR_SCOPE NAME
 
-call_graph_option: NODES NUMBER -> call_graph_nodes
+call_graph_option: NODES (NUMBER | ALL) -> call_graph_nodes
                  | EDGES NUMBER -> call_graph_edges
                  | DEPTH (NUMBER | ALL) -> call_graph_depth
                  | CALLGRAPH_FORMAT CALLGRAPH_JSON -> graph_json

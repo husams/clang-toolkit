@@ -18,6 +18,19 @@ void script_option(google::protobuf::Message &message, const std::string &name,
                              "unknown or invalid script option: " + name);
   const auto &scalar = value.wire->scalar();
   const auto *reflection = message.GetReflection();
+  if (name == "max_nodes" && message.GetDescriptor()->full_name() ==
+                                 "ctk.analysis.v1.CallGraphRequest") {
+    if (scalar.value_case() == ctk::analysis::v1::ScriptScalar::kText &&
+        scalar.text() == "all")
+      reflection->SetUInt64(&message, field, 0);
+    else if (scalar.value_case() == ctk::analysis::v1::ScriptScalar::kInteger &&
+             scalar.integer() >= 0)
+      reflection->SetUInt64(&message, field, scalar.integer());
+    else
+      throw ctk::script::Error(Code::InvalidArgument,
+                               "call graph max_nodes requires a nonnegative integer or all");
+    return;
+  }
   if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_BOOL &&
       (scalar.value_case() == ctk::analysis::v1::ScriptScalar::kBoolean))
     reflection->SetBool(&message, field, scalar.boolean());

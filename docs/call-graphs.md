@@ -230,9 +230,42 @@ remains distinct from omission. Disabling instantiation visits can remove body
 edges while retaining nodes introduced as callees. Empty translation units
 still contain the native synthetic root.
 
-Default limits are 10,000 nodes and 100,000 edges; hard maxima are 100,000 and
-1,000,000 respectively, subject to server settings. Synthetic-root structure
-counts toward these limits. Call-site, work and byte bounds are independent
+There is no fixed callgraph node ceiling. Omit `nodes` to use the server's
+configured default, initially 10,000. Set `nodes N` to override that default
+with any positive count representable as uint64; `nodes all` (or `nodes 0`)
+disables the node-count limit. Python accepts `max_nodes=N`,
+`max_nodes="all"` or `max_nodes=0`; `None` uses the server default.
+
+```yaml
+server:
+  call_graph:
+    default_max_nodes: 250000  # 0 makes omitted node limits unlimited
+```
+
+The server setting is a default, not a maximum for explicit requests. It uses
+the normal YAML configuration layers; invalid negative, null, boolean and
+noninteger settings are rejected. Configuration counts use signed 64-bit YAML
+integers; request counts use uint64. Retained inputs use the same rules without
+reparsing. Shallow payloads remain the default.
+
+```ctk
+let tree = parse "examples/callgraph_reuse.cc"
+let file_graph = callgraph "examples/callgraph_reuse.cc" nodes all
+let tree_graph = callgraph in tree nodes 250000
+let functions = match functionDecl(isDefinition(), hasName("demo::apiRequest")).bind("f") in tree
+let reachable = callgraph in functions[0].f depth all nodes all
+```
+
+`depth all` removes the callable-hop limit; `nodes all` independently removes
+the node-count budget. Neither disables edge, call-site, memory, byte or
+cancellation controls. Edges still default to 100,000, with a maximum of
+1,000,000. Synthetic-root structure counts toward finite node and edge limits.
+For more than 100,000 leaf callables, raise the edge budget too because the
+virtual root has an edge to each callable. A 100,001-function regression streams
+100,002 nodes and 100,001 root edges using both a finite node limit above the
+former ceiling and unlimited nodes, with `edges 200000`.
+
+Call-site, work and byte bounds are independent
 from semantic payload depth/node limits. Exhaustion and cancellation cannot
 publish successful completion. Native function-body construction is synchronous;
 cancellation is checked between traversal and serialization steps.
@@ -241,3 +274,9 @@ There is no alias analysis, runtime dispatch solver or cross-translation-unit
 merge. Implicit destructor control flow belongs to CFG. The C++ Project facade
 continues to return per-translation-unit graphs using normalized native
 compilation database commands; it does not merge a project-wide graph.
+
+For C++ callers, include `ctk/clang/call_graph_limits.hpp` and pass a
+`CallGraphLimits` to `callgraph(project, limits)` to configure the aggregate
+project budget. Set `limits.max_nodes = 0` for unlimited nodes. Finite aggregate
+budgets stay exhausted when the remaining count reaches zero. The existing
+one-argument `callgraph(project)` keeps its prior defaults.

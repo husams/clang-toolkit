@@ -91,6 +91,28 @@ TEST_F(ScriptNative, ComposesEveryNativeOperationOnOneWorker) {
   EXPECT_EQ(result.response.emissions(6).value().cfg().graphs_size(), 1);
   EXPECT_EQ(result.response.emissions(7).value().call_graph().nodes_size(), 3);
 }
+TEST_F(ScriptNative, CallGraphNodeDefaultsAndUnlimitedOptionsAreIndependent) {
+  CursorSettings settings;
+  settings.call_graph_default_max_nodes = 1;
+  ScriptController controller(settings);
+  request.set_source("emit callgraph();");
+  EXPECT_EQ(controller.run(request, [] { return true; }).code,
+            Code::ResourceExhausted);
+  for (const auto *option : {"100001", "0", "\"all\""}) {
+    request.set_source(std::string("emit callgraph(max_nodes=") + option + ");");
+    const auto result = controller.run(request, [] { return true; });
+    ASSERT_EQ(result.code, Code::Ok) << result.message;
+    EXPECT_EQ(result.response.emissions(0).value().call_graph().nodes_size(), 3);
+  }
+  for (const auto *option : {"-1", "true", "\"unknown\""}) {
+    request.set_source(std::string("emit callgraph(max_nodes=") + option + ");");
+    EXPECT_EQ(controller.run(request, [] { return true; }).code,
+              Code::InvalidArgument);
+  }
+  request.set_source("emit traverse(max_nodes=0);");
+  EXPECT_EQ(controller.run(request, [] { return true; }).code,
+            Code::InvalidArgument);
+}
 TEST_F(ScriptNative, BranchesFromImmutableRowsAndPreservesRowSelection) {
   ScriptController controller;
   request.set_source(

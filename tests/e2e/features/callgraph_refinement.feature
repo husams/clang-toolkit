@@ -1,4 +1,16 @@
 Feature: Useful callgraphs from retained native inputs
+  Scenario Outline: Node limits are configurable and explicitly unlimited
+    Given a callgraph server with node budget <budget> using <transport>
+    When I override callgraph node budgets through filename tree and matched inputs
+    Then node budgets retain complete graphs and snapshot ownership
+
+    Examples:
+      | transport | budget |
+      | unix      | 1      |
+      | tcp       | 1      |
+      | unix      | 0      |
+      | tcp       | 0      |
+
   Scenario Outline: Header builtin declarations remain ordered for retained inputs
     Given an isolated callgraph server using <transport>
     When I inspect a header va_list callable through retained graph inputs

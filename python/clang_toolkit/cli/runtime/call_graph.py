@@ -47,7 +47,7 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
         if graph_option(option, options):
             continue
         key, maximum = {
-            "call_graph_nodes": ("max_nodes", 100000),
+            "call_graph_nodes": ("max_nodes", (1 << 64) - 1),
             "call_graph_edges": ("max_edges", 1000000),
             "call_graph_depth": ("max_depth", 32),
             "call_graph_sites": ("max_call_sites", 1000000),
@@ -66,12 +66,12 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
             else:
                 options[key] = text == "true"
         else:
-            minimum = 0 if key == "max_depth" else 1
-            if key == "max_depth" and text == "all":
+            minimum = 0 if key in {"max_depth", "max_nodes"} else 1
+            if key in {"max_depth", "max_nodes"} and text == "all":
                 options[key] = "all"
             else:
                 if not text.isdigit() or not minimum <= int(text) <= maximum:
-                    suffix = " or all" if key == "max_depth" else ""
+                    suffix = " or all" if key in {"max_depth", "max_nodes"} else ""
                     raise EvaluationError(f"{key} must be {minimum}..{maximum}{suffix}")
                 options[key] = int(text)
     call_options = {

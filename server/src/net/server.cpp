@@ -62,6 +62,7 @@ cursor_settings(const config::Settings &settings,
   result.max_memory_bytes =
       static_cast<std::uint64_t>(settings.max_memory_bytes);
   result.resources = std::move(resources);
+  result.call_graph_default_max_nodes = settings.call_graph_default_max_nodes;
   result.results.max_bytes = static_cast<std::size_t>(std::min<std::uint64_t>(
       result.max_memory_bytes, std::numeric_limits<int>::max()));
   // Reject oversized responses before publishing a new cursor revision.

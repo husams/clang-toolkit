@@ -4,14 +4,21 @@
 #include <stdexcept>
 namespace ctk::clang_layer {
 std::string callgraph(const Project &project) {
+  return callgraph(project, CallGraphLimits{10000, 100000, 4 * 1024 * 1024});
+}
+std::string callgraph(const Project &project,
+                      const CallGraphLimits &requested_limits) {
   const ProjectInputs inputs(project);
   auto backend = make_call_graph_backend();
-  CallGraphLimits limits{10000, 100000, 4 * 1024 * 1024};
+  auto limits = requested_limits;
+  const bool finite_nodes = limits.max_nodes != 0;
   std::string json = "[";
   google::protobuf::util::JsonPrintOptions options;
   options.preserve_proto_field_names = true;
   bool first = true;
   for (const auto &file : inputs.files()) {
+    if (finite_nodes && limits.max_nodes == 0)
+      throw std::runtime_error("project call graph node limit exceeded");
     ctk::analysis::v1::CallGraphRequest request;
     auto *target = request.mutable_file();
     target->set_file_path(file.path);
@@ -21,7 +28,8 @@ std::string callgraph(const Project &project) {
     auto result = backend->build(request, [] { return true; }, limits);
     if (result.code != MatchCode::Ok)
       throw std::runtime_error(result.message);
-    limits.max_nodes -= result.response.nodes_size();
+    if (finite_nodes)
+      limits.max_nodes -= result.response.nodes_size();
     limits.max_edges -= result.response.edges_size();
     std::string value;
     if (!google::protobuf::util::MessageToJsonString(result.response, &value,
