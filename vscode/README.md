@@ -38,6 +38,10 @@ Right-click a C++ file: **CTK → Select Action…** pins that file as the initi
 
 The selected action's name, description and Options update as you edit its YAML, including unsaved changes. Added/removed arguments and changed hints, types or defaults appear automatically. Explicitly entered values survive compatible edits; untouched defaults follow the YAML. Incomplete metadata keeps the last valid fields visible and disables Run until repaired. Reopening the picker also uses unsaved action names. Editing metadata does not rerun an action or discard its retained nodes/results.
 
+String arguments in **Options** offer suggestions automatically while typing or on focus; **Ctrl+Space** requests them manually. Use **Up/Down** to choose, **Enter/Tab** to accept, and **Escape** to dismiss. Selecting a folder continues into its contents. Paths stay literal, including spaces and quotes. Relative paths use the analysis workspace directory, with absolute paths and `~/` also supported. Class names come from the current analysis C++ translation unit, including headers, using the same compiler/server settings as editor completion. Save C++ edits before requesting class suggestions.
+
+The console parser infers path arguments used by `parse`, `read` and file-taking helpers, and class arguments passed to `classByName` or class-name matchers. Forwarding through named helpers is supported when the dependency can be inspected statically. For ambiguous or dynamic code, an optional YAML `completion: path`, `file`, `folder` or `class` sets the provider explicitly; it requires a string argument. Completion inspects definitions without executing bodies or defaults and leaves the action's retained context/results alone. See `examples/argument-completion.ctk-action`.
+
 Create workspace actions as `.ctk/actions/*.ctk-action` (other workspace folders are discovered too):
 
 ```yaml

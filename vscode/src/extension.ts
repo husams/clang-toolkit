@@ -107,6 +107,7 @@ export class Prototype {
       },
       (result) => this.showResult(result),
       this.output,
+      (message) => this.view.post(message),
     );
     context.subscriptions.push(
       this.output,

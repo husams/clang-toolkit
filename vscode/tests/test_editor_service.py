@@ -30,6 +30,27 @@ class CompletionTests(unittest.TestCase):
         self.assertIn('method', items['one']['detail'])
         self.assertIn('decl_name', self.names(prefix + 'x[0].fn.'))
 
+    def test_action_argument_roles_follow_helpers_and_class_matchers_without_execution(self):
+        helpers = Path(__file__).parents[2] / 'skills/ctk-script/scripts/ctk_helpers.ctk'
+        (self.root / 'helpers.ctk').write_text(helpers.read_text())
+        source = 'let inspect(node, cpp, wanted, label) = { let tree = parse cpp; let cls = classByName(tree, wanted); match fieldDecl().bind("field") in cls }'
+        data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), parametersFor='inspect'))
+        self.assertEqual(data['parameterRoles'], {'cpp': 'path', 'wanted': 'class'})
+        source = 'let inspect(node, wanted) = { match cxxRecordDecl(hasName(wanted)).bind("class") in node }'
+        data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), parametersFor='inspect'))
+        self.assertEqual(data['parameterRoles'], {'wanted': 'class'})
+        source = 'let forward(cpp, wanted) = classByName(cpp, wanted)\nlet inspect(node, cpp, wanted) = forward(cpp, wanted)'
+        data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), parametersFor='inspect'))
+        self.assertEqual(data['parameterRoles'], {'cpp': 'path', 'wanted': 'class'})
+        source = 'let inspect(node, name) = { match functionDecl(hasName(name)).bind("function") in node }'
+        data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), parametersFor='inspect'))
+        self.assertEqual(data['parameterRoles'], {})
+        marker = self.root / 'executed'
+        source = f'let inspect(node, cpp = unknownDangerousFunction()) = {{ save "ran" to "{marker}"; parse cpp }}'
+        data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), parametersFor='inspect'))
+        self.assertEqual(data['parameterRoles'], {'cpp': 'path'})
+        self.assertFalse(marker.exists())
+
     def test_literals_are_inferred_using_console_member_metadata(self):
         self.assertIn('push', self.names('let xs = [1, 2]\nxs.'))
         self.assertIn('strip', self.names('let name = "hello"\nname.'))

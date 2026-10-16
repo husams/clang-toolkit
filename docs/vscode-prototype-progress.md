@@ -217,3 +217,41 @@ one match for that function before saving. The example was saved afterward and
 left open with Options and results. Isolated test windows closed normally.
 The VSIX passed ZIP verification; SHA256 is
 `557e2398396d7884476e73cc6c27ec4591ce8777ab3ca230fb285843b854b630`.
+
+## Options argument autocomplete, version 0.2.4
+
+String fields in Options now provide automatic suggestions on focus and while
+typing. The console's syntax inspection identifies file operands, class-name
+matcher operands and parameters forwarded through known helpers. No action body
+or default is executed for inference. Optional string-argument metadata
+`completion: path | file | folder | class` handles ambiguous definitions.
+
+Paths are completed as literal values without adding CTK quotes. Relative paths,
+absolute paths, home paths, spaces, quotes, and folder continuation are supported;
+folder-only metadata filters out files. Class suggestions use the current analysis
+translation unit and the existing bounded native class lookup, including headers
+and compiler/server settings. Dirty C++ inputs request saving rather than querying
+outdated disk contents. Requests/results are bounded and stale field/revision
+responses are ignored. Completion has its own workers and does not change the
+retained action context or results.
+
+The popup supports Up/Down, Enter/Tab, Escape and Ctrl+Space, with combobox/listbox
+roles and VS Code suggestion colors. Selecting a folder requests its children.
+The example `vscode/examples/argument-completion.ctk-action` demonstrates inferred
+class-name and source-file roles.
+
+Validation: TypeScript, Biome, 24 extension tests, 16 console adapter checks and the
+complete real VS Code host passed. The host checks native class suggestions and
+literal file/folder candidates before an action has run, verifies that a marker
+file has not been written and retained parse count remains zero, then runs the
+action and observes the marker and field result. Shared console/native sources
+were unchanged; the preceding repository-wide limitations still apply.
+
+Installed v0.2.4 in the normal profile and reloaded only the existing trial window.
+Manual typing opened class and filesystem popups without Ctrl+Space. Tab accepted
+`demo::Order`; a direct mouse click and Enter accepted `actions-demo.cpp`. Tab on
+`.ctk/` immediately listed its `actions/` child. Running those completed values
+returned `demo::Order::quantity`. The new example was saved and left open with
+Options/results; isolated test windows closed normally. The VSIX passed ZIP
+verification; SHA256 is
+`4d62106dfeea5307e5fac4ecedae36cad38f6181f9046b8a68e4e62fe6470938`.

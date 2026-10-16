@@ -2,6 +2,10 @@ import { realpath } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as vscode from "vscode";
 import { z } from "zod";
+import {
+  ActionArgumentCompletion,
+  type ArgumentSuggestion,
+} from "./action-argument-completion.js";
 import { ActionService, type ActionSettings } from "./action-service.js";
 import {
   type ActionNode,
@@ -18,6 +22,14 @@ import { findPython } from "./console-service.js";
 import type { Result } from "./model.js";
 
 const messages = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("nodeCompleteArgument"),
+    id: z.number().int().nonnegative(),
+    revision: z.string(),
+    argument: z.string(),
+    value: z.string().max(16384),
+    cursor: z.number().int().nonnegative(),
+  }),
   z.object({
     type: z.literal("nodeRendered"),
     view: z.enum(["bindings", "files"]),
@@ -71,6 +83,7 @@ export class ActionsController implements vscode.Disposable {
   private error = "";
   private definitionError = "";
   private definitionGeneration = 0;
+  private argumentCompletion: ActionArgumentCompletion | undefined;
   private stale = false;
   private busy = false;
   private execution: Promise<void> | undefined;
@@ -96,6 +109,7 @@ export class ActionsController implements vscode.Disposable {
     private readonly reveal: () => Promise<void>,
     private readonly show: (result: Result) => Promise<void>,
     private readonly output: vscode.OutputChannel,
+    private readonly send: (message: unknown) => void,
   ) {
     this.status.name = "CTK analysis";
     this.status.text = "$(beaker) CTK";
@@ -103,10 +117,12 @@ export class ActionsController implements vscode.Disposable {
       "Open Semantic Analysis; the native server is contacted when an action runs";
     this.status.command = "ctk.openAnalysis";
     this.status.show();
-    const mark = () =>
+    const mark = () => {
+      this.argumentCompletion?.invalidate();
       this.markStale(
         "Source changed; refresh analysis to parse the current files.",
       );
+    };
     const watcher = vscode.workspace.createFileSystemWatcher(
       "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
     );
@@ -137,8 +153,11 @@ export class ActionsController implements vscode.Disposable {
         void this.reloadDefinition(document.uri);
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration("ctk"))
+        if (e.affectsConfiguration("ctk")) {
+          this.argumentCompletion?.dispose();
+          this.argumentCompletion = undefined;
           this.markStale("CTK settings changed; refresh analysis to use them.");
+        }
       }),
     );
   }
@@ -249,6 +268,30 @@ export class ActionsController implements vscode.Disposable {
     const message = parsed.data;
     try {
       switch (message.type) {
+        case "nodeCompleteArgument": {
+          let items: ArgumentSuggestion[] = [],
+            error = "";
+          try {
+            if (message.revision === this.action?.revision)
+              items = await this.completeArgument(
+                message.argument,
+                message.value,
+                message.cursor,
+              );
+          } catch (failure) {
+            error =
+              failure instanceof Error ? failure.message : String(failure);
+            this.output.appendLine(`Argument autocomplete: ${error}`);
+          }
+          if (message.revision === this.action?.revision)
+            this.send({
+              ...message,
+              type: "nodeArgumentCompletions",
+              items,
+              error,
+            });
+          break;
+        }
         case "nodeRendered":
           this.rendered = {
             view: message.view,
@@ -338,6 +381,47 @@ export class ActionsController implements vscode.Disposable {
       }
     }
     return validateCatalog(actions);
+  }
+  async completeArgument(
+    name: string,
+    value: string,
+    cursor = value.length,
+  ): Promise<ArgumentSuggestion[]> {
+    if (
+      !this.action ||
+      this.definitionError ||
+      this.busy ||
+      !vscode.workspace.isTrusted
+    )
+      return [];
+    if (cursor < 0 || cursor > value.length) return [];
+    const file = this.root?.file ?? this.target?.fsPath;
+    const settings =
+      this.sessionSettings ?? this.settings(file ?? this.action.path);
+    const config = vscode.workspace.getConfiguration("ctk");
+    if (!this.argumentCompletion) {
+      const python = await findPython(
+        config.get<string>("pythonPath", ""),
+        settings.directory,
+      );
+      this.argumentCompletion ??= new ActionArgumentCompletion(
+        vscode.Uri.joinPath(this.context.extensionUri, "dist/worker.js").fsPath,
+        vscode.Uri.joinPath(
+          this.context.extensionUri,
+          "console/editor_service.py",
+        ).fsPath,
+        python,
+        (text) => this.output.appendLine(text),
+      );
+    }
+    return this.argumentCompletion.complete(this.action, name, value, cursor, {
+      ...settings,
+      file,
+      cppDirty: vscode.workspace.textDocuments.some(
+        (document) => document.isDirty && CXX.test(document.uri.fsPath),
+      ),
+      maximum: config.get<number>("maxResults", 2000),
+    });
   }
   private async load(
     path: string,
@@ -676,6 +760,7 @@ export class ActionsController implements vscode.Disposable {
   dispose(): void {
     this.definitionGeneration++;
     this.service?.dispose();
+    this.argumentCompletion?.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }
 }

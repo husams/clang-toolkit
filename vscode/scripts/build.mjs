@@ -41,7 +41,8 @@ await writeFile(
           patterns: [
             {
               name: "entity.name.tag.yaml",
-              match: "\\b(?:name|description|arguments|type|default)(?=:)",
+              match:
+                "\\b(?:name|description|arguments|type|default|completion)(?=:)",
             },
             { name: "string.quoted.double.yaml", begin: '"', end: '"' },
             { name: "string.quoted.single.yaml", begin: "'", end: "'" },

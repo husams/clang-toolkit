@@ -179,6 +179,8 @@ function renderSearch() {
 function renderActions() {
   const a = state.actions;
   if (!a) return;
+  if (a.invalidAction || a.running || state.tab !== "actions")
+    window.CtkArgumentCompletion.close();
   element("node-context").textContent = a.input
     ? `Input: ${a.input.label} · ${a.input.file}`
     : a.target
@@ -191,6 +193,7 @@ function renderActions() {
     "Choose an action to find nodes, then continue from a match.";
   const revision = JSON.stringify([a.action?.revision, a.values]);
   if (revision !== actionRevision) {
+    window.CtkArgumentCompletion.close();
     actionRevision = revision;
     element("node-arguments").replaceChildren();
     for (const arg of a.action?.arguments ?? []) {
@@ -213,7 +216,18 @@ function renderActions() {
         a.values[arg.name] ??
         (arg.default === undefined ? "" : String(arg.default));
       if (arg.type === "number") input.inputMode = "decimal";
-      element("node-arguments").append(input);
+      const field = document.createElement("div");
+      field.className = "argument-field";
+      field.append(input);
+      element("node-arguments").append(field);
+      if (arg.type === "string")
+        new window.CtkArgumentCompletion(
+          input,
+          field,
+          arg.name,
+          a.action.revision,
+          post,
+        );
     }
     if (a.action?.arguments.some((arg) => arg.default === undefined))
       element("node-options").open = true;
@@ -324,5 +338,7 @@ function render(next) {
 }
 window.addEventListener("message", ({ data }) => {
   if (data.type === "state") render(data.state);
+  if (data.type === "nodeArgumentCompletions")
+    window.CtkArgumentCompletion.receive(data);
 });
 post("ready");

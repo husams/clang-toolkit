@@ -31,6 +31,9 @@ export class AnalysisView implements vscode.WebviewViewProvider {
     const js = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.uri, "media", "sidebar.js"),
     );
+    const completions = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.uri, "media", "argument-completion.js"),
+    );
     view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"></head><body><main><div class="tabs" role="tablist" aria-label="Semantic Analysis"><button id="symbols-tab" role="tab" aria-controls="symbols-panel" aria-selected="true">Symbol Search</button><button id="actions-tab" role="tab" aria-controls="actions-panel" aria-selected="false" tabindex="-1">Actions</button></div>
 <section id="symbols-panel" role="tabpanel" aria-labelledby="symbols-tab"><section id="fields" aria-label="Search inputs"></section>
 <details id="search-options"><summary>Options</summary><select id="scope" aria-label="Search scope"><option value="file">Current C++ file</option><option value="workspace">Workspace</option></select><p id="target" class="muted"></p><fieldset id="kinds"><legend>Symbol kinds</legend><label><input type="checkbox" value="variables" checked>Variables</label><label><input type="checkbox" value="classes" checked>Classes</label><label><input type="checkbox" value="functions" checked>Functions</label></fieldset></details>
@@ -41,7 +44,7 @@ export class AnalysisView implements vscode.WebviewViewProvider {
 <div class="context-tools"><button id="node-back" hidden>← Back</button><button id="node-root" hidden>File root</button><button id="node-refresh">Refresh</button><button id="node-close">Close</button></div>
 <p id="node-error" role="alert"></p><div class="result-toolbar"><span id="node-count" role="status" aria-live="polite"></span><div role="group" aria-label="Result view"><button id="bindings-view" aria-pressed="true">Bindings</button><button id="files-view" aria-pressed="false">Files</button></div></div>
 <div id="node-selection" hidden><p id="node-selected"></p><button id="node-followup">Run action on selected node…</button></div><section id="node-results" aria-label="Action matches"></section></section>
-</main><script nonce="${nonce}" src="${js}"></script></body></html>`;
+</main><script nonce="${nonce}" src="${completions}"></script><script nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage(this.receive);
     view.onDidChangeVisibility(() => {
       if (view.visible) this.ready();

@@ -1,0 +1,13 @@
+---
+name: inspect-class-fields
+description: Find class fields with class-name and optional source-file completion.
+arguments:
+  - name: className
+    description: Class name
+  - name: sourceFile
+    description: C++ source file; leave empty to use the current node
+    default: ""
+---
+let tree = if sourceFile == "" then node else { parse sourceFile }
+let target = classByName(tree, className)
+match fieldDecl().bind("field") in target

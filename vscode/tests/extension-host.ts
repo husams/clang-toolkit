@@ -619,6 +619,74 @@ export async function run(): Promise<void> {
   );
   assert.equal(actionState().parseCount, 1);
   await api.actions.close();
+  const completionTarget = vscode.Uri.joinPath(
+    folder.uri,
+    "argument-target.cpp",
+  );
+  await vscode.workspace.fs.writeFile(
+    completionTarget,
+    Buffer.from(
+      "namespace demo { struct Order { int quantity; }; struct Other {}; }\n",
+    ),
+  );
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(completionTarget),
+  );
+  const completionAction = vscode.Uri.joinPath(
+    actionFolder,
+    "argument-completion.ctk-action",
+  );
+  const marker = vscode.Uri.joinPath(folder.uri, "completion-ran.json");
+  await vscode.workspace.fs.writeFile(
+    completionAction,
+    Buffer.from(
+      `---\nname: argument-completion\ndescription: Inspect class fields\narguments:\n  - name: className\n    description: Class name\n  - name: cppFile\n    description: C++ file\n    default: ""\n---\nlet tree = if cppFile == "" then node else { parse cppFile }\nlet target = classByName(tree, className)\nsave "executed" to ${JSON.stringify(marker.fsPath)}\nmatch fieldDecl().bind("field") in target\n`,
+    ),
+  );
+  const completionDoc =
+    await vscode.workspace.openTextDocument(completionAction);
+  await vscode.window.showTextDocument(completionDoc);
+  await api.actions.current(completionDoc);
+  assert.equal(actionState().parseCount, 0);
+  const classChoices = await api.actions.completeArgument(
+    "className",
+    "demo::Or",
+  );
+  assert.ok(
+    classChoices.some(
+      (item) => item.kind === "class" && item.text === "demo::Order",
+    ),
+    JSON.stringify(classChoices),
+  );
+  const pathChoices = await api.actions.completeArgument(
+    "cppFile",
+    "argument-",
+  );
+  assert.ok(
+    pathChoices.some(
+      (item) => item.kind === "file" && item.text === "argument-target.cpp",
+    ),
+  );
+  const folderChoices = await api.actions.completeArgument(
+    "cppFile",
+    "source ",
+  );
+  assert.ok(
+    folderChoices.some(
+      (item) => item.kind === "folder" && item.text === "source dir/",
+    ),
+  );
+  assert.equal(
+    actionState().parseCount,
+    0,
+    "autocomplete must not execute the action or create its retained context",
+  );
+  await assert.rejects(Promise.resolve(vscode.workspace.fs.stat(marker)));
+  await api.actions.run(undefined, { className: "demo::Order", cppFile: "" });
+  assert.equal(actionState().matches, 1);
+  assert.equal(actionState().parseCount, 1);
+  await vscode.workspace.fs.stat(marker);
+  await api.actions.close();
   console.log(
     "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, both result views, retained-node follow-up, history, stale edits and completion",
   );

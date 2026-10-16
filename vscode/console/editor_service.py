@@ -380,6 +380,78 @@ def helper_filesystem_options(document: Document, cwd: Path, functions: dict[str
     return path_completions(candidate, cwd)
 
 
+@lru_cache(maxsize=256)
+def class_parameter_names(definition: str) -> frozenset[str]:
+    """Recognize class-name matcher operands without evaluating any code."""
+    if len(definition) > 64 * 1024:
+        return frozenset()
+    try:
+        program = parse(definition)
+    except (UnexpectedInput, ValueError):
+        return frozenset()
+    names: set[str] = set()
+    class_roots = {'cxxRecordDecl', 'recordDecl', 'classTemplateDecl',
+                   'classTemplateSpecializationDecl', 'classTemplatePartialSpecializationDecl'}
+
+    def visit(value: Any, class_scope: bool = False) -> None:
+        if isinstance(value, Node):
+            if value.kind == 'host':
+                visit(value.value[0])
+            for child in value.children:
+                visit(child)
+        elif isinstance(value, Tree):
+            if value.data == 'matcher' and value.children:
+                matcher = str(value.children[0])
+                if matcher in class_roots:
+                    class_scope = True
+                elif MATCHER_METADATA.get(matcher, ('',))[0] == 'node':
+                    class_scope = False
+                if class_scope and matcher in {'hasName', 'hasAnyName', 'matchesName'}:
+                    for reference in value.find_data('reference'):
+                        if len(reference.children) == 2:
+                            names.add(str(reference.children[1]))
+            for child in value.children:
+                visit(child, class_scope)
+
+    visit(program)
+    return frozenset(names)
+
+
+@lru_cache(maxsize=32)
+def parameter_roles(definitions: tuple[tuple[str, str], ...], root: str) -> dict[str, str]:
+    """Propagate file/class roles through helper calls using the console AST."""
+    sources = dict(definitions)
+    facts = {}
+    pending = [root]
+    while pending:
+        name = pending.pop()
+        if name in facts or name not in sources:
+            continue
+        facts[name] = function_path_facts(sources[name])
+        pending.extend(callee for callee, _, _ in facts[name][2])
+    paths = path_parameters(definitions, root)
+    classes = {name: set(class_parameter_names(sources[name])) - set(blocked)
+               for name, (_, _, _, blocked) in facts.items()}
+    helper = facts.get('classByName')
+    if helper and len(helper[0]) > 1 and 0 in paths.get('classByName', ()):
+        classes['classByName'].add(helper[0][1])
+    for _ in range(len(facts)):
+        changed = False
+        for name, (_, _, calls, blocked) in facts.items():
+            for callee, index, forwarded in calls:
+                target = facts.get(callee)
+                if (target and index < len(target[0]) and target[0][index] in classes[callee]
+                        and forwarded not in blocked and forwarded not in classes[name]):
+                    classes[name].add(forwarded)
+                    changed = True
+        if not changed:
+            break
+    parameters = facts.get(root, ((),))[0]
+    return {name: 'path' if index in paths.get(root, ()) else 'class'
+            for index, name in enumerate(parameters)
+            if name != 'node' and (index in paths.get(root, ())) != (name in classes.get(root, ()))}
+
+
 def static_file_operand(value: Any, bindings: dict[str, Any]) -> str | None:
     """Resolve only literal paths and already inferred values; never call code."""
     if isinstance(value, Token) and value.type in {'STRING', 'FILE_STRING'}:
@@ -451,6 +523,9 @@ def request(data: dict[str, Any]) -> dict[str, Any]:
     describe_source(source[:cursor], bindings, functions)
     # Function definitions later in the file are useful to an editor too.
     functions.update(function_headers(source))
+    if data.get('parametersFor'):
+        return dict(items=[], parameterRoles=parameter_roles(
+            tuple((name, entry.definition) for name, entry in functions.items()), data['parametersFor']))
     runtime = Runtime.__new__(Runtime)
     runtime.bindings, runtime.environment, runtime.config_vars, runtime._scopes = bindings, {}, {}, []
     runtime.cwd = cwd

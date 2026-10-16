@@ -34,6 +34,7 @@ const argumentSchema = z
       ),
     description: z.string().min(1),
     type: z.enum(["string", "number", "boolean"]).default("string"),
+    completion: z.enum(["path", "file", "folder", "class"]).optional(),
     default: scalar.optional(),
   })
   .strict();
@@ -90,6 +91,8 @@ export function parseNodeAction(
   const names = new Set<string>();
   let optional = false;
   for (const argument of metadata.arguments) {
+    if (argument.completion && argument.type !== "string")
+      throw new Error("Autocomplete requires a string argument");
     if (names.has(argument.name))
       throw new Error("Argument names must be unique");
     names.add(argument.name);

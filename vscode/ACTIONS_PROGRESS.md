@@ -1,5 +1,23 @@
 # Node based Actions prototype
 
+## Options autocomplete, 0.2.4
+
+- [x] Infer path/class argument roles with the console parser and support explicit completion hints.
+- [x] Add automatic, accessible suggestions with arrows, Enter/Tab, Escape and folder continuation.
+- [x] Complete literal paths and classes from the current C++ translation unit without executing action code.
+- [x] Verify native class/path candidates, side-effect isolation and editor regressions.
+- [x] Package, install and manually verify both suggestion popups in the trial window.
+
+Validation: 24 extension tests, 16 console adapter tests, TypeScript and the
+complete VS Code host passed. The host requests inferred class/file/folder
+suggestions before the first action run and confirms the action's marker file
+is absent and retained parse count is zero, then runs the action successfully.
+Installed v0.2.4 and reloaded the trial window. Manual typing produced
+`demo::Order` and `actions-demo.cpp` suggestions automatically. Tab accepted the
+class; a direct mouse click and Enter accepted the path. Tab on `.ctk/`
+continued to `actions/`. Run with the completed values returned the field
+`demo::Order::quantity`; the saved example and Options remain open.
+
 ## Live action metadata, 0.2.3
 
 - [x] Update the selected action's label, description and Options on unsaved editor changes.
