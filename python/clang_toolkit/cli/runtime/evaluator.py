@@ -97,7 +97,7 @@ _COMMAND_VALUE_KINDS = frozenset(
         "session_resume", "session_close", "session_list", "session_attach",
         "session_close_retained", "server_status", "cache_status", "cache_prune",
         "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file", "cfg_binding", "variable_flow",
-        "callgraph", "callgraph_file", "help", "help_shortcut", "traverse", "script",
+        "callgraph", "callgraph_file", "callgraph_binding", "help", "help_shortcut", "traverse", "script",
         "peek", "step",
         "cursor_open", "cursor_continue", "cursor_restart", "cursor_close",
         "import_command", "file_open", "file_list", "file_info", "file_close",
@@ -401,12 +401,13 @@ class Runtime:
         if kind == "variable_flow":
             from .variable_flow import execute_variable_flow
             return execute_variable_flow(self, statement), None
-        if kind == "callgraph_file":
+        if kind in {"callgraph_file", "callgraph_binding"}:
             from .call_graph import execute_call_graph
             from .graph_options import render_graph
 
             value = execute_call_graph(self, statement)
-            display = None if value_context else self._emit_output(render_graph(value))
+            rendered = value if isinstance(value, str) else render_graph(value)
+            display = None if value_context else self._emit_output(rendered)
             return value, display
         if kind == "script":
             from .scripting import execute_script, render_script_response
@@ -750,11 +751,12 @@ class Runtime:
             from .scripting import execute_script
 
             return self._emit_output(execute_script(self, statement))
-        if kind == "callgraph_file":
+        if kind in {"callgraph_file", "callgraph_binding"}:
             from .call_graph import execute_call_graph
             from .graph_options import render_graph
 
-            return self._emit_output(render_graph(execute_call_graph(self, statement)))
+            value = execute_call_graph(self, statement)
+            return self._emit_output(value if isinstance(value, str) else render_graph(value))
         if kind == "callgraph":
             message = (
                 'callgraph requires a file: callgraph "file.cc"; see help callgraph'
@@ -1516,9 +1518,7 @@ class Runtime:
                             self._reject_live_batch_collection_value(
                                 self._evaluate(argument)
                             )
-                    value = call_method(
-                        value, name, [self._evaluate(arg) for arg in arguments]
-                    )
+                    value = self._evaluate_method_call(value, name, arguments)
             except (ReferenceError, MatchValueError, IndexError, KeyError) as error:
                 raise EvaluationError(f"{error} in grouped expression") from error
         return value
@@ -1552,6 +1552,19 @@ class Runtime:
             else:
                 arguments = [call.children[2]]
         return str(method_token), arguments
+
+    def _evaluate_method_call(self, value: Any, name: str, arguments: list[Any]) -> Any:
+        positional: list[Any] = []
+        keywords: dict[str, Any] = {}
+        for argument in arguments:
+            if isinstance(argument, Tree) and argument.data == "named_method_argument":
+                key = str(argument.children[0])
+                if key in keywords:
+                    raise EvaluationError(f"duplicate named argument: {key}")
+                keywords[key] = self._evaluate(argument.children[2])
+            else:
+                positional.append(self._evaluate(argument))
+        return call_method(value, name, positional, keyword_arguments=keywords)
 
     def _analysis_block(self, node: Tree) -> Any:
         target = self._evaluate(node.children[1])
@@ -1761,11 +1774,7 @@ class Runtime:
             previous = value
             try:
                 if operation == "method":
-                    value = call_method(
-                        value,
-                        field,
-                        [self._evaluate(argument) for argument in argument],
-                    )
+                    value = self._evaluate_method_call(value, field, argument)
                 elif operation == "index":
                     value = index_value(value, field)
                 else:

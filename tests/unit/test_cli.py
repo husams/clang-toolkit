@@ -1,6 +1,22 @@
+import pytest
+
 from clang_toolkit.cli.app import dispatch
 from clang_toolkit.cli.help import HAS_NATIVE_ANALYSIS_GRAMMAR
 from clang_toolkit.client import Client
+
+
+@pytest.fixture(autouse=True)
+def isolate_default_libraries(monkeypatch, tmp_path):
+    from clang_toolkit.cli import app
+
+    original = app.preload_libraries
+    empty = tmp_path / "empty-ctk-libs"
+    empty.mkdir()
+
+    def preload(runtime, directory=None):
+        return original(runtime, empty if directory is None else directory)
+
+    monkeypatch.setattr(app, "preload_libraries", preload)
 
 
 def test_help_lists_commands():

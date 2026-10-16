@@ -1,9 +1,21 @@
 syntax = "proto3";
 package ctk.analysis.v1;
 import "match/v1/match_service.proto";
+import "match/v1/resources.proto";
 import "analysis/v1/value_projection.proto";
+enum CallGraphDirection {
+  CALL_GRAPH_DIRECTION_UNSPECIFIED = 0;
+  CALL_GRAPH_DIRECTION_OUT = 1;
+  CALL_GRAPH_DIRECTION_IN = 2;
+  CALL_GRAPH_DIRECTION_BOTH = 3;
+}
 message CallGraphRequest {
-  ctk.match.v1.FileMatchTarget file = 1;
+  oneof target {
+    ctk.match.v1.FileMatchTarget file = 1;
+    ctk.match.v1.SessionMatchTarget session = 10;
+    ctk.match.v1.BindingMatchTarget binding = 11;
+    ctk.match.v1.FileHandleTarget file_handle = 12;
+  }
   optional bool visit_implicit_code = 2; // Native default: true.
   optional bool visit_template_instantiations = 3; // Native default: true.
   optional uint64 max_nodes = 4; // Default 10000; hard maximum 100000, including root.
@@ -12,4 +24,10 @@ message CallGraphRequest {
   // Only emit main-file callable declarations and edges between them.
   bool main_file_only = 7;
   string resource_scope_id = 8;
+  CallGraphDirection direction = 13;
+  optional uint64 max_depth = 14;
+  optional uint64 max_call_sites = 15;
+  // Optional exact qualified callable name for file/session/file_handle.
+  // Omit to analyze the complete translation unit or select through binding.
+  string function = 16;
 }

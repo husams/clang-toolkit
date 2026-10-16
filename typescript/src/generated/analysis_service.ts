@@ -7,10 +7,17 @@ import type { BatchExport as _ctk_analysis_v1_BatchExport, BatchExport__Output a
 import type { BatchGroup as _ctk_analysis_v1_BatchGroup, BatchGroup__Output as _ctk_analysis_v1_BatchGroup__Output } from './ctk/analysis/v1/BatchGroup.js';
 import type { BatchRun as _ctk_analysis_v1_BatchRun, BatchRun__Output as _ctk_analysis_v1_BatchRun__Output } from './ctk/analysis/v1/BatchRun.js';
 import type { BatchRunRequest as _ctk_analysis_v1_BatchRunRequest, BatchRunRequest__Output as _ctk_analysis_v1_BatchRunRequest__Output } from './ctk/analysis/v1/BatchRunRequest.js';
+import type { CallGraphCallSite as _ctk_analysis_v1_CallGraphCallSite, CallGraphCallSite__Output as _ctk_analysis_v1_CallGraphCallSite__Output } from './ctk/analysis/v1/CallGraphCallSite.js';
+import type { CallGraphCallSiteEvent as _ctk_analysis_v1_CallGraphCallSiteEvent, CallGraphCallSiteEvent__Output as _ctk_analysis_v1_CallGraphCallSiteEvent__Output } from './ctk/analysis/v1/CallGraphCallSiteEvent.js';
+import type { CallGraphCompleted as _ctk_analysis_v1_CallGraphCompleted, CallGraphCompleted__Output as _ctk_analysis_v1_CallGraphCompleted__Output } from './ctk/analysis/v1/CallGraphCompleted.js';
 import type { CallGraphEdge as _ctk_analysis_v1_CallGraphEdge, CallGraphEdge__Output as _ctk_analysis_v1_CallGraphEdge__Output } from './ctk/analysis/v1/CallGraphEdge.js';
+import type { CallGraphEdgeEvent as _ctk_analysis_v1_CallGraphEdgeEvent, CallGraphEdgeEvent__Output as _ctk_analysis_v1_CallGraphEdgeEvent__Output } from './ctk/analysis/v1/CallGraphEdgeEvent.js';
 import type { CallGraphNode as _ctk_analysis_v1_CallGraphNode, CallGraphNode__Output as _ctk_analysis_v1_CallGraphNode__Output } from './ctk/analysis/v1/CallGraphNode.js';
+import type { CallGraphNodeEvent as _ctk_analysis_v1_CallGraphNodeEvent, CallGraphNodeEvent__Output as _ctk_analysis_v1_CallGraphNodeEvent__Output } from './ctk/analysis/v1/CallGraphNodeEvent.js';
 import type { CallGraphRequest as _ctk_analysis_v1_CallGraphRequest, CallGraphRequest__Output as _ctk_analysis_v1_CallGraphRequest__Output } from './ctk/analysis/v1/CallGraphRequest.js';
 import type { CallGraphResponse as _ctk_analysis_v1_CallGraphResponse, CallGraphResponse__Output as _ctk_analysis_v1_CallGraphResponse__Output } from './ctk/analysis/v1/CallGraphResponse.js';
+import type { CallGraphStarted as _ctk_analysis_v1_CallGraphStarted, CallGraphStarted__Output as _ctk_analysis_v1_CallGraphStarted__Output } from './ctk/analysis/v1/CallGraphStarted.js';
+import type { CallGraphStreamEvent as _ctk_analysis_v1_CallGraphStreamEvent, CallGraphStreamEvent__Output as _ctk_analysis_v1_CallGraphStreamEvent__Output } from './ctk/analysis/v1/CallGraphStreamEvent.js';
 import type { CfgBlock as _ctk_analysis_v1_CfgBlock, CfgBlock__Output as _ctk_analysis_v1_CfgBlock__Output } from './ctk/analysis/v1/CfgBlock.js';
 import type { CfgBlockEvent as _ctk_analysis_v1_CfgBlockEvent, CfgBlockEvent__Output as _ctk_analysis_v1_CfgBlockEvent__Output } from './ctk/analysis/v1/CfgBlockEvent.js';
 import type { CfgCleanup as _ctk_analysis_v1_CfgCleanup, CfgCleanup__Output as _ctk_analysis_v1_CfgCleanup__Output } from './ctk/analysis/v1/CfgCleanup.js';
@@ -468,10 +475,18 @@ export interface ProtoGrpcType {
         BatchGroup: MessageTypeDefinition<_ctk_analysis_v1_BatchGroup, _ctk_analysis_v1_BatchGroup__Output>
         BatchRun: MessageTypeDefinition<_ctk_analysis_v1_BatchRun, _ctk_analysis_v1_BatchRun__Output>
         BatchRunRequest: MessageTypeDefinition<_ctk_analysis_v1_BatchRunRequest, _ctk_analysis_v1_BatchRunRequest__Output>
+        CallGraphCallSite: MessageTypeDefinition<_ctk_analysis_v1_CallGraphCallSite, _ctk_analysis_v1_CallGraphCallSite__Output>
+        CallGraphCallSiteEvent: MessageTypeDefinition<_ctk_analysis_v1_CallGraphCallSiteEvent, _ctk_analysis_v1_CallGraphCallSiteEvent__Output>
+        CallGraphCompleted: MessageTypeDefinition<_ctk_analysis_v1_CallGraphCompleted, _ctk_analysis_v1_CallGraphCompleted__Output>
+        CallGraphDirection: EnumTypeDefinition
         CallGraphEdge: MessageTypeDefinition<_ctk_analysis_v1_CallGraphEdge, _ctk_analysis_v1_CallGraphEdge__Output>
+        CallGraphEdgeEvent: MessageTypeDefinition<_ctk_analysis_v1_CallGraphEdgeEvent, _ctk_analysis_v1_CallGraphEdgeEvent__Output>
         CallGraphNode: MessageTypeDefinition<_ctk_analysis_v1_CallGraphNode, _ctk_analysis_v1_CallGraphNode__Output>
+        CallGraphNodeEvent: MessageTypeDefinition<_ctk_analysis_v1_CallGraphNodeEvent, _ctk_analysis_v1_CallGraphNodeEvent__Output>
         CallGraphRequest: MessageTypeDefinition<_ctk_analysis_v1_CallGraphRequest, _ctk_analysis_v1_CallGraphRequest__Output>
         CallGraphResponse: MessageTypeDefinition<_ctk_analysis_v1_CallGraphResponse, _ctk_analysis_v1_CallGraphResponse__Output>
+        CallGraphStarted: MessageTypeDefinition<_ctk_analysis_v1_CallGraphStarted, _ctk_analysis_v1_CallGraphStarted__Output>
+        CallGraphStreamEvent: MessageTypeDefinition<_ctk_analysis_v1_CallGraphStreamEvent, _ctk_analysis_v1_CallGraphStreamEvent__Output>
         CfgBlock: MessageTypeDefinition<_ctk_analysis_v1_CfgBlock, _ctk_analysis_v1_CfgBlock__Output>
         CfgBlockEvent: MessageTypeDefinition<_ctk_analysis_v1_CfgBlockEvent, _ctk_analysis_v1_CfgBlockEvent__Output>
         CfgCleanup: MessageTypeDefinition<_ctk_analysis_v1_CfgCleanup, _ctk_analysis_v1_CfgCleanup__Output>

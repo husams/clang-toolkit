@@ -49,7 +49,8 @@ parameters: NAME (COMMA NAME)*
         | CFG IN path_target_expression cfg_option* graph_option* -> cfg_binding
         | VARIABLEFLOW path_target_expression IN path_target_expression variable_flow_option* -> variable_flow
         | CALLGRAPH -> callgraph
-        | CALLGRAPH path_target_expression call_graph_option* graph_option* -> callgraph_file
+        | CALLGRAPH IN path_target_expression (call_graph_option | graph_option)* -> callgraph_binding
+        | CALLGRAPH path_target_expression (call_graph_option | graph_option)* -> callgraph_file
         | HELP help_topic?               -> help
         | HELP_SHORT_TOPIC QUESTION      -> help_shortcut
         | TRAVERSE path_target_expression traverse_option* graph_option* -> traverse
@@ -83,6 +84,10 @@ match_scope: CURSOR_SCOPE NAME
 
 call_graph_option: NODES NUMBER -> call_graph_nodes
                  | EDGES NUMBER -> call_graph_edges
+                 | DEPTH NUMBER -> call_graph_depth
+                 | CALLGRAPH_FORMAT CALLGRAPH_JSON -> graph_json
+                 | DIRECTION NAME -> call_graph_direction
+                 | CALLSITES NUMBER -> call_graph_sites
                  | IMPLICIT (TRUE | FALSE) -> call_graph_implicit
                  | INSTANTIATIONS (TRUE | FALSE) -> call_graph_instantiations
 
@@ -283,7 +288,9 @@ reference: DOLLAR NAME (DOT property_name | DOT method_call | LSQB index_express
             | FIELD_OR LPAR STRING COMMA value_expression RPAR -> field_or_call
             | method_name LPAR [method_arguments] RPAR -> generic_method_call
 method_name: NAME | JOIN_WITH | UNIQUE | SORT | FILTER | PUSH | POP | DELETE | SET | INSERT | REMOVE | CLEAR
-method_arguments: value_expression (COMMA value_expression)*
+method_arguments: method_argument (COMMA method_argument)*
+?method_argument: NAME EQUAL value_expression -> named_method_argument
+                | value_expression
 qualified_name: NAME (SCOPE NAME)+
 
 // Keep the editor lexer lossless, including strings open at end of input.
@@ -492,6 +499,8 @@ VARIABLEFLOW.2: /variableflow(?![a-zA-Z0-9_])/
 EVENTS.2: /events(?![a-zA-Z0-9_])/
 ITERATIONS.2: /iterations(?![a-zA-Z0-9_])/
 CALLGRAPH.2: /callgraph(?![a-zA-Z0-9_])/
+CALLGRAPH_JSON.2: /json(?![a-zA-Z0-9_])/
+CALLGRAPH_FORMAT.2: /format(?![a-zA-Z0-9_])/
 HELP.2: /help(?![a-zA-Z0-9_])/
 QUIT.2: /quit(?![a-zA-Z0-9_])/
 EXIT.2: /exit(?![a-zA-Z0-9_])/
@@ -501,9 +510,11 @@ STEP.2: /step(?![a-zA-Z0-9_])/
 AT.2: /at(?![a-zA-Z0-9_])/
 PROJECTION.2: /projection(?![a-zA-Z0-9_])/
 MAIN_FILE.2: /main-file(?![a-zA-Z0-9_])/
+CALLSITES.2: /callsites(?![a-zA-Z0-9_])/
 PAYLOAD_DEPTH.2: /payload-depth(?![a-zA-Z0-9_])/
 PAYLOAD_NODES.2: /payload-nodes(?![a-zA-Z0-9_])/
 DEPTH.2: /depth(?![a-zA-Z0-9_])/
+DIRECTION.2: /direction(?![a-zA-Z0-9_])/
 NODES.2: /nodes(?![a-zA-Z0-9_])/
 IMPLICIT.2: /implicit(?![a-zA-Z0-9_])/
 INSTANTIATIONS.2: /instantiations(?![a-zA-Z0-9_])/

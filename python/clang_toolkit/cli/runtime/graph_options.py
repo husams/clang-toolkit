@@ -3,11 +3,13 @@ from __future__ import annotations
 from lark import Tree
 from google.protobuf.json_format import MessageToJson
 from .semantic import MessageView
+from clang_toolkit.call_graph_values import CallGraph
 
 
-def render_graph(value: MessageView) -> str:
+def render_graph(value: MessageView | CallGraph) -> str:
     """Preserve standalone ProtoJSON output; expressions keep typed access."""
-    return MessageToJson(value._message(), preserving_proto_field_name=True)
+    message = value.response if isinstance(value, CallGraph) else value._message()
+    return MessageToJson(message, preserving_proto_field_name=True)
 
 
 def graph_option(option: Tree, options: dict) -> bool:

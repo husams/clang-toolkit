@@ -7,6 +7,7 @@ import math
 from collections.abc import Mapping
 from itertools import islice
 from typing import Any
+from google.protobuf.message import Message
 
 from .filesystem import FileSystemEntry
 from clang_toolkit.resources import FileBatch, FileHandle, FileSet, InputDescriptor
@@ -27,6 +28,7 @@ from clang_toolkit.match_values import (
     BindingSelection, MatchRow, MatchValue, MatchValueError, NativeBindingCollection,
     NativeMatchCollection, ParsedTree,
 )
+from clang_toolkit.call_graph_values import CallGraph
 
 
 class ReferenceError(ValueError):
@@ -73,6 +75,16 @@ def _binding_keys(value: BindingSelection) -> list[str]:
 
 
 def property_value(value: Any, name: str) -> Any:
+    if isinstance(value, CallGraph):
+        try:
+            return semantic_property_value(semantic_view(value.response), name)
+        except SemanticError as error:
+            raise ReferenceError(str(error)) from error
+    if isinstance(value, Message):
+        try:
+            return semantic_property_value(semantic_view(value), name)
+        except SemanticError as error:
+            raise ReferenceError(str(error)) from error
     if isinstance(value, FileSet) and name in {"length", "isEmpty"}:
         return len(value) if name == "length" else not len(value)
     if isinstance(value, FileBatch) and name == "paths":
@@ -166,6 +178,11 @@ def property_value(value: Any, name: str) -> Any:
             return len(value)
         if name == "isEmpty":
             return not value
+    if isinstance(value, tuple):
+        if name == "length":
+            return len(value)
+        if name == "isEmpty":
+            return not value
     if type(value) is dict:
         if name == "keys":
             return list(value)
@@ -185,7 +202,49 @@ def property_value(value: Any, name: str) -> Any:
     raise ReferenceError(f"unknown field: {name}")
 
 
-def call_method(value: Any, name: str, arguments: list[Any]) -> Any:
+def call_method(value: Any, name: str, arguments: list[Any], *,
+                keyword_arguments: dict[str, Any] | None = None) -> Any:
+    keyword_arguments = keyword_arguments or {}
+    if isinstance(value, CallGraph):
+        if name == "function":
+            if keyword_arguments:
+                raise ReferenceError("function does not accept named arguments")
+            if len(arguments) == 1 and isinstance(arguments[0], BindingSelection):
+                return value.function(arguments[0])
+            if len(arguments) in {1, 2} and isinstance(arguments[0], str):
+                return value.function(arguments[0], signature=arguments[1] if len(arguments) == 2 else None)
+            raise ReferenceError("function requires a qualified name and optional signature, or one retained binding")
+        if name in {"callees", "callers"}:
+            if set(keyword_arguments) - {"depth"}:
+                raise ReferenceError(f"{name} only accepts the named argument depth")
+            if len(arguments) not in {1, 2} or (len(arguments) == 2 and "depth" in keyword_arguments):
+                raise ReferenceError(f"{name} requires a target and optional depth")
+            depth = (arguments[1] if len(arguments) == 2
+                     else keyword_arguments.get("depth", 1))
+            if type(depth) is not int:
+                raise ReferenceError("depth must be an integer")
+            return getattr(value, name)(arguments[0], depth=depth)
+        if keyword_arguments:
+            raise ReferenceError(f"{name} does not accept named arguments")
+        if name == "shortest_path":
+            if len(arguments) != 2:
+                raise ReferenceError("shortest_path requires source and target")
+            return value.shortest_path(*arguments)
+        if name == "shortest_route":
+            if len(arguments) != 2:
+                raise ReferenceError("shortest_route requires source and target")
+            return value.shortest_route(*arguments)
+        if name == "grouped_calls":
+            if arguments:
+                raise ReferenceError("grouped_calls takes no arguments")
+            return value.grouped_calls()
+        if name in {"recursive_components", "recursion_components"}:
+            if arguments:
+                raise ReferenceError(f"{name} takes no arguments")
+            return value.recursive_components()
+        raise ReferenceError(f"unknown call-graph method: {name}")
+    if keyword_arguments:
+        raise ReferenceError(f"{name} does not accept named arguments")
     if name == "one" and isinstance(value, (list, MatchValue, NativeMatchCollection, MatchSet)):
         if len(arguments) > 1 or (arguments and not isinstance(arguments[0], str)):
             raise ReferenceError("one accepts an optional diagnostic label")
@@ -409,6 +468,10 @@ def index_value(value: Any, key: Any) -> Any:
 
 
 def field_names(value: Any) -> tuple[str, ...]:
+    if isinstance(value, CallGraph):
+        return (*semantic_field_names(semantic_view(value.response)),
+                "function", "callers", "callees", "shortest_path",
+                "recursive_components", "recursion_components")
     if isinstance(value, FileSet):
         return ("inputs", "diagnostics", "metadata_bytes", "length", "isEmpty")
     if isinstance(value, FileBatch):
@@ -471,6 +534,15 @@ def field_names(value: Any) -> tuple[str, ...]:
 
 
 def inspect_value(value: Any) -> Any:
+    if isinstance(value, CallGraph):
+        return {
+            "type": "CallGraph",
+            "node_count": len(value.response.nodes),
+            "edge_count": len(value.response.edges),
+            "call_site_count": len(value.response.call_sites),
+            "is_complete": value.response.is_complete,
+            "source_file": value.response.source_file,
+        }
     if isinstance(value, FileSet):
         return {
             "type": "FileSet",

@@ -1,5 +1,21 @@
+import pytest
+
 from clang_toolkit.cli.app import DispatchResult
 from clang_toolkit.cli.batch import execute_batch
+
+
+@pytest.fixture(autouse=True)
+def isolate_default_libraries(monkeypatch, tmp_path):
+    from clang_toolkit.cli import app
+
+    original = app.preload_libraries
+    empty = tmp_path / "empty-ctk-libs"
+    empty.mkdir(exist_ok=True)
+
+    def preload(runtime, directory=None):
+        return original(runtime, empty if directory is None else directory)
+
+    monkeypatch.setattr(app, "preload_libraries", preload)
 
 
 def test_batch_keeps_success_status_separate_from_rendered_error_prefix():
@@ -137,8 +153,6 @@ def test_session_tracker_discards_match_payloads_and_keeps_only_latest_progress(
 def test_session_tracker_eof_wakes_pending_command_wait():
     import asyncio
     import threading
-    from types import SimpleNamespace
-
     import pytest
 
     from clang_toolkit.cli.app import _SessionCompletionTracker
@@ -276,9 +290,12 @@ def test_local_batch_and_syntax_error_do_not_connect_to_server(tmp_path):
 
     endpoint = f"unix://{tmp_path / 'absent.sock'}"
     env = dict(os.environ, XDG_STATE_HOME=str(tmp_path / "state"))
+    empty_lib = tmp_path / "empty-ctk-libs"
+    empty_lib.mkdir(exist_ok=True)
 
     local = subprocess.run(
         [sys.executable, "-m", "clang_toolkit.cli.app", "--server", endpoint,
+         "--lib-dir", str(empty_lib),
          "-e", 'print "LOCAL_BATCH_OK"'],
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env=env, timeout=10, check=False,
@@ -288,6 +305,7 @@ def test_local_batch_and_syntax_error_do_not_connect_to_server(tmp_path):
 
     invalid = subprocess.run(
         [sys.executable, "-m", "clang_toolkit.cli.app", "--server", endpoint,
+         "--lib-dir", str(empty_lib),
          "-e", 'print "MUST_NOT_RUN"\n"unterminated'],
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env=env, timeout=10, check=False,

@@ -14,6 +14,18 @@ from clang_toolkit.cli import app
 from clang_toolkit.client import Client
 
 
+@pytest.fixture(autouse=True)
+def isolate_default_libraries(monkeypatch, tmp_path):
+    original = app.preload_libraries
+    empty = tmp_path / "empty-ctk-libs"
+    empty.mkdir()
+
+    def preload(runtime, directory=None):
+        return original(runtime, empty if directory is None else directory)
+
+    monkeypatch.setattr(app, "preload_libraries", preload)
+
+
 class TerminalInput(io.StringIO):
     def isatty(self) -> bool:
         return True

@@ -28,10 +28,11 @@ from clang_toolkit._generated.match.v1 import match_service_pb2, match_service_p
 from clang_toolkit._generated.match.v1 import match_result_pb2
 from clang_toolkit._generated.match.v1 import match_stream_pb2
 from clang_toolkit._generated.match.v1 import resources_pb2
-from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2
+from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2, call_graph_request_pb2, call_graph_stream_pb2
 from clang_toolkit._generated.analysis.v1 import traverse_stream_pb2, traverse_request_pb2
 from clang_toolkit._generated.analysis.v1 import cfg_stream_pb2, cfg_request_pb2
 from clang_toolkit.cfg_stream import CfgStreamState
+from clang_toolkit.call_graph_stream import CallGraphStreamState
 from clang_toolkit.variable_flow import VariableFlowState
 from clang_toolkit._generated.analysis.v1 import variable_flow_pb2
 from clang_toolkit._generated.analysis.v1 import batch_pb2
@@ -1274,29 +1275,126 @@ class AsyncClient:
     ) -> BatchRun:
         return await self._control_batch("RetryBatch", run, expected_revision)
 
-    async def callgraph(self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, *,
+    async def callgraph(self, target: MatchTarget | Path, function: str | None = None, *,
                         working_directory: str | Path | None = None,
                         compile_arguments: Sequence[str] = (), visit_implicit_code: bool | None = None,
                         visit_template_instantiations: bool | None = None, max_nodes: int | None = None,
-                        max_edges: int | None = None, projection: str = "shallow",
+                        max_edges: int | None = None, max_call_sites: int | None = None,
+                        direction: str | int | None = None, max_depth: int | None = None,
+                        projection: str = "shallow",
                         main_file_only: bool = False, payload_depth: int = 24,
                         payload_nodes: int = 10000,
                         scope: ResourceScope[AsyncClient] | str | None = None) -> call_graph_response_pb2.CallGraphResponse:
-        path, input_descriptor = _analysis_input(path)
-        request = call_graph_request(path, working_directory=working_directory,
-            compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
-            visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
-            max_edges=max_edges, projection=projection, main_file_only=main_file_only,
-            payload_depth=payload_depth, payload_nodes=payload_nodes)
-        _apply_input_descriptor(request.file, input_descriptor)
-        request.resource_scope_id = _scope_id(scope)
+        request = _call_graph_value_request(self, target, function,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            visit_implicit_code=visit_implicit_code,
+            visit_template_instantiations=visit_template_instantiations,
+            max_nodes=max_nodes, max_edges=max_edges, max_call_sites=max_call_sites,
+            direction=direction, max_depth=max_depth, projection=projection,
+            main_file_only=main_file_only, payload_depth=payload_depth,
+            payload_nodes=payload_nodes, scope=scope)
+        return await self._collect_call_graph_request(request)
+
+    async def callgraph_stream(
+        self, target: MatchTarget | Path, function: str | None = None, **kwargs: Any,
+    ) -> AsyncIterator[call_graph_stream_pb2.CallGraphStreamEvent]:
+        """Yield graph events; exhaust the iterator to verify completion and status."""
+        request = _call_graph_value_request(self, target, function, **kwargs)
+        async with aclosing(self._call_graph_events(request)) as events:
+            async for event in events:
+                yield event
+
+    async def stream_callgraph(
+        self, target: MatchTarget | Path, function: str | None = None, *,
+        on_event: Callable[..., Any], **kwargs: Any,
+    ) -> call_graph_stream_pb2.CallGraphCompleted:
+        """Consume call-graph events with backpressure and return terminal counts."""
+        request = _call_graph_value_request(self, target, function, **kwargs)
+        return await self._stream_call_graph_request(request, on_event=on_event)
+
+    async def _stream_call_graph_request(
+        self, request: call_graph_request_pb2.CallGraphRequest, *,
+        on_event: Callable[..., Any],
+    ) -> call_graph_stream_pb2.CallGraphCompleted:
+        completed = None
+        async with aclosing(self._call_graph_events(request)) as events:
+            async for event in events:
+                outcome = on_event(event)
+                if inspect.isawaitable(outcome):
+                    await outcome
+                if event.HasField("completed"):
+                    completed = event.completed
+        assert completed is not None
+        return completed
+
+    async def _call_graph_events(
+        self, request: call_graph_request_pb2.CallGraphRequest,
+    ) -> AsyncIterator[call_graph_stream_pb2.CallGraphStreamEvent]:
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
+        self._begin_value_operation()
+        call = None
+        consumed = False
+        state = CallGraphStreamState()
         try:
-            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).CallGraph(
+            call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamCallGraph(
                 self._compilation_request(request), timeout=self.config.rpc_timeout)
+            async for event in call:
+                state.consume(event)
+                yield event
+            status = call.code()
+            if inspect.isawaitable(status):
+                status = await status
+            if status != grpc.StatusCode.OK:
+                raise AnalysisError(status, "call-graph stream did not finish successfully")
+            state.finish()
+            consumed = True
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
+        finally:
+            if call is not None and not consumed and not call.done():
+                call.cancel()
+            self._end_value_operation()
+
+    async def _collect_call_graph_request(
+        self, request: call_graph_request_pb2.CallGraphRequest,
+    ) -> call_graph_response_pb2.CallGraphResponse:
+        response = call_graph_response_pb2.CallGraphResponse()
+        received_event = False
+        async def collect(event: call_graph_stream_pb2.CallGraphStreamEvent) -> None:
+            nonlocal received_event
+            received_event = True
+            if event.HasField("graph_started"):
+                response.CopyFrom(event.graph_started.graph)
+                response.ClearField("availability")
+            elif event.HasField("node"):
+                record = event.node.node
+                response.nodes.add().CopyFrom(record)
+                _append_call_graph_availability(response, record)
+            elif event.HasField("edge"):
+                record = event.edge.edge
+                response.edges.add().CopyFrom(record)
+                _append_call_graph_availability(response, record)
+            elif event.HasField("call_site"):
+                record = event.call_site.call_site
+                response.call_sites.add().CopyFrom(record)
+                _append_call_graph_availability(response, record)
+            elif event.HasField("completed"):
+                response.is_complete = event.completed.is_complete
+        try:
+            await self._stream_call_graph_request(request, on_event=collect)
+        except AnalysisError as error:
+            if (received_event or error.code != grpc.StatusCode.UNIMPLEMENTED
+                    or request.WhichOneof("target") != "file"):
+                raise
+            self._ensure_stub()
+            assert self._channel is not None and self.config is not None
+            try:
+                return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).CallGraph(
+                    self._compilation_request(request), timeout=self.config.rpc_timeout)
+            except grpc.aio.AioRpcError as unary_error:
+                raise AnalysisError(unary_error.code(), unary_error.details()) from unary_error
+        return response
 
     async def match_file(
         self, path: str | Path, query: MatcherInput, *,
@@ -2222,12 +2320,18 @@ class Client:
         )
 
     def callgraph(
-                  self,
-                  path: str | Path | FileHandle[Client] | InputDescriptor | None = None,
+                  self, target: MatchTarget | Path, function: str | None = None,
                   **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse:
-        if path is None:
-            raise ValueError("callgraph requires a file path")
-        return self._cursor_call("callgraph", path, **kwargs)
+        request = _call_graph_value_request(self, target, function, **kwargs)
+        return self._cursor_call("_collect_call_graph_request", request)
+
+    def stream_callgraph(self, target: MatchTarget | Path, function: str | None = None,
+                         *, on_event: Callable[..., Any], **kwargs: Any
+                         ) -> call_graph_stream_pb2.CallGraphCompleted:
+        request = _call_graph_value_request(self, target, function, **kwargs)
+        async def callback(event: Any) -> None:
+            await _invoke_sync_callback(on_event, event)
+        return self._cursor_call("_stream_call_graph_request", request, on_event=callback)
 
 
 def _raise_cleanup_errors(errors: Sequence[BaseException]) -> None:
@@ -2377,6 +2481,22 @@ class _AsyncExpressionAdapter:
         return self._call("stream_cfg", function if path is None else path,
                           None if path is None else function, on_event=callback, **kwargs)
 
+    def callgraph(self, target: MatchTarget | Path, function: str | None = None,
+                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse:
+        return self._call("callgraph", target, function, **kwargs)
+
+    def stream_callgraph(self, target: MatchTarget | Path, function: str | None = None,
+                         *, on_event: Callable[..., Any], **kwargs: Any
+                         ) -> call_graph_stream_pb2.CallGraphCompleted:
+        async def callback(event: Any) -> None:
+            task = asyncio.current_task()
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_event, event)
+            finally:
+                self._row_callbacks.discard(task)
+        return self._call("stream_callgraph", target, function, on_event=callback, **kwargs)
+
     def match(self, query: MatcherInput, *, files: Sequence[str] | None = None,
               **kwargs: Any) -> list[Any]:
         return self._call("match", query, files or (), **kwargs)
@@ -2440,6 +2560,105 @@ def _cfg_value_request(client: Client | AsyncClient, target: MatchTarget | Path,
     kind = selected.WhichOneof("target")
     getattr(request, kind).CopyFrom(getattr(selected, kind))
     request.resource_scope_id = selected.resource_scope_id
+    return request
+
+
+def _append_call_graph_availability(response: Any, record: Any) -> None:
+    """Aggregate per-record coverage in the same order as the unary response."""
+    for availability in getattr(record, "availability", ()):
+        response.availability.add().CopyFrom(availability)
+
+
+def _call_graph_value_request(
+    client: Client | AsyncClient, target: MatchTarget | Path,
+    function: str | None = None, *,
+    working_directory: str | Path | None = None,
+    compile_arguments: Sequence[str] = (),
+    visit_implicit_code: bool | None = None,
+    visit_template_instantiations: bool | None = None,
+    max_nodes: int | None = None,
+    max_edges: int | None = None,
+    max_call_sites: int | None = None,
+    direction: str | int | None = None,
+    max_depth: int | None = None,
+    projection: str = "shallow",
+    main_file_only: bool = False,
+    payload_depth: int = 24,
+    payload_nodes: int = 10000,
+    scope: ResourceScope[Any] | str | None = None,
+) -> call_graph_request_pb2.CallGraphRequest:
+    if function is not None and (not isinstance(function, str) or not function):
+        raise ValueError("function must be a non-empty string")
+    if isinstance(target, BindingSelection) and function is not None:
+        raise ValueError("omit function when using an exact retained binding")
+    exact_call_site = (
+        isinstance(target, BindingSelection)
+        and target._binding_data is not None
+        and target.value.HasField("call_site")
+    )
+    if exact_call_site and direction is not None:
+        raise ValueError("direction and depth apply to callable targets, not call expressions")
+    if exact_call_site and max_depth is not None:
+        raise ValueError("depth applies to callable targets, not call expressions")
+    if max_call_sites is not None and (type(max_call_sites) is not int or not 1 <= max_call_sites <= 1000000):
+        raise ValueError("max_call_sites must be 1..1000000")
+    if max_depth is not None and (type(max_depth) is not int or not 0 <= max_depth <= 32):
+        raise ValueError("max_depth must be 0..32")
+    directions = {
+        "out": call_graph_request_pb2.CALL_GRAPH_DIRECTION_OUT,
+        "in": call_graph_request_pb2.CALL_GRAPH_DIRECTION_IN,
+        "both": call_graph_request_pb2.CALL_GRAPH_DIRECTION_BOTH,
+    }
+    if isinstance(direction, str):
+        if direction not in directions:
+            raise ValueError("direction must be in, out or both")
+        direction_value = directions[direction]
+    elif direction is None:
+        direction_value = None
+    elif type(direction) is int and direction in directions.values():
+        direction_value = direction
+    else:
+        raise ValueError("direction must be in, out or both")
+
+    if isinstance(target, str | Path | InputDescriptor):
+        path, descriptor = _analysis_input(target)
+        request = call_graph_request(path, working_directory=working_directory,
+            compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
+            visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
+            max_edges=max_edges, projection=projection, main_file_only=main_file_only,
+            payload_depth=payload_depth, payload_nodes=payload_nodes)
+        if descriptor is not None:
+            _apply_input_descriptor(request.file, descriptor)
+    else:
+        selected = _value_request(client, "decl()", target,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            scope=scope)
+        request = call_graph_request("unused", visit_implicit_code=visit_implicit_code,
+            visit_template_instantiations=visit_template_instantiations,
+            max_nodes=max_nodes, max_edges=max_edges, projection=projection,
+            main_file_only=main_file_only, payload_depth=payload_depth,
+            payload_nodes=payload_nodes)
+        request.ClearField("file")
+        kind = selected.WhichOneof("target")
+        if kind is None:
+            raise MatchValueError("callgraph target has no retained selector")
+        getattr(request, kind).CopyFrom(getattr(selected, kind))
+        request.resource_scope_id = selected.resource_scope_id
+
+    if function is not None:
+        request.function = function
+    if max_call_sites is not None:
+        request.max_call_sites = max_call_sites
+    if direction_value is not None:
+        request.direction = direction_value
+    if function is not None:
+        if direction_value is None:
+            request.direction = call_graph_request_pb2.CALL_GRAPH_DIRECTION_OUT
+        request.max_depth = 1 if max_depth is None else max_depth
+    elif max_depth is not None:
+        request.max_depth = max_depth
+    if scope is not None:
+        request.resource_scope_id = _scope_id(scope)
     return request
 
 
