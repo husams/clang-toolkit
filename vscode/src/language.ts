@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
 import * as vscode from "vscode";
+import { actionCompletionSource } from "./actions.js";
 import { AutomaticClassSuggestions } from "./automatic-class-suggestions.js";
 import { ClassNameService } from "./class-name-service.js";
 import {
@@ -64,10 +65,16 @@ export async function registerLanguage(
         return service;
       });
     try {
-      const source = document.getText();
-      return await (await starting).request(
-        source,
-        toCodePointOffset(source, document.offsetAt(position)),
+      const original = document.getText();
+      const cursor = toCodePointOffset(original, document.offsetAt(position));
+      const action = document.uri.fsPath.endsWith(".ctk-action")
+        ? actionCompletionSource(document.uri.fsPath, original, cursor)
+        : undefined;
+      if (document.uri.fsPath.endsWith(".ctk-action") && !action)
+        return { id: 0, items: [], functions: {} };
+      const data = await (await starting).request(
+        action?.source ?? original,
+        action?.cursor ?? cursor,
         directory,
         config.get<string>("libraryDirectory", ""),
         document.uri.scheme === "file"
@@ -75,6 +82,17 @@ export async function registerLanguage(
           : directory,
         targetFile(),
       );
+      if (action) {
+        data.items = data.items
+          ?.filter((item) => item.start + action.delta >= 0)
+          .map((item) => ({ ...item, start: item.start + action.delta }));
+        if (data.symbols)
+          data.symbols = {
+            ...data.symbols,
+            start: data.symbols.start + action.delta,
+          };
+      }
+      return data;
     } catch (error) {
       output.appendLine(String(error));
       if (!warned) {

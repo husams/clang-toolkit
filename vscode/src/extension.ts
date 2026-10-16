@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as vscode from "vscode";
 import { z } from "zod";
+import { ActionsController } from "./actions-controller.js";
 import { findPython } from "./console-service.js";
 import { registerLanguage } from "./language.js";
 import {
@@ -63,8 +64,14 @@ const custom: Action = {
 };
 export class Prototype {
   readonly view: AnalysisView;
+  readonly actions: ActionsController;
+  private tab: "symbols" | "actions" = "symbols";
   private readonly details: DetailsView;
   private readonly output = vscode.window.createOutputChannel("CTK Output");
+  private readonly taskStatus = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    39,
+  );
   private target?: vscode.Uri;
   private customDocument: vscode.TextDocument | undefined;
   private action: Action = predefined[0] ?? custom;
@@ -90,8 +97,21 @@ export class Prototype {
       },
       () => this.publish(),
     );
+    this.actions = new ActionsController(
+      context,
+      () => this.publish(),
+      async () => {
+        this.tab = "actions";
+        await this.view.reveal();
+        this.publish();
+      },
+      (result) => this.showResult(result),
+      this.output,
+    );
     context.subscriptions.push(
       this.output,
+      this.taskStatus,
+      this.actions,
       vscode.window.registerWebviewViewProvider("ctk.analysis", this.view, {
         webviewOptions: { retainContextWhenHidden: true },
       }),
@@ -117,6 +137,8 @@ export class Prototype {
   }
   snapshot(): unknown {
     return {
+      tab: this.tab,
+      actions: this.actions.snapshot(),
       action: this.action,
       values: this.values,
       kinds: this.kinds,
@@ -140,7 +162,15 @@ export class Prototype {
     return this.target?.fsPath;
   }
   private publish(): void {
+    if (this.active || this.preparing) {
+      this.taskStatus.text = `$(loading~spin) CTK · ${this.action.kind === "script" ? "script" : "search"} · cancel`;
+      this.taskStatus.command = "ctk.cancelSearch";
+      this.taskStatus.show();
+    } else this.taskStatus.hide();
     this.view.post({ type: "state", state: this.snapshot() });
+  }
+  cancelSearch(): void {
+    this.active?.cancel();
   }
   private fail(error: unknown): void {
     this.errors = [error instanceof Error ? error.message : String(error)];
@@ -152,6 +182,15 @@ export class Prototype {
     this.publish();
   }
   private async receive(raw: unknown): Promise<void> {
+    const tab = z
+      .object({ type: z.literal("tab"), tab: z.enum(["symbols", "actions"]) })
+      .safeParse(raw);
+    if (tab.success) {
+      this.tab = tab.data.tab;
+      this.publish();
+      return;
+    }
+    if (await this.actions.receive(raw)) return;
     const message = messageSchema.parse(raw);
     switch (message.type) {
       case "ready":
@@ -317,6 +356,10 @@ export class Prototype {
   }
   async currentScript(): Promise<void> {
     const document = vscode.window.activeTextEditor?.document;
+    if (document?.uri.fsPath.endsWith(".ctk-action")) {
+      await this.actions.current(document);
+      return;
+    }
     if (document?.languageId !== "ctk")
       throw new Error("Open a CTK script first");
     if (
@@ -398,6 +441,7 @@ export class Prototype {
     this.publish();
     try {
       if (override) {
+        this.tab = "symbols";
         this.customDocument = undefined;
         this.action = override.action;
         this.values = override.values ?? {};
@@ -443,8 +487,9 @@ export class Prototype {
           ? { libraryDirectory: config.get<string>("libraryDirectory", "") }
           : {}),
       };
-      const progress = (text: string) =>
-        this.view.post({ type: "progress", text });
+      const progress = (text: string) => {
+        this.taskStatus.tooltip = `${text} · Click to cancel`;
+      };
       const worker =
         this.action.kind === "script"
           ? startConsoleWorker(
@@ -491,6 +536,9 @@ export class Prototype {
   async openResult(id: string): Promise<void> {
     const result = this.results.find((r) => r.id === id);
     if (!result) throw new Error("This result is no longer available");
+    await this.showResult(result);
+  }
+  private async showResult(result: Result): Promise<void> {
     const document = await vscode.workspace.openTextDocument(
       vscode.Uri.file(result.file),
     );
@@ -522,6 +570,12 @@ export async function activate(
       (uri?: vscode.Uri) => prototype.choose("predefined", uri, true),
     ],
     ["ctk.runCurrentScript", () => prototype.currentScript()],
+    ["ctk.cancelSearch", () => prototype.cancelSearch()],
+    ["ctk.runAction", (uri?: vscode.Uri) => prototype.actions.choose(uri)],
+    ["ctk.createAction", () => prototype.actions.create()],
+    ["ctk.cancelAction", () => prototype.actions.cancel()],
+    ["ctk.refreshActions", () => prototype.actions.refresh()],
+    ["ctk.closeActions", () => prototype.actions.close()],
   ] as const)
     context.subscriptions.push(
       vscode.commands.registerCommand(name, (...args: unknown[]) =>

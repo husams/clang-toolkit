@@ -167,3 +167,83 @@ dd {
   /* biome-ignore lint/complexity/noImportantStyles: the hidden attribute must override component display rules. */
   display: none !important;
 }
+.tabs {
+  display: flex;
+  margin: -12px -12px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+.tabs button {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+}
+.tabs [aria-selected="true"] {
+  border-bottom-color: var(--vscode-focusBorder);
+  color: var(--vscode-foreground);
+}
+.picker-row {
+  display: flex;
+  gap: 6px;
+}
+.picker-row .select {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-tools {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.context-tools button {
+  padding: 3px 6px;
+  background: transparent;
+}
+#node-context,
+#node-selected,
+#node-description {
+  overflow-wrap: anywhere;
+}
+#node-arguments input,
+#node-arguments select {
+  margin: 4px 0;
+}
+#node-error {
+  color: var(--vscode-errorForeground);
+  overflow-wrap: anywhere;
+}
+.result-toolbar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--vscode-panel-border);
+  padding-top: 8px;
+  flex-wrap: wrap;
+}
+.result-toolbar button {
+  padding: 4px 6px;
+  background: transparent;
+}
+.result-toolbar [aria-pressed="true"] {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+#node-results details details {
+  margin-left: 12px;
+  border-left: 1px solid var(--vscode-tree-indentGuidesStroke);
+  padding-left: 6px;
+}
+#node-selection {
+  border: 1px solid var(--vscode-focusBorder);
+  padding: 8px;
+  margin-top: 8px;
+}
+#node-selection p {
+  margin-top: 0;
+}

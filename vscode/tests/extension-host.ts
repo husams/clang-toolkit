@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { realpath } from "node:fs/promises";
 import * as vscode from "vscode";
+import type { ActionNode } from "../src/actions.js";
 import type { Prototype } from "../src/extension.js";
 import { predefined, scriptAction } from "../src/model.js";
 export async function run(): Promise<void> {
@@ -318,7 +320,164 @@ export async function run(): Promise<void> {
   assert.ok(
     executed.results.some((item) => item.name === "demo::Order::quantity"),
   );
+  const actionTarget = vscode.Uri.joinPath(folder.uri, "node-actions.cpp");
+  await vscode.workspace.fs.writeFile(
+    actionTarget,
+    Buffer.from(
+      "int adjust(int value) { return value + 1; }\nint processOrder(int quantity) { return adjust(quantity); }\nint unrelated() { return 0; }\n",
+    ),
+  );
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(actionTarget),
+  );
+  const catalog = await api.actions.catalog();
+  const functions = catalog.find((a) => a.id === "find-function"),
+    calls = catalog.find((a) => a.id === "find-calls");
+  assert.ok(functions);
+  assert.ok(calls);
+  await api.actions.setAction(functions);
+  const actionRun = api.actions.run(
+    undefined,
+    { name: "processOrder" },
+    actionTarget,
+  );
+  await assert.rejects(api.actions.run(), /already running/);
+  await actionRun;
+  type ActionSnapshot = {
+    results: ActionNode[];
+    matches: number;
+    parseCount: number;
+    error: string;
+    input: { id: string };
+    stale: boolean;
+    rendered?: { view: string; nodes: number; groups: number };
+  };
+  const actionState = () => api.actions.snapshot() as ActionSnapshot;
+  assert.equal(actionState().matches, 1, JSON.stringify(actionState()));
+  assert.equal(actionState().parseCount, 1);
+  const binding = actionState().results.find((r) => r.binding === "function");
+  assert.ok(binding);
+  async function renderedActions(view: string) {
+    const end = Date.now() + 10000;
+    while (Date.now() < end) {
+      const s = actionState();
+      if (
+        s.rendered?.view === view &&
+        s.rendered.nodes === s.results.length &&
+        s.rendered.groups > 0
+      )
+        return;
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    assert.fail(
+      `Action webview did not render ${view}: ${JSON.stringify(actionState())}`,
+    );
+  }
+  await renderedActions("bindings");
+  await api.actions.receive({ type: "nodeView", view: "files" });
+  await renderedActions("files");
+  await api.actions.select(binding.nodeId);
+  assert.equal(actionState().stale, false, JSON.stringify(actionState()));
+  assert.equal(
+    vscode.window.activeTextEditor?.document.uri.fsPath,
+    await realpath(actionTarget.fsPath),
+  );
+  await api.actions.setAction(calls, true);
+  assert.equal(
+    actionState().input.id,
+    binding.nodeId,
+    "follow-up must use the selected binding handle",
+  );
+  await api.actions.run();
+  assert.equal(actionState().matches, 1, JSON.stringify(actionState()));
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "follow-up must reuse the parsed translation unit",
+  );
+  assert.ok(
+    actionState().results.some(
+      (r) => r.binding === "call" && r.excerpt.includes("adjust(quantity)"),
+    ),
+  );
+  await renderedActions("files");
+  await api.actions.receive({ type: "nodeBack" });
+  assert.equal(
+    actionState().results.find((r) => r.binding === "function")?.nodeId,
+    binding.nodeId,
+  );
+  const actionFolder = vscode.Uri.joinPath(folder.uri, ".ctk", "actions");
+  await vscode.workspace.fs.createDirectory(actionFolder);
+  const actionUri = vscode.Uri.joinPath(
+    actionFolder,
+    "workspace-function.ctk-action",
+  );
+  const actionSource =
+    '---\nname: workspace-function\ndescription: Find a named function\narguments:\n  - name: name\n    description: Function name\n    default: processOrder\n---\nmatch functionDecl(hasName(name)).bind("function") in node\n';
+  await vscode.workspace.fs.writeFile(actionUri, Buffer.from(actionSource));
+  const actionDoc = await vscode.workspace.openTextDocument(actionUri);
+  assert.equal(actionDoc.languageId, "ctk");
+  assert.ok(
+    (await api.actions.catalog()).some(
+      (a) => a.id === "workspace-function" && a.origin === "Workspace",
+    ),
+  );
+  const draft = actionSource.replace(
+    "functionDecl(hasName(name))",
+    "functionDecl(isDef())",
+  );
+  const editAction = new vscode.WorkspaceEdit();
+  editAction.replace(
+    actionUri,
+    new vscode.Range(
+      actionDoc.positionAt(0),
+      actionDoc.positionAt(actionDoc.getText().length),
+    ),
+    draft,
+  );
+  await vscode.workspace.applyEdit(editAction);
+  const actionCompletions =
+    await vscode.commands.executeCommand<vscode.CompletionList>(
+      "vscode.executeCompletionItemProvider",
+      actionUri,
+      actionDoc.positionAt(draft.indexOf("isDef") + 5),
+    );
+  const actionItem = actionCompletions?.items.find(
+    (item) => item.label === "isDefinition",
+  );
+  assert.ok(actionItem?.range instanceof vscode.Range);
+  const insertAction = new vscode.WorkspaceEdit();
+  insertAction.replace(
+    actionUri,
+    actionItem.range,
+    String(actionItem.insertText),
+  );
+  await vscode.workspace.applyEdit(insertAction);
+  assert.equal(
+    actionDoc.getText(),
+    draft.replace("isDef", "isDefinition"),
+    "YAML action completion must preserve front matter and later CTK",
+  );
+  await vscode.window.showTextDocument(actionDoc);
+  await vscode.commands.executeCommand("ctk.runCurrentScript");
+  assert.equal(actionState().error, "");
+  assert.equal(actionState().matches, 3);
+  const cppDoc = await vscode.workspace.openTextDocument(actionTarget);
+  const dirty = new vscode.WorkspaceEdit();
+  dirty.insert(
+    actionTarget,
+    cppDoc.positionAt(cppDoc.getText().length),
+    "// edited\n",
+  );
+  await vscode.workspace.applyEdit(dirty);
+  assert.equal(
+    actionState().stale,
+    true,
+    "editing C++ must invalidate retained results",
+  );
+  await assert.rejects(api.actions.run(), /stale/);
+  await api.actions.close();
   console.log(
-    "CTK_EXTENSION_HOST_PASS: unified native analyses, scripts, completion, hover and source/details",
+    "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, both result views, retained-node follow-up, history, stale edits and completion",
   );
 }

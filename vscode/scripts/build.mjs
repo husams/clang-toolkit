@@ -34,6 +34,21 @@ await writeFile(
       name: "CTK Script",
       scopeName: "source.ctk",
       patterns: [
+        {
+          name: "meta.frontmatter.yaml",
+          begin: "\\A\uFEFF?---[ \\t]*$",
+          end: "^---[ \\t]*$",
+          patterns: [
+            {
+              name: "entity.name.tag.yaml",
+              match: "\\b(?:name|description|arguments|type|default)(?=:)",
+            },
+            { name: "string.quoted.double.yaml", begin: '"', end: '"' },
+            { name: "string.quoted.single.yaml", begin: "'", end: "'" },
+            { name: "constant.language.yaml", match: "\\b(true|false)\\b" },
+            { name: "comment.line.number-sign.yaml", begin: "#", end: "$" },
+          ],
+        },
         { name: "comment.line.double-slash.ctk", begin: "//|#", end: "$" },
         { name: "comment.block.ctk", begin: "/\\*", end: "\\*/" },
         {

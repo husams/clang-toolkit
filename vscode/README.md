@@ -1,6 +1,6 @@
 # Clang Toolkit VS Code prototype
 
-One Semantic Analysis view runs predefined analyses, saved scripts and custom CTK blocks. Find symbols is the default action; the function, class and variable actions are presets. Changing actions changes the inputs while preserving scope, execution, results and source/details. This executable prototype uses the existing TypeScript SDK and native server; search results are real.
+Semantic Analysis has two tabs: **Symbol Search** and **Actions**. Symbol Search finds declarations by name, with scope and kind filters under Options. Actions run YAML-described CTK functions on a retained file root or a selected match binding. Both use the real native server. Ordinary console scripts remain available from the editor and file menu.
 
 ## Run
 
@@ -20,13 +20,56 @@ Press F5 and select **Run CTK Prototype**. Set `ctk.server` to an endpoint such 
 
 Alternatively, run `pnpm package` and use **Extensions → Install from VSIX…** with `artifacts/clang-toolkit-prototype.vsix`.
 
-The Activity Bar hexagon opens Semantic Analysis. Choose an analysis, set inputs and scope, then run. Results group by file; clicking a row opens source and the **CTK Result** bottom panel. Raw semantic fields remain inspectable. Script runs open **CTK Output** automatically with the console's rendered output and diagnostics. Failed files stay visible beside partial results. File/result limits are explicit. Stop requests console cancellation and cleanup; an unresponsive worker is terminated after ten seconds.
+The Activity Bar hexagon opens Semantic Analysis. Server connection state and running work appear in the status bar; click the running task there to cancel. Clicking a result opens source and the **CTK Result** panel. Raw semantic fields remain inspectable. Plain script runs open **CTK Output** with the console's rendered output and diagnostics. Search file/result limits are explicit.
 
 Workspace scope searches the active file's workspace folder (or the first folder if none is active). **Open Output** exposes script emissions and error details directly from the shared panel.
 
-Right-click a C++ file: **CTK → Run Script…** or **Run Predefined…**. These use the same catalog and parameter collection. Semantic Analysis has its own icon, with no search entry in the file menu. CTK editors have a Run button. Syntax colors distinguish commands, matcher categories, strings, numbers, variables and comments.
+Right-click a C++ file: **CTK → Select Action…** pins that file as the initial action target. **Run Script…** and **Run Predefined…** retain the original console-script and search commands. Semantic Analysis has its own icon, with no search entry in the file menu. CTK editors have a Run button. Syntax colors distinguish YAML front matter, commands, matcher categories, strings, numbers, variables and comments.
 
-Autocomplete uses the console's actual grammar-aware completion engine. Suggestions appear while typing and after `.`, `$`, `(`, comma and space. Match results, strings, lists, dictionaries and parsed trees receive console member suggestions inferred from their declarations. Local functions and helpers in `~/.ctk/lib` (or `ctk.libraryDirectory`) show signatures, default parameters and Markdown definitions. Function calls display argument hints. Earlier-line edits preserve later text and existing parentheses. Drafts and helper bodies are inspected without execution; members requiring unknown runtime values cannot be inferred. The sidebar block is a preview; **Edit in CTK editor** opens or reuses the editor with these features.
+## Node actions
+
+1. Open a C++ file, select **Actions**, and use the single **Select action…** picker. It lists predefined and workspace actions plus **Create action…**. Without an active C++ file, the first run asks for a file.
+2. Expand **Options** for the action's arguments. Descriptions appear as input hints; required arguments expand automatically. Click **Run** to parse the file and execute the action.
+3. Choose **Bindings** for an outline grouped by binding name, or **Files** for file → match → binding groups. The automatic `root` binding starts collapsed in the outline. Multiple bindings from one match keep their association and independent identities.
+4. Select a binding, then **Run action on selected node…**. The same picker chooses the follow-up action; supply its options and click **Run**. The original native node is passed directly, without reparsing or reconstructing it from displayed JSON. **Back** restores earlier results; **File root** changes the next action's input back to the parsed translation unit.
+5. Source/header edits and CTK configuration changes mark the context stale. Save edits, click **Refresh**, and run again. **Close** releases the context so another active file can be used. Failed or cancelled actions keep the preceding successful results. History is held in memory for at most 32 successful runs; refreshing/closing releases it.
+
+Create workspace actions as `.ctk/actions/*.ctk-action` (other workspace folders are discovered too):
+
+```yaml
+---
+name: find-function
+description: Find function definitions under the selected node.
+arguments:
+  - name: name
+    description: Exact function name; leave empty to find all.
+    type: string
+    default: ""
+---
+if name == "" then {
+    match functionDecl(isDefinition()).bind("function") in node
+} else {
+    match functionDecl(isDefinition(), hasName(name)).bind("function") in node
+}
+```
+
+This is the bundled **Find function** example; use a different unique name for a workspace copy. The extension translates it into an ordinary console function:
+
+```ctk
+let find_function(node, name = '') = {
+    if name == "" then {
+        match functionDecl(isDefinition()).bind("function") in node
+    } else {
+        match functionDecl(isDefinition(), hasName(name)).bind("function") in node
+    }
+}
+```
+
+`node` is implicit and must not be declared in `arguments`. Action names may contain hyphens, which become underscores in the callable; collisions are rejected. Arguments have a CTK identifier, description, optional type (`string`, `number`, `boolean`) and optional typed default. Required arguments precede defaulted ones. Values are passed as literal runtime bindings, without inserting user text into source. The body must return retained CTK matches; scalar/text/JSON/detached-list returns are rejected. Each match binding becomes a selectable live node. Preloaded console helpers and action-local functions/imports are available; helper libraries are loaded once per retained session.
+
+Action files use the same CTK editor completion and signature providers in their bodies, with offsets mapped across the YAML header. The editor Run button uses current unsaved action text. Required arguments are collected in Options before execution. Actions currently start from one translation unit; matches may span its included files, and follow-up actions stay in that parsed context. Symbol Search separately supports workspace scope.
+
+Autocomplete uses the console's actual grammar-aware completion engine. Suggestions appear while typing and after `.`, `$`, `(`, comma and space. Match results, strings, lists, dictionaries and parsed trees receive console member suggestions inferred from their declarations. Local functions and helpers in `~/.ctk/lib` (or `ctk.libraryDirectory`) show signatures, default parameters and Markdown definitions. Function calls display argument hints. Earlier-line edits preserve later text and existing parentheses. Drafts and helper bodies are inspected without execution; members requiring unknown runtime values cannot be inferred.
 
 Filesystem suggestions use the console's path-role provider for commands such as `parse`, `read`, `import`, `load`, `save … to` and `match … in`. They appear while typing quoted paths, after quotes and `/`, or with **Trigger Suggest**. Files and folders have distinct icons; selecting a folder continues into its contents. Paths containing spaces are quoted, and an existing closing quote and later script lines are preserved. This also works inside function bodies and after function definitions. File operands use the workspace directory (the script's folder when no workspace is open); imports use the saved script's own folder. Ordinary strings, matcher names and comments do not receive filesystem suggestions.
 

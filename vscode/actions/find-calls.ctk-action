@@ -1,0 +1,6 @@
+---
+name: find-calls
+description: Find call expressions inside the selected node.
+arguments: []
+---
+match callExpr().bind("call") in node
