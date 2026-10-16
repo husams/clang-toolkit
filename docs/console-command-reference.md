@@ -1240,24 +1240,25 @@ print $report.findings
 Build the static native AST call graph for a file and return a typed value.
 
 ```text
-callgraph PATH [nodes N] [edges N] [callsites N] [direction in|out|both] [depth N] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth N] [payload-nodes N] [format json]
-callgraph in TARGET [direction in|out|both] [depth N] [callsites N] [nodes N] [edges N] [format json]
+callgraph PATH [nodes N] [edges N] [callsites N] [direction in|out|both] [depth N|all] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth N] [payload-nodes N] [format json]
+callgraph in TARGET [direction in|out|both] [depth N|all] [callsites N] [nodes N] [edges N] [format json]
 ```
 
 - PATH: quoted file or path/File reference. nodes: 1..100000 (default 10000).
 - edges: 1..1000000 (default 100000); callsites: 1..1000000. Options may occur once.
-- A retained callable binding selects that exact function and defaults to outgoing depth 1; direction accepts in, out or both and depth accepts 0..32. A call-expression binding selects its exact call site and does not accept direction or depth. A retained ParsedTree selects its full translation unit.
+- A retained callable binding selects that exact function and defaults to outgoing depth 1; direction accepts in, out or both and depth accepts 0..32 or all for every reachable callable. Unlimited depth is cycle-safe and still subject to graph limits. A call-expression binding selects its exact call site and does not accept direction or depth. A retained ParsedTree without a callable seed selects its full translation unit; direction and depth options require one exact callable selector.
 - Omitted implicit/instantiations use Clang CallGraph defaults (both true).
 - projection: shallow by default; recursive expands nested semantic payloads. payload-depth: 1..64 (default 24); payload-nodes: 1..100000 (default 10000 per payload). These limits are independent of graph node/edge limits.
 - main-file true scopes the graph to main-file declarations; default false includes headers. is_complete and external_edges_omitted expose graph coverage.
 - The graph is static: indirect calls do not establish target edges, and virtual entries identify the statically selected declaration rather than runtime targets.
 - Standalone callgraph streams to a compact summary after terminal success. Add format json for raw ProtoJSON. Assignment collects a reusable CallGraph value.
-- CallGraph values support function(qualified_name[, signature]), function(binding), callers(target[, depth]), callees(target[, depth]), grouped_calls(), shortest_path(source, target), shortest_route(source, target), and recursive_components(). grouped_calls() preserves call-site counts and unresolved sites; shortest_route() includes sites witnessing each step. Binding lookup resolves the exact call-graph node so local neighborhoods compose. Neighborhood results are bounded and reindex nodes and edges; the source graph remains unchanged.
+- CallGraph values support function(qualified_name[, signature]), function(binding), callers(target[, depth]), callees(target[, depth]), grouped_calls(), shortest_path(source, target), shortest_route(source, target), and recursive_components(). Local callers/callees accept depth=all over represented graph topology. grouped_calls() preserves call-site counts and unresolved sites; shortest_route() includes sites witnessing each step. Binding lookup resolves the exact call-graph node so local neighborhoods compose. Neighborhood results are bounded and reindex nodes and edges; the source graph remains unchanged.
 - Uses configured extra_args. Bare legacy callgraph is recognized but reports a local error requiring a path.
 
 ```text
 callgraph "examples/parse_match.cc" nodes 10000 edges 100000 projection shallow main-file true payload-depth 2 payload-nodes 1000
 let callers = callgraph in $target direction in depth 2
+let reachable = callgraph in $target direction out depth all
 let calls = callgraph "examples/parse_match.cc" nodes 100 projection shallow main-file true
 print $calls.nodes.length
 ```

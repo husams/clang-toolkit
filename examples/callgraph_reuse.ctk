@@ -6,9 +6,13 @@ print "CALL_SITES={file_graph.call_sites.length}"
 let tree = parse "examples/callgraph_reuse.cc"
 let payments = match functionDecl(isDefinition(), hasName("demo::chargeCard")).bind("f") in tree
 let checkouts = match functionDecl(isDefinition(), hasName("demo::checkout")).bind("f") in tree
+let api_requests = match functionDecl(isDefinition(), hasName("demo::apiRequest")).bind("f") in tree
 let all = callgraph in tree
 print "TREE_NODES={all.nodes.length}"
 print "COMPLETE={all.is_complete}"
+let reachable = callgraph in api_requests[0].f depth all
+print "REACHABLE_FUNCTIONS={reachable.nodes.length - 1}"
+print "REACHABLE_CALLS={reachable.edges.length}"
 
 let incoming = callgraph in payments[0].f direction in depth 2
 save incoming to "/private/tmp/ctk-callgraph-incoming.json" as json

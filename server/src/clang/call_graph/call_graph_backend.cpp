@@ -285,7 +285,7 @@ private:
       if (requested_call &&
           (request.direction() !=
                ctk::analysis::v1::CALL_GRAPH_DIRECTION_UNSPECIFIED ||
-           request.has_max_depth()))
+           request.has_max_depth() || request.unlimited_depth()))
         return {MatchCode::InvalidArgument,
                 "direction and depth apply to callable targets, not call "
                 "expressions",
@@ -354,7 +354,7 @@ private:
             MatchCode::NotFound, "callable not found in pinned snapshot", {}};
       if (!focus && (request.direction() !=
                          ctk::analysis::v1::CALL_GRAPH_DIRECTION_UNSPECIFIED ||
-                     request.has_max_depth()))
+                     request.has_max_depth() || request.unlimited_depth()))
         return {MatchCode::InvalidArgument,
                 "direction and depth require one exact callable selector",
                 {}};
@@ -438,8 +438,10 @@ private:
       if (focus &&
           direction == ctk::analysis::v1::CALL_GRAPH_DIRECTION_UNSPECIFIED)
         direction = ctk::analysis::v1::CALL_GRAPH_DIRECTION_OUT;
-      const auto depth_limit =
-          request.has_max_depth() ? request.max_depth() : 1;
+      const auto depth_limit = request.unlimited_depth()
+                                   ? std::numeric_limits<std::uint64_t>::max()
+                                   : request.has_max_depth() ? request.max_depth()
+                                                             : 1;
       std::vector<std::int64_t> depth(nodes.size(), -1);
       std::vector<bool> selected(nodes.size(), !focus);
       selected[0] = true;
@@ -576,7 +578,10 @@ private:
       if (focus) {
         header->set_focus_node(remap[*focus]);
         header->set_selection_direction(direction);
-        header->set_selection_max_depth(depth_limit);
+        if (request.unlimited_depth())
+          header->set_selection_unlimited_depth(true);
+        else
+          header->set_selection_max_depth(depth_limit);
         header->set_selection_boundary_edges(boundary_edges);
         header->set_selection_boundary_call_sites(boundary_sites);
       }

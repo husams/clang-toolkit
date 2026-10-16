@@ -9,6 +9,7 @@ import pytest
 
 from clang_toolkit import AsyncClient, Client, InputDescriptor, ParsedTree
 from clang_toolkit import client as client_module
+from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit._generated.analysis.v1 import call_graph_stream_pb2 as stream_pb
 from clang_toolkit._generated.match.v1 import match_result_pb2
 from clang_toolkit._value_lifecycle import CursorOwner
@@ -123,6 +124,25 @@ def test_named_function_uses_exact_function_selector_and_shallow_default():
     client.close()
 
 
+def test_unlimited_depth_is_explicit_and_mutually_exclusive_with_numeric_depth():
+    client = Client()
+    selected = BindingSelection(
+        "fn", CursorOwner(client, "session-all", 4, lambda _: None), 0
+    )
+    request = client_module._call_graph_value_request(
+        client, selected, direction="both", max_depth="all"
+    )
+    assert request.unlimited_depth
+    assert not request.HasField("max_depth")
+    assert request.direction == client_module.call_graph_request_pb2.CALL_GRAPH_DIRECTION_BOTH
+    numeric = client_module._call_graph_value_request(
+        client, selected, direction="in", max_depth=3
+    )
+    assert numeric.max_depth == 3
+    assert not numeric.unlimited_depth
+    client.close()
+
+
 def test_call_expression_binding_is_exact_site_without_neighborhood_defaults():
     client = Client()
     owner = CursorOwner(client, "session", 1, lambda _: None)
@@ -202,6 +222,37 @@ def test_async_iterator_and_collector_verify_counts_and_preserve_request(monkeyp
             assert response.is_complete
             assert client._value_operation_count == 0
         assert not stream2.cancelled
+
+    asyncio.run(run())
+    assert not stream.cancelled
+
+
+def test_unlimited_depth_stream_requires_server_confirmation(monkeypatch):
+    events = graph_events()
+    events[0].graph_started.graph.selection_unlimited_depth = True
+    stream, stub = setup_stream(monkeypatch, events)
+
+    async def run():
+        async with AsyncClient(address="unix:///tmp/test.sock") as client:
+            events_seen = [
+                event
+                async for event in client.callgraph_stream(
+                    "fixture.cc", "pkg::f", max_depth="all"
+                )
+            ]
+            assert events_seen[-1].HasField("completed")
+            assert stub.request.unlimited_depth
+            assert not stub.request.HasField("max_depth")
+
+        missing, _ = setup_stream(monkeypatch, graph_events())
+        async with AsyncClient(address="unix:///tmp/test.sock") as client:
+            with pytest.raises(AnalysisError) as error:
+                async for _ in client.callgraph_stream(
+                    "fixture.cc", "pkg::f", max_depth="all"
+                ):
+                    pass
+            assert error.value.code == grpc.StatusCode.FAILED_PRECONDITION
+        assert missing.cancelled
 
     asyncio.run(run())
     assert not stream.cancelled

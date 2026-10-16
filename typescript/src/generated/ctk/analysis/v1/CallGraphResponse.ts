@@ -25,9 +25,11 @@ export interface CallGraphResponse {
   'selectionMaxDepth'?: (number | string | Long);
   'selectionBoundaryEdges'?: (number | string | Long);
   'selectionBoundaryCallSites'?: (number | string | Long);
+  'selectionUnlimitedDepth'?: (boolean);
   '_isComplete'?: "isComplete";
   '_focusNode'?: "focusNode";
   '_selectionMaxDepth'?: "selectionMaxDepth";
+  '_selectionUnlimitedDepth'?: "selectionUnlimitedDepth";
 }
 
 export interface CallGraphResponse__Output {
@@ -48,7 +50,9 @@ export interface CallGraphResponse__Output {
   'selectionMaxDepth'?: (string);
   'selectionBoundaryEdges': (string);
   'selectionBoundaryCallSites': (string);
+  'selectionUnlimitedDepth'?: (boolean);
   '_isComplete'?: "isComplete";
   '_focusNode'?: "focusNode";
   '_selectionMaxDepth'?: "selectionMaxDepth";
+  '_selectionUnlimitedDepth'?: "selectionUnlimitedDepth";
 }

@@ -332,6 +332,8 @@ def console_graph_values(callgraph_console):
     assert "Call graph: 4 functions, 3 calls, 3 call sites, 0 unresolved; complete" in run.stdout
     assert "[seed]" in run.stdout
     for evidence in (
+        "REACHABLE_FUNCTIONS=5",
+        "REACHABLE_CALLS=4",
         "ROUTE_STEPS=2",
         "CALL_GROUPS=6",
         "SELECTED_SITES=1",
@@ -347,6 +349,112 @@ def console_graph_values(callgraph_console):
         assert edge in run.stdout
     assert "demo::checkout -> demo::saveOrder" not in run.stdout
     assert "demo::checkout -> demo::sendReceipt" not in run.stdout
+
+
+@when(
+    "I select all reachable calls from retained callable bindings",
+    target_fixture="unlimited_graph_evidence",
+)
+def unlimited_callgraph(callgraph_server):
+    server, source = callgraph_server
+    chain_source = source.with_name("chain.cc")
+    definitions = [f"void f{index}();" for index in range(37)]
+    for index in range(37):
+        calls = [f"f{index + 1}();"] if index < 36 else ["f1();"]
+        if index == 0:
+            calls.append("f1();")
+        definitions.append(f"void f{index}() {{ {' '.join(calls)} }}")
+    definitions.append("void disconnected() {}")
+    chain_source.write_text("\n".join(definitions), encoding="utf-8")
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            tree = await client.parse(chain_source)
+            seeds = await client.match_in(
+                'functionDecl(isDefinition(), hasName("f0")).bind("f")', tree
+            )
+            tail = await client.match_in(
+                'functionDecl(isDefinition(), hasName("f36")).bind("f")', tree
+            )
+            middle = await client.match_in(
+                'functionDecl(isDefinition(), hasName("f18")).bind("f")', tree
+            )
+            seed = seeds[0].binding("f")
+            default = await client.callgraph(seed)
+            bounded = await client.callgraph(seed, max_depth=32)
+            outgoing = await client.callgraph(seed, max_depth="all")
+            incoming = await client.callgraph(
+                tail[0].binding("f"), direction="in", max_depth="all"
+            )
+            both = await client.callgraph(
+                middle[0].binding("f"), direction="both", max_depth="all"
+            )
+            events = [
+                event
+                async for event in client.callgraph_stream(seed, max_depth="all")
+            ]
+            assert events[0].graph_started.graph.selection_unlimited_depth
+            assert sum(event.HasField("edge") for event in events) == len(outgoing.edges)
+            assert sum(event.HasField("call_site") for event in events) == len(outgoing.call_sites)
+
+            def cancel_after_header(event):
+                if event.HasField("graph_started"):
+                    raise RuntimeError("stop unlimited stream after header")
+
+            with pytest.raises(RuntimeError, match="stop unlimited stream"):
+                await client.stream_callgraph(
+                    seed, max_depth="all", on_event=cancel_after_header
+                )
+            chain_source.unlink()
+            retained_after_removal = await client.callgraph(seed, max_depth="all")
+            limited = []
+            with pytest.raises(AnalysisError) as error:
+                await client.stream_callgraph(
+                    seed, max_depth="all", max_nodes=2, on_event=limited.append
+                )
+            assert error.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+            return (
+                len(default.nodes),
+                len(default.edges),
+                len(bounded.nodes),
+                len(outgoing.nodes),
+                len(outgoing.edges),
+                len(outgoing.call_sites),
+                len(incoming.nodes),
+                len(both.nodes),
+                relationships(outgoing),
+                {node.function.qualified_name for node in outgoing.nodes},
+                relationships(retained_after_removal),
+                bool(outgoing.selection_unlimited_depth),
+            )
+
+    return asyncio.run(run())
+
+
+@then("unlimited callgraph depth crosses 32 hops and terminates on cycles")
+def unlimited_callgraph_is_complete(unlimited_graph_evidence):
+    (
+        default_nodes,
+        default_edges,
+        bounded_nodes,
+        all_nodes,
+        all_edges,
+        all_sites,
+        incoming_nodes,
+        both_nodes,
+        relationships_all,
+        names_all,
+        relationships_retained,
+        unlimited_metadata,
+    ) = unlimited_graph_evidence
+    assert (default_nodes, default_edges) == (3, 2)
+    assert bounded_nodes == 34  # Synthetic root plus f0 through f32.
+    assert all_nodes == incoming_nodes == both_nodes == 38
+    assert all_edges == all_sites == 38
+    assert len(relationships_all) == 38
+    assert relationships_retained == relationships_all
+    assert "disconnected" not in names_all
+    assert unlimited_metadata
 
 
 @given(

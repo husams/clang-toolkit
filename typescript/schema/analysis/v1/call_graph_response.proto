@@ -28,6 +28,9 @@ message CallGraphResponse {
   optional uint64 selection_max_depth = 15;
   uint64 selection_boundary_edges = 16;
   uint64 selection_boundary_call_sites = 17;
+  // Present for callable selections; lets clients detect servers that ignore
+  // the corresponding unlimited_depth request field.
+  optional bool selection_unlimited_depth = 18;
 }
 message CallGraphCallSite {
   uint64 caller_node = 1;
