@@ -1,5 +1,27 @@
 # Node based Actions prototype
 
+## Custom action creation, 0.2.2
+
+- [x] Exercise Create action with both keyboard and mouse in the installed extension.
+- [x] Open an editable, saved template immediately, using a unique file/name and retaining editor focus.
+- [x] Preserve the selected node when creating a follow-up action.
+- [x] Detect expired/closed native contexts and retain the C++ target across Refresh.
+- [x] Verify the real editor workflow, package and update the installed prototype.
+
+The previous Create flow opened a second naming prompt and returned focus to the
+sidebar after opening the editor. Create now opens a pinned action editor directly,
+with unique `my-action`, `my-action-2`, etc. names and no overwrites. Live UI
+testing also reproduced a cursor-unavailable error when running a custom action
+against an old context; expiry now marks the context stale with a Refresh message.
+
+Validation: 21 extension checks, four native action scenarios with default helpers,
+TypeScript/Biome and the complete isolated VS Code host passed. Installed 0.2.2
+in the normal profile and reloaded only the trial window. Clicking Create action
+opened `my-action-2.ctk-action` immediately with editor focus; Run displayed five
+function matches from `actions-demo.cpp`. Isolated test windows closed normally.
+No C++ or shared Python implementation changed; repository-wide limitations from
+0.2.1 below remain.
+
 ## Helper compatibility and installation, 0.2.1
 
 - [x] Reproduce the default helper preload error against the bundled runtime.

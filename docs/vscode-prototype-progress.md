@@ -161,3 +161,30 @@ Running the workspace Order fields action through the unchanged default helper
 library displayed `demo::Order::quantity` in the bindings outline and a connected
 server status. Existing user windows were preserved, and isolated test windows
 closed after verification.
+
+## Custom action creation correction, version 0.2.2
+
+Create action now opens a saved, pinned template directly and keeps editor focus,
+without a second naming prompt. Unique names avoid existing files, invalid action
+files and equivalent callable names. Creating from the selected-node picker keeps
+that exact live input. The owning workspace folder receives the new file.
+
+Manual testing also found that running a custom action after the native cursor
+expired showed `cursor unavailable` without marking the context stale. The
+extension now offers a clear Refresh message and preserves the C++ target when
+refreshing from an action editor. It does not automatically retry user code.
+
+Validation: 21 extension tests, four native action tests (including unchanged
+default helper loading and closed-context recovery), type checking, Biome and the
+complete real VS Code host passed. The host creates two distinct action files,
+runs a new action on a selected function without reparsing, and refreshes/reruns
+while its editor is active. An initial extended host check encountered a delayed
+source-save invalidation; creation checks now precede the existing dirty-source
+scenario so they do not depend on that event timing.
+
+Installed version 0.2.2 in the normal profile and reloaded the existing trial
+window. A mouse click on Create action opened `my-action-2.ctk-action` immediately,
+with editor focus and the correct C++ input. Clicking Run returned five function
+matches and connected status. Existing user windows were preserved; isolated test
+windows closed after verification. The VSIX passed ZIP validation; SHA256 is
+`48cc04ce732a445bca42b507b7162b5cf3926735a95576f8bdd7f1cee3678dbc`.

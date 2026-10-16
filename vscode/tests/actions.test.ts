@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   actionCompletionSource,
   ctkLiteral,
+  newActionName,
   parseNodeAction,
   resolveArguments,
   validateCatalog,
@@ -13,6 +14,17 @@ const source = (
 ) =>
   `---\nname: find-function\ndescription: Find function definitions.\n${yaml}\n---\n${body}`;
 describe("YAML action files", () => {
+  it("creates unique names without overwriting existing or invalid action files", () => {
+    expect(newActionName([], [])).toBe("my-action");
+    const existing = parseNodeAction(
+      "alias.ctk-action",
+      source("arguments: []").replace("find-function", "my_action"),
+    );
+    expect(newActionName([existing], ["MY-ACTION-2.ctk-action"])).toBe(
+      "my-action-3",
+    );
+    expect(newActionName([], ["my-action.ctk-action"])).toBe("my-action-2");
+  });
   it("maps completion edits back across YAML and Unicode without evaluating the body", () => {
     const original = source("arguments: []", "// 🧭\nmatch functionDecl(isDef");
     const mapped = actionCompletionSource(

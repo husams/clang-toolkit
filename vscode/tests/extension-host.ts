@@ -462,6 +462,41 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand("ctk.runCurrentScript");
   assert.equal(actionState().error, "");
   assert.equal(actionState().matches, 3);
+  const currentFunction = actionState().results.find(
+    (result) => result.binding === "function" && result.name === "processOrder",
+  );
+  assert.ok(currentFunction);
+  await api.actions.select(currentFunction.nodeId);
+  await api.actions.create(true);
+  const created = vscode.window.activeTextEditor?.document;
+  assert.ok(created?.uri.fsPath.endsWith("/my-action.ctk-action"));
+  assert.equal(created.isDirty, false);
+  assert.ok(created.getText().includes("name: my-action"));
+  assert.equal(actionState().input.id, currentFunction.nodeId);
+  assert.ok(
+    (await api.actions.catalog()).some((action) => action.id === "my-action"),
+  );
+  await api.actions.run();
+  assert.equal(
+    actionState().matches,
+    1,
+    "new action must run on the selected node",
+  );
+  assert.equal(actionState().parseCount, 1);
+  await api.actions.create();
+  assert.ok(
+    vscode.window.activeTextEditor?.document.uri.fsPath.endsWith(
+      "/my-action-2.ctk-action",
+    ),
+  );
+  assert.equal(created.getText().includes("name: my-action\n"), true);
+  await api.actions.refresh();
+  await api.actions.run();
+  assert.equal(
+    actionState().matches,
+    3,
+    "refresh must preserve the C++ target while editing the new action",
+  );
   const cppDoc = await vscode.workspace.openTextDocument(actionTarget);
   const dirty = new vscode.WorkspaceEdit();
   dirty.insert(

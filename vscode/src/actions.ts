@@ -202,6 +202,22 @@ export type ActionReport = z.infer<typeof actionReportSchema>;
 
 export const actionTemplate = `---\nname: my-action\ndescription: Find function definitions under the selected node.\narguments: []\n---\nmatch functionDecl(isDefinition()).bind("function") in node\n`;
 
+export function newActionName(
+  actions: readonly NodeAction[],
+  files: readonly string[],
+): string {
+  const callables = new Set(actions.map((action) => action.callable));
+  const paths = new Set(files.map((file) => file.toLowerCase()));
+  for (let index = 1; ; index++) {
+    const name = index === 1 ? "my-action" : `my-action-${index}`;
+    if (
+      !callables.has(name.replaceAll("-", "_")) &&
+      !paths.has(`${name}.ctk-action`)
+    )
+      return name;
+  }
+}
+
 // Completion inspects a normal CTK function without executing the YAML or body.
 // Offsets are code points, matching the console completion protocol.
 export function actionCompletionSource(

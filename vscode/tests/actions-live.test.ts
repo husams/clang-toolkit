@@ -216,6 +216,41 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       },
       60000,
     );
+    it("invalidates a closed analysis context and recovers after refresh", async () => {
+      const invalidated: string[] = [];
+      const host = new ActionService(
+        resolve("console/action_service.py"),
+        process.env.CTK_PYTHON ?? resolve("../.venv/bin/python"),
+        (reason) => invalidated.push(reason),
+      );
+      services.push(host);
+      const find = action(
+        "custom",
+        'match functionDecl(isDefinition()).bind("function") in node',
+      );
+      const first = await host.run(find, {}, [file], settings, 100);
+      await expect(
+        host.run(
+          action("close-input", "session close node\n42"),
+          {},
+          [file],
+          settings,
+          100,
+          () => {},
+          first.input.id,
+        ),
+      ).rejects.toThrow();
+      await expect(
+        host.run(find, {}, [file], settings, 100, () => {}, first.input.id),
+      ).rejects.toThrow(/closed|unavailable|expired/);
+      expect(invalidated).toEqual([
+        "Analysis context expired or closed; click Refresh, then Run to parse the same C++ file again.",
+      ]);
+      await host.reset();
+      const recovered = await host.run(find, {}, [file], settings, 100);
+      expect(recovered.matches).toBe(3);
+      expect(recovered.parseCount).toBe(1);
+    }, 60000);
     it("cancels a console loop without losing live nodes and rejects source changes until refresh", async () => {
       const host = service(),
         find = action(

@@ -8,6 +8,7 @@ import {
   type ActionReport,
   actionTemplate,
   type NodeAction,
+  newActionName,
   parseNodeAction,
   resolveArguments,
   validateCatalog,
@@ -293,7 +294,7 @@ export class ActionsController implements vscode.Disposable {
         {
           label: "$(add) Create action…",
           description: "Workspace",
-          detail: "Create a YAML action with a CTK body",
+          detail: "Open a new custom action script in the editor",
           action: undefined,
         },
       ],
@@ -308,7 +309,7 @@ export class ActionsController implements vscode.Disposable {
     );
     if (!picked) return;
     if (!picked.action) {
-      await this.create();
+      await this.create(followup);
       return;
     }
     await this.setAction(picked.action, followup);
@@ -337,48 +338,44 @@ export class ActionsController implements vscode.Disposable {
     await this.reveal();
     this.changed();
   }
-  async create(): Promise<void> {
+  async create(followup = false): Promise<void> {
     if (this.busy || this.execution)
       throw new Error("An action is already running.");
     if (!vscode.workspace.isTrusted)
       throw new Error("Trust this workspace before creating actions.");
-    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (followup && (!this.selected || this.stale))
+      throw new Error(
+        "Select a current binding before creating a follow-up action.",
+      );
+    const inputFile = this.input?.file ?? this.target?.fsPath;
+    const folder =
+      (inputFile
+        ? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(inputFile))
+        : undefined) ?? vscode.workspace.workspaceFolders?.[0];
     if (!folder)
       throw new Error("Open a workspace folder to create an action.");
-    const name = await vscode.window.showInputBox({
-      title: "CTK · Create action",
-      prompt: "Unique action name",
-      value: "my-action",
-      validateInput: (value) =>
-        /^[A-Za-z_][A-Za-z0-9_-]*$/.test(value)
-          ? undefined
-          : "Use letters, digits, underscores or hyphens; start with a letter.",
-    });
-    if (!name) return;
+    const catalog = await this.catalog();
+    const directory = vscode.Uri.joinPath(folder.uri, ".ctk", "actions");
+    await vscode.workspace.fs.createDirectory(directory);
+    const files = await vscode.workspace.fs.readDirectory(directory);
+    const name = newActionName(
+      catalog,
+      files.map(([name]) => name),
+    );
     const source = actionTemplate.replace("name: my-action", `name: ${name}`);
-    const uri = vscode.Uri.joinPath(
-      folder.uri,
-      ".ctk",
-      "actions",
-      `${name}.ctk-action`,
-    );
+    const uri = vscode.Uri.joinPath(directory, `${name}.ctk-action`);
     const action = parseNodeAction(uri.fsPath, source);
-    validateCatalog([...(await this.catalog()), action]);
-    await vscode.workspace.fs.createDirectory(
-      vscode.Uri.joinPath(folder.uri, ".ctk", "actions"),
-    );
+    validateCatalog([...catalog, action]);
     const edit = new vscode.WorkspaceEdit();
     edit.createFile(uri, { overwrite: false });
     edit.insert(uri, new vscode.Position(0, 0), source);
     if (!(await vscode.workspace.applyEdit(edit)))
       throw new Error("Could not create the action file.");
     const document = await vscode.workspace.openTextDocument(uri);
-    await document.save();
-    await vscode.window.showTextDocument(document);
-    this.action = action;
-    this.values = {};
-    this.changed();
-    await this.reveal();
+    if (!(await document.save()))
+      throw new Error("Could not save the action file.");
+    await this.setAction(action, followup);
+    await vscode.window.showTextDocument(document, { preview: false });
   }
   async current(document: vscode.TextDocument): Promise<void> {
     if (this.busy || this.execution)
@@ -423,8 +420,10 @@ export class ActionsController implements vscode.Disposable {
     this.changed();
     return execution
       .catch((error: unknown) => {
-        this.fail(error);
-        this.status.text = "$(warning) CTK · action stopped";
+        if (!this.stale) this.fail(error);
+        this.status.text = this.stale
+          ? "$(warning) CTK · refresh"
+          : "$(warning) CTK · action stopped";
         throw error;
       })
       .finally(() => {
@@ -465,6 +464,7 @@ export class ActionsController implements vscode.Disposable {
       )?.[0]?.fsPath;
     if (!file) return;
     const canonical = await realpath(file);
+    this.target = vscode.Uri.file(canonical);
     const dirty = await Promise.all(
       vscode.workspace.textDocuments
         .filter(
@@ -560,6 +560,7 @@ export class ActionsController implements vscode.Disposable {
       throw new Error(
         "Cancel the running action before refreshing or closing analysis.",
       );
+    if (this.root) this.target = vscode.Uri.file(this.root.file);
     try {
       await this.service?.reset();
     } catch (error) {

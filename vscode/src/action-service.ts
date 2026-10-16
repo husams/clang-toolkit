@@ -101,8 +101,17 @@ export class ActionService {
         clearTimeout(pending.timer);
         clearTimeout(this.killTimer);
         for (const text of response.output ?? []) if (text) this.log(text);
-        if (response.error) pending.reject(new Error(response.error));
-        else pending.resolve(response);
+        if (response.error) {
+          if (
+            /cursor unavailable|cursor expired or closed|retained value has been closed|node has expired/i.test(
+              response.error,
+            )
+          )
+            this.invalidated(
+              "Analysis context expired or closed; click Refresh, then Run to parse the same C++ file again.",
+            );
+          pending.reject(new Error(response.error));
+        } else pending.resolve(response);
       } catch (error) {
         this.fail(error instanceof Error ? error : new Error(String(error)));
         child.kill();
