@@ -5,10 +5,12 @@
 - [x] Reproduce the default helper preload error against the bundled runtime.
 - [x] Bring the merged console pipe/tuple implementation into the prototype.
 - [x] Verify actual default helper calls, node follow-ups and editor regressions.
-- [ ] Package, install, reload the trial window and leave Actions ready to use.
+- [x] Package, install and open a new trial window with Actions ready to use.
 
-The installation action is awaiting the fresh confirmation required by automatic
-approval review for the locally built VSIX. Version 0.2.1 passed 84 pipe/tuple
+After fresh user confirmation, version 0.2.1 was installed in the normal VS Code
+profile. Actions is open, and Order fields returned `demo::Order::quantity` using
+the unchanged default helper library. Existing user windows were preserved.
+Version 0.2.1 passed 84 pipe/tuple
 regressions, 20 extension regressions, 15 editor-adapter checks, all three native
 Actions scenarios with default helpers, and the complete real VS Code host.
 Python units: 2,169 passed / 22 existing legacy-engine failures; selected console

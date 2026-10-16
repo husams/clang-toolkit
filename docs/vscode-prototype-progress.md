@@ -154,6 +154,10 @@ same legacy-engine preload. No native C++ code changed; the preceding 363 native
 cases remain the applicable C++ verification. Logs are in
 `vscode/artifacts/validation/helper-fix-20261016/`.
 
-The completed VSIX installation is pending fresh user confirmation: automatic
-approval review rejected updating the normal VS Code profile with a locally
-built VSIX and explicitly requires confirmation at installation time.
+After fresh user confirmation, the verified VSIX was installed in the normal
+VS Code profile; the extension listing confirms version 0.2.1. A new normal trial
+window is open on `vscode/artifacts/try-it/actions-demo.cpp` with Actions selected.
+Running the workspace Order fields action through the unchanged default helper
+library displayed `demo::Order::quantity` in the bindings outline and a connected
+server status. Existing user windows were preserved, and isolated test windows
+closed after verification.
