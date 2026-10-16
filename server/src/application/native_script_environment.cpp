@@ -642,7 +642,8 @@ ctk::script::Value NativeScriptEnvironment::call(
       for (const auto &[key, value] : options)
         script_option(request, key, value);
       auto result = calls_->build(
-          request, checkpoint_, {100000, 1000000, settings_.results.max_bytes});
+          request, checkpoint_, {settings_.call_graph_default_max_nodes,
+                                 1000000, settings_.results.max_bytes});
       if (result.code != Code::Ok)
         throw Error(result.code, result.message);
       wire->mutable_call_graph()->Swap(&result.response);

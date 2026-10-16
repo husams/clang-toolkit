@@ -146,12 +146,34 @@ def test_standalone_stream_enforces_active_resource_scope_completeness(tmp_path)
     with pytest.raises(ResourceError, match="CallGraphResponse result is incomplete"):
         runtime.execute('callgraph "file.cc"')
 
-@pytest.mark.parametrize("options", ["nodes 0", "edges 1000001", "nodes 1 nodes 2"])
+@pytest.mark.parametrize("options", ["nodes 18446744073709551616", "edges 1000001", "nodes 1 nodes 2"])
 def test_invalid_options_stop_before_server_dispatch(tmp_path, options):
     client = Mock(spec=Client)
     with pytest.raises(EvaluationError):
         Runtime(client, cwd=tmp_path).execute(f'callgraph "file.cc" {options}')
     client.callgraph.assert_not_called()
+
+
+@pytest.mark.parametrize("limit", [100001, 1 << 40, (1 << 64) - 1, 0, "all"])
+def test_node_limit_can_exceed_the_old_ceiling_or_be_unlimited(limit):
+    request = call_graph_request("file.cc", max_nodes=limit)
+    assert request.HasField("max_nodes")
+    assert request.max_nodes == (0 if limit == "all" else limit)
+    assert not call_graph_request("file.cc").HasField("max_nodes")
+
+
+@pytest.mark.parametrize("limit", [-1, True, False, 1.5, "unlimited", 1 << 64])
+def test_node_limit_rejects_invalid_types_and_wire_overflow(limit):
+    with pytest.raises(ValueError, match="max_nodes"):
+        call_graph_request("file.cc", max_nodes=limit)
+
+
+@pytest.mark.parametrize("option, expected", [("all", "all"), ("0", 0), ("100001", 100001)])
+def test_console_accepts_configurable_and_unlimited_node_limits(tmp_path, option, expected):
+    client = Mock(spec=Client)
+    client.callgraph.return_value = pb.CallGraphResponse(is_complete=True)
+    Runtime(client, cwd=tmp_path).execute(f'let graph = callgraph "file.cc" nodes {option}')
+    assert client.callgraph.call_args.kwargs["max_nodes"] == expected
 
 
 def test_console_exact_target_and_composable_local_graph_methods(tmp_path):
@@ -205,6 +227,11 @@ def test_callgraph_in_accepts_retained_tree_and_path_in_both_engines(
     result = dispatch_result(client, "callgraph in $tree depth all", runtime)
     assert result.success
     assert client.stream_callgraph.call_args.kwargs["max_depth"] == "all"
+    for option, expected in (("all", "all"), ("100001", 100001),
+                             ("18446744073709551615", (1 << 64) - 1)):
+        result = dispatch_result(client, f"callgraph in $tree nodes {option}", runtime)
+        assert result.success
+        assert client.stream_callgraph.call_args.kwargs["max_nodes"] == expected
     runtime.close()
 
 

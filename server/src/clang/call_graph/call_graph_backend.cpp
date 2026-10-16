@@ -205,9 +205,8 @@ private:
           MatchCode::InvalidArgument, "call graph event sink is required", {}};
     try {
       calls::CallGraphBudget budget{checkpoint, limits};
-      budget.limits.max_nodes = std::min<std::size_t>(
-          limits.max_nodes,
-          request.has_max_nodes() ? request.max_nodes() : 10000);
+      budget.limits.max_nodes =
+          request.has_max_nodes() ? request.max_nodes() : limits.max_nodes;
       budget.limits.max_edges = std::min<std::size_t>(
           limits.max_edges,
           request.has_max_edges() ? request.max_edges() : 100000);
@@ -327,7 +326,7 @@ private:
                   {}};
         nodes.push_back(node);
       }
-      if (nodes.size() > budget.limits.max_nodes)
+      if (budget.limits.max_nodes && nodes.size() > budget.limits.max_nodes)
         return {
             MatchCode::ResourceExhausted, "call graph node limit exceeded", {}};
       std::sort(nodes.begin() + 1, nodes.end(), [&order](auto *a, auto *b) {

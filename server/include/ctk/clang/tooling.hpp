@@ -71,6 +71,8 @@ std::shared_ptr<IQueryEngine> make_query_engine();
 std::vector<std::string> match(const Project &project,
                                const std::string &matcher);
 std::string cfg(const Project &project, const std::string &function);
+struct CallGraphLimits;
 std::string callgraph(const Project &project);
+std::string callgraph(const Project &project, const CallGraphLimits &limits);
 
 } // namespace ctk::clang_layer

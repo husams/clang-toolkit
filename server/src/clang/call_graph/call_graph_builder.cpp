@@ -14,7 +14,7 @@ bool CallGraphBuilder::TraverseDecl(clang::Decl *declaration) {
   }
   const auto success = clang::CallGraph::TraverseDecl(declaration);
   budget_.check();
-  if (size() <= budget_.limits.max_nodes)
+  if (!budget_.limits.max_nodes || size() <= budget_.limits.max_nodes)
     return success;
   std::size_t emitted = 0;
   if (!main_file_only_)

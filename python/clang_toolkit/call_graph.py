@@ -2,13 +2,15 @@
 from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 from clang_toolkit._generated.analysis.v1 import call_graph_request_pb2 as pb
 from clang_toolkit.cursors import file_request
 from clang_toolkit.analysis_projection import value_projection
 
 def call_graph_request(path: str | Path, *, working_directory: str | Path | None = None,
                        compile_arguments: Sequence[str] = (), visit_implicit_code: bool | None = None,
-                       visit_template_instantiations: bool | None = None, max_nodes: int | None = None,
+                       visit_template_instantiations: bool | None = None,
+                       max_nodes: int | Literal["all"] | None = None,
                        max_edges: int | None = None, projection: str = "shallow",
                       main_file_only: bool = False, payload_depth: int = 24,
                       payload_nodes: int = 10000) -> pb.CallGraphRequest:
@@ -18,7 +20,14 @@ def call_graph_request(path: str | Path, *, working_directory: str | Path | None
                         ("visit_template_instantiations", visit_template_instantiations)]:
         if value is not None:
             setattr(request, name, value)
-    for name, value, maximum in [("max_nodes", max_nodes, 100000), ("max_edges", max_edges, 1000000)]:
+    if max_nodes is not None:
+        if max_nodes == "all":
+            request.max_nodes = 0
+        elif type(max_nodes) is not int or not 0 <= max_nodes < (1 << 64):
+            raise ValueError("max_nodes must be a nonnegative uint64 integer or 'all'")
+        else:
+            request.max_nodes = max_nodes
+    for name, value, maximum in [("max_edges", max_edges, 1000000)]:
         if value is not None:
             if not 1 <= value <= maximum:
                 raise ValueError(f"{name} must be 1..{maximum}")

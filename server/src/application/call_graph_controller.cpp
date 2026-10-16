@@ -19,7 +19,8 @@ struct CallGraphController::Impl {
        std::shared_ptr<OperationExecutor> work)
       : backend(std::move(native)), resources(settings.resources),
         matches(nullptr),
-        limits{100000, 1000000, settings.results.max_bytes},
+        limits{settings.call_graph_default_max_nodes, 1000000,
+               settings.results.max_bytes},
         executor(work ? std::move(work)
                       : make_operation_executor(settings.workers,
                                                 settings.pending_requests)) {}
@@ -54,10 +55,7 @@ CallGraphResult CallGraphController::build(
     return {MatchCode::InvalidArgument,
             invalid.empty() ? "call graph target is required" : invalid,
             {}};
-  if ((request.has_max_nodes() &&
-       (request.max_nodes() == 0 ||
-        request.max_nodes() > impl_->limits.max_nodes)) ||
-      (request.has_max_edges() &&
+  if ((request.has_max_edges() &&
        (request.max_edges() == 0 ||
         request.max_edges() > impl_->limits.max_edges)))
     return {MatchCode::InvalidArgument,
@@ -154,9 +152,7 @@ CallGraphStreamResult CallGraphController::build_stream(
             invalid.empty() ? "call graph target and event sink are required"
                             : invalid,
             {}};
-  if ((request.has_max_nodes() &&
-       (!request.max_nodes() || request.max_nodes() > impl_->limits.max_nodes)) ||
-      (request.has_max_edges() &&
+  if ((request.has_max_edges() &&
        (!request.max_edges() || request.max_edges() > impl_->limits.max_edges)))
     return {MatchCode::InvalidArgument,
             "call graph limits must be positive and within server bounds", {}};

@@ -412,12 +412,18 @@ void validate_file(const Node &root) {
   for (auto section : {"server", "client"})
     if (const Node *n = child(root, section)) {
       if (std::string_view(section) == "server")
-        ensure_keys(*n, section, {"grpc", "shutdown_grace_ms"});
+        ensure_keys(*n, section, {"grpc", "shutdown_grace_ms", "call_graph"});
       else
         ensure_keys(*n, section, {"grpc", "rpc_timeout_ms"});
       if (const Node *g = child(*n, "grpc"))
         check_grpc(*g, std::string(section) + ".grpc");
       if (section == std::string_view("server")) {
+        if (const Node *calls = child(*n, "call_graph")) {
+          ensure_keys(*calls, "server.call_graph", {"default_max_nodes"});
+          if (const Node *v = child(*calls, "default_max_nodes"))
+            validate_option_integer(*v, "server.call_graph.default_max_nodes",
+                                    false, 0);
+        }
         if (const Node *v = child(*n, "shutdown_grace_ms"))
           validate_option_integer(*v, "server.shutdown_grace_ms", true, 0);
       } else if (const Node *v = child(*n, "rpc_timeout_ms"))
@@ -535,6 +541,10 @@ public:
     };
     const Node *server = child(root, "server");
     const Node *client = child(root, "client");
+    if (const Node *calls = server ? child(*server, "call_graph") : nullptr)
+      if (const Node *value = child(*calls, "default_max_nodes"))
+        settings.call_graph_default_max_nodes =
+            static_cast<std::uint64_t>(integer(*value, "server.call_graph.default_max_nodes"));
     fill_grpc(server, settings.server_grpc);
     fill_grpc(client, settings.client_grpc);
     settings.shutdown_grace_ms =
@@ -550,6 +560,7 @@ public:
         {"session.max_files", std::int64_t{100}},
         {"session.max_memory_bytes", std::int64_t{2147483648}},
         {"server.grpc.max_send_message_bytes", std::int64_t{-1}},
+        {"server.call_graph.default_max_nodes", std::int64_t{10000}},
         {"client.grpc.max_receive_message_bytes", std::int64_t{-1}},
         {"server.shutdown_grace_ms", std::monostate{}},
         {"client.rpc_timeout_ms", std::monostate{}}};

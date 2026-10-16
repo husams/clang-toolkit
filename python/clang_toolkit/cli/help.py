@@ -986,11 +986,11 @@ _ENTRIES = (
         "callgraph",
         "Build the static native AST call graph for a file and return a typed value.",
         (
-            "callgraph PATH [nodes N] [edges N] [callsites N] [direction in|out|both] [depth N|all] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth N] [payload-nodes N] [format json]",
-            "callgraph in TARGET [direction in|out|both] [depth N|all] [callsites N] [nodes N] [edges N] [format json]",
+            "callgraph PATH [nodes N|all] [edges N] [callsites N] [direction in|out|both] [depth N|all] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth N] [payload-nodes N] [format json]",
+            "callgraph in TARGET [direction in|out|both] [depth N|all] [callsites N] [nodes N|all] [edges N] [format json]",
         ),
         (
-            "PATH: quoted file or path/File reference. nodes: 1..100000 (default 10000).",
+            "PATH: quoted file or path/File reference. nodes: a positive uint64 count, or all/0 for unlimited. Omission uses server.call_graph.default_max_nodes (10000 by default; 0 means unlimited). No fixed node ceiling.",
             "edges: 1..1000000 (default 100000); callsites: 1..1000000. Options may occur once.",
             "A retained callable binding selects that exact function and defaults to outgoing depth 1; direction accepts in, out or both and depth accepts 0..32 or all for every reachable callable. Unlimited depth is cycle-safe and still subject to graph limits. A call-expression binding selects its exact call site and does not accept direction or depth. A retained ParsedTree without a callable seed selects its full translation unit; direction and depth options require one exact callable selector.",
             "Omitted implicit/instantiations use Clang CallGraph defaults (both true).",
@@ -1005,6 +1005,7 @@ _ENTRIES = (
             'callgraph "examples/parse_match.cc" nodes 10000 edges 100000 projection shallow main-file true payload-depth 2 payload-nodes 1000',
             'let callers = callgraph in $target direction in depth 2',
             'let reachable = callgraph in $target direction out depth all',
+            'let unrestricted_nodes = callgraph in $target depth all nodes all',
             'let calls = callgraph "examples/parse_match.cc" nodes 100 projection shallow main-file true',
             "print $calls.nodes.length",
         ),

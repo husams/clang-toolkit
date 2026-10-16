@@ -12,6 +12,7 @@ namespace ctk::application {
 struct CursorSettings {
   std::size_t workers{3}, pending_requests{100}, max_cursors{100};
   std::uint64_t max_memory_bytes{2147483648ULL};
+  std::uint64_t call_graph_default_max_nodes{10000};
   std::chrono::milliseconds idle_ttl{300000};
   ctk::clang_layer::MatchLimits results;
   std::shared_ptr<ResourceManager> resources;

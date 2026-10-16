@@ -83,6 +83,27 @@ TEST(NetworkConfig, DefaultsToTemporaryUnixEndpointWithoutResponseWireCap) {
   EXPECT_EQ(settings.client_grpc.max_receive_message_bytes, -1);
   EXPECT_FALSE(settings.rpc_timeout_ms);
   EXPECT_FALSE(settings.shutdown_grace_ms);
+  EXPECT_EQ(settings.call_graph_default_max_nodes, 10000U);
+}
+
+TEST(NetworkConfig, CallGraphDefaultNodeBudgetCanBeLargeOrUnlimited) {
+  ConfigTree files;
+  const auto cwd = files.dir("project");
+  for (const auto limit : {0LL, 250000LL, 9223372036854775807LL}) {
+    auto config = files.write(cwd, "selected.yaml",
+        "server:\n  call_graph:\n    default_max_nodes: " + std::to_string(limit) + "\n");
+    const auto settings = ctk::config::load(config, cwd, files.dir("home"), files.dir("etc"));
+    EXPECT_EQ(settings.call_graph_default_max_nodes, limit);
+    EXPECT_EQ(std::get<std::int64_t>(settings.effective_values.at(
+                  "server.call_graph.default_max_nodes")), limit);
+    EXPECT_EQ(settings.provenance.at("server.call_graph.default_max_nodes"), config.string());
+  }
+  for (const auto *bad : {"-1", "true", "null", "1.5", "all", "9223372036854775808"}) {
+    auto config = files.write(cwd, "invalid.yaml",
+        std::string("server:\n  call_graph:\n    default_max_nodes: ") + bad + "\n");
+    EXPECT_THROW(ctk::config::load(config, cwd, files.dir("home"), files.dir("etc")),
+                 std::runtime_error);
+  }
 }
 
 TEST(NetworkConfig, RequiresLoopbackTcpHostAndPortAndFormatsIpv6) {

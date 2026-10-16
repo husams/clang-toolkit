@@ -1,6 +1,7 @@
 #include "analysis/v1/call_graph_response.pb.h"
 #include "analysis/v1/cfg_response.pb.h"
 #include "ctk/clang/tooling.hpp"
+#include "ctk/clang/call_graph_limits.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 #include <fstream>
 #include <google/protobuf/struct.pb.h>
@@ -73,5 +74,25 @@ TEST(ProjectFacade, EmptyProjectsAndBadMatcherConstructionAreErrors) {
   const Project project{"", {file.string()}};
   EXPECT_THROW(match(project, "badMatcher()"), std::runtime_error);
   EXPECT_THROW(cfg(project, "missing"), std::runtime_error);
+}
+TEST(ProjectFacade, CallGraphNodeBudgetsRemainFiniteAcrossFilesOrUnlimited) {
+  ctk::platform::TemporaryDirectory directory{"ctk-project-node-limits"};
+  const auto first = directory.path() / "first.cc";
+  const auto second = directory.path() / "second.cc";
+  std::ofstream(first) << "void first(){}";
+  std::ofstream(second) << "void second(){}";
+  const Project project{"", {first.string(), second.string()}};
+  CallGraphLimits limits{2, 100000, 4 * 1024 * 1024};
+  EXPECT_THROW(callgraph(project, limits), std::runtime_error);
+  for (const auto maximum : {std::uint64_t{4}, std::uint64_t{100001},
+                             std::uint64_t{0}}) {
+    limits.max_nodes = maximum;
+    google::protobuf::ListValue graphs;
+    ASSERT_TRUE(google::protobuf::util::JsonStringToMessage(
+                    callgraph(project, limits), &graphs).ok());
+    EXPECT_EQ(graphs.values_size(), 2);
+    for (const auto &graph : graphs.values())
+      EXPECT_EQ(graph.struct_value().fields().at("nodes").list_value().values_size(), 2);
+  }
 }
 } // namespace ctk::clang_layer

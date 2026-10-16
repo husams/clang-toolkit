@@ -648,3 +648,64 @@ def stream_is_bounded(callgraph_stream_evidence):
     total, largest = callgraph_stream_evidence
     assert total > 4096
     assert largest < 4096
+
+
+@given(parsers.parse("a callgraph server with node budget {budget:d} using {transport}"),
+       target_fixture="node_budget_server")
+def node_budget_server(budget, transport, tmp_path, request, monkeypatch):
+    monkeypatch.setenv("CTK_STORAGE_ROOT", str(tmp_path / "storage"))
+    server = _launch_server(transport, tmp_path, request, call_graph_nodes=budget)
+    source = tmp_path / "budget.cc"
+    source.write_text(SHOP, encoding="utf-8")
+    return server, source, budget
+
+
+@when("I override callgraph node budgets through filename tree and matched inputs",
+      target_fixture="node_budget_evidence")
+def inspect_node_budgets(node_budget_server):
+    server, source, budget = node_budget_server
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            async with await client.parse(source) as tree:
+                async with await client.match_in(
+                    'functionDecl(isDefinition(), hasName("apiRequest")).bind("f")', tree
+                ) as rows:
+                    targets = (source, tree, rows[0].binding("f"))
+                    counts = []
+                    for target in targets:
+                        if budget:
+                            with pytest.raises(AnalysisError) as error:
+                                await client.callgraph(target)
+                            assert error.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+                        else:
+                            assert (await client.callgraph(target)).is_complete
+                        for maximum in (100001, "all", 0):
+                            graph = await client.callgraph(target, max_nodes=maximum)
+                            assert graph.is_complete
+                            counts.append(len(graph.nodes))
+                        with pytest.raises(AnalysisError) as error:
+                            await client.callgraph(target, max_nodes=1)
+                        assert error.value.code == grpc.StatusCode.RESOURCE_EXHAUSTED
+                        events = []
+                        async for event in client.callgraph_stream(target, max_nodes="all"):
+                            events.append(event)
+                        assert events[-1].HasField("completed")
+                        assert events[-1].completed.is_complete
+                        assert sum(event.HasField("node") for event in events) == counts[-1]
+                    before = await client.callgraph(rows[0].binding("f"), max_nodes="all", max_depth="all")
+                    source.unlink()
+                    after = await client.callgraph(rows[0].binding("f"), max_nodes="all", max_depth="all")
+                    assert before.SerializeToString() == after.SerializeToString()
+                    assert after.selection_unlimited_depth
+                    assert len(after.nodes) == 6
+            status = await client.resource_status()
+            assert status.explicit_file_leases == status.result_cursors == status.active_work == 0
+            return counts
+
+    return asyncio.run(run())
+
+
+@then("node budgets retain complete graphs and snapshot ownership")
+def verify_node_budgets(node_budget_evidence):
+    assert node_budget_evidence == [8, 8, 8, 8, 8, 8, 3, 3, 3]

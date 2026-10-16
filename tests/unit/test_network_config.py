@@ -137,7 +137,7 @@ def test_shared_network_configuration_conformance(tmp_path, case):
 
 def test_provenance_effective_values_are_read_only_and_defaults_are_explicit(tmp_path):
     config = load_network_config(cwd=tmp_path, home=tmp_path / "home", system_dir=tmp_path / "etc")
-    assert len(config.effective_values) == len(config.provenance) == 11
+    assert len(config.effective_values) == len(config.provenance) == 12
     assert set(config.provenance.values()) == {"<defaults>"}
     assert "network.tcp.host" not in config.effective_values
     assert "client.grpc.max_send_message_bytes" not in config.effective_values
@@ -170,3 +170,22 @@ server:
     assert dict(config.client_options) == {"grpc.max_receive_message_length": 128, "grpc.max_send_message_length": -1}
     assert dict(config.server_options) == {"grpc.max_receive_message_length": 256, "grpc.max_send_message_length": 512}
     assert config.effective_values["client.grpc.max_receive_message_bytes"] == 128
+
+
+@pytest.mark.parametrize("limit", [0, 250000, (1 << 63) - 1])
+def test_callgraph_default_node_limit_is_configurable(tmp_path, limit):
+    selected = write(tmp_path / "selected.yaml",
+                     f"server:\n  call_graph:\n    default_max_nodes: {limit}\n")
+    config = load_network_config(selected, cwd=tmp_path, home=tmp_path / "home",
+                                 system_dir=tmp_path / "etc")
+    assert config.effective_values["server.call_graph.default_max_nodes"] == limit
+    assert config.provenance["server.call_graph.default_max_nodes"] == str(selected)
+
+
+@pytest.mark.parametrize("limit", ["-1", "true", "null", "1.5", "all", str(1 << 63)])
+def test_callgraph_default_node_limit_rejects_invalid_values(tmp_path, limit):
+    selected = write(tmp_path / "selected.yaml",
+                     f"server:\n  call_graph:\n    default_max_nodes: {limit}\n")
+    with pytest.raises(ConfigurationError, match="server.call_graph.default_max_nodes"):
+        load_network_config(selected, cwd=tmp_path, home=tmp_path / "home",
+                            system_dir=tmp_path / "etc")

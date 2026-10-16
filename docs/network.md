@@ -37,6 +37,8 @@ session:
   max_files: 100
   max_memory_bytes: 2147483648
 server:
+  call_graph:
+    default_max_nodes: 10000
   grpc:
     max_send_message_bytes: -1
 client:
@@ -52,6 +54,12 @@ even if a higher layer would override them. Server send and client receive limit
 default to `-1` (no configured wire cap). Other gRPC fields use the library
 defaults unless configured;
 null clears an inherited setting, including these response defaults.
+
+`server.call_graph.default_max_nodes` sets the node budget when a callgraph
+request omits `max_nodes`; use `0` for unlimited nodes by default. An explicit
+request overrides this default, including `max_nodes="all"` in Python or
+`nodes all` in the console. Node counts have no fixed 100,000-node ceiling;
+other graph and resource limits remain independent. See [callgraph bounds](call-graphs.md#native-semantics-and-bounds).
 
 Retained cursor state remains bounded by `session.max_memory_bytes`, including
 the snapshot, native bindings and row selection metadata. Retained matches stream

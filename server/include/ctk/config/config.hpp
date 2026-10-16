@@ -22,6 +22,7 @@ struct Settings {
   int queue_size{100};
   int max_files{100};
   std::int64_t max_memory_bytes{2147483648};
+  std::uint64_t call_graph_default_max_nodes{10000};
   GrpcSettings server_grpc{std::nullopt, -1};
   GrpcSettings client_grpc{-1, std::nullopt};
   std::optional<std::int64_t> rpc_timeout_ms;

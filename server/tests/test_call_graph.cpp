@@ -485,6 +485,77 @@ TEST_F(CallGraph, EmptyTranslationUnitStillHasNativeRoot) {
   EXPECT_TRUE(result.response.nodes(0).is_virtual_root());
   EXPECT_TRUE(result.response.edges().empty());
 }
+TEST_F(CallGraph, NodeLimitAcceptsLargerValuesAndExplicitUnlimited) {
+  request.set_max_nodes(100001);
+  auto large = controller.build(request, [] { return true; });
+  ASSERT_EQ(large.code, MatchCode::Ok) << large.message;
+  request.set_max_nodes(0);
+  auto unlimited = controller.build(request, [] { return true; });
+  ASSERT_EQ(unlimited.code, MatchCode::Ok) << unlimited.message;
+  EXPECT_EQ(unlimited.response.nodes_size(), large.response.nodes_size());
+  std::size_t streamed_nodes = 0;
+  auto streamed = controller.build_stream(
+      request, [] { return true; },
+      [&](const auto &event, std::string &) {
+        streamed_nodes += event.has_node();
+        return MatchCode::Ok;
+      });
+  ASSERT_EQ(streamed.code, MatchCode::Ok) << streamed.message;
+  EXPECT_EQ(streamed_nodes, unlimited.response.nodes_size());
+  request.set_max_nodes(1);
+  const auto bounded = controller.build(request, [] { return true; });
+  EXPECT_EQ(bounded.code, MatchCode::ResourceExhausted);
+  EXPECT_TRUE(bounded.response.nodes().empty());
+}
+TEST_F(CallGraph, NodeLimitUsesConfiguredDefaultAndRequestOverrides) {
+  CursorSettings settings;
+  settings.call_graph_default_max_nodes = 1;
+  CallGraphController bounded(settings);
+  EXPECT_EQ(bounded.build(request, [] { return true; }).code,
+            MatchCode::ResourceExhausted);
+  request.set_max_nodes(100001);
+  EXPECT_EQ(bounded.build(request, [] { return true; }).code, MatchCode::Ok);
+  request.set_max_nodes(0);
+  EXPECT_EQ(bounded.build(request, [] { return true; }).code, MatchCode::Ok);
+  settings.call_graph_default_max_nodes = 0;
+  CallGraphController unlimited(settings);
+  request.clear_max_nodes();
+  const auto result = unlimited.build(request, [] { return true; });
+  ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+  EXPECT_GT(result.response.nodes_size(), 1);
+  request.set_max_nodes(1);
+  EXPECT_EQ(unlimited.build(request, [] { return true; }).code,
+            MatchCode::ResourceExhausted);
+}
+TEST_F(CallGraph, StreamsMoreThanOneHundredThousandNodes) {
+  constexpr std::size_t functions = 100001;
+  {
+    std::ofstream source(directory.path() / "large.cc");
+    for (std::size_t i = 0; i < functions; ++i)
+      source << "void f" << i << "(){}\n";
+  }
+  request.mutable_file()->set_file_path("large.cc");
+  request.mutable_projection()->set_mode(ctk::analysis::v1::ValueProjection::SHALLOW);
+  request.set_max_edges(200000);
+  request.set_max_nodes(100000);
+  EXPECT_EQ(controller.build(request, [] { return true; }).code,
+            MatchCode::ResourceExhausted);
+  for (const auto maximum : {std::uint64_t{functions + 1}, std::uint64_t{0}}) {
+    request.set_max_nodes(maximum);
+    std::size_t nodes = 0, edges = 0;
+    const auto result = controller.build_stream(
+        request, [] { return true; },
+        [&](const auto &event, std::string &) {
+          nodes += event.has_node();
+          edges += event.has_edge();
+          return MatchCode::Ok;
+        });
+    ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+    EXPECT_TRUE(result.completed.is_complete());
+    EXPECT_EQ(nodes, functions + 1);
+    EXPECT_EQ(edges, functions);
+  }
+}
 TEST_F(CallGraph, LimitsCancellationAndQueueStopNeverPublishPartialGraphs) {
   request.set_max_nodes(1);
   auto nodes = controller.build(request, [] { return true; });
