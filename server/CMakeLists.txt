@@ -75,7 +75,7 @@ if(CTK_BUILD_NETWORK)
     src/application/cursor_registry.cpp
     src/application/resource_manager.cpp
     src/application/file_target_validation.cpp
-    src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/cfg_backend_compat.cpp src/application/call_graph_controller.cpp
+    src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/call_graph_controller.cpp
     src/application/script_controller.cpp src/application/native_script_environment.cpp src/application/script_options.cpp)
   target_sources(ctk_core PRIVATE src/application/batch_registry.cpp)
   target_include_directories(ctk_core PRIVATE "${CTK_YAML_INCLUDE_DIR}")
@@ -104,6 +104,7 @@ if(CTK_WITH_CLANG)
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     VERBATIM)
   add_library(ctk_clang
+    src/application/cfg_backend_compat.cpp
     src/platform/temporary_directory.cpp
     src/clang/tooling.cpp
     src/clang/project_inputs.cpp
@@ -164,6 +165,8 @@ if(CTK_WITH_CLANG)
   target_link_libraries(ctk_clang PUBLIC ctk_match_api ctk_analysis_api ctk_cache ctk_storage)
   target_link_libraries(ctk_clang PRIVATE ctk::sqlite)
   target_compile_definitions(ctk_core PUBLIC CTK_WITH_CLANG=1)
+elseif(CTK_BUILD_NETWORK)
+  target_sources(ctk_core PRIVATE src/application/cfg_backend_compat.cpp)
 endif()
 
 if(CTK_BUILD_NETWORK)
