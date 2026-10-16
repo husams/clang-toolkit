@@ -42,8 +42,8 @@ export class AnalysisView implements vscode.WebviewViewProvider {
 <div class="picker-row"><button id="node-picker" class="select" aria-label="Select action" aria-haspopup="dialog">Select action… ▾</button><button id="node-run" class="primary">Run</button></div>
 <p id="node-description" class="muted"></p><details id="node-options"><summary>Options</summary><div id="node-arguments" aria-label="Action arguments"></div><button id="node-edit">Edit action</button></details>
 <div class="context-tools"><button id="node-back" hidden>← Back</button><button id="node-root" hidden>File root</button><button id="node-refresh">Refresh</button><button id="node-close">Close</button></div>
-<p id="node-error" role="alert"></p><div class="result-toolbar"><span id="node-count" role="status" aria-live="polite"></span><div role="group" aria-label="Result view"><button id="bindings-view" aria-pressed="true">Bindings</button><button id="files-view" aria-pressed="false">Files</button></div></div>
-<div id="node-selection" hidden><p id="node-selected"></p><button id="node-followup">Run action on selected node…</button></div><section id="node-results" aria-label="Action matches"></section></section>
+<p id="node-error" role="alert"></p><div class="result-toolbar"><span id="node-count" role="status" aria-live="polite"></span></div>
+<div id="node-selection" hidden><p id="node-selected"></p><button id="node-followup">Run action on selected node…</button></div><section id="node-results" aria-label="Action matches grouped by file, then match and bindings"></section></section>
 </main><script nonce="${nonce}" src="${completions}"></script><script nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage(this.receive);
     view.onDidChangeVisibility(() => {

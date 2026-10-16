@@ -70,10 +70,6 @@ for (const [id, type] of [
   ["node-edit", "nodeEdit"],
 ])
   element(id).addEventListener("click", () => post(type));
-for (const view of ["bindings", "files"])
-  element(`${view}-view`).addEventListener("click", () =>
-    post("nodeView", { view }),
-  );
 function paragraph(parent, text, className = "muted") {
   const p = document.createElement("p");
   p.className = className;
@@ -90,11 +86,12 @@ function group(parent, label, open = true) {
   parent.append(details);
   return details;
 }
-function match(parent, result, node = false) {
+function match(parent, result, node = false, file = result.file) {
   const button = document.createElement("button");
   button.className = node ? "node-match match" : "match";
   if (node) {
     button.dataset.node = result.nodeId;
+    button.dataset.binding = result.binding;
     button.classList.toggle(
       "selected",
       result.nodeId === state.actions.selected,
@@ -107,7 +104,9 @@ function match(parent, result, node = false) {
   button.title = `${result.file}:${result.line}:${result.column}`;
   const name = document.createElement("span");
   name.className = "name";
-  name.textContent = `${node ? `${result.binding} · ` : ""}${result.name} · ${result.line}`;
+  const location =
+    result.file === file ? result.line : `${result.displayFile}:${result.line}`;
+  name.textContent = `${node ? `${result.binding} · ` : ""}${result.name} · ${location}`;
   const excerpt = document.createElement("span");
   excerpt.className = "excerpt";
   excerpt.textContent = result.excerpt;
@@ -248,51 +247,32 @@ function renderActions() {
   element("node-root").hidden = !a.root;
   element("node-error").textContent = a.error;
   element("node-count").textContent = a.completed
-    ? `${a.matches} matches${a.truncated ? " · limit reached" : ""}`
+    ? `${a.matches} ${a.matches === 1 ? "match" : "matches"}${a.truncated ? " · limit reached" : ""}`
     : "";
-  for (const view of ["bindings", "files"])
-    element(`${view}-view`).setAttribute(
-      "aria-pressed",
-      String(view === a.view),
-    );
   const selected = a.results.find((r) => r.nodeId === a.selected);
   element("node-selection").hidden = !selected;
   element("node-selected").textContent = selected
     ? `${selected.binding}: ${selected.name}`
     : "";
   element("node-followup").disabled = a.running || a.stale || !selected;
-  const key = JSON.stringify([a.results, a.view]);
+  const key = JSON.stringify(a.results);
   if (key !== resultRevision) {
     resultRevision = key;
     element("node-results").replaceChildren();
-    const groups = new Map();
-    for (const result of a.results) {
-      if (a.view === "bindings") {
-        if (!groups.has(result.binding))
-          groups.set(
-            result.binding,
-            group(
-              element("node-results"),
-              `${result.binding} (${a.results.filter((r) => r.binding === result.binding).length})`,
-              result.binding !== "root",
-            ),
-          );
-        match(groups.get(result.binding), result, true);
-      } else {
-        if (!groups.has(result.file))
-          groups.set(
-            result.file,
-            group(element("node-results"), result.displayFile),
-          );
-        const file = groups.get(result.file);
-        let row = [...file.querySelectorAll("details")].find(
-          (item) => item.dataset.match === result.matchId,
+    for (const file of a.matchFiles) {
+      const parent = group(
+        element("node-results"),
+        `${file.matches[0].anchor.displayFile} (${file.matches.length})`,
+      );
+      parent.dataset.file = file.file;
+      for (const [index, row] of file.matches.entries()) {
+        const details = group(
+          parent,
+          `Match ${index + 1} · line ${row.anchor.line}`,
         );
-        if (!row) {
-          row = group(file, `Match · line ${result.line}`);
-          row.dataset.match = result.matchId;
-        }
-        match(row, result, true);
+        details.dataset.match = row.id;
+        for (const result of row.bindings)
+          match(details, result, true, file.file);
       }
     }
     if (!a.results.length)
@@ -314,7 +294,6 @@ function renderActions() {
     button.disabled = a.running;
   }
   post("nodeRendered", {
-    view: a.view,
     action: element("node-picker").textContent,
     arguments: [...document.querySelectorAll("[data-argument]")].map(
       (input) => input.dataset.argument,
@@ -323,6 +302,18 @@ function renderActions() {
     canRun: !element("node-run").disabled,
     nodes: element("node-results").querySelectorAll(".node-match").length,
     groups: element("node-results").querySelectorAll(":scope > details").length,
+    rows: [...element("node-results").querySelectorAll("[data-match]")].map(
+      (row) => ({
+        id: row.dataset.match,
+        file: row.parentElement.dataset.file,
+        bindings: [...row.querySelectorAll("[data-node]")].map(
+          (button) => button.dataset.binding,
+        ),
+        nodeIds: [...row.querySelectorAll("[data-node]")].map(
+          (button) => button.dataset.node,
+        ),
+      }),
+    ),
   });
 }
 function render(next) {

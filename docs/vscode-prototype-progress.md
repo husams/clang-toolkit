@@ -255,3 +255,33 @@ returned `demo::Order::quantity`. The new example was saved and left open with
 Options/results; isolated test windows closed normally. The VSIX passed ZIP
 verification; SHA256 is
 `4d62106dfeea5307e5fac4ecedae36cad38f6181f9046b8a68e4e62fe6470938`.
+
+## Preserve related bindings per match, version 0.2.5
+
+Actions now use one outline: file → match → bindings. The binding-name view and
+redundant view switch are removed. Match IDs keep related callers, callees and
+other bindings together, including bindings in other files and repeated nodes
+shared by multiple matches. The automatic `root` binding supplies the owning file
+and line; the first binding is the fallback for results without `root`. File counts
+count matches. Cross-file bindings display their own file/line and retain their
+independent source navigation and native handles. Match order and binding order
+are preserved. Back restores the earlier complete match outline.
+
+Added a caller/callee example and regression coverage for interleaved bindings,
+cross-file relationships, identical locations in distinct matches, missing roots,
+and empty results. TypeScript, Biome, 27 extension unit tests, 16 console adapter
+checks and the complete isolated VS Code host passed. The host rendered two
+caller/callee matches sharing a header callee under one source-file group,
+asserted every match's exact binding handles, navigated to that header and ran
+another action on the selected callee with parse count still one, then restored
+the original rows with Back. Native/shared console code was unchanged; previously
+recorded repository-wide test limitations still apply. Logs are in
+`vscode/artifacts/validation/match-groups-20261016/`.
+
+Installed v0.2.5 in the normal profile and reloaded the existing trial window.
+Selected the new Caller callee example through the actual action picker and ran
+it against `actions-demo.cpp`. The installed UI showed one file, one match at
+line 8, and its call/callee/caller/root bindings together. The old Bindings/Files
+switch is gone. The example/result remain open for trying; isolated host windows
+closed normally. VSIX ZIP verification passed; SHA256 is
+`8b4acf6cd7dc9beffd8bf18e6f1a34b70e12ea7194790529594ed75bd935bb50`.

@@ -6,6 +6,7 @@ import {
   ActionArgumentCompletion,
   type ArgumentSuggestion,
 } from "./action-argument-completion.js";
+import { groupActionMatches } from "./action-results.js";
 import { ActionService, type ActionSettings } from "./action-service.js";
 import {
   type ActionNode,
@@ -32,9 +33,16 @@ const messages = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("nodeRendered"),
-    view: z.enum(["bindings", "files"]),
     nodes: z.number().int().nonnegative(),
     groups: z.number().int().nonnegative(),
+    rows: z.array(
+      z.object({
+        id: z.string(),
+        file: z.string(),
+        bindings: z.array(z.string()),
+        nodeIds: z.array(z.string()),
+      }),
+    ),
     action: z.string().optional(),
     arguments: z.array(z.string()).optional(),
     values: z.record(z.string(), z.string()).optional(),
@@ -51,10 +59,6 @@ const messages = z.discriminatedUnion("type", [
     values: z.record(z.string(), z.string()),
   }),
   z.object({ type: z.literal("nodeSelect"), id: z.string() }),
-  z.object({
-    type: z.literal("nodeView"),
-    view: z.enum(["bindings", "files"]),
-  }),
   z.object({ type: z.literal("nodeRoot") }),
   z.object({ type: z.literal("nodeBack") }),
   z.object({ type: z.literal("nodeRefresh") }),
@@ -87,12 +91,11 @@ export class ActionsController implements vscode.Disposable {
   private stale = false;
   private busy = false;
   private execution: Promise<void> | undefined;
-  private mode: "bindings" | "files" = "bindings";
   private target: vscode.Uri | undefined;
   private rendered?: {
-    view: "bindings" | "files";
     nodes: number;
     groups: number;
+    rows: { id: string; file: string; bindings: string[]; nodeIds: string[] }[];
     action: string | undefined;
     arguments: string[] | undefined;
     values: Record<string, string> | undefined;
@@ -162,6 +165,12 @@ export class ActionsController implements vscode.Disposable {
     );
   }
   snapshot(): unknown {
+    const results =
+      this.report?.results.map((r) => ({
+        ...r,
+        raw: undefined,
+        displayFile: vscode.workspace.asRelativePath(r.file),
+      })) ?? [];
     return {
       action: this.action
         ? { ...this.action, body: undefined, generated: undefined }
@@ -177,12 +186,8 @@ export class ActionsController implements vscode.Disposable {
             file: vscode.workspace.asRelativePath(this.input.file),
           }
         : undefined,
-      results:
-        this.report?.results.map((r) => ({
-          ...r,
-          raw: undefined,
-          displayFile: vscode.workspace.asRelativePath(r.file),
-        })) ?? [],
+      results,
+      matchFiles: groupActionMatches(results),
       matches: this.report?.matches,
       truncated: this.report?.truncated ?? false,
       parseCount: this.report?.parseCount ?? 0,
@@ -191,7 +196,6 @@ export class ActionsController implements vscode.Disposable {
       stale: this.stale,
       error: this.definitionError || this.error,
       invalidAction: Boolean(this.definitionError),
-      view: this.mode,
       back: this.history.length > 1,
       root: Boolean(this.root && this.input?.id !== this.root.id),
       completed: Boolean(this.report),
@@ -294,9 +298,9 @@ export class ActionsController implements vscode.Disposable {
         }
         case "nodeRendered":
           this.rendered = {
-            view: message.view,
             nodes: message.nodes,
             groups: message.groups,
+            rows: message.rows,
             action: message.action,
             arguments: message.arguments,
             values: message.values,
@@ -315,10 +319,6 @@ export class ActionsController implements vscode.Disposable {
           break;
         case "nodeSelect":
           await this.select(message.id);
-          break;
-        case "nodeView":
-          this.mode = message.view;
-          this.changed();
           break;
         case "nodeRoot":
           if (this.root && !this.busy) {

@@ -283,14 +283,6 @@ dd {
   padding-top: 8px;
   flex-wrap: wrap;
 }
-.result-toolbar button {
-  padding: 4px 6px;
-  background: transparent;
-}
-.result-toolbar [aria-pressed="true"] {
-  background: var(--vscode-list-activeSelectionBackground);
-  color: var(--vscode-list-activeSelectionForeground);
-}
 #node-results details details {
   margin-left: 12px;
   border-left: 1px solid var(--vscode-tree-indentGuidesStroke);

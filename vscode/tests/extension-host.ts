@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { realpath } from "node:fs/promises";
 import * as vscode from "vscode";
-import type { ActionNode, NodeAction } from "../src/actions.js";
+import {
+  type ActionNode,
+  type NodeAction,
+  parseNodeAction,
+} from "../src/actions.js";
 import type { Prototype } from "../src/extension.js";
 import { predefined, scriptAction } from "../src/model.js";
 export async function run(): Promise<void> {
@@ -354,9 +358,14 @@ export async function run(): Promise<void> {
     input: { id: string };
     stale: boolean;
     rendered?: {
-      view: string;
       nodes: number;
       groups: number;
+      rows: {
+        id: string;
+        file: string;
+        bindings: string[];
+        nodeIds: string[];
+      }[];
       action?: string;
       arguments?: string[];
       values?: Record<string, string>;
@@ -368,25 +377,33 @@ export async function run(): Promise<void> {
   assert.equal(actionState().parseCount, 1);
   const binding = actionState().results.find((r) => r.binding === "function");
   assert.ok(binding);
-  async function renderedActions(view: string) {
+  async function renderedActions() {
     const end = Date.now() + 10000;
     while (Date.now() < end) {
       const s = actionState();
       if (
-        s.rendered?.view === view &&
+        s.rendered &&
         s.rendered.nodes === s.results.length &&
-        s.rendered.groups > 0
+        s.rendered.groups > 0 &&
+        s.rendered.rows.length === s.matches &&
+        s.rendered.rows.every(
+          (row) =>
+            JSON.stringify(row.nodeIds) ===
+            JSON.stringify(
+              s.results
+                .filter((node) => node.matchId === row.id)
+                .map((node) => node.nodeId),
+            ),
+        )
       )
-        return;
+        return s.rendered;
       await new Promise((done) => setTimeout(done, 50));
     }
     assert.fail(
-      `Action webview did not render ${view}: ${JSON.stringify(actionState())}`,
+      `Action webview did not preserve match rows: ${JSON.stringify(actionState())}`,
     );
   }
-  await renderedActions("bindings");
-  await api.actions.receive({ type: "nodeView", view: "files" });
-  await renderedActions("files");
+  await renderedActions();
   await api.actions.select(binding.nodeId);
   assert.equal(actionState().stale, false, JSON.stringify(actionState()));
   assert.equal(
@@ -411,7 +428,7 @@ export async function run(): Promise<void> {
       (r) => r.binding === "call" && r.excerpt.includes("adjust(quantity)"),
     ),
   );
-  await renderedActions("files");
+  await renderedActions();
   await api.actions.receive({ type: "nodeBack" });
   assert.equal(
     actionState().results.find((r) => r.binding === "function")?.nodeId,
@@ -687,7 +704,88 @@ export async function run(): Promise<void> {
   assert.equal(actionState().parseCount, 1);
   await vscode.workspace.fs.stat(marker);
   await api.actions.close();
+
+  // A callee declared in a header belongs to each caller's match, not a
+  // separate header group or a merged list of all callees.
+  const relatedHeader = vscode.Uri.joinPath(folder.uri, "related-target.hpp");
+  const relatedSource = vscode.Uri.joinPath(folder.uri, "related-callers.cpp");
+  await vscode.workspace.fs.writeFile(
+    relatedHeader,
+    Buffer.from("inline int sharedTarget(int value) { return value + 1; }\n"),
+  );
+  await vscode.workspace.fs.writeFile(
+    relatedSource,
+    Buffer.from(
+      '#include "related-target.hpp"\nint firstCaller() { return sharedTarget(1); }\nint secondCaller() { return sharedTarget(2); }\n',
+    ),
+  );
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(relatedSource),
+  );
+  const relatedActionUri = vscode.Uri.joinPath(
+    actionFolder,
+    "related.ctk-action",
+  );
+  const relatedActionSource =
+    '---\nname: related\ndescription: Find callers and callees together\narguments: []\n---\nmatch functionDecl(isDefinition(), forEachDescendant(callExpr(callee(functionDecl().bind("callee"))).bind("call"))).bind("caller") in node\n';
+  await vscode.workspace.fs.writeFile(
+    relatedActionUri,
+    Buffer.from(relatedActionSource),
+  );
+  const relatedAction = parseNodeAction(
+    relatedActionUri.fsPath,
+    relatedActionSource,
+  );
+  await api.actions.setAction(relatedAction);
+  await api.actions.run(undefined, {}, relatedSource);
+  assert.equal(actionState().matches, 2, JSON.stringify(actionState()));
+  assert.equal(actionState().parseCount, 1);
+  const relatedRows = await renderedActions();
+  assert.equal(
+    relatedRows.groups,
+    1,
+    "header callees must stay with the source-file matches",
+  );
+  const sourcePath = await realpath(relatedSource.fsPath);
+  const headerPath = await realpath(relatedHeader.fsPath);
+  for (const row of relatedRows.rows) {
+    assert.equal(row.file, sourcePath);
+    assert.deepEqual([...row.bindings].sort(), [
+      "call",
+      "callee",
+      "caller",
+      "root",
+    ]);
+  }
+  const relatedCallee = actionState().results.find(
+    (node) => node.binding === "callee",
+  );
+  assert.ok(relatedCallee);
+  assert.equal(relatedCallee.file, headerPath);
+  await api.actions.select(relatedCallee.nodeId);
+  assert.equal(
+    vscode.window.activeTextEditor?.document.uri.fsPath,
+    headerPath,
+    "a cross-file binding must still open its own source",
+  );
+  await api.actions.setAction(functions, true);
+  assert.equal(actionState().input.id, relatedCallee.nodeId);
+  await api.actions.run(undefined, { name: "sharedTarget" });
+  assert.equal(actionState().matches, 1, JSON.stringify(actionState()));
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "cross-file follow-up must reuse the selected node",
+  );
+  await renderedActions();
+  await api.actions.receive({ type: "nodeBack" });
+  assert.deepEqual(
+    (await renderedActions()).rows,
+    relatedRows.rows,
+    "Back must restore the complete related matches",
+  );
+  await api.actions.close();
   console.log(
-    "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, both result views, retained-node follow-up, history, stale edits and completion",
+    "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, file/match/binding outline, cross-file related matches, retained-node follow-up, history, stale edits and completion",
   );
 }
