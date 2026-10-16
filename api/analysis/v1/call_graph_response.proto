@@ -31,6 +31,9 @@ message CallGraphResponse {
   // Present for callable selections; lets clients detect servers that ignore
   // the corresponding unlimited_depth request field.
   optional bool selection_unlimited_depth = 18;
+  // Applied callable boundaries, independent of depth and payload projection.
+  bool exclude_system_headers = 19;
+  string node_filter = 20;
 }
 message CallGraphCallSite {
   uint64 caller_node = 1;

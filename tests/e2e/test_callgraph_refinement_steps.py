@@ -59,6 +59,163 @@ def callgraph_server(transport, tmp_path, request, monkeypatch):
 
 
 @when(
+    "I filter system headers and custom callable boundaries from retained inputs",
+    target_fixture="boundary_graphs",
+)
+def boundary_graphs(callgraph_server):
+    server, source = callgraph_server
+    own_header = source.with_name("project.hpp")
+    own_header.write_text(
+        "namespace app { inline void leaf() {} inline void behindSystem() {} "
+        "inline void work() { leaf(); } }\n"
+        "namespace vendor { inline void bridge() { app::leaf(); } }\n"
+    )
+    system_header = source.with_name("system.hpp")
+    system_header.write_text(
+        "#pragma GCC system_header\n"
+        "namespace system_lib { inline void bridge() { app::behindSystem(); } }\n"
+    )
+    source.write_text(
+        '#include "project.hpp"\n#include "system.hpp"\n'
+        "void entry() { app::work(); vendor::bridge(); system_lib::bridge(); }\n"
+    )
+    matcher = 'functionDecl(unless(matchesName("(^|::)vendor::")))'
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            baseline = await client.callgraph(source)
+            filename = await client.callgraph(source, exclude_system_headers=True)
+            tree = await client.parse(source)
+            rows = await client.match_in(
+                'functionDecl(hasName("entry")).bind("f")', tree
+            )
+            binding = rows[0].binding("f")
+            parsed = await client.callgraph(tree, exclude_system_headers=True)
+            assert filename == parsed
+            manifest = await client.discover_files([str(source)])
+            handle = await client.open_file(manifest.inputs[0])
+            assert await client.callgraph(handle, exclude_system_headers=True) == filename
+            matched = await client.callgraph(
+                binding, exclude_system_headers=True, max_depth="all"
+            )
+            custom = await client.callgraph(
+                binding, exclude_system_headers=True, node_filter=matcher, max_depth="all"
+            )
+            stub = analysis_service_pb2_grpc.AnalysisServiceStub(client._channel)
+            unary = await stub.CallGraph(_call_graph_value_request(
+                client, binding, exclude_system_headers=True, node_filter=matcher,
+                max_depth="all",
+            ))
+            assert unary == custom
+            assert custom.exclude_system_headers and custom.node_filter == matcher
+            paths = await client.callgraph(
+                tree, node_filter='functionDecl(isExpansionInFileMatching("project[.]hpp$"))'
+            )
+            for rule in (
+                'functionDecl(anyOf(matchesName("(^|::)app::"), hasName("entry")))',
+                'functionDecl(anyOf(matchesName("(^|::)app::"), hasName("entry")), '
+                'unless(isExpansionInFileMatching("/generated/")))',
+                'functionDecl(unless(cxxMethodDecl()))',
+            ):
+                assert (await client.callgraph(tree, node_filter=rule)).is_complete
+            small = await client.callgraph(
+                tree, node_filter='functionDecl(hasName("entry"))',
+                max_nodes=2, max_call_sites=3,
+            )
+            assert len(small.nodes) == 2 and len(small.call_sites) == 3
+            assert all(site.caller_node != small.root_node for site in small.call_sites)
+            for invalid in ("stmt()", "functionDecl(badMatcher())"):
+                with pytest.raises(AnalysisError) as error:
+                    await client.callgraph(tree, node_filter=invalid)
+                assert error.value.code == grpc.StatusCode.INVALID_ARGUMENT
+            with pytest.raises(AnalysisError) as error:
+                await client.callgraph(binding, node_filter='functionDecl(hasName("absent"))')
+            assert error.value.code == grpc.StatusCode.NOT_FOUND
+            source.unlink()
+            own_header.unlink()
+            system_header.unlink()
+            assert await client.callgraph(
+                binding, exclude_system_headers=True, node_filter=matcher, max_depth="all"
+            ) == custom
+            await rows.aclose()
+            await client.close_file(tree)
+            await client.close_file(handle)
+            status = await client.resource_status()
+            assert status.explicit_file_leases == status.result_cursors == status.active_work == 0
+            return baseline, filename, matched, custom, paths
+
+    return asyncio.run(run())
+
+
+@then("filtered callgraphs keep user headers and stop at excluded callables")
+def boundaries_are_respected(boundary_graphs):
+    baseline, filename, matched, custom, paths = boundary_graphs
+
+    def names(graph):
+        assert graph.is_complete
+        return {
+            n.function.qualified_name for n in graph.nodes
+            if not n.is_virtual_root and n.HasField("function")
+        }
+
+    assert "system_lib::bridge" in names(baseline)
+    assert names(filename) == {
+        "entry", "app::leaf", "app::behindSystem", "app::work", "vendor::bridge"
+    }
+    assert names(matched) == {"entry", "app::work", "app::leaf", "vendor::bridge"}
+    assert names(custom) == {"entry", "app::work", "app::leaf"}
+    assert "entry" not in names(paths) and "app::work" in names(paths)
+    assert filename.external_edges_omitted > 0
+    assert ("entry", "app::work") in relationships(custom)
+    assert ("app::work", "app::leaf") in relationships(custom)
+    assert any(
+        s.facts.static_callee_name == "system_lib::bridge" and not s.HasField("callee_node")
+        for s in custom.call_sites
+    )
+
+
+@when(
+    parsers.parse("I run the header boundary console example with {engine}"),
+    target_fixture="boundary_console",
+)
+def boundary_console(callgraph_server, tmp_path, engine):
+    server, _ = callgraph_server
+    root = Path(__file__).resolve().parents[2]
+    libraries = tmp_path / "empty-boundary-libraries"
+    libraries.mkdir()
+    return subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint,
+         "--script-engine", engine, "--lib-dir", str(libraries), "--script",
+         str(root / "examples/callgraph_boundaries.ctk")],
+        cwd=root, capture_output=True, text=True, timeout=60,
+    )
+
+
+@then("the console excludes standard library and custom namespace nodes")
+def boundary_console_is_complete(boundary_console):
+    run = boundary_console
+    assert run.returncode == 0, run.stdout + run.stderr
+    counts = {}
+    for line in run.stdout.splitlines():
+        name, _, value = line.partition("=")
+        if name in {"FILENAME_NODES", "PARSED_NODES"}:
+            counts[name] = int(value)
+    # Whole-TU inventories can also contain source-less builtin callables;
+    # their presence depends on the platform's C++ headers.
+    assert counts["FILENAME_NODES"] == counts["PARSED_NODES"] >= 5
+    for expected in (
+        "MATCHED_DEFAULT_DEPTH_NODES=4",
+        "MATCHED_NODES=5", "CUSTOM_NODES=4", "COMPLETE=true",
+        "project::check -> project::leaf", "entry -> project::check",
+        "entry -> vendor::trace",
+    ):
+        assert expected in run.stdout
+    custom_output = run.stdout.split("CUSTOM_NODES=4", 1)[1]
+    assert "vendor::" not in custom_output and "std::" not in run.stdout
+    assert all(name in custom_output for name in ("project::leaf", "project::check", "entry"))
+
+
+@when(
     "I inspect a header va_list callable through retained graph inputs",
     target_fixture="header_va_list_graphs",
 )

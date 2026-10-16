@@ -385,6 +385,145 @@ TEST_F(CallGraph, ProjectionAndMainFileScopeAreExplicitAndComplete) {
     if (node.has_function())
       EXPECT_NE(node.function().qualified_name(), "header_only");
 }
+TEST_F(CallGraph, ScopeFiltersAreAppliedBeforeTopologyAndEchoedInHeader) {
+  std::ofstream(directory.path() / "user_extra.hpp")
+      << "inline int user_header() { return 2; }\n";
+  std::ofstream(directory.path() / "scope.hpp")
+      << "#pragma GCC system_header\n"
+         "inline int system_leaf() { return 1; }\n"
+         "inline int bridge() { return system_leaf(); }\n";
+  std::ofstream(directory.path() / "scope.cc")
+      << "#include \"scope.hpp\"\n"
+         "#include \"user_extra.hpp\"\n"
+         "namespace vendor { int trace() { return 3; } }\n"
+         "int entry() { return bridge(); }\n"
+         "int helper() { return user_header(); }\n"
+         "int vendor_entry() { return vendor::trace(); }\n"
+         "int rejected() { return system_leaf(); }\n";
+  request.mutable_file()->set_file_path("scope.cc");
+  request.mutable_file()->add_compile_arguments("-I" +
+                                                directory.path().string());
+  auto full = controller.build(request, [] { return true; });
+  ASSERT_EQ(full.code, MatchCode::Ok) << full.message;
+  EXPECT_FALSE(full.response.exclude_system_headers());
+  EXPECT_TRUE(full.response.node_filter().empty());
+  auto filtered_request = request;
+  filtered_request.set_exclude_system_headers(true);
+  auto filtered = controller.build(filtered_request, [] { return true; });
+  ASSERT_EQ(filtered.code, MatchCode::Ok) << filtered.message;
+  EXPECT_TRUE(filtered.response.exclude_system_headers());
+  EXPECT_GT(filtered.response.external_edges_omitted(), 0U);
+  std::set<std::string> names;
+  for (const auto &node : filtered.response.nodes())
+    if (node.has_function())
+      names.insert(node.function().qualified_name());
+  EXPECT_TRUE(names.contains("entry"));
+  EXPECT_TRUE(names.contains("helper"));
+  EXPECT_TRUE(names.contains("user_header"));
+  EXPECT_FALSE(names.contains("system_leaf"));
+  EXPECT_FALSE(names.contains("bridge"));
+  bool retained_header_boundary_site = false;
+  for (const auto &site : filtered.response.call_sites())
+    if (site.has_facts() && site.facts().caller_name() == "entry" &&
+        site.facts().static_callee_name() == "bridge") {
+      retained_header_boundary_site = true;
+      EXPECT_FALSE(site.has_callee_node());
+    }
+  EXPECT_TRUE(retained_header_boundary_site);
+
+  auto custom_request = request;
+  custom_request.set_node_filter("functionDecl(unless(hasName(\"rejected\")))");
+  auto custom = controller.build(custom_request, [] { return true; });
+  ASSERT_EQ(custom.code, MatchCode::Ok) << custom.message;
+  EXPECT_EQ(custom.response.node_filter(), custom_request.node_filter());
+  for (const auto &node : custom.response.nodes())
+    if (node.has_function())
+      EXPECT_NE(node.function().qualified_name(), "rejected");
+  for (const auto &site : custom.response.call_sites())
+    if (site.has_facts())
+      EXPECT_NE(site.facts().caller_name(), "rejected")
+          << "excluded caller sites cannot be relabeled as root sites";
+
+  auto qualified_request = request;
+  qualified_request.set_node_filter(
+      "functionDecl(unless(matchesName(\"(^|::)vendor::\")))");
+  const auto qualified =
+      controller.build(qualified_request, [] { return true; });
+  ASSERT_EQ(qualified.code, MatchCode::Ok) << qualified.message;
+  bool qualified_boundary_site = false;
+  for (const auto &node : qualified.response.nodes())
+    if (node.has_function())
+      EXPECT_NE(node.function().qualified_name(), "vendor::trace");
+  for (const auto &site : qualified.response.call_sites())
+    if (site.has_facts() && site.facts().caller_name() == "vendor_entry" &&
+        site.facts().static_callee_name() == "vendor::trace") {
+      qualified_boundary_site = true;
+      EXPECT_FALSE(site.has_callee_node());
+    }
+  EXPECT_TRUE(qualified_boundary_site);
+
+  auto nested_binding_request = request;
+  nested_binding_request.set_node_filter(
+      "functionDecl(hasDescendant(callExpr().bind(\"root\")))");
+  const auto nested_binding =
+      controller.build(nested_binding_request, [] { return true; });
+  ASSERT_EQ(nested_binding.code, MatchCode::Ok) << nested_binding.message;
+  EXPECT_TRUE(std::any_of(nested_binding.response.nodes().begin(),
+                          nested_binding.response.nodes().end(),
+                          [](const auto &node) {
+                            return node.has_function() &&
+                                   node.function().qualified_name() == "entry";
+                          }));
+
+  auto narrow_request = request;
+  narrow_request.set_main_file_only(true);
+  narrow_request.set_exclude_system_headers(true);
+  narrow_request.set_node_filter(
+      "functionDecl(isExpansionInMainFile(), isDefinition(), "
+      "hasName(\"entry\"))");
+  narrow_request.set_max_nodes(2);
+  narrow_request.set_max_call_sites(1);
+  const auto narrow = controller.build(narrow_request, [] { return true; });
+  ASSERT_EQ(narrow.code, MatchCode::Ok) << narrow.message;
+  ASSERT_EQ(narrow.response.nodes_size(), 2);
+  EXPECT_EQ(narrow.response.call_sites_size(), 1);
+  EXPECT_EQ(narrow.response.nodes(1).function().qualified_name(), "entry");
+
+  auto invalid = request;
+  invalid.set_node_filter("stmt()");
+  EXPECT_EQ(controller.build(invalid, [] { return true; }).code,
+            MatchCode::InvalidArgument);
+  invalid.set_node_filter("functionDecl(");
+  EXPECT_EQ(controller.build(invalid, [] { return true; }).code,
+            MatchCode::InvalidArgument);
+  std::size_t events = 0;
+  const auto invalid_stream = controller.build_stream(
+      invalid, [] { return true; },
+      [&](const ctk::analysis::v1::CallGraphStreamEvent &, std::string &) {
+        ++events;
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(invalid_stream.code, MatchCode::InvalidArgument);
+  EXPECT_EQ(events, 0U);
+}
+TEST_F(CallGraph, CancellationDuringFilteredInventoryPublishesNoEvents) {
+  auto source = std::ofstream(directory.path() / "many.cc");
+  for (int index = 0; index < 200; ++index)
+    source << "int function_" << index << "() { return " << index << "; }\n";
+  source.close();
+  request.mutable_file()->set_file_path("many.cc");
+  request.set_node_filter("functionDecl(unless(hasName(\"never_matches\")))");
+  std::size_t checks = 0;
+  std::size_t events = 0;
+  const auto result = controller.build_stream(
+      request, [&] { return ++checks < 700; },
+      [&](const ctk::analysis::v1::CallGraphStreamEvent &, std::string &) {
+        ++events;
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(result.code, MatchCode::Cancelled);
+  EXPECT_EQ(events, 0U);
+}
 TEST_F(CallGraph, HeaderVaListImplicitConstructorDoesNotBreakFullScopeGraph) {
   std::ofstream(directory.path() / "va_list.hpp")
       << "namespace demo { inline void copyVaList(__builtin_va_list) {} "

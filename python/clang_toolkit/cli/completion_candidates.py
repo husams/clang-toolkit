@@ -42,6 +42,8 @@ _REGEX_LITERALS = {
     "CLOSE": "close",
     "BIND": ".bind",
     "CALLGRAPH": "callgraph",
+    "EXCLUDE_SYSTEM": "exclude-system",
+    "NODE_FILTER": "node-filter",
     "CFG": "cfg",
     "EXIT": "exit",
     "HELP": "help",

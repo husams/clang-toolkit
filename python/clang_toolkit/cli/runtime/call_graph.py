@@ -1,6 +1,7 @@
 """Formal CLI evaluation for native AST call graphs."""
 
 from __future__ import annotations
+import ast
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -46,6 +47,14 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
             continue
         if graph_option(option, options):
             continue
+        if option.data == "call_graph_node_filter":
+            if "node_filter" in options:
+                raise EvaluationError("duplicate callgraph option node_filter")
+            text = ast.literal_eval(str(option.children[1]))
+            if not text.strip():
+                raise EvaluationError("node_filter must be non-empty matcher text")
+            options["node_filter"] = text
+            continue
         key, maximum = {
             "call_graph_nodes": ("max_nodes", (1 << 64) - 1),
             "call_graph_edges": ("max_edges", 1000000),
@@ -54,6 +63,7 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
             "call_graph_direction": ("direction", None),
             "call_graph_implicit": ("visit_implicit_code", None),
             "call_graph_instantiations": ("visit_template_instantiations", None),
+            "call_graph_exclude_system": ("exclude_system_headers", None),
         }[str(option.data)]
         if key in options:
             raise EvaluationError(f"duplicate callgraph option {key}")

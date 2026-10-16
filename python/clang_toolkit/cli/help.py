@@ -986,8 +986,8 @@ _ENTRIES = (
         "callgraph",
         "Build the static native AST call graph for a file and return a typed value.",
         (
-            "callgraph PATH [nodes N|all] [edges N] [callsites N] [direction in|out|both] [depth N|all] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [payload-depth N] [payload-nodes N] [format json]",
-            "callgraph in TARGET [direction in|out|both] [depth N|all] [callsites N] [nodes N|all] [edges N] [format json]",
+            "callgraph PATH [nodes N|all] [edges N] [callsites N] [direction in|out|both] [depth N|all] [implicit BOOL] [instantiations BOOL] [projection shallow|recursive] [main-file BOOL] [exclude-system BOOL] [node-filter STRING] [payload-depth N] [payload-nodes N] [format json]",
+            "callgraph in TARGET [direction in|out|both] [depth N|all] [callsites N] [nodes N|all] [edges N] [exclude-system BOOL] [node-filter STRING] [format json]",
         ),
         (
             "PATH: quoted file or path/File reference. nodes: a positive uint64 count, or all/0 for unlimited. Omission uses server.call_graph.default_max_nodes (10000 by default; 0 means unlimited). No fixed node ceiling.",
@@ -996,6 +996,8 @@ _ENTRIES = (
             "Omitted implicit/instantiations use Clang CallGraph defaults (both true).",
             "projection: shallow by default; recursive expands nested semantic payloads. payload-depth: 1..64 (default 24); payload-nodes: 1..100000 (default 10000 per payload). These limits are independent of graph node/edge limits.",
             "main-file true scopes the graph to main-file declarations; default false includes headers. is_complete and external_edges_omitted expose graph coverage.",
+            "exclude-system true removes callables in Clang system headers while keeping user headers (default false). Classification uses the definition when available, otherwise the declaration, at expansion location. Headers passed with -isystem or marked system_header are system headers even if project-owned.",
+            "node-filter is a quoted Clang declaration matcher applied to each callable. Compose names, namespaces, paths and other predicates with allOf/anyOf/unless. It combines with main-file and exclude-system using AND. Excluded callables stop graph paths; external_edges_omitted counts omitted callee records. Retained callers keep boundary call-site facts without a callee index. is_complete describes the requested scope.",
             "The graph is static: indirect calls do not establish target edges, and virtual entries identify the statically selected declaration rather than runtime targets.",
             "Standalone callgraph streams to a compact summary after terminal success. Add format json for raw ProtoJSON. Assignment collects a reusable CallGraph value.",
             "CallGraph values support function(qualified_name[, signature]), function(binding), callers(target[, depth]), callees(target[, depth]), grouped_calls(), shortest_path(source, target), shortest_route(source, target), and recursive_components(). Local callers/callees accept depth=all over represented graph topology. grouped_calls() preserves call-site counts and unresolved sites; shortest_route() includes sites witnessing each step. Binding lookup resolves the exact call-graph node so local neighborhoods compose. Neighborhood results are bounded and reindex nodes and edges; the source graph remains unchanged.",
@@ -1006,6 +1008,8 @@ _ENTRIES = (
             'let callers = callgraph in $target direction in depth 2',
             'let reachable = callgraph in $target direction out depth all',
             'let unrestricted_nodes = callgraph in $target depth all nodes all',
+            'let project = callgraph in $tree exclude-system true',
+            "let filtered = callgraph in $target depth all exclude-system true node-filter 'functionDecl(unless(matchesName(\"(^|::)vendor::\")))'",
             'let calls = callgraph "examples/parse_match.cc" nodes 100 projection shallow main-file true',
             "print $calls.nodes.length",
         ),

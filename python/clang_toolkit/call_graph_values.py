@@ -406,8 +406,20 @@ class CallGraph:
             type(depth) is not int or not 0 <= depth <= 32
         ):
             raise ValueError("depth must be 0..32 or 'all'")
-        response = self._selector(target, direction=direction, max_depth=depth)
+        response = self._selector(
+            target, direction=direction, max_depth=depth, **self._boundary_options()
+        )
         return CallGraph(response, selector=self._selector)
+
+    def _boundary_options(self) -> dict[str, Any]:
+        options: dict[str, Any] = {}
+        if self.response.main_file_only:
+            options["main_file_only"] = True
+        if self.response.exclude_system_headers:
+            options["exclude_system_headers"] = True
+        if self.response.node_filter:
+            options["node_filter"] = self.response.node_filter
+        return options
 
     def _function_for_binding(
         self, target: BindingSelection[Any], *, depth: int
@@ -432,7 +444,9 @@ class CallGraph:
             raise CallGraphError(
                 "binding has no call-graph identity; exact lookup needs a live console graph"
             )
-        focused = self._selector(target, direction="out", max_depth=0)
+        focused = self._selector(
+            target, direction="out", max_depth=0, **self._boundary_options()
+        )
         if (
             self.response.snapshot_generation
             and focused.snapshot_generation

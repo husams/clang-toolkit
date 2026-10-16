@@ -56,6 +56,105 @@ the explicit output option:
 callgraph in tree main-file true format json
 ```
 
+## System headers and custom callable boundaries
+
+Use `exclude-system true` to keep your source and user headers while omitting
+callables in Clang system headers. Unlike `main-file true`, it retains your
+header implementations. Both options default to false. System classification
+uses the callable's definition when available, otherwise its declaration, at
+the expansion location. Clang classifies standard library headers, `-isystem`
+directories and headers marked `#pragma GCC system_header` as system headers;
+the filter does not guess from the `std::` namespace or angle-bracket includes.
+
+Run [the complete example](../examples/callgraph_boundaries.ctk) from the
+repository root with a server built from this branch. The private-console
+launcher reproduces the verified output:
+
+```sh
+cmake --build --preset dev
+mkdir -p /private/tmp/ctk-boundaries-empty-libraries
+bash scripts/manual_console.sh --ui prompt --script-engine compiled \
+  --lib-dir /private/tmp/ctk-boundaries-empty-libraries \
+  --script "$PWD/examples/callgraph_boundaries.ctk"
+```
+
+The fixture includes a user header containing `project::check` and
+`project::leaf`, a `vendor::trace` helper, and the real `<stdexcept>` header.
+`entry` calls the two user-header helpers; `project::check` can throw
+`std::runtime_error`. Standard library callables are omitted while the project
+header remains represented.
+
+```ctk
+let filename = callgraph "examples/callgraph_boundaries.cc" exclude-system true
+let tree = parse "examples/callgraph_boundaries.cc"
+let parsed = callgraph in tree exclude-system true
+let entries = match functionDecl(hasName("entry"), isDefinition()).bind("f") in tree
+let matched = callgraph in entries[0].f exclude-system true depth all
+let custom = callgraph in entries[0].f exclude-system true depth all node-filter 'functionDecl(unless(matchesName("(^|::)vendor::")))'
+```
+
+Actual shallow output from the complete example in the real compiled console:
+
+```text
+FILENAME_NODES=5
+PARSED_NODES=5
+MATCHED_DEFAULT_DEPTH_NODES=4
+MATCHED_NODES=5
+project::check -> project::leaf
+entry -> project::check
+entry -> vendor::trace
+CUSTOM_NODES=4
+project::leaf
+project::check
+entry
+COMPLETE=true
+```
+
+Advanced `node-filter` accepts a quoted Clang declaration matcher, evaluated on
+each callable's definition or fallback declaration. These are admission rules,
+not seed selectors or filters applied after depth traversal:
+
+| Desired boundary | Matcher text |
+| --- | --- |
+| Exclude a namespace | `functionDecl(unless(matchesName("(^\|::)vendor::")))` |
+| Keep a namespace and the entry point | `functionDecl(anyOf(matchesName("(^\|::)project::"), hasName("entry")))` |
+| Keep functions in a header path | `functionDecl(isExpansionInFileMatching("callgraph_boundary_helpers[.]hpp$"))` |
+| Combine names and file exclusions | `functionDecl(anyOf(matchesName("(^\|::)project::"), hasName("entry")), unless(isExpansionInFileMatching("/generated/")))` |
+| Exclude C++ methods | `functionDecl(unless(cxxMethodDecl()))` |
+
+Path and name patterns are Clang regular expressions, not shell globs. Namespace
+examples use `(^|::)` to account for a leading global qualifier in matcher names.
+`allOf`, `anyOf`, `unless` and other compatible declaration predicates can be
+composed. Invalid syntax or statement matchers such as `stmt()` return an
+invalid-argument error. A filtered-out seed returns not-found.
+
+All active scope rules combine with AND. Excluded callables stop paths: if
+`entry -> excluded -> leaf` is the only route, `depth all` from `entry` does not
+reach `leaf`. A whole-TU query can still contain that admitted `leaf` as a
+separate node. The virtual root remains. `external_edges_omitted` counts dropped
+native call records from admitted callers, including root records. Admitted
+callers retain boundary call-site facts without a `callee_node`; the target
+name can therefore still appear in a call-site fact. Excluded callers contribute
+no sites and do not consume the call-site budget. `is_complete` describes the
+requested scope and projection.
+
+The response echoes `exclude_system_headers` and `node_filter`; Python clients
+reject servers that do not confirm these filters. Retained inputs reuse the
+pinned snapshot, and graph methods that query a retained binding preserve its
+boundary. Shallow results remain the default. Scope filters do not prevent
+Clang from parsing included headers; they control graph membership.
+
+Python collectors and streams use the same options:
+
+```python
+graph = client.callgraph(
+    target,  # filename, parsed file, file handle or matched binding
+    exclude_system_headers=True,
+    node_filter='functionDecl(unless(matchesName("(^|::)vendor::")))',
+    max_depth="all",  # use with a callable target
+)
+```
+
 ## Input and selection rules
 
 | Input | Selection |
@@ -114,6 +213,7 @@ graph
   optional selection_unlimited_depth
   selection_boundary_edges, selection_boundary_call_sites
   is_complete, availability, main_file_only, external_edges_omitted
+  exclude_system_headers, node_filter
 ```
 
 ```ctk

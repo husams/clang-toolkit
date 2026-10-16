@@ -113,6 +113,17 @@ TEST_F(ScriptNative, CallGraphNodeDefaultsAndUnlimitedOptionsAreIndependent) {
   EXPECT_EQ(controller.run(request, [] { return true; }).code,
             Code::InvalidArgument);
 }
+TEST_F(ScriptNative, CallGraphScopeOptionsAcceptBooleanAndString) {
+  ScriptController controller;
+  request.set_source("emit callgraph(exclude_system_headers=true, "
+                     "node_filter=\"functionDecl()\");");
+  const auto result = controller.run(request, [] { return true; });
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  ASSERT_EQ(result.response.emissions_size(), 1);
+  const auto &graph = result.response.emissions(0).value().call_graph();
+  EXPECT_TRUE(graph.exclude_system_headers());
+  EXPECT_EQ(graph.node_filter(), "functionDecl()");
+}
 TEST_F(ScriptNative, BranchesFromImmutableRowsAndPreservesRowSelection) {
   ScriptController controller;
   request.set_source(

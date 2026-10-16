@@ -12,7 +12,9 @@ def call_graph_request(path: str | Path, *, working_directory: str | Path | None
                        visit_template_instantiations: bool | None = None,
                        max_nodes: int | Literal["all"] | None = None,
                        max_edges: int | None = None, projection: str = "shallow",
-                      main_file_only: bool = False, payload_depth: int = 24,
+                      main_file_only: bool = False,
+                      exclude_system_headers: bool = False,
+                      node_filter: str | None = None, payload_depth: int = 24,
                       payload_nodes: int = 10000) -> pb.CallGraphRequest:
     request = pb.CallGraphRequest(file=file_request(path, "unused",
         working_directory=working_directory, compile_arguments=compile_arguments).file)
@@ -32,6 +34,15 @@ def call_graph_request(path: str | Path, *, working_directory: str | Path | None
             if not 1 <= value <= maximum:
                 raise ValueError(f"{name} must be 1..{maximum}")
             setattr(request, name, value)
+    if type(exclude_system_headers) is not bool:
+        raise ValueError("exclude_system_headers must be a boolean")
+    if node_filter is not None and (
+        not isinstance(node_filter, str) or not node_filter.strip()
+    ):
+        raise ValueError("node_filter must be non-empty matcher text")
+    request.exclude_system_headers = exclude_system_headers
+    if node_filter is not None:
+        request.node_filter = node_filter
     request.projection.CopyFrom(value_projection(projection, payload_depth=payload_depth, payload_nodes=payload_nodes))
     request.main_file_only = main_file_only
     return request

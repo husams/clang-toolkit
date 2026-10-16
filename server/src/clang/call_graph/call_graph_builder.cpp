@@ -8,24 +8,27 @@ bool CallGraphBuilder::TraverseDecl(clang::Decl *declaration) {
       !llvm::isa<clang::TranslationUnitDecl>(declaration) &&
       declaration->getLocation().isValid()) {
     const auto &sources = declaration->getASTContext().getSourceManager();
-    if (!sources.isWrittenInMainFile(
-            sources.getExpansionLoc(declaration->getLocation())))
+    const auto location = sources.getExpansionLoc(declaration->getLocation());
+    if (!sources.isWrittenInMainFile(location))
       return true;
   }
   const auto success = clang::CallGraph::TraverseDecl(declaration);
   budget_.check();
-  if (!budget_.limits.max_nodes || size() <= budget_.limits.max_nodes)
+  if (defer_node_limit_ || !budget_.limits.max_nodes ||
+      size() <= budget_.limits.max_nodes)
     return success;
-  std::size_t emitted = 0;
-  if (!main_file_only_)
-    emitted = size();
-  else for (const auto &entry : *this) {
+  std::size_t emitted = 1; // The synthetic root is part of the node budget.
+  for (const auto &entry : *this) {
     const auto *node = entry.second.get();
+    if (node == getRoot())
+      continue;
     const auto *decl = node->getDecl();
-    if (!decl || !main_file_only_ ||
-        decl->getASTContext().getSourceManager().isWrittenInMainFile(
-            decl->getASTContext().getSourceManager().getExpansionLoc(
-                decl->getLocation())))
+    if (!decl || (scope_ && scope_(decl)) ||
+        (!scope_ &&
+         (!main_file_only_ ||
+          decl->getASTContext().getSourceManager().isWrittenInMainFile(
+              decl->getASTContext().getSourceManager().getExpansionLoc(
+                  decl->getLocation())))))
       ++emitted;
   }
   if (emitted > budget_.limits.max_nodes)

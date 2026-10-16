@@ -36,4 +36,11 @@ message CallGraphRequest {
   // Select every callable reachable from the focused callable. Mutually
   // exclusive with max_depth; finite depths remain bounded to 0..32.
   optional bool unlimited_depth = 17;
+  // Exclude callable definitions in Clang system headers, retaining user headers.
+  // Uses the definition when available, otherwise the declaration, at expansion location.
+  bool exclude_system_headers = 18;
+  // Optional Clang declaration matcher evaluated on each callable (definition
+  // when available). Combined with the other scope filters using AND. Excluded
+  // callables are boundaries: traversal never passes through them.
+  string node_filter = 19;
 }
