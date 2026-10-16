@@ -1,0 +1,24 @@
+let tree = parse "examples/value_ranges.cc"
+let functions = match functionDecl(isDefinition(), hasName("score")).bind("f") in tree
+let variables = match varDecl(hasLocalStorage(), hasName("total")).bind("v") in functions[0].f
+let report = variableflow variables[0].v in functions[0].f values interval
+
+let format_range(bounds) = if bounds.kind.name == "INTERVAL" then "[{bounds.lower}, {bounds.upper}]" else bounds.kind.name
+
+print "Variable: {report.analysis.variable}"
+print "Domain: {report.analysis.value_domain}"
+let usages = foreach usage in report.usages do usage
+foreach usage in usages.sort("location.line") do {
+    foreach fact in report.facts do {
+        if fact.usage_id == usage.id {
+            let before = format_range(fact.value_before)
+            let after = format_range(fact.value_after)
+            print "Line {usage.location.line} {usage.kind}: before={before}, after={after}"
+        }
+    }
+}
+foreach finding in report.findings do {
+    print "Finding: {finding.kind}: {finding.message}"
+}
+print "Findings: {report.findings.length}"
+print "Complete: {report.completed.is_complete}"

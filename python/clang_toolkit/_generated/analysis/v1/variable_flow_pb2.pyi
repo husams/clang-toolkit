@@ -8,21 +8,30 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class VariableValueDomain(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    VARIABLE_VALUE_DOMAIN_UNSPECIFIED: _ClassVar[VariableValueDomain]
+    INTERVAL: _ClassVar[VariableValueDomain]
+VARIABLE_VALUE_DOMAIN_UNSPECIFIED: VariableValueDomain
+INTERVAL: VariableValueDomain
+
 class VariableFlowRequest(_message.Message):
-    __slots__ = ("variable", "function", "resource_scope_id", "max_blocks", "max_events", "max_iterations")
+    __slots__ = ("variable", "function", "resource_scope_id", "max_blocks", "max_events", "max_iterations", "value_domain")
     VARIABLE_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     RESOURCE_SCOPE_ID_FIELD_NUMBER: _ClassVar[int]
     MAX_BLOCKS_FIELD_NUMBER: _ClassVar[int]
     MAX_EVENTS_FIELD_NUMBER: _ClassVar[int]
     MAX_ITERATIONS_FIELD_NUMBER: _ClassVar[int]
+    VALUE_DOMAIN_FIELD_NUMBER: _ClassVar[int]
     variable: _match_service_pb2.BindingMatchTarget
     function: _match_service_pb2.BindingMatchTarget
     resource_scope_id: str
     max_blocks: int
     max_events: int
     max_iterations: int
-    def __init__(self, variable: _Optional[_Union[_match_service_pb2.BindingMatchTarget, _Mapping]] = ..., function: _Optional[_Union[_match_service_pb2.BindingMatchTarget, _Mapping]] = ..., resource_scope_id: _Optional[str] = ..., max_blocks: _Optional[int] = ..., max_events: _Optional[int] = ..., max_iterations: _Optional[int] = ...) -> None: ...
+    value_domain: VariableValueDomain
+    def __init__(self, variable: _Optional[_Union[_match_service_pb2.BindingMatchTarget, _Mapping]] = ..., function: _Optional[_Union[_match_service_pb2.BindingMatchTarget, _Mapping]] = ..., resource_scope_id: _Optional[str] = ..., max_blocks: _Optional[int] = ..., max_events: _Optional[int] = ..., max_iterations: _Optional[int] = ..., value_domain: _Optional[_Union[VariableValueDomain, str]] = ...) -> None: ...
 
 class VariableFlowLocation(_message.Message):
     __slots__ = ("file", "line", "column")
@@ -35,7 +44,7 @@ class VariableFlowLocation(_message.Message):
     def __init__(self, file: _Optional[str] = ..., line: _Optional[int] = ..., column: _Optional[int] = ...) -> None: ...
 
 class VariableFlowStarted(_message.Message):
-    __slots__ = ("variable", "function", "snapshot_generation", "declaration_id", "declaration", "entry_block", "exit_block")
+    __slots__ = ("variable", "function", "snapshot_generation", "declaration_id", "declaration", "entry_block", "exit_block", "value_domain")
     VARIABLE_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     SNAPSHOT_GENERATION_FIELD_NUMBER: _ClassVar[int]
@@ -43,6 +52,7 @@ class VariableFlowStarted(_message.Message):
     DECLARATION_FIELD_NUMBER: _ClassVar[int]
     ENTRY_BLOCK_FIELD_NUMBER: _ClassVar[int]
     EXIT_BLOCK_FIELD_NUMBER: _ClassVar[int]
+    VALUE_DOMAIN_FIELD_NUMBER: _ClassVar[int]
     variable: str
     function: str
     snapshot_generation: int
@@ -50,7 +60,30 @@ class VariableFlowStarted(_message.Message):
     declaration: VariableFlowLocation
     entry_block: int
     exit_block: int
-    def __init__(self, variable: _Optional[str] = ..., function: _Optional[str] = ..., snapshot_generation: _Optional[int] = ..., declaration_id: _Optional[int] = ..., declaration: _Optional[_Union[VariableFlowLocation, _Mapping]] = ..., entry_block: _Optional[int] = ..., exit_block: _Optional[int] = ...) -> None: ...
+    value_domain: VariableValueDomain
+    def __init__(self, variable: _Optional[str] = ..., function: _Optional[str] = ..., snapshot_generation: _Optional[int] = ..., declaration_id: _Optional[int] = ..., declaration: _Optional[_Union[VariableFlowLocation, _Mapping]] = ..., entry_block: _Optional[int] = ..., exit_block: _Optional[int] = ..., value_domain: _Optional[_Union[VariableValueDomain, str]] = ...) -> None: ...
+
+class VariableValueRange(_message.Message):
+    __slots__ = ("kind", "lower", "upper")
+    class Kind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        KIND_UNSPECIFIED: _ClassVar[VariableValueRange.Kind]
+        INTERVAL: _ClassVar[VariableValueRange.Kind]
+        UNINITIALIZED: _ClassVar[VariableValueRange.Kind]
+        UNREACHABLE: _ClassVar[VariableValueRange.Kind]
+        UNKNOWN: _ClassVar[VariableValueRange.Kind]
+    KIND_UNSPECIFIED: VariableValueRange.Kind
+    INTERVAL: VariableValueRange.Kind
+    UNINITIALIZED: VariableValueRange.Kind
+    UNREACHABLE: VariableValueRange.Kind
+    UNKNOWN: VariableValueRange.Kind
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    LOWER_FIELD_NUMBER: _ClassVar[int]
+    UPPER_FIELD_NUMBER: _ClassVar[int]
+    kind: VariableValueRange.Kind
+    lower: str
+    upper: str
+    def __init__(self, kind: _Optional[_Union[VariableValueRange.Kind, str]] = ..., lower: _Optional[str] = ..., upper: _Optional[str] = ...) -> None: ...
 
 class VariableUsage(_message.Message):
     __slots__ = ("id", "block", "element", "kind", "location", "provisional")
@@ -87,7 +120,7 @@ class VariableUsage(_message.Message):
     def __init__(self, id: _Optional[int] = ..., block: _Optional[int] = ..., element: _Optional[int] = ..., kind: _Optional[_Union[VariableUsage.Kind, str]] = ..., location: _Optional[_Union[VariableFlowLocation, _Mapping]] = ..., provisional: _Optional[bool] = ...) -> None: ...
 
 class VariableFlowFact(_message.Message):
-    __slots__ = ("usage_id", "reachable", "initialization", "reaching_assignments", "live_after", "dead_store")
+    __slots__ = ("usage_id", "reachable", "initialization", "reaching_assignments", "live_after", "dead_store", "value_before", "value_after")
     class Initialization(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
         INITIALIZATION_UNSPECIFIED: _ClassVar[VariableFlowFact.Initialization]
@@ -106,13 +139,17 @@ class VariableFlowFact(_message.Message):
     REACHING_ASSIGNMENTS_FIELD_NUMBER: _ClassVar[int]
     LIVE_AFTER_FIELD_NUMBER: _ClassVar[int]
     DEAD_STORE_FIELD_NUMBER: _ClassVar[int]
+    VALUE_BEFORE_FIELD_NUMBER: _ClassVar[int]
+    VALUE_AFTER_FIELD_NUMBER: _ClassVar[int]
     usage_id: int
     reachable: bool
     initialization: VariableFlowFact.Initialization
     reaching_assignments: _containers.RepeatedScalarFieldContainer[int]
     live_after: bool
     dead_store: bool
-    def __init__(self, usage_id: _Optional[int] = ..., reachable: _Optional[bool] = ..., initialization: _Optional[_Union[VariableFlowFact.Initialization, str]] = ..., reaching_assignments: _Optional[_Iterable[int]] = ..., live_after: _Optional[bool] = ..., dead_store: _Optional[bool] = ...) -> None: ...
+    value_before: VariableValueRange
+    value_after: VariableValueRange
+    def __init__(self, usage_id: _Optional[int] = ..., reachable: _Optional[bool] = ..., initialization: _Optional[_Union[VariableFlowFact.Initialization, str]] = ..., reaching_assignments: _Optional[_Iterable[int]] = ..., live_after: _Optional[bool] = ..., dead_store: _Optional[bool] = ..., value_before: _Optional[_Union[VariableValueRange, _Mapping]] = ..., value_after: _Optional[_Union[VariableValueRange, _Mapping]] = ...) -> None: ...
 
 class VariableFlowFinding(_message.Message):
     __slots__ = ("kind", "usage_id", "message", "witness_blocks")
@@ -123,11 +160,13 @@ class VariableFlowFinding(_message.Message):
         UNINITIALIZED_READ: _ClassVar[VariableFlowFinding.Kind]
         DEAD_STORE: _ClassVar[VariableFlowFinding.Kind]
         UNSUPPORTED_EFFECT: _ClassVar[VariableFlowFinding.Kind]
+        POSSIBLE_OVERFLOW: _ClassVar[VariableFlowFinding.Kind]
     KIND_UNSPECIFIED: VariableFlowFinding.Kind
     POSSIBLY_UNINITIALIZED: VariableFlowFinding.Kind
     UNINITIALIZED_READ: VariableFlowFinding.Kind
     DEAD_STORE: VariableFlowFinding.Kind
     UNSUPPORTED_EFFECT: VariableFlowFinding.Kind
+    POSSIBLE_OVERFLOW: VariableFlowFinding.Kind
     KIND_FIELD_NUMBER: _ClassVar[int]
     USAGE_ID_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_FIELD_NUMBER: _ClassVar[int]

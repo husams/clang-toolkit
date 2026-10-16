@@ -57,6 +57,7 @@ import type { VariableFlowReport as _ctk_analysis_v1_VariableFlowReport, Variabl
 import type { VariableFlowRequest as _ctk_analysis_v1_VariableFlowRequest, VariableFlowRequest__Output as _ctk_analysis_v1_VariableFlowRequest__Output } from './ctk/analysis/v1/VariableFlowRequest.js';
 import type { VariableFlowStarted as _ctk_analysis_v1_VariableFlowStarted, VariableFlowStarted__Output as _ctk_analysis_v1_VariableFlowStarted__Output } from './ctk/analysis/v1/VariableFlowStarted.js';
 import type { VariableUsage as _ctk_analysis_v1_VariableUsage, VariableUsage__Output as _ctk_analysis_v1_VariableUsage__Output } from './ctk/analysis/v1/VariableUsage.js';
+import type { VariableValueRange as _ctk_analysis_v1_VariableValueRange, VariableValueRange__Output as _ctk_analysis_v1_VariableValueRange__Output } from './ctk/analysis/v1/VariableValueRange.js';
 import type { APAddrLabelDiff as _ctk_ast_v1_APAddrLabelDiff, APAddrLabelDiff__Output as _ctk_ast_v1_APAddrLabelDiff__Output } from './ctk/ast/v1/APAddrLabelDiff.js';
 import type { APArrayValue as _ctk_ast_v1_APArrayValue, APArrayValue__Output as _ctk_ast_v1_APArrayValue__Output } from './ctk/ast/v1/APArrayValue.js';
 import type { APDynamicAllocation as _ctk_ast_v1_APDynamicAllocation, APDynamicAllocation__Output as _ctk_ast_v1_APDynamicAllocation__Output } from './ctk/ast/v1/APDynamicAllocation.js';
@@ -517,6 +518,8 @@ export interface ProtoGrpcType {
         VariableFlowRequest: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowRequest, _ctk_analysis_v1_VariableFlowRequest__Output>
         VariableFlowStarted: MessageTypeDefinition<_ctk_analysis_v1_VariableFlowStarted, _ctk_analysis_v1_VariableFlowStarted__Output>
         VariableUsage: MessageTypeDefinition<_ctk_analysis_v1_VariableUsage, _ctk_analysis_v1_VariableUsage__Output>
+        VariableValueDomain: EnumTypeDefinition
+        VariableValueRange: MessageTypeDefinition<_ctk_analysis_v1_VariableValueRange, _ctk_analysis_v1_VariableValueRange__Output>
       }
     }
     ast: {

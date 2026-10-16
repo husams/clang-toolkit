@@ -1109,7 +1109,7 @@ class AsyncClient:
         self._begin_value_operation()
         call = None
         consumed = False
-        state = VariableFlowState()
+        state = VariableFlowState(request.value_domain)
         try:
             call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamVariableFlow(
                 request, timeout=self.config.rpc_timeout)
@@ -2400,9 +2400,12 @@ def _expression_runtime(owner: Client | AsyncClient, adapter: Any,
 def _variable_flow_request(client: Client | AsyncClient, variable: BindingSelection,
                            function: BindingSelection, *, scope: ResourceScope[Any] | str | None = None,
                            max_blocks: int = 10000, max_events: int = 10000,
-                           max_iterations: int = 100000) -> variable_flow_pb2.VariableFlowRequest:
+                           max_iterations: int = 100000,
+                           value_domain: str | None = None) -> variable_flow_pb2.VariableFlowRequest:
     if not isinstance(variable, BindingSelection) or not isinstance(function, BindingSelection):
         raise MatchValueError("variable flow requires retained variable and function bindings")
+    if value_domain not in (None, "interval"):
+        raise ValueError("value_domain must be 'interval' or None")
     values = {}
     for name, value, limit in [("max_blocks", max_blocks, 100000), ("max_events", max_events, 100000),
                                ("max_iterations", max_iterations, 1000000)]:
@@ -2412,7 +2415,9 @@ def _variable_flow_request(client: Client | AsyncClient, variable: BindingSelect
     var = _value_request(client, "decl()", variable, scope=scope)
     func = _value_request(client, "decl()", function, scope=scope)
     return variable_flow_pb2.VariableFlowRequest(variable=var.binding, function=func.binding,
-                                                 resource_scope_id=var.resource_scope_id, **values)
+                                                 resource_scope_id=var.resource_scope_id,
+                                                 value_domain=variable_flow_pb2.INTERVAL if value_domain else 0,
+                                                 **values)
 
 
 def _cfg_value_request(client: Client | AsyncClient, target: MatchTarget | Path,

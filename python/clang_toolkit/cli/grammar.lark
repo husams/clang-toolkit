@@ -94,6 +94,7 @@ cfg_option: OPTION NAME (TRUE | FALSE) -> cfg_build_option
 variable_flow_option: BLOCKS NUMBER -> flow_blocks
                     | EVENTS NUMBER -> flow_events
                     | ITERATIONS NUMBER -> flow_iterations
+                    | "values" "interval" -> flow_values
 
 traverse_option: DEPTH NUMBER -> traverse_depth
                | NODES NUMBER -> traverse_nodes

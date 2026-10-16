@@ -189,6 +189,10 @@ CfgResult CfgController::variable_flow(
     return {MatchCode::InvalidArgument,
             "variable and function bindings are required",
             {}};
+  if (request.value_domain() !=
+          ctk::analysis::v1::VARIABLE_VALUE_DOMAIN_UNSPECIFIED &&
+      request.value_domain() != ctk::analysis::v1::INTERVAL)
+    return {MatchCode::InvalidArgument, "unknown variable value domain", {}};
   if ((request.has_max_blocks() &&
        (!request.max_blocks() || request.max_blocks() > 100000)) ||
       (request.has_max_events() &&

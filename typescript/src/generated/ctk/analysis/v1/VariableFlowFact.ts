@@ -1,5 +1,6 @@
 // Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/analysis/v1/variable_flow.proto
 
+import type { VariableValueRange as _ctk_analysis_v1_VariableValueRange, VariableValueRange__Output as _ctk_analysis_v1_VariableValueRange__Output } from '../../../ctk/analysis/v1/VariableValueRange.js';
 import type { Long } from '@grpc/proto-loader';
 
 // Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/analysis/v1/variable_flow.proto
@@ -33,6 +34,8 @@ export interface VariableFlowFact {
   'reachingAssignments'?: (number | string | Long)[];
   'liveAfter'?: (boolean);
   'deadStore'?: (boolean);
+  'valueBefore'?: (_ctk_analysis_v1_VariableValueRange | null);
+  'valueAfter'?: (_ctk_analysis_v1_VariableValueRange | null);
 }
 
 export interface VariableFlowFact__Output {
@@ -42,4 +45,6 @@ export interface VariableFlowFact__Output {
   'reachingAssignments': (string)[];
   'liveAfter': (boolean);
   'deadStore': (boolean);
+  'valueBefore': (_ctk_analysis_v1_VariableValueRange__Output | null);
+  'valueAfter': (_ctk_analysis_v1_VariableValueRange__Output | null);
 }
