@@ -283,10 +283,36 @@ dd {
   padding-top: 8px;
   flex-wrap: wrap;
 }
-#node-results details details {
-  margin-left: 12px;
-  border-left: 1px solid var(--vscode-tree-indentGuidesStroke);
-  padding-left: 6px;
+#node-results .action-match {
+  margin-left: 16px;
+}
+.action-match > summary {
+  padding: 6px 0;
+  font-weight: 600;
+}
+.match-bindings {
+  margin-left: 16px;
+  border-left: 1px solid
+    var(--vscode-tree-indentGuidesStroke, var(--vscode-descriptionForeground));
+  padding-left: 12px;
+}
+.node-match {
+  position: relative;
+  padding: 4px 6px;
+}
+.node-match::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 12px;
+  border-top: 1px solid
+    var(--vscode-tree-indentGuidesStroke, var(--vscode-descriptionForeground));
+}
+.node-match .name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 #node-selection {
   border: 1px solid var(--vscode-focusBorder);

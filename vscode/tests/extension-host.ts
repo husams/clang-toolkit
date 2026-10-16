@@ -363,6 +363,7 @@ export async function run(): Promise<void> {
       rows: {
         id: string;
         file: string;
+        expanded: boolean;
         bindings: string[];
         nodeIds: string[];
       }[];
@@ -750,6 +751,11 @@ export async function run(): Promise<void> {
   const headerPath = await realpath(relatedHeader.fsPath);
   for (const row of relatedRows.rows) {
     assert.equal(row.file, sourcePath);
+    assert.equal(
+      row.expanded,
+      false,
+      "each match must start collapsed rather than showing a long binding list",
+    );
     assert.deepEqual([...row.bindings].sort(), [
       "call",
       "callee",

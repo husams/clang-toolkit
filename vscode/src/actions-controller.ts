@@ -39,6 +39,7 @@ const messages = z.discriminatedUnion("type", [
       z.object({
         id: z.string(),
         file: z.string(),
+        expanded: z.boolean(),
         bindings: z.array(z.string()),
         nodeIds: z.array(z.string()),
       }),
@@ -95,7 +96,13 @@ export class ActionsController implements vscode.Disposable {
   private rendered?: {
     nodes: number;
     groups: number;
-    rows: { id: string; file: string; bindings: string[]; nodeIds: string[] }[];
+    rows: {
+      id: string;
+      file: string;
+      expanded: boolean;
+      bindings: string[];
+      nodeIds: string[];
+    }[];
     action: string | undefined;
     arguments: string[] | undefined;
     values: Record<string, string> | undefined;

@@ -101,16 +101,19 @@ function match(parent, result, node = false, file = result.file) {
       String(result.nodeId === state.actions.selected),
     );
   }
-  button.title = `${result.file}:${result.line}:${result.column}`;
+  button.title = `${node ? `${result.binding}: ${result.name}\n` : ""}${result.file}:${result.line}:${result.column}${node ? `\n${result.excerpt}` : ""}`;
   const name = document.createElement("span");
   name.className = "name";
   const location =
     result.file === file ? result.line : `${result.displayFile}:${result.line}`;
   name.textContent = `${node ? `${result.binding} · ` : ""}${result.name} · ${location}`;
-  const excerpt = document.createElement("span");
-  excerpt.className = "excerpt";
-  excerpt.textContent = result.excerpt;
-  button.append(name, excerpt);
+  button.append(name);
+  if (!node) {
+    const excerpt = document.createElement("span");
+    excerpt.className = "excerpt";
+    excerpt.textContent = result.excerpt;
+    button.append(excerpt);
+  }
   button.addEventListener("click", () =>
     post(node ? "nodeSelect" : "openResult", {
       id: node ? result.nodeId : result.id,
@@ -268,12 +271,21 @@ function renderActions() {
       for (const [index, row] of file.matches.entries()) {
         const details = group(
           parent,
-          `Match ${index + 1} · line ${row.anchor.line}`,
+          `Match [${index + 1}] · line ${row.anchor.line}`,
+          false,
         );
+        details.className = "action-match";
         details.dataset.match = row.id;
+        const bindings = document.createElement("div");
+        bindings.className = "match-bindings";
+        bindings.setAttribute("role", "group");
+        bindings.setAttribute("aria-label", `Bindings for match ${index + 1}`);
+        details.append(bindings);
         for (const result of row.bindings)
-          match(details, result, true, file.file);
+          match(bindings, result, true, file.file);
+        details.addEventListener("toggle", reportActionRendering);
       }
+      parent.addEventListener("toggle", reportActionRendering);
     }
     if (!a.results.length)
       paragraph(
@@ -293,6 +305,9 @@ function renderActions() {
     );
     button.disabled = a.running;
   }
+  reportActionRendering();
+}
+function reportActionRendering() {
   post("nodeRendered", {
     action: element("node-picker").textContent,
     arguments: [...document.querySelectorAll("[data-argument]")].map(
@@ -306,6 +321,7 @@ function renderActions() {
       (row) => ({
         id: row.dataset.match,
         file: row.parentElement.dataset.file,
+        expanded: row.open,
         bindings: [...row.querySelectorAll("[data-node]")].map(
           (button) => button.dataset.binding,
         ),

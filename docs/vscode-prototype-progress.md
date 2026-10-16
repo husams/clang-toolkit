@@ -285,3 +285,28 @@ line 8, and its call/callee/caller/root bindings together. The old Bindings/File
 switch is gone. The example/result remain open for trying; isolated host windows
 closed normally. VSIX ZIP verification passed; SHA256 is
 `8b4acf6cd7dc9beffd8bf18e6f1a34b70e12ea7194790529594ed75bd935bb50`.
+
+## Explicit collapsible match rows, version 0.2.6
+
+The previous outline kept match IDs together but its binding rows visually lined
+up with match headings, and expanded code snippets made it read like a flat list.
+Each `Match [n]` now starts collapsed and expands independently through its native
+disclosure heading (mouse or Enter/Space). A separate indented child group with
+tree guides contains compact binding rows. Source excerpts remain in tooltips
+and CTK Result after selection. Selecting bindings and publishing new state do
+not recreate unchanged results or reset open/closed match state.
+
+TypeScript, Biome, 27 extension tests and the complete isolated VS Code host
+passed. The host now also asserts that each caller/callee match starts collapsed
+while retaining every exact binding handle, and still verifies cross-file source
+navigation, follow-up without reparsing and Back. Shared backend sources are
+unchanged. Logs: `vscode/artifacts/validation/collapsible-matches-20261016/`.
+
+Installed v0.2.6 and reloaded only the existing trial window. A separate
+`match-groups-demo.cpp` fixture produced two matches through the real action
+picker and Run button. Both began collapsed. Clicking Match [1] revealed only
+its four indented bindings; clicking it again hid them. Expanding Match [2]
+revealed only its own bindings while Match [1] stayed closed. The trial remains
+in that state. Isolated test windows closed normally. VSIX ZIP verification
+passed; SHA256 is
+`cb578d67bbbc345fea50fe4a4a13ae37ee520c1d8152d8d4101dcfdd542ca244`.
