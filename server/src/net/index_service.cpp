@@ -318,19 +318,22 @@ private:
     std::lock_guard lock(mutex_);
     return !stopping_ && !cancelled_ && !paused_ && job.epoch == job_.epoch;
   }
-  void await_admission(const Job &job) {
+  bool await_admission(const Job &job) {
+    bool waited = false;
     for (;;) {
       {
         std::unique_lock lock(mutex_);
         if (stopping_ || cancelled_ || job.epoch != job_.epoch)
           throw Interrupted();
         if (paused_) {
+          waited = true;
           changed_.wait_for(lock, std::chrono::milliseconds(100));
           continue;
         }
       }
       if (!foreground_busy_ || !foreground_busy_())
-        return;
+        return waited;
+      waited = true;
       std::unique_lock lock(mutex_);
       changed_.wait_for(lock, std::chrono::milliseconds(50));
     }
@@ -398,37 +401,41 @@ private:
                         std::map<std::string, std::string> &cache) {
     if (manifest.empty())
       return false;
-    for (const auto &[path, hash] : manifest) {
-      await_admission(job);
-      auto found = cache.find(path);
-      if (path.starts_with("@include-tree:")) {
-        found = cache
-                    .insert_or_assign(
-                        path, inventories_.digest(path.substr(14),
-                                                  [&] {
-                                                    await_admission(job);
-                                                    return true;
-                                                  }))
-                    .first;
-      } else if (found == cache.end()) {
-        try {
+    for (;;) {
+      bool waited = false;
+      bool matches = true;
+      for (const auto &[path, hash] : manifest) {
+        waited = await_admission(job) || waited;
+        auto found = cache.find(path);
+        const auto allowed = [&] {
+          waited = await_admission(job) || waited;
+          return true;
+        };
+        if (path.starts_with("@include-tree:")) {
           found = cache
-                      .emplace(path, digest_file(path,
-                                                 [&] {
-                                                   await_admission(job);
-                                                   return true;
-                                                 }))
+                      .insert_or_assign(
+                          path, inventories_.digest(path.substr(14), allowed))
                       .first;
-        } catch (...) {
-          if (!admitted(job) || (foreground_busy_ && foreground_busy_()))
-            throw Interrupted();
-          throw;
+        } else if (found == cache.end()) {
+          try {
+            found = cache.emplace(path, digest_file(path, allowed)).first;
+          } catch (...) {
+            if (!admitted(job) || (foreground_busy_ && foreground_busy_()))
+              throw Interrupted();
+            throw;
+          }
+        }
+        if (found->second != hash) {
+          matches = false;
+          break;
         }
       }
-      if (found->second != hash)
-        return false;
+      if (!waited)
+        return matches;
+      // A wait can separate earlier digests from later ones. Discard all
+      // cached values and validate the complete manifest in one fresh pass.
+      cache.clear();
     }
-    return true;
   }
   void progress(const Job &job,
                 const std::function<void(ProjectIndexStatus &)> &update) {
@@ -443,11 +450,15 @@ private:
     metadata(db, "revision", std::to_string(revision(db) + 1));
     metadata(db, "updated_at", std::to_string(timestamp()));
   }
-  void commit(const Job &job, Transaction &transaction) {
+  void commit(const Job &job, Transaction &transaction,
+              const std::function<void()> &validate = {}) {
     // Only commit needs this gate. Parsing, hashing and inserts never hold the
-    // status mutex. A pause acknowledgement precedes any subsequent commit.
+    // status mutex. Revalidate after any foreground or pause wait, and again
+    // whenever new foreground work wins admission before the commit lock.
     for (;;) {
       await_admission(job);
+      if (validate)
+        validate();
       std::lock_guard lock(mutex_);
       if (stopping_ || cancelled_ || paused_ || job.epoch != job_.epoch)
         throw Interrupted();
@@ -723,18 +734,29 @@ private:
                          "s.is_definition=symbol.is_definition)");
     remove.bind(1, id);
     remove.step();
-    // Files or build commands may have changed while publication yielded.
-    // Publish only if the extracted inputs still match the current inputs.
-    fresh.clear();
-    if (!manifest_current(job, dependencies(encoded), fresh) ||
-        commands_digest !=
-            digest_file(
-                (fs::path(job.commands) / "compile_commands.json").string()) ||
-        worker_time != fs::last_write_time(executable_))
-      throw Interrupted();
     progress(job, [](auto &s) { s.set_state(INDEX_STATE_INDEXING); });
     bump(db);
-    commit(job, transaction);
+    // Input validation belongs after commit admission: a foreground burst or
+    // pause may otherwise change an input while the staged writer waits.
+    commit(job, transaction, [&] {
+      for (;;) {
+        fresh.clear();
+        if (!manifest_current(job, dependencies(encoded), fresh))
+          throw Interrupted();
+        bool waited = await_admission(job);
+        const auto current_commands = digest_file(
+            (fs::path(job.commands) / "compile_commands.json").string(), [&] {
+              waited = await_admission(job) || waited;
+              return true;
+            });
+        if (waited)
+          continue;
+        if (commands_digest != current_commands ||
+            worker_time != fs::last_write_time(executable_))
+          throw Interrupted();
+        return;
+      }
+    });
   }
   void mark_failed(const Job &job, Database &db, const std::string &id,
                    const std::string &source,
