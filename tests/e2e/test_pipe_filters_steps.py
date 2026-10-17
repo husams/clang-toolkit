@@ -89,6 +89,51 @@ def verify_pipe_script(pipe_script_output):
     assert "error:" not in text
 
 
+@when(parsers.parse('I execute list selection using the "{engine}" engine'),
+      target_fixture="selection_output")
+def selection_output(pipe_console, tmp_path, engine):
+    server, source, library = pipe_console
+    script = tmp_path / "selection.ctk"
+    example = Path(__file__).resolve().parents[2] / "examples/list_selection.ctk"
+    script.write_text(
+        example.read_text() + '\n'
+        f'let tree = parse {json.dumps(str(source))}\n'
+        'let classes = match cxxRecordDecl(isDefinition(), '
+        'isExpansionInMainFile(), unless(isImplicit())).bind("class") in tree\n'
+        'let selected = classes[::-1]\n'
+        'let row = selected[0]\n'
+        'let fields = match fieldDecl().bind("field") in row.class\n'
+        'print fields | map((r) = r.field.decl_name) | json\n'
+        'let final = classes[-1]\n'
+        'print final.class.decl_name\n'
+        'let tail = classes | last(1)\n'
+        'let tailrow = tail[0]\n'
+        'print tailrow.class.decl_name\n'
+        'print classes | length\n'
+        'let direct = match fieldDecl().bind("field") in classes[-1].class\n'
+        'print direct | map((r) = r.field.decl_name) | json\n'
+    )
+    result = subprocess.run(
+        _command(server, library, "--script-engine", engine, "--script", str(script)),
+        cwd=Path(__file__).resolve().parents[2], text=True, capture_output=True,
+        timeout=90, env=dict(os.environ, NO_COLOR="1"),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout
+
+
+@then("selection prints the expected lists and retained field")
+def verify_selection_output(selection_output):
+    lines = selection_output.splitlines()
+    assert [json.loads(line) for line in lines[:15]] == [
+        50, [20, 30, 40], [30, 40, 50], [10, 30, 50],
+        [50, 40, 30, 20, 10], [40, 30, 20, 10], [], 10, 50,
+        [10, 20], [40, 50], [], None, None, [50, 40],
+    ]
+    assert lines[15:] == ['["demo::Other::depth"]', 'demo::Other', 'demo::Other', '3',
+                         '["demo::Other::depth"]']
+
+
 @when("I paste the tuple pipeline into the real console terminal", target_fixture="pipe_terminal")
 def pipe_terminal(pipe_console, tmp_path):
     server, _, library = pipe_console
@@ -129,7 +174,9 @@ def pipe_terminal(pipe_console, tmp_path):
 
     try:
         wait_for("ctk>")
-        script = _example_source() + '\nprint "PIPELINE_PTY_{report[0].count}_{report[1].count}"'
+        script = (_example_source() + '\n'
+                  + (Path(__file__).resolve().parents[2] / "examples/list_selection.ctk").read_text()
+                  + '\nprint "PIPELINE_PTY_{report[0].count}_{report[1].count}"')
         os.write(master, ("\x1b[200~" + script + "\x1b[201~").encode())
         wait_for("PIPELINE_PTY_{report")
         os.write(master, b"\x0a")

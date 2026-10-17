@@ -77,6 +77,15 @@ def _index(context: Context, node: Any, base_thunk: Callable[[], Any], key_thunk
     return index_value(base_thunk(), key_thunk(), context, node)
 
 
+def _slice(context: Context, node: Any, start: Any, stop: Any, step: Any) -> slice:
+    from .selection import make_slice
+
+    try:
+        return make_slice(start, stop, step)
+    except (TypeError, ValueError) as error:
+        raise _error(context, node, str(error)) from error
+
+
 def _iterable(context: Context, node: Any, value: Any) -> Any:
     return iterable_value(context, node, value)
 
@@ -272,6 +281,12 @@ class _Lowerer:
             expr = self.call("_get", context, nref, self.lambda0(self.emit_expr(child(node, "base", 0))), ast.Constant(str(getattr(node, "value", None))))
         elif kind == "index":
             expr = self.call("_index", context, nref, self.lambda0(self.emit_expr(child(node, "base", 0))), self.lambda0(self.emit_expr(child(node, "key", 1))))
+        elif kind == "omitted":
+            from .selection import OMITTED
+
+            expr = self.value_ref(OMITTED)
+        elif kind == "slice":
+            expr = self.call("_slice", context, nref, *(self.emit_expr(bound) for bound in child_values(node)))
         elif kind == "consume":
             expr = self.call("_consume", context, self.lambda0(self.emit_expr(child_values(node)[0])))
         elif kind == "host":
@@ -518,7 +533,7 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_define_runnable": define_runnable, "_create_runnable": create_runnable,
         "_recover": recover, "_cleanup": cleanup, "_FatalErrors": FATAL_ERRORS,
         "_Exception": Exception, "_LoopBreak": LoopBreak, "_LoopContinue": LoopContinue,
-        "_make_dict": _make_dict, "_make_tuple": _make_tuple, "_get": _get, "_index": _index, "_iterable": _iterable,
+        "_make_dict": _make_dict, "_make_tuple": _make_tuple, "_get": _get, "_index": _index, "_slice": _slice, "_iterable": _iterable,
         "_logical": _logical, "_binary": _binary, "_unary": _unary,
         "_predicate": _predicate, "_predicate_binding": _predicate_binding,
         "_call": _call, "_pipe": _pipe, "_conditional": _conditional, "_run_scoped": _run_scoped,

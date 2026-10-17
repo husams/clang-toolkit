@@ -30,8 +30,8 @@ FILTER_SIGNATURES: dict[str, str] = {
     "zip_longest": "(value, other, *others, fill=null)",
     "enumerate": "(value, start=0)",
     "length": "(value)",
-    "first": "(value)",
-    "last": "(value)",
+    "first": "(value, n=omitted)",
+    "last": "(value, n=omitted)",
     "reverse": "(value)",
     "unique": "(value)",
     "unique_by": "(value, callback)",
@@ -76,8 +76,8 @@ FILTER_DESCRIPTIONS: dict[str, str] = {
     "zip_longest": "Combine sequences and fill missing positions.",
     "enumerate": "Pair each item with its integer index.",
     "length": "Count string code points, mapping fields, or collection items.",
-    "first": "Return the first item; fail for empty input.",
-    "last": "Return the last item; fail for empty input.",
+    "first": "Return the first item or null; first(n) returns up to n items as a list.",
+    "last": "Return the last item or null; last(n) returns up to n items in original order.",
     "reverse": "Return items in reverse order.",
     "unique": "Keep the first item for each supported typed key.",
     "unique_by": "Keep the first item for each callback-produced key.",
@@ -395,27 +395,32 @@ def make_filters(context: Context) -> dict[str, Callable[..., Any]]:
             count += 1
         return count
 
-    def first(value: Any) -> Any:
-        iterator = _collection_iterable(context, node, value)
-        try:
-            item = next(iterator)
-        except StopIteration as error:
-            raise ValueError("first requires nonempty input") from error
-        guard()
-        return item
+    def selected(value: Any, n: Any, *, tail: bool) -> Any:
+        from .selection import selection_sequence
+        from .semantics import index_value
 
-    def last(value: Any) -> Any:
-        result: Any = _MISSING
-        for result in _collection_iterable(context, node, value):
+        sequence = selection_sequence(value)
+        if n is _MISSING:
+            if not len(sequence):
+                return None
             guard()
-        if result is _MISSING:
-            raise ValueError("last requires nonempty input")
-        return result
+            return index_value(sequence, -1 if tail else 0, context, node)
+        count = _nonnegative_int(n, "n")
+        size = len(sequence)
+        key = slice(max(0, size - count), size) if tail else slice(0, count)
+        return index_value(sequence, key, context, node)
+
+    def first(value: Any, n: Any = _MISSING) -> Any:
+        return selected(value, n, tail=False)
+
+    def last(value: Any, n: Any = _MISSING) -> Any:
+        return selected(value, n, tail=True)
 
     def reverse(value: Any) -> list[Any]:
-        items = collect(value)
-        items.reverse()
-        return items
+        from .semantics import index_value
+        from .selection import selection_sequence
+
+        return index_value(selection_sequence(value), slice(None, None, -1), context, node)
 
     def unique(value: Any) -> list[Any]:
         seen: set[Any] = set()

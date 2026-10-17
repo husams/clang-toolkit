@@ -88,6 +88,14 @@ class _ReplContext(Context):
 class PrototypeRuntime(Runtime):
     """Use the prototype compiler for script flow and Runtime for CTK operations."""
 
+    def _index_value(self, value: Any, key: Any) -> Any:
+        from .semantics import index_value
+
+        context = self._prototype_context
+        if context is None:
+            return super()._index_value(value, key)
+        return index_value(value, key, context, None)
+
     def __init__(self, client: Any = None, *, script_engine: str = "compiled", **kwargs: Any) -> None:
         super().__init__(client, **kwargs)
         self._prototype_context: Context | None = None

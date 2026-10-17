@@ -80,10 +80,8 @@ def test_duplicate_mismatch_empty_and_missing_errors(
 ) -> None:
     with pytest.raises(ValueError, match="equal lengths"):
         filters["zip"]([1], [2, 3])
-    with pytest.raises(ValueError, match="empty"):
-        filters["first"]([])
-    with pytest.raises(ValueError, match="empty"):
-        filters["last"]([])
+    assert filters["first"]([]) is None
+    assert filters["last"]([]) is None
     with pytest.raises((KeyError, ValueError), match="missing|unknown"):
         filters["pick"]({"a": 1}, "missing")
     with pytest.raises((KeyError, ValueError), match="duplicate"):
