@@ -134,16 +134,14 @@ TEST_F(MatchCursors, ChildrenScopeRetainsAuxiliaryParentForEachCandidateAlias) {
 TEST_F(MatchCursors, ChildrenScopeMatchesTemplateArgumentLocationsWithoutPointerIdentity) {
   std::ofstream(directory.path() / "fixture.cc")
       << "template<class T> struct Holder {}; Holder<int> item;";
-  const auto source = run(file("varDecl(hasName(\"item\")).bind(\"v\")"));
-  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
   // Clang 21 wraps this in ElaboratedTypeLoc; find the actual argument owner
   // before exercising direct-child matching and its stable parent identity.
-  auto type_request = binding(source.response, "v",
-                              "templateSpecializationTypeLoc().bind(\"loc\")");
-  const auto types = fork(type_request);
-  ASSERT_EQ(types.code, MatchCode::Ok) << types.message;
-  ASSERT_EQ(types.response.results_size(), 1);
-  auto request = binding(types.response, "loc", "templateArgumentLoc().bind(\"arg\")");
+  const auto source = run(file(
+      "varDecl(hasName(\"item\"), hasDescendant("
+      "templateSpecializationTypeLoc().bind(\"loc\")))"));
+  ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
+  ASSERT_EQ(source.response.results_size(), 1);
+  auto request = binding(source.response, "loc", "templateArgumentLoc().bind(\"arg\")");
   request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
   const auto arguments = fork(request);
   ASSERT_EQ(arguments.code, MatchCode::Ok) << arguments.message;
@@ -152,7 +150,7 @@ TEST_F(MatchCursors, ChildrenScopeMatchesTemplateArgumentLocationsWithoutPointer
   ASSERT_EQ(up.code, MatchCode::Ok) << up.message;
   EXPECT_EQ(up.response.results_size(), 1);
   EXPECT_EQ(up.response.results(0).bindings().at("target").SerializeAsString(),
-            types.response.results(0).bindings().at("loc").SerializeAsString());
+            source.response.results(0).bindings().at("loc").SerializeAsString());
 }
 
 TEST_F(MatchCursors, ChildrenScopeStreamsAndCancellationPreservesSource) {
