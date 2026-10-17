@@ -49,6 +49,12 @@ try {
     config,
     `network:\n  transport: unix\n  unix:\n    socket_path: ${socket}\n`,
   );
+  const library = resolve(directory, "library");
+  await mkdir(library);
+  await cp(
+    "../skills/ctk-script/scripts/ctk_helpers.ctk",
+    resolve(library, "ctk_helpers.ctk"),
+  );
   await writeFile(
     resolve(workspace, ".vscode/settings.json"),
     JSON.stringify({
@@ -58,7 +64,7 @@ try {
         process.env.CTK_PYTHON ?? resolve("../.venv/bin/python"),
       ...(process.env.CTK_TEST_DEFAULT_LIBRARY === "1"
         ? {}
-        : { "ctk.libraryDirectory": resolve("../skills/ctk-script/scripts") }),
+        : { "ctk.libraryDirectory": library }),
     }),
   );
   if (stopping) throw new Error("Test run interrupted before launch");

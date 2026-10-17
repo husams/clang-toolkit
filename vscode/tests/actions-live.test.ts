@@ -208,11 +208,28 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         name: "Root",
         nodeId: rootBaseId,
       });
-      const typeLocation = baseEdge.children.find(
-        (child) => astDisplay(child).kind === "RecordTypeLoc",
+      // Clang 21 retains an ElaboratedTypeLoc around the record location;
+      // newer Clang versions expose RecordTypeLoc directly.
+      let typeLocation = baseEdge.children.find((child) =>
+        astDisplay(child).kind.endsWith("TypeLoc"),
       );
       expect(typeLocation?.name).toBe("Root");
-      const typePage = await host.inspect(settings, typeLocation!.id);
+      let typePage = await host.inspect(settings, typeLocation!.id);
+      for (
+        let depth = 0;
+        astDisplay(typePage.node).kind !== "RecordTypeLoc" && depth < 8;
+        depth++
+      ) {
+        expect(typePage.semantics?.referencedDeclaration).toEqual(
+          baseEdge.semantics?.referencedDeclaration,
+        );
+        typeLocation = typePage.children.find((child) =>
+          astDisplay(child).kind.endsWith("TypeLoc"),
+        );
+        expect(typeLocation?.name).toBe("Root");
+        typePage = await host.inspect(settings, typeLocation!.id);
+      }
+      expect(astDisplay(typePage.node).kind).toBe("RecordTypeLoc");
       expect(typePage.semantics?.referencedDeclaration).toEqual(
         baseEdge.semantics?.referencedDeclaration,
       );

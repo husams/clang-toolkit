@@ -136,8 +136,10 @@ TEST_F(MatchCursors, ChildrenScopeMatchesTemplateArgumentLocationsWithoutPointer
       << "template<class T> struct Holder {}; Holder<int> item;";
   const auto source = run(file("varDecl(hasName(\"item\")).bind(\"v\")"));
   ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
-  auto type_request = binding(source.response, "v", "typeLoc().bind(\"loc\")");
-  type_request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
+  // Clang 21 wraps this in ElaboratedTypeLoc; find the actual argument owner
+  // before exercising direct-child matching and its stable parent identity.
+  auto type_request = binding(source.response, "v",
+                              "templateSpecializationTypeLoc().bind(\"loc\")");
   const auto types = fork(type_request);
   ASSERT_EQ(types.code, MatchCode::Ok) << types.message;
   ASSERT_EQ(types.response.results_size(), 1);

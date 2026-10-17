@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Client } from "@clang-toolkit/sdk";
@@ -16,6 +16,11 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")("native prototype", () => {
     fixture: string;
   beforeAll(async () => {
     directory = await mkdtemp(resolve(tmpdir(), "ctk-vscode-"));
+    await mkdir(resolve(directory, "lib"));
+    await cp(
+      "../skills/ctk-script/scripts/ctk_helpers.ctk",
+      resolve(directory, "lib/ctk_helpers.ctk"),
+    );
     endpoint = `unix://${directory}/server.sock`;
     fixture = resolve(directory, "demo.cpp");
     await writeFile(
@@ -98,7 +103,7 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")("native prototype", () => {
     startConsoleWorker(
       resolve("console/run_service.py"),
       process.env.CTK_PYTHON ?? resolve("../.venv/bin/python"),
-      { ...data, libraryDirectory: resolve("../skills/ctk-script/scripts") },
+      { ...data, libraryDirectory: resolve(directory, "lib") },
       () => {},
     ).completion;
   it("completes qualified classes from the chosen translation unit and refreshes edits", async () => {
