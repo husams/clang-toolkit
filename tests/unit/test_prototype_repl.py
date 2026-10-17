@@ -1,6 +1,7 @@
 """Session-level acceptance for scripts executed from either console UI."""
 
 import asyncio
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -32,6 +33,24 @@ def test_variables_persist_and_branch_locals_do_not_escape(runtime):
     assert submit(runtime, "print $total").output == "10"
     assert submit(runtime, "let label = unless $total > 20 do \"small\" else \"large\"").success
     assert submit(runtime, "$label").output == "small"
+
+
+def test_list_selection_uses_shared_rules_in_the_real_console_adapter(runtime):
+    assert submit(runtime, "let xs = [10, 20, 30, 40, 50]").success
+    for expression, expected in (
+        ("xs[-1]", "50"), ("xs[1:4]", "[20, 30, 40]"),
+        ("xs[::-1]", "[50, 40, 30, 20, 10]"),
+        ("xs | last(2)", "[40, 50]"), ("xs | last(0)", "[]"),
+        ("[] | first", "null"), ("[] | last", "null"),
+    ):
+        result = submit(runtime, f"print {expression} | json")
+        assert result.success, result.output
+        assert json.loads(result.output) == json.loads(expected)
+    # Method arguments still use native command trees rather than value IR.
+    assert submit(runtime, "let records = [{a: 1}, {a: 2}]").success
+    result = submit(runtime, 'print records[-1].get("a")')
+    assert result.success, result.output
+    assert result.output == "2"
 
 
 def test_multiline_groups_and_ternary_in_dictionary(runtime):

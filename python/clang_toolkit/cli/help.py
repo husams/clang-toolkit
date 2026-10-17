@@ -1055,6 +1055,9 @@ _PIPE_ENTRY = CommandHelp(
     (
         "Each stage receives the value on its left as its first argument; its result flows to the next stage.",
         "Built-in stages include collection, tuple, string, and formatting helpers. Their signatures are shown by stage completion.",
+        "List selection: xs[-1] selects the last item; xs[start:stop:step] returns a shallow list with an exclusive stop. Bounds clamp; step must be nonzero. xs[::-1] reverses order.",
+        "first and last return one item or null for empty input. first(n) and last(n) return up to n items as lists; counts must be nonnegative integers. last(n) keeps original order; reverse returns a new reversed list.",
+        "Selection requires finite lists, tuples or retained collection views; it preserves native handles and selects only available rows. Inspect the originating query for completeness.",
         "A callback with two or more required parameters receives tuple elements as separate arguments. A unary callback receives the whole item, even when it has optional parameters.",
         "Use an explicit tuple parameter pattern such as `(name, count)` when a callback should receive the tuple as one value.",
         "User-defined console runnables can be pipeline stages. These features belong to the compiled interactive console; native server scripts and server-side batch bodies retain their separate language.",

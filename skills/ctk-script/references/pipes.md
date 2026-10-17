@@ -121,8 +121,12 @@ native rows: `rows | map((row) = {name: row.f.qualified_name})`.
 | Text predicates | `starts_with(part)`, `ends_with(part)`, `contains(part)` |
 | Output | `pretty(indent = 2, depth = 8, max_items = 100)`, `json(indent = 0)`, `table(columns = ["name", "count"], max_items = 100)` |
 
-`entries` produces records `{key, value}`, not tuples. `first` and `last` error
-on empty input. Sorting keys must be finite numbers or strings; convert complex
+`entries` produces records `{key, value}`, not tuples. `first` and `last` return
+null on empty input; `first(n)` and `last(n)` return lists of up to n items.
+`last(n)` preserves original order, including `last(0)` returning `[]`.
+Selection requires finite lists, tuples or supported retained collection views;
+arbitrary iterators must be explicitly materialized with `to_list` first.
+Sorting keys must be finite numbers or strings; convert complex
 records with `map` and choose explicit keys for ordering or deduplication.
 `unique` supports typed scalar/tuple keys, rather than arbitrary records.
 

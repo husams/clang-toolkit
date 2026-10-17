@@ -1,5 +1,46 @@
 # Console pipelines, tuples, and filters
 
+## List selection
+
+Compiled and tree consoles support negative indexing and Python-style slices:
+
+```ctk
+let xs = [10, 20, 30, 40, 50]
+print xs[-1]              // 50
+print xs[1:4]             // [20, 30, 40]
+print xs[-3:]             // [30, 40, 50]
+print xs[::2]             // [10, 30, 50]
+print xs[::-1]            // [50, 40, 30, 20, 10]
+print xs | first          // 10
+print xs | last(2)        // [40, 50]
+print xs | reverse        // [50, 40, 30, 20, 10]
+```
+
+Indexes are zero-based; negative indexes count from the end. Out-of-range
+indexes fail. Slices use an exclusive stop and clamp out-of-range bounds.
+Start, stop and step must be integers when supplied; booleans and null are
+invalid, and step cannot be zero. With a negative step, an omitted stop is
+before the first element: `xs[3::-1]` includes position zero, while
+`xs[3:0:-1]` excludes it. An explicit `-1` stop denotes the last position;
+`xs[:-1:-1]` therefore returns `[]`.
+
+`first` and `last` return a scalar or null on empty input. `first(n)` and
+`last(n)` always return lists, with up to n elements and nonnegative integer
+counts. `last(0)` returns `[]`; `last(n)` preserves the original order.
+This changes the earlier empty-input behavior, which raised an error.
+Use `[0]` or `[-1]` when emptiness should fail, and `first(1)` or `last(1)`
+to distinguish `[]` from `[null]`.
+
+Slices and selection filters require finite lists, tuples or supported native
+collection views, and return shallow lists without changing the source.
+Native rows retain their handles and can be used for follow-up matching.
+Selection covers available rows only; check the original query's completion
+and truncation status. Convert arbitrary iterators explicitly with `to_list`
+before selection. Slice assignment is unsupported. These forms do not extend
+native server scripts or server-side batch bodies.
+
+## Pipelines
+
 The compiled interactive console can compose local values with `|`. A pipeline
 passes the value on its left as the first argument to the callable on its
 right. Each stage returns the value passed to the next stage:

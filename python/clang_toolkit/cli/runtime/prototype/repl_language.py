@@ -176,7 +176,6 @@ def _combined_grammar() -> str:
                 | legacy_split_expression -> host_expression
                 | legacy_join_expression -> host_expression
                 | legacy_flatten_expression -> host_expression
-                | legacy_bare_access -> host_expression
 
 proto_named_call: PROTO_ROUTINE_NAME""",
     )

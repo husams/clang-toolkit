@@ -453,6 +453,20 @@ class _Builder(Transformer[Any, Any]):
         line, column = self._location(meta, items)
         return _Part("index", children=(expression,), line=line, column=column)
 
+    def slice_bound(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return next((item for item in items if isinstance(item, Node)),
+                    Node("omitted", line=line, column=column))
+
+    def slice_expression(self, meta: Any, items: list[Any]) -> _Part:
+        line, column = self._location(meta, items)
+        bounds = _nodes(items)
+        if len(bounds) == 2:
+            bounds += (Node("omitted", line=line, column=column),)
+        return _Part("index", children=(Node("slice", children=bounds,
+                                            line=line, column=column),),
+                     line=line, column=column)
+
     def grouped_expression(self, meta: Any, items: list[Any]) -> Node:
         return next(item for item in items if isinstance(item, Node))
 

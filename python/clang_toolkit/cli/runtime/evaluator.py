@@ -1069,13 +1069,16 @@ class Runtime:
                 raise EvaluationError("invalid collection reference")
         return name, suffixes
 
+    def _index_value(self, value: Any, key: Any) -> Any:
+        return index_value(value, key)
+
     def _resolve_bare(self, node: Tree) -> Any:
         name, suffixes = self._bare_parts(node)
         value = self._resolve_name(name)
         for operation, key in suffixes:
             try:
                 value = (
-                    index_value(value, key)
+                    self._index_value(value, key)
                     if operation == "index"
                     else property_value(value, key)
                 )
@@ -1100,7 +1103,7 @@ class Runtime:
         for operation, key in suffixes[:-1]:
             try:
                 value = (
-                    index_value(value, key)
+                    self._index_value(value, key)
                     if operation == "index"
                     else property_value(value, key)
                 )
@@ -1509,7 +1512,7 @@ class Runtime:
                     value = property_value(value, str(suffix.children[1]))
                 elif suffix.data == "grouped_index":
                     key = self._evaluate(suffix.children[1])
-                    value = index_value(value, key)
+                    value = self._index_value(value, key)
                 elif suffix.data == "grouped_method":
                     call = suffix.children[1]
                     name, arguments = self._method_call_parts(call)
@@ -1776,7 +1779,7 @@ class Runtime:
                 if operation == "method":
                     value = self._evaluate_method_call(value, field, argument)
                 elif operation == "index":
-                    value = index_value(value, field)
+                    value = self._index_value(value, field)
                 else:
                     value = self._reference_property(name, value, field, root=step == 0)
                 if (
