@@ -292,7 +292,7 @@ function renderActions() {
         element("node-results"),
         a.completed
           ? "No matching nodes. Change the action or its arguments."
-          : "Run an action on the file root, select a binding, then run another action.",
+          : "Choose an action, adjust Options, then Run.",
       );
   }
   for (const button of element("node-results").querySelectorAll(

@@ -92,8 +92,10 @@ export class Prototype {
     | { action: string; matches: number; groups: number }
     | undefined;
   constructor(context: vscode.ExtensionContext) {
-    this.details = new DetailsView(context.extensionUri, (result) =>
-      this.openSource(result),
+    this.details = new DetailsView(
+      context.extensionUri,
+      (result) => this.openSource(result),
+      (target) => this.actions.choose(undefined, true, target),
     );
     this.searchAst = new SearchAstAccess(context.extensionUri);
     this.view = new AnalysisView(
@@ -555,11 +557,16 @@ export class Prototype {
       "nodeId" in result && typeof result.nodeId === "string"
         ? result.nodeId
         : undefined;
-    await this.details.show(result, async (id) => {
-      if (actionId) return this.actions.inspect(id ?? actionId);
-      searchLoad ??= await this.searchAst.open(result, translationUnit);
-      return searchLoad(id);
-    });
+    await this.details.show(
+      result,
+      async (id) => {
+        if (actionId) return this.actions.inspect(id ?? actionId);
+        searchLoad ??= await this.searchAst.open(result, translationUnit);
+        return searchLoad.inspect(id);
+      },
+      (id) =>
+        this.actions.inspectorTarget(id, actionId ? undefined : searchLoad),
+    );
   }
   private async openSource(result: Result): Promise<void> {
     if (!result.file) return;

@@ -90,7 +90,8 @@ class AstInspector:
             for child_id in pending:
                 children.append(self.describe(child_id))
             response = dict(node=self.describe(identifier), children=children,
-                            parseCount=self.host.parse_count)
+                            parseCount=self.host.parse_count,
+                            root=dict(id=self.host.roots[file][0], file=file, label='File root'))
         except BaseException:
             for child_id in pending:
                 self.host.nodes.pop(child_id, None)

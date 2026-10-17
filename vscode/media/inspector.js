@@ -6,6 +6,7 @@ for (const [id, type] of [
   ["root", "root"],
   ["location", "source"],
   ["retry", "retry"],
+  ["action", "action"],
 ])
   el(id).addEventListener("click", () => post(type));
 function fields(id, values) {
@@ -44,6 +45,7 @@ window.addEventListener("message", ({ data }) => {
   el("root").hidden = !state.back;
   el("root").disabled = state.running;
   el("location").disabled = state.running;
+  el("action").disabled = !state.canRunAction;
   el("error").textContent = state.error;
   el("retry").hidden = !state.error;
   el("retry").disabled = state.running;

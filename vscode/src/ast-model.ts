@@ -16,6 +16,7 @@ export const astInspectionSchema = z.object({
   node: astEntrySchema,
   children: z.array(astEntrySchema).max(1000),
   parseCount: z.number().int().nonnegative(),
+  root: z.object({ id: z.string(), file: z.string(), label: z.string() }),
 });
 export type AstEntry = z.infer<typeof astEntrySchema>;
 export type AstInspection = z.infer<typeof astInspectionSchema>;

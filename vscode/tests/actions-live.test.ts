@@ -124,6 +124,22 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         astDisplay(callPage.node, callPage.children).properties,
       ).toContainEqual({ label: "Callee", value: "adjust" });
       expect(callPage.parseCount).toBe(1);
+      expect(callPage.root.id).toBe(first.input.id);
+      const followed = await host.run(
+        action("child-calls", 'match callExpr().bind("call") in node'),
+        {},
+        [file],
+        settings,
+        100,
+        () => {},
+        statement!.id,
+      );
+      expect(followed.input.id).toBe(statement!.id);
+      expect(followed.parseCount).toBe(1);
+      expect(followed.matches).toBe(1);
+      expect(
+        followed.results.find((node) => node.binding === "call")?.name,
+      ).toBe("adjust");
       expect(
         (await host.inspect(settings, selected!.nodeId)).children.map(
           (node) => node.id,
@@ -134,9 +150,14 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         translationUnit: file,
       });
       expect(located.children.length).toBe(start.children.length);
+      expect(located.root.id).toBe(first.input.id);
       await host.reset();
       await expect(host.inspect(settings, expression!.id)).rejects.toThrow(
         /expired/,
+      );
+      host.dispose();
+      await expect(host.inspect(settings, expression!.id)).rejects.toThrow(
+        "Action session closed",
       );
     }, 60000);
     it("reuses the parsed root and exact binding, preserves multi-binding rows and earlier results after errors", async () => {

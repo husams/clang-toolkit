@@ -5,6 +5,16 @@ import type { AstInspection } from "./ast-model.js";
 import { findPython } from "./console-service.js";
 import type { Result } from "./model.js";
 
+export interface SearchAstContext {
+  inspect(id?: string): Promise<AstInspection>;
+  session(): {
+    service: ActionService;
+    settings: ActionSettings;
+    root: AstInspection["root"];
+  };
+  transfer(): void;
+}
+
 // Search workers release their cursors after returning results. This owns a
 // separate live context; action results instead use their existing action host.
 export class SearchAstAccess implements vscode.Disposable {
@@ -38,7 +48,7 @@ export class SearchAstAccess implements vscode.Disposable {
   async open(
     result: Result,
     translationUnit: string,
-  ): Promise<(id?: string) => Promise<AstInspection>> {
+  ): Promise<SearchAstContext> {
     if (!vscode.workspace.isTrusted)
       throw new Error("Trust this workspace before inspecting AST nodes.");
     if (
@@ -80,12 +90,35 @@ export class SearchAstAccess implements vscode.Disposable {
     );
     const generation = this.generation,
       service = this.service;
-    return async (id) => {
+    let root: AstInspection["root"] | undefined;
+    const current = () => {
       if (generation !== this.generation)
         throw new Error(
           "Source or settings changed; reselect a current analysis result.",
         );
-      return service.inspect(settings, id ?? { result, translationUnit });
+    };
+    return {
+      inspect: async (id) => {
+        current();
+        const inspection = await service.inspect(
+          settings,
+          id ?? { result, translationUnit },
+        );
+        current();
+        root = inspection.root;
+        return inspection;
+      },
+      session: () => {
+        current();
+        if (!root)
+          throw new Error("Inspect this node before choosing an action.");
+        return { service, settings, root };
+      },
+      transfer: () => {
+        current();
+        // Actions now owns the live worker; new searches must not dispose it.
+        if (this.service === service) this.service = undefined;
+      },
     };
   }
   dispose(): void {

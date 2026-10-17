@@ -47,12 +47,21 @@ export class ActionService {
   private pending = new Map<number, Pending>();
   private stderr = "";
   private killTimer: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
   constructor(
     private readonly script: string,
     private readonly python: string,
-    private readonly invalidated: (reason: string) => void = () => {},
-    private readonly log: (text: string) => void = () => {},
+    private invalidated: (reason: string) => void = () => {},
+    private log: (text: string) => void = () => {},
   ) {}
+
+  setCallbacks(
+    invalidated: (reason: string) => void,
+    log: (text: string) => void,
+  ): void {
+    this.invalidated = invalidated;
+    this.log = log;
+  }
 
   async run(
     action: NodeAction,
@@ -187,6 +196,8 @@ export class ActionService {
     timeout: number,
     progress: (text: string) => void,
   ): Promise<Response> {
+    if (this.disposed)
+      return Promise.reject(new Error("Action session closed"));
     if (this.pending.size)
       return Promise.reject(new Error("An action is already running"));
     const child = this.start(directory),
@@ -217,6 +228,7 @@ export class ActionService {
     this.pending.clear();
   }
   dispose(): void {
+    this.disposed = true;
     const child = this.child;
     this.child = undefined;
     child?.stdin.end();

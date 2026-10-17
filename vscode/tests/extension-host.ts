@@ -92,6 +92,71 @@ export async function run(): Promise<void> {
     classInspector.text,
     /FIELD_STATE|BINDING_MATCH_SCOPE|supportedScopes|symbolIdentity|availability|Semantic fields/,
   );
+  const symbolCatalog = await api.actions.catalog();
+  const symbolFunctions = symbolCatalog.find(
+    (action) => action.id === "find-function",
+  );
+  const symbolCalls = symbolCatalog.find(
+    (action) => action.id === "find-calls",
+  );
+  assert.ok(symbolFunctions && symbolCalls);
+  const method = astState().children?.find((child) =>
+    child.name.includes("valid"),
+  );
+  assert.ok(method, JSON.stringify(astState()));
+  await api.details.receive({ type: "child", id: method.id });
+  const methodBody = astState().children?.find(
+    (child) => child.kind === "CompoundStmt",
+  );
+  assert.ok(methodBody, JSON.stringify(astState()));
+  await api.details.receive({ type: "child", id: methodBody.id });
+  await renderedAst("CompoundStmt");
+  const symbolTarget = await api.details.actionTarget();
+  await api.actions.setAction(symbolFunctions, true, symbolTarget);
+  const symbolState = () =>
+    api.actions.snapshot() as {
+      input: { id: string; label: string };
+      matches: number;
+      parseCount: number;
+    };
+  assert.equal(symbolState().input.id, methodBody.id);
+  await api.actions.run();
+  assert.equal(
+    symbolState().input.label,
+    "CompoundStmt",
+    "the input label must remain specific after execution",
+  );
+  assert.equal(
+    symbolState().parseCount,
+    1,
+    "search child action must retain its inspection context",
+  );
+  assert.equal(
+    symbolState().matches,
+    0,
+    "a method body must not run the action on the whole file",
+  );
+  await api.actions.setAction(
+    symbolCalls,
+    true,
+    await api.details.actionTarget(),
+  );
+  await api.actions.run();
+  assert.equal(symbolState().input.id, methodBody.id);
+  assert.equal(
+    symbolState().parseCount,
+    1,
+    "repeated inspector actions must keep the same worker",
+  );
+  await api.actions.receive({ type: "nodeRoot" });
+  await api.actions.setAction(symbolFunctions);
+  await api.actions.run();
+  assert.ok(
+    symbolState().matches > 0,
+    "File root must use the parsed-file root after search transfer",
+  );
+  await api.actions.close();
+  await assert.rejects(symbolTarget.activate(), /expired|closed|unavailable/i);
   const document = await vscode.workspace.openTextDocument({
     language: "ctk",
     content: 'emit match functionDecl(isDef).bind("symbol");',
@@ -385,7 +450,7 @@ export async function run(): Promise<void> {
     matches: number;
     parseCount: number;
     error: string;
-    input: { id: string };
+    input: { id: string; label: string };
     stale: boolean;
     rendered?: {
       nodes: number;
@@ -463,6 +528,8 @@ export async function run(): Promise<void> {
   await api.details.receive({ type: "child", id: callExpression.id });
   const callInspector = await renderedAst("CallExpr");
   assert.ok(callInspector.properties.includes("Callee"));
+  assert.ok(astState().canRunAction);
+  assert.match(callInspector.text, /Run action on this node/);
   assert.doesNotMatch(
     callInspector.text,
     /FIELD_STATE|BINDING_MATCH_SCOPE|supportedScopes|symbolIdentity|availability|Semantic fields/,
@@ -488,14 +555,19 @@ export async function run(): Promise<void> {
     vscode.window.activeTextEditor?.document.uri.fsPath,
     await realpath(actionTarget.fsPath),
   );
-  await api.actions.setAction(calls, true);
+  await api.details.receive({ type: "child", id: body.id });
+  await api.details.receive({ type: "child", id: returned.id });
+  await api.details.receive({ type: "child", id: callExpression.id });
+  const inspectedTarget = await api.details.actionTarget();
+  await api.actions.setAction(calls, true, inspectedTarget);
   assert.equal(
     actionState().input.id,
-    binding.nodeId,
-    "follow-up must use the selected binding handle",
+    callExpression.id,
+    "inspector follow-up must use the displayed child, not its original binding",
   );
   await api.actions.run();
   assert.equal(actionState().matches, 1, JSON.stringify(actionState()));
+  assert.equal(actionState().input.label, "CallExpr: adjust");
   assert.equal(
     actionState().parseCount,
     1,

@@ -400,3 +400,48 @@ ReturnStmt and Selected result restored secondCaller. The trial remains open on
 that function with readable properties and children; isolated host windows closed
 normally. Final VSIX ZIP verification passed; SHA256 is
 `5ccb5f4b629940c663b42430b563b3a1bc0bb242474ec7ffa0e14075376a3fcf`.
+
+## Actions on the inspected AST node, version 0.2.9
+
+Added **Run action on this node…** to CTK Result. The button opens the existing
+predefined/workspace action picker for the exact node currently displayed,
+including navigated children, Back and Selected result. Choose or create an
+action, edit its script-defined arguments under Options, then Run in Actions.
+The chosen input is labelled with its readable AST kind/name, and keeps that
+label after execution. Cancelling the picker leaves the existing action/input
+unchanged. The webview sends only an action intent; the extension resolves the
+current retained node itself rather than accepting an arbitrary target ID.
+
+Action-backed inspection reuses the action worker and exact native handle.
+Symbol Search transfers its live inspection worker into Actions only after a
+choice is confirmed; it retains the parsed-file root separately from the child
+input. Repeated actions reuse that context, File root returns to the true file
+root, and action history retains earlier result groups. Transfer also reassigns
+worker diagnostics/invalidation to Actions. A new search cannot dispose a worker
+already owned by Actions. Closed or changed contexts reject old handles rather
+than reparsing and running on a different target. Disposed workers reject further
+requests without starting another process.
+
+Validation logs are under
+`vscode/artifacts/validation/inspector-actions-20261017/`. TypeScript, Biome,
+34 extension unit tests (12 native opt-ins skipped), 16 console adapter checks
+and five native integration tests passed. The real VS Code host verifies both
+origins: a Symbol Search class → method → body transfers its exact child and
+returns zero function definitions in that body, while restoring File root finds
+definitions again; an action result → body → return → call runs Find calls on
+that exact CallExpr and returns the expected call. Both paths keep parse count
+one, readable input labels, repeated follow-ups and closed-context rejection.
+Shared server/SDK/console runtime sources are unchanged; repository-wide Python
+limitations recorded for v0.2.8 still apply.
+
+Installed the final v0.2.9 package in the normal VS Code profile and reloaded only
+the existing trial window. In the installed UI, searched for `secondCaller`,
+navigated FunctionDecl → CompoundStmt → ReturnStmt, and clicked the inspector's
+new button. The picker title identified ReturnStmt. Cancelling left the Symbol
+Search/inspector selection unchanged; choosing Find calls switched to Actions
+with the ReturnStmt input. Run returned exactly one `call: secondTarget` match,
+and the input label remained ReturnStmt after execution. The final package was
+rerun through the same workflow after the label/cleanup corrections, and remains
+open on that ReturnStmt with its result match expanded. Isolated host windows
+closed normally. VSIX ZIP verification passed; final SHA256 is
+`0ad13ce8cd94bb4968e5de3dfcc2fa6dd0d2f8d7ee744efeaf11498541036d53`.

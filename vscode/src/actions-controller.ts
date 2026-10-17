@@ -13,12 +13,15 @@ import {
   type ActionReport,
   actionTemplate,
   type NodeAction,
+  type NodeActionTarget,
   newActionName,
   parseNodeAction,
   resolveArguments,
   updatedActionValues,
   validateCatalog,
 } from "./actions.js";
+import type { SearchAstContext } from "./ast-access.js";
+import { astDisplay } from "./ast-model.js";
 import { findPython } from "./console-service.js";
 import type { Result } from "./model.js";
 
@@ -454,9 +457,13 @@ export class ActionsController implements vscode.Disposable {
       ).toString("utf8");
     return parseNodeAction(path, source, origin);
   }
-  async choose(target?: vscode.Uri, followup = false): Promise<void> {
+  async choose(
+    target?: vscode.Uri,
+    followup = false,
+    node?: NodeActionTarget,
+  ): Promise<void> {
     if (this.busy || this.execution) return;
-    if (followup && (!this.selected || this.stale))
+    if (followup && !node && (!this.selected || this.stale))
       throw new Error(
         "Select a current binding before running another action.",
       );
@@ -483,7 +490,7 @@ export class ActionsController implements vscode.Disposable {
       ],
       {
         title: followup
-          ? `CTK · Action on ${this.selected?.name}`
+          ? `CTK · Action on ${node?.name ?? this.selected?.name}`
           : "CTK · Select action",
         placeHolder: "Search predefined and workspace actions",
         matchOnDescription: true,
@@ -492,19 +499,26 @@ export class ActionsController implements vscode.Disposable {
     );
     if (!picked) return;
     if (!picked.action) {
-      await this.create(followup);
+      await this.create(followup, node);
       return;
     }
-    await this.setAction(picked.action, followup);
+    await this.setAction(picked.action, followup, node);
   }
-  async setAction(action: NodeAction, followup = false): Promise<void> {
+  async setAction(
+    action: NodeAction,
+    followup = false,
+    node?: NodeActionTarget,
+  ): Promise<void> {
     if (this.busy || this.execution)
       throw new Error("An action is already running.");
-    if (followup && (!this.selected || this.stale))
+    if (followup && !node && (!this.selected || this.stale))
       throw new Error(
         "Select a current binding before running another action.",
       );
-    if (followup && this.selected)
+    if (node) {
+      this.input = await node.activate();
+      this.selected = undefined;
+    } else if (followup && this.selected)
       this.input = {
         id: this.selected.nodeId,
         label: `${this.selected.binding}: ${this.selected.name}`,
@@ -523,16 +537,16 @@ export class ActionsController implements vscode.Disposable {
     await this.reveal();
     this.changed();
   }
-  async create(followup = false): Promise<void> {
+  async create(followup = false, node?: NodeActionTarget): Promise<void> {
     if (this.busy || this.execution)
       throw new Error("An action is already running.");
     if (!vscode.workspace.isTrusted)
       throw new Error("Trust this workspace before creating actions.");
-    if (followup && (!this.selected || this.stale))
+    if (followup && !node && (!this.selected || this.stale))
       throw new Error(
         "Select a current binding before creating a follow-up action.",
       );
-    const inputFile = this.input?.file ?? this.target?.fsPath;
+    const inputFile = node?.file ?? this.input?.file ?? this.target?.fsPath;
     const folder =
       (inputFile
         ? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(inputFile))
@@ -559,7 +573,7 @@ export class ActionsController implements vscode.Disposable {
     const document = await vscode.workspace.openTextDocument(uri);
     if (!(await document.save()))
       throw new Error("Could not save the action file.");
-    await this.setAction(action, followup);
+    await this.setAction(action, followup, node);
     await vscode.window.showTextDocument(document, { preview: false });
   }
   async current(document: vscode.TextDocument): Promise<void> {
@@ -685,7 +699,7 @@ export class ActionsController implements vscode.Disposable {
         (reason) => this.markStale(reason),
         (text) => this.output.appendLine(text),
       );
-      const report = await this.service.run(
+      const response = await this.service.run(
         currentAction,
         arguments_,
         [file],
@@ -696,6 +710,13 @@ export class ActionsController implements vscode.Disposable {
         },
         this.input?.id,
       );
+      const report = {
+        ...response,
+        input:
+          this.input?.id === response.input.id
+            ? { ...response.input, label: this.input.label }
+            : response.input,
+      };
       this.root ??= report.input;
       this.input = report.input;
       this.report = report;
@@ -747,6 +768,49 @@ export class ActionsController implements vscode.Disposable {
       this.busy = false;
       this.changed();
     }
+  }
+  async inspectorTarget(
+    id: string,
+    source?: SearchAstContext,
+  ): Promise<NodeActionTarget> {
+    const inspected = await (source ? source.inspect(id) : this.inspect(id));
+    const display = astDisplay(inspected.node);
+    return {
+      name: display.name,
+      file: inspected.root.file,
+      activate: async () => {
+        if (this.busy || this.execution)
+          throw new Error("An action is already running.");
+        if (!vscode.workspace.isTrusted)
+          throw new Error("Trust this workspace before executing actions.");
+        if (source) {
+          // Validate the exact child before transferring its owning native worker.
+          await source.inspect(id);
+          const session = source.session();
+          if (this.service !== session.service) {
+            await this.refresh();
+            source.transfer();
+            this.service = session.service;
+            this.sessionSettings = session.settings;
+            this.root = session.root;
+            this.target = vscode.Uri.file(session.root.file);
+            this.service.setCallbacks(
+              (reason) => this.markStale(reason),
+              (text) => this.output.appendLine(text),
+            );
+          }
+        }
+        const current = await this.inspect(id);
+        return {
+          id,
+          file: current.root.file,
+          label:
+            display.kind === display.name
+              ? display.kind
+              : `${display.kind}: ${display.name}`,
+        };
+      },
+    };
   }
   private back(): void {
     if (this.busy || this.history.length < 2) return;

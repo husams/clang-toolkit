@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { z } from "zod";
+import type { NodeActionTarget } from "./actions.js";
 import { type AstEntry, type AstInspection, astDisplay } from "./ast-model.js";
 import type { Result } from "./model.js";
 
@@ -16,6 +17,7 @@ const messages = z.discriminatedUnion("type", [
   z.object({ type: z.literal("root") }),
   z.object({ type: z.literal("retry") }),
   z.object({ type: z.literal("source") }),
+  z.object({ type: z.literal("action") }),
   z.object({ type: z.literal("child"), id: z.string() }),
   z.object({
     type: z.literal("rendered"),
@@ -32,6 +34,9 @@ export class DetailsView
   private current: Page | undefined;
   private history: Page[] = [];
   private load: Load | undefined;
+  private prepareAction:
+    | ((id: string) => Promise<NodeActionTarget>)
+    | undefined;
   private cache = new Map<string, Page>();
   private generation = 0;
   private running = false;
@@ -45,6 +50,7 @@ export class DetailsView
   constructor(
     private readonly uri: vscode.Uri,
     private readonly openSource: (result: Result) => Promise<void>,
+    private readonly chooseAction: (target: NodeActionTarget) => Promise<void>,
   ) {
     this.status.name = "CTK AST inspection";
   }
@@ -61,7 +67,7 @@ export class DetailsView
     const js = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.uri, "media", "inspector.js"),
     );
-    view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"></head><body><main><p id="empty">Select a match to inspect its AST.</p><section id="inspector" hidden><nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav><header><h2 id="name"></h2><span id="kind"></span></header><p id="signature"></p><button id="location"></button><pre id="source"></pre><div id="error" role="alert"></div><button id="retry" hidden>Retry loading children</button><div class="columns"><details open><summary>Properties</summary><dl id="properties"></dl></details><details open><summary>Children</summary><p id="loading" role="status" hidden>Loading AST children…</p><p id="no-children" hidden>No child nodes.</p><ul id="children"></ul></details></div><details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details></section></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
+    view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"></head><body><main><p id="empty">Select a match to inspect its AST.</p><section id="inspector" hidden><nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav><header><h2 id="name"></h2><span id="kind"></span></header><p id="signature"></p><button id="location"></button><pre id="source"></pre><div id="error" role="alert"></div><button id="retry" hidden>Retry loading children</button><button id="action">Run action on this node…</button><div class="columns"><details open><summary>Properties</summary><dl id="properties"></dl></details><details open><summary>Children</summary><p id="loading" role="status" hidden>Loading AST children…</p><p id="no-children" hidden>No child nodes.</p><ul id="children"></ul></details></div><details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details></section></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
         this.error = error instanceof Error ? error.message : String(error);
@@ -86,6 +92,12 @@ export class DetailsView
       })),
       back: this.history.length > 0,
       running: this.running,
+      canRunAction: Boolean(
+        this.current?.nativeId &&
+          this.prepareAction &&
+          !this.error &&
+          !this.running,
+      ),
       error: this.error,
       rendered: this.rendered,
     };
@@ -96,7 +108,11 @@ export class DetailsView
       state: this.snapshot(),
     });
   }
-  async show(result: Result, load: Load): Promise<void> {
+  async show(
+    result: Result,
+    load: Load,
+    prepareAction: (id: string) => Promise<NodeActionTarget>,
+  ): Promise<void> {
     this.generation++;
     this.running = false;
     this.status.hide();
@@ -104,6 +120,7 @@ export class DetailsView
     this.history = [];
     this.cache.clear();
     this.load = load;
+    this.prepareAction = prepareAction;
     this.error = "";
     await vscode.commands.executeCommand("ctk.result.focus");
     this.publish();
@@ -158,6 +175,10 @@ export class DetailsView
       return;
     }
     if (this.running) return;
+    if (message.type === "action") {
+      await this.chooseAction(await this.actionTarget());
+      return;
+    }
     if (message.type === "source" && this.current) {
       await this.openSource(this.current.node);
       return;
@@ -192,6 +213,16 @@ export class DetailsView
       this.publish();
       if (!this.current.children) await this.inspect(child.id);
     }
+  }
+  async actionTarget(): Promise<NodeActionTarget> {
+    if (
+      this.running ||
+      this.error ||
+      !this.current?.nativeId ||
+      !this.prepareAction
+    )
+      throw new Error("Select a current AST node before choosing an action.");
+    return this.prepareAction(this.current.nativeId);
   }
   dispose(): void {
     this.generation++;

@@ -37,6 +37,16 @@ nav {
   gap: 14px;
   margin-bottom: 14px;
 }
+#action {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  padding: 5px 10px;
+  margin: 8px 0;
+}
+#action:hover {
+  background: var(--vscode-button-hoverBackground);
+  text-decoration: none;
+}
 header {
   display: flex;
   align-items: baseline;

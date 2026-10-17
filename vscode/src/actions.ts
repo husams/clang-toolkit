@@ -46,6 +46,11 @@ const metadataSchema = z
   })
   .strict();
 export type ActionArgument = z.infer<typeof argumentSchema>;
+export interface NodeActionTarget {
+  name: string;
+  file: string;
+  activate(): Promise<ActionReport["input"]>;
+}
 export interface NodeAction {
   id: string;
   title: string;
