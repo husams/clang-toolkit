@@ -345,6 +345,77 @@ private:
       throw Interrupted();
     transaction.commit();
   }
+  void upgrade_symbols(const Job &job, Database &db) {
+    bool legacy = false;
+    {
+      Statement schema(db, "SELECT sql FROM sqlite_master WHERE name='symbol'");
+      legacy = schema.step() &&
+               schema.text(0).find("WITHOUT ROWID") != std::string::npos;
+    }
+    if (!legacy)
+      return;
+    await_admission(job);
+    const auto saved_count = count_units(db), saved_revision = revision(db);
+    std::uint64_t total = saved_count;
+    {
+      Statement row(db, "SELECT value FROM metadata WHERE key='total'");
+      if (row.step())
+        total = std::stoull(row.text(0));
+    }
+    progress(job, [&](auto &s) {
+      s.set_state(INDEX_STATE_INDEXING);
+      s.set_translation_units_indexed(saved_count);
+      s.set_translation_units_total(total);
+      s.set_translation_units_pending(total);
+      s.set_revision(saved_revision);
+    });
+    // Retire the legacy pass's accumulated WAL before copying its rows. Large
+    // frame histories otherwise make even the migration's reads expensive.
+    checkpoint(job, db);
+    // Destroy the progress handler before transaction rollback on every error.
+    Transaction transaction(db);
+    struct Budget {
+      BackgroundSymbolIndexer &owner;
+      const Job &job;
+      bool interrupted = false;
+    } budget{*this, job};
+    sqlite3_progress_handler(
+        db.handle, 1000,
+        [](void *raw) {
+          auto &b = *static_cast<Budget *>(raw);
+          b.interrupted =
+              !b.owner.admitted(b.job) ||
+              (b.owner.foreground_busy_ && b.owner.foreground_busy_());
+          return b.interrupted ? 1 : 0;
+        },
+        &budget);
+    struct Reset {
+      sqlite3 *handle;
+      ~Reset() { sqlite3_progress_handler(handle, 0, nullptr, nullptr); }
+    } reset{db.handle};
+    try {
+      db.exec("ALTER TABLE symbol RENAME TO symbol_legacy;");
+      db.exec(symbol_schema);
+      db.exec("INSERT INTO symbol SELECT * FROM symbol_legacy;");
+      db.exec("DROP TABLE symbol_legacy;");
+      db.exec(symbol_indexes);
+      metadata(db, "schema_version", "2");
+      sqlite3_progress_handler(db.handle, 0, nullptr, nullptr);
+      commit(job, transaction);
+    } catch (...) {
+      if (budget.interrupted)
+        throw Interrupted();
+      throw;
+    }
+  }
+  void checkpoint(const Job &job, Database &db) {
+    await_admission(job);
+    // Never wait on readers or checkpoint under the status/control mutex.
+    // Bound the WAL after each contribution, rather than after the entire
+    // project: long first passes otherwise accumulate gigabytes of frames.
+    sqlite3_wal_checkpoint_v2(db.handle, nullptr, SQLITE_CHECKPOINT_PASSIVE,
+                              nullptr, nullptr);
+  }
   void replace(const Job &job, Database &db,
                const IndexWorkerTranslationUnit &unit, const std::string &id,
                const std::string &command_hash,
@@ -422,8 +493,9 @@ private:
     // for this source, but expose it as stale while the new context fails.
     Statement previous(db, "SELECT id FROM translation_unit WHERE main_file=?");
     previous.bind(1, source);
-    Statement stale(db, "UPDATE translation_unit SET status='failed',last_error=? "
-                        "WHERE id=?");
+    Statement stale(db,
+                    "UPDATE translation_unit SET status='failed',last_error=? "
+                    "WHERE id=?");
     while (previous.step()) {
       const auto old_id = previous.text(0);
       if (active.contains(old_id))
@@ -540,6 +612,8 @@ private:
         s.set_revision(saved_revision);
         s.set_translation_units_indexed(saved_count);
       });
+      if (!unchanged)
+        checkpoint(job, db);
     }
     await_admission(job);
     std::vector<std::string> obsolete;
@@ -571,11 +645,10 @@ private:
       s.set_translation_units_indexed(saved_count);
     });
     // PASSIVE never waits for a reader. Checkpoint I/O remains background work.
-    await_admission(job);
-    sqlite3_wal_checkpoint_v2(db.handle, nullptr, SQLITE_CHECKPOINT_PASSIVE,
-                              nullptr, nullptr);
+    checkpoint(job, db);
   }
   void loop() {
+    platform::lower_index_thread_priority();
     std::uint64_t processed_epoch = 0;
     for (;;) {
       Job job;
@@ -605,10 +678,11 @@ private:
         fs::permissions(directory, fs::perms::owner_all,
                         fs::perm_options::replace);
         Database db(database_path(job.root), true);
-        metadata(db, "schema_version", "1");
         metadata(db, "project_root", job.root);
         while (current(job)) {
           try {
+            upgrade_symbols(job, db);
+            metadata(db, "schema_version", "2");
             reconcile(job, db, directory);
           } catch (const Interrupted &) {
             if (!current(job))

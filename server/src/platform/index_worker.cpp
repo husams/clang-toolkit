@@ -16,6 +16,9 @@
 #ifdef __APPLE__
 #include <libproc.h>
 #include <mach-o/dyld.h>
+#include <pthread.h>
+#else
+#include <sys/syscall.h>
 #endif
 
 extern char **environ;
@@ -157,6 +160,18 @@ void lower_index_worker_priority() {
   if (setrlimit(RLIMIT_AS, &memory))
     throw std::system_error(errno, std::generic_category(),
                             "limit index worker memory");
+#endif
+}
+
+void lower_index_thread_priority() {
+#ifdef __APPLE__
+  // Utility avoids background-class filesystem throttling while remaining
+  // below the interactive threads serving user requests.
+  pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#else
+  const auto tid = static_cast<id_t>(syscall(SYS_gettid));
+  if (tid > 0)
+    setpriority(PRIO_PROCESS, tid, 10);
 #endif
 }
 
