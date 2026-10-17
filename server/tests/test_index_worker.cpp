@@ -9,6 +9,7 @@
 #include <fstream>
 #include <future>
 #include <gtest/gtest.h>
+#include <sys/wait.h>
 #include <thread>
 
 namespace ctk::platform {
@@ -47,6 +48,41 @@ TEST_F(IndexWorkerProcess, ReturnsExitStatusAndReapsCompletedProcess) {
   ASSERT_TRUE(result);
   EXPECT_EQ(*result, 7);
   EXPECT_FALSE(worker.running());
+}
+
+TEST_F(IndexWorkerProcess, SuspendCachesAlreadyCompletedWorkersForOnePoll) {
+  const auto pid_file = root / "worker.pid";
+  IndexWorker worker(script("printf '%s' \"$$\" > \"$4\"\nexit 7\n"),
+                     root / "request", pid_file);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  int pid = -1;
+  while (pid <= 0 && std::chrono::steady_clock::now() < deadline) {
+    std::ifstream pid_input(pid_file);
+    pid_input >> pid;
+    if (pid <= 0)
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_GT(pid, 0);
+
+  siginfo_t information{};
+  int wait_result = 0;
+  do {
+    wait_result = waitid(P_PID, static_cast<id_t>(pid), &information,
+                         WEXITED | WNOHANG | WNOWAIT);
+    ASSERT_EQ(wait_result, 0);
+    if (!information.si_pid)
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  } while (!information.si_pid && std::chrono::steady_clock::now() < deadline);
+  ASSERT_EQ(information.si_pid, pid);
+
+  worker.suspend();
+  worker.resume();
+  EXPECT_FALSE(worker.running());
+  const auto status = worker.poll();
+  ASSERT_TRUE(status);
+  EXPECT_EQ(*status, 7);
+  EXPECT_FALSE(worker.poll());
 }
 
 TEST_F(IndexWorkerProcess, StopKillsAndReapsIsolatedExtraction) {

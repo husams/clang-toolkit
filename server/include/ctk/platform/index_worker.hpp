@@ -29,6 +29,7 @@ public:
 
 private:
   int pid_ = -1;
+  std::optional<int> completed_;
 };
 
 std::filesystem::path current_executable_sibling(const char *name);
