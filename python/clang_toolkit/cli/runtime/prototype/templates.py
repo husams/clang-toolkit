@@ -70,7 +70,7 @@ def compile_template(raw: str) -> Template | None:
                 raise ValueError("empty interpolation expression")
             program = parse(expression)
             if len(program.children) != 1 or program.children[0].kind in {
-                "let", "assign", "runnable", "print"} or (
+                "let", "destructure", "assign", "runnable", "print"} or (
                     program.children[0].kind == "host" and program.children[0].value[1] == "statement"):
                 raise ValueError("interpolation requires one value expression")
             parts.extend(("".join(literal), compile_program(program)))

@@ -13,7 +13,8 @@ from .semantics import (
     loop_condition, complete_loop_iteration, binding_property_value, validate_loop_property_target,
     _static_predicate_name, _predicate, _predicate_binding,
 )
-from .runnables import create_runnable, define_runnable, invoke_named
+from .runnables import create_clause_runnable, create_runnable, define_runnable, invoke_named
+from .patterns import define_pattern
 from .control import FATAL_ERRORS, LoopBreak, LoopContinue, cleanup, recover, split_handlers
 
 
@@ -305,6 +306,10 @@ class _Lowerer:
             expr = self.call("_host", context, nref)
         elif kind == "inline_runnable":
             expr = self.emit_runnable(node, "_create_runnable")
+        elif kind == "clause_runnable":
+            executables = ast.Tuple([ast.Name(self.emit_block_function(clause.children[0]), ast.Load())
+                                     for clause in node.children], ast.Load())
+            expr = self.call("_create_clauses", context, nref, executables)
         elif kind == "call":
             args = [self.emit_expr(child_values(x)[0] if _kind(x) == "keyword_arg" else x) for x in child_values(node)]
             expr = self.call("_call", context, nref, ast.Constant(_name(node)), self.lambda0(ast.List(args, ast.Load())))
@@ -435,7 +440,7 @@ class _Lowerer:
         body = [
             ast.Expr(self.call("_check_items", context, self.node_ref(node), self.call("len", ast.Name(results, ast.Load())))),
             ast.Expr(self.call("_tick", context, self.node_ref(node))),
-            ast.Expr(self.call("_push_loop_scope", context, self.node_ref(node), ast.Constant(getattr(node, "value", None)), ast.Name(item, ast.Load()), ast.Name(ordinal, ast.Load()))),
+            ast.Expr(self.call("_push_loop_scope", context, self.node_ref(node), self.value_ref(getattr(node, "value", None)), ast.Name(item, ast.Load()), ast.Name(ordinal, ast.Load()))),
             ast.Try([ast.Assign([ast.Name("last", ast.Store())], self.call(body_fn, context))],
                     [ast.ExceptHandler(ast.Name("_LoopBreak", ast.Load()), None, [ast.Break()]),
                      ast.ExceptHandler(ast.Name("_LoopContinue", ast.Load()), None, [ast.Continue()])],
@@ -512,6 +517,8 @@ class _Lowerer:
             return [ast.Assign([ast.Name("last", ast.Store())], self.call("_run_scoped", context, ast.Name(self.emit_block_function(node), ast.Load())))]
         if kind == "let":
             expr = self.call("_define", context, ast.Constant(_name(node)), self.emit_expr(child(node, "expr", 0)))
+        elif kind == "destructure":
+            expr = self.call("_define_pattern", context, nref, self.emit_expr(child(node, "expr", 0)))
         elif kind == "runnable":
             expr = self.emit_runnable(node, "_define_runnable")
         elif kind == "assign":
@@ -520,7 +527,7 @@ class _Lowerer:
             expr = self.call("_print", context, self.lambda0(self.emit_expr(child(node, "expr", 0))), nref)
         else:
             expr = self.emit_expr(node)
-        prefix = [ast.Expr(self.call("_tick", context, nref))] if kind in {"let", "runnable", "assign", "print"} else []
+        prefix = [ast.Expr(self.call("_tick", context, nref))] if kind in {"let", "destructure", "runnable", "assign", "print"} else []
         return [*prefix, ast.Assign([ast.Name("last", ast.Store())], expr)]
 
     def module(self) -> ast.Module:
@@ -546,7 +553,9 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_tick": _tick, "_value": _value, "_literal": _literal,
         "_host": host_value, "_observe": observe_statement, "_consume": consumed_value,
         "_lookup": _lookup, "_define": _define, "_make_list": _make_list,
+        "_define_pattern": define_pattern,
         "_define_runnable": define_runnable, "_create_runnable": create_runnable,
+        "_create_clauses": create_clause_runnable,
         "_recover": recover, "_cleanup": cleanup, "_FatalErrors": FATAL_ERRORS,
         "_Exception": Exception, "_LoopBreak": LoopBreak, "_LoopContinue": LoopContinue,
         "_make_dict": _make_dict, "_make_tuple": _make_tuple, "_get": _get, "_index": _index, "_slice": _slice, "_iterable": _iterable,

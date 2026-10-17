@@ -25,6 +25,7 @@ from clang_toolkit.cli.runtime.evaluator import CompletionField, Runtime
 from clang_toolkit.cli.runtime.prototype.repl_editor import PrototypeCompleter, lex, _kind as console_kind
 from clang_toolkit.cli.runtime.prototype.repl_language import parse
 from clang_toolkit.cli.runtime.prototype.syntax import Node
+from clang_toolkit.cli.runtime.prototype.patterns import compile_matcher, format_pattern
 from clang_toolkit.match_values import BindingSelection, MatchRow, MatchValue, ParsedTree
 from clang_toolkit._generated.match.v1 import match_result_pb2 as results
 
@@ -100,7 +101,7 @@ def declarations(source: str) -> tuple[tuple[Node, str], ...]:
         for node in program.children:
             if node.kind == 'observe':
                 node = node.children[0]
-            if node.kind in {'let', 'runnable'}:
+            if node.kind in {'let', 'destructure', 'runnable'}:
                 found.append((node, part))
     return tuple(found)
 
@@ -154,8 +155,9 @@ def value_of(node: Node, source: str, bindings: dict[str, Any]) -> Any:
         return node.value
     if node.kind == 'ref':
         return bindings.get(node.value)
-    if node.kind == 'list':
-        return [value_of(item, source, bindings) for item in node.children]
+    if node.kind in {'list', 'tuple'}:
+        values = [value_of(item, source, bindings) for item in node.children]
+        return tuple(values) if node.kind == 'tuple' else values
     if node.kind == 'dict':
         return {entry.value: value_of(entry.children[0], source, bindings) for entry in node.children}
     if node.kind == 'get':
@@ -209,6 +211,14 @@ def describe_source(source: str, bindings: dict[str, Any], functions: dict[str, 
     for node, part in declarations(source):
         if node.kind == 'let':
             bindings[node.value] = value_of(node.children[0], part, bindings)
+            if node.children[0].kind == 'clause_runnable':
+                patterns = node.children[0].children[0].value[1]
+                signature = node.value + '(' + ', '.join(format_pattern(item) for item in patterns) + ')'
+                functions[node.value] = CallableHelp(node.value, signature, part)
+        elif node.kind == 'destructure':
+            matched = compile_matcher((node.value,))([value_of(node.children[0], part, bindings)])
+            if matched is not None:
+                bindings.update(matched)
 
 
 @lru_cache(maxsize=1)

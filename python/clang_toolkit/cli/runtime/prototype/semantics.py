@@ -754,6 +754,13 @@ def eval_expr(ctx: Context, node: Any) -> Any:
                                lambda context: eval_block(context, child_values(node)[0], scoped=False),
                                tuple(lambda context, spec=default: eval_block(context, spec, scoped=False)
                                      for default in child_values(node)[1:]))
+    if kind == "clause_runnable":
+        from .runnables import create_clause_runnable
+
+        return create_clause_runnable(ctx, node, tuple(
+            lambda context, clause=clause: eval_block(context, clause.children[0], scoped=False)
+            for clause in node.children
+        ))
     if kind == "invoke":
         from dataclasses import replace
         from .runnables import invoke_value
@@ -878,6 +885,11 @@ def eval_statement(ctx: Context, node: Any, *, value_context: bool = False) -> A
         name = _name(node)
         value = eval_expr(ctx, _expr(node, 0, "expr"))
         return ctx.define(name, value)
+    if kind == "destructure":
+        from .patterns import define_pattern
+
+        ctx.tick(node)
+        return define_pattern(ctx, node, eval_expr(ctx, _expr(node, 0, "expr")))
     if kind == "runnable":
         from .runnables import define_runnable
 
@@ -903,7 +915,7 @@ def eval_statement(ctx: Context, node: Any, *, value_context: bool = False) -> A
         return eval_condition_loop(ctx, node, collect=value_context)
     if kind == "block":
         return eval_block(ctx, node)
-    if kind in {"conditional", "list", "tuple", "dict", "literal", "ref", "get", "index", "call", "invoke", "pipe", "binary", "predicate", "unary", "host", "recovery", "inline_runnable"}:
+    if kind in {"conditional", "list", "tuple", "dict", "literal", "ref", "get", "index", "call", "invoke", "pipe", "binary", "predicate", "unary", "host", "recovery", "inline_runnable", "clause_runnable"}:
         return eval_expr(ctx, node)
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 

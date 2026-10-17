@@ -7,7 +7,8 @@ from typing import Any, Iterator
 
 from lark import Token, Tree
 
-from .runnables import RunnableBlock
+from .runnables import MultiClauseBlock, RunnableBlock
+from .patterns import ConsPattern, ListPattern, pattern_names
 from .syntax import Node
 
 _FILTER_CALLBACKS = {"map", "filter", "sort_by", "unique_by"}
@@ -44,6 +45,9 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
         if isinstance(node, Node) and node.kind == "inline_runnable":
             name, parameters = node.value
             return _Definition(name, parameters, node.children[0], environment, node.children[1:])
+        if isinstance(node, Node) and node.kind == "clause_runnable":
+            return _Alternatives(tuple(_Definition(node.value, clause.value[1], clause.children[0], environment)
+                                       for clause in node.children))
         if isinstance(node, Node) and node.kind == "ref":
             return environment.get(node.value)
         if isinstance(node, Node) and node.kind == "literal":
@@ -75,6 +79,9 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
                 if child.kind == "let":
                     result = resolve(child.children[0], local)
                     local[child.value] = result
+                elif child.kind == "destructure":
+                    result = resolve(child.children[0], local)
+                    bind_pattern(local, child.value, result)
                 elif child.kind == "runnable":
                     name, parameters = child.value
                     result = _Definition(name, parameters, child.children[0], local, child.children[1:])
@@ -98,6 +105,15 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
         return None
 
     def call_result(callee: Any, args: tuple[Node, ...], environment: dict[str, Any]) -> Any:
+        if isinstance(callee, MultiClauseBlock):
+            if id(callee) in resolving:
+                return None
+            resolving.add(id(callee))
+            try:
+                captured = {key: item for scope in callee.scopes for key, item in scope.items()}
+                return call_result(resolve(callee.body, captured), args, environment)
+            finally:
+                resolving.remove(id(callee))
         if isinstance(callee, _Alternatives):
             return _Alternatives(tuple(call_result(candidate, args, environment) for candidate in callee.values))
         if not isinstance(callee, (RunnableBlock, _Definition)) or id(callee) in resolving:
@@ -127,6 +143,16 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
 
     def call(value: Any, arguments: list[Any], environment: dict[str, Any],
              keywords: dict[str, Any] | None = None) -> Iterator[Tree]:
+        if isinstance(value, MultiClauseBlock):
+            if id(value) in active:
+                return
+            active.add(id(value))
+            try:
+                captured = {key: item for scope in value.scopes for key, item in scope.items()}
+                yield from call(resolve(value.body, captured), arguments, environment, keywords)
+            finally:
+                active.remove(id(value))
+            return
         if isinstance(value, _Alternatives):
             for candidate in value.values:
                 yield from call(candidate, arguments, environment, keywords)
@@ -168,9 +194,31 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
             active.remove(id(value))
 
     def bind_pattern(target: dict[str, Any], pattern: Any, value: Any) -> None:
+        if isinstance(value, _Alternatives):
+            candidates = []
+            for item in value.values:
+                candidate: dict[str, Any] = {}
+                bind_pattern(candidate, pattern, item)
+                candidates.append(candidate)
+            for name in pattern_names(pattern):
+                target[name] = _Alternatives(tuple(candidate.get(name) for candidate in candidates))
+            return
         if isinstance(pattern, str):
             if pattern != "_":
                 target[pattern] = value
+            return
+        if isinstance(pattern, ConsPattern):
+            if isinstance(value, list) and value:
+                bind_pattern(target, pattern.head, value[0])
+                bind_pattern(target, pattern.tail, value[1:])
+            else:
+                target.update((name, None) for name in pattern_names(pattern))
+            return
+        if isinstance(pattern, ListPattern):
+            elements = pattern.elements
+            values = value if isinstance(value, list) and len(value) == len(elements) else (None,) * len(elements)
+            for item, child in zip(elements, values):
+                bind_pattern(target, item, child)
             return
         values = value if type(value) is tuple and len(value) == len(pattern) else (None,) * len(pattern)
         for item, child in zip(pattern, values):
@@ -178,9 +226,13 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
 
     def callback_definition(node: Any, environment: dict[str, Any]) -> Any:
         value = resolve(node.children[0], environment) if isinstance(node, Node) and node.kind == "keyword_arg" else resolve(node, environment)
-        return value if isinstance(value, (RunnableBlock, _Definition, MatcherFunction)) else None
+        return value if isinstance(value, (RunnableBlock, _Definition, MatcherFunction, _Alternatives)) else None
 
     def callback_arity(callback: Any) -> int:
+        if isinstance(callback, _Alternatives):
+            return max((callback_arity(item) for item in callback.values), default=1)
+        if not isinstance(callback, (RunnableBlock, _Definition, MatcherFunction)):
+            return 1
         defaults = (callback.default_nodes if isinstance(callback, RunnableBlock)
                     else callback.defaults if isinstance(callback, _Definition) else ())
         required = len(callback.parameters) - len(defaults)
@@ -209,7 +261,7 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
 
     def visit(node: Any, environment: dict[str, Any]) -> Iterator[Tree]:
         if isinstance(node, Node):
-            if node.kind == "inline_runnable":
+            if node.kind in {"inline_runnable", "clause_runnable"}:
                 return
             if node.kind == "runnable":
                 name, parameters = node.value
@@ -223,6 +275,8 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
                         builtin_aliases.add(node.value)
                 elif getattr(environment[node.value], "__ctk_filter_name__", None) in _FILTER_CALLBACKS:
                     builtin_aliases.add(node.value)
+            if node.kind == "destructure":
+                bind_pattern(environment, node.value, resolve(node.children[0], environment))
             if node.kind == "call":
                 yield from visit_call(node, environment)
             if node.kind == "invoke":
