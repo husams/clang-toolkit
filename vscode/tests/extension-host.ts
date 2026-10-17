@@ -58,6 +58,8 @@ export async function run(): Promise<void> {
       const rendered = astState().rendered;
       if (
         rendered?.type === "rendered" &&
+        rendered.nodeId === astState().node?.id &&
+        rendered.children.length === (astState().children?.length ?? 0) &&
         rendered.tab === tab &&
         rendered.panels.ast === (tab === "ast") &&
         rendered.panels.properties === (tab === "properties")
@@ -179,10 +181,26 @@ export async function run(): Promise<void> {
     (node) => node.kind === "CXXRecordDecl" && node.name.endsWith("Order"),
   );
   assert.ok(lazyClass, JSON.stringify(astState()));
-  await api.details.receive({ type: "child", id: lazyClass.id });
+  const classSelection = api.details.receive({
+    type: "child",
+    id: lazyClass.id,
+  });
+  await api.details.receive({ type: "properties", id: lazyClass.id });
+  await classSelection;
   assert.ok(
     astState().children?.some((node) => node.name.includes("valid")),
     "clicking an unloaded AST child must fetch its children",
+  );
+  const selectedClassTree = astState().tree;
+  const classProperties = await inspectorTab("properties");
+  assert.match(classProperties.text, /Public members/);
+  assert.match(classProperties.text, /demo::Order::quantity/);
+  assert.match(classProperties.text, /demo::Order::valid/);
+  await inspectorTab("ast");
+  assert.deepEqual(
+    astState().tree,
+    selectedClassTree,
+    "opening Properties during the first click's load must preserve the AST tree and selection",
   );
   const otherFile = vscode.Uri.joinPath(folder.uri, "auto-file.cpp");
   await vscode.workspace.fs.writeFile(
@@ -1477,7 +1495,60 @@ export async function run(): Promise<void> {
     "Back must restore the complete related matches",
   );
   await api.actions.close();
+  const semanticUri = vscode.Uri.joinPath(folder.uri, "semantic-inspector.cpp");
+  await vscode.workspace.fs.writeFile(
+    semanticUri,
+    await vscode.workspace.fs.readFile(
+      vscode.Uri.joinPath(
+        extension.extensionUri,
+        "examples",
+        "semantic-inspector.cpp",
+      ),
+    ),
+  );
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+  );
+  const semanticRoot = await automaticFile("semantic-inspector.cpp");
+  const widget = semanticRoot.children?.find((node) => node.name === "Widget");
+  assert.ok(widget);
+  await api.details.receive({ type: "properties", id: widget.id });
+  const widgetProperties = await inspectorTab("properties");
+  for (const text of [
+    "Inheritance",
+    "MidAlias",
+    "Root · public virtual",
+    "Hidden · protected",
+    "Public members",
+    "Protected members",
+    "Private members",
+    "Widget::secret",
+    "Widget::check",
+    "Widget::ratio",
+  ])
+    assert.ok(
+      widgetProperties.text.includes(text),
+      `${text}: ${widgetProperties.text}`,
+    );
+  assert.doesNotMatch(
+    widgetProperties.text,
+    /FIELD_STATE|ACCESS_SPECIFIER|symbolIdentity|availability/,
+  );
+  const widgetTree = astState().tree;
+  await inspectorTab("ast");
+  assert.deepEqual(astState().tree, widgetTree);
+  const check = astState().children?.find(
+    (node) => node.name === "Widget::check",
+  );
+  assert.ok(check);
+  await api.details.receive({ type: "properties", id: check.id });
+  const functionProperties = await inspectorTab("properties");
+  for (const text of ["Parameters", "limit", "label", "const char *", "Const"])
+    assert.ok(functionProperties.text.includes(text), functionProperties.text);
+  const functionTree = astState().tree;
+  await inspectorTab("ast");
+  assert.deepEqual(astState().tree, functionTree);
   console.log(
-    "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, file/match/binding outline, cross-file related matches, retained-node follow-up, history, stale edits and completion",
+    "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, access-grouped members, inheritance and parameters",
   );
 }

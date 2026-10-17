@@ -1,3 +1,4 @@
+import { renderSemantics } from "./inspector-semantics.js";
 import { renderTree } from "./inspector-tree.js";
 
 const api = acquireVsCodeApi();
@@ -56,12 +57,14 @@ window.addEventListener("message", ({ data }) => {
   el("empty").hidden = Boolean(node);
   el("inspector").hidden = !node;
   if (!node) return;
+  const treeFocused = el("tree").contains(document.activeElement);
   for (const tab of tabs) {
     const selected = state.tab === tab;
     el(`${tab}-tab`).setAttribute("aria-selected", String(selected));
     el(`${tab}-tab`).tabIndex = selected ? 0 : -1;
     el(`${tab}-panel`).hidden = !selected;
   }
+  if (state.tab === "properties" && treeFocused) el("properties-tab").focus();
   el("name").textContent = node.name;
   el("kind").textContent = node.kind;
   el("signature").textContent = node.signature;
@@ -70,10 +73,8 @@ window.addEventListener("message", ({ data }) => {
   el("source").textContent = node.excerpt;
   el("source").hidden = !node.excerpt;
   el("back").disabled = !state.back || state.running;
-  el("back").parentElement.hidden = !state.back;
-  el("root").hidden = !state.back;
   el("root").textContent = state.rootLabel;
-  el("root").disabled = state.running;
+  el("root").disabled = !state.back || state.running;
   el("location").disabled = state.running;
   el("action").disabled = !state.canRunAction;
   el("error").textContent = state.error;
@@ -82,11 +83,13 @@ window.addEventListener("message", ({ data }) => {
   el("retry").hidden = !state.error;
   el("retry").disabled = state.running;
   fields("properties", node.properties);
+  el("properties-group").hidden = !node.properties.length;
+  renderSemantics(el("semantics"), node, state.semantics, post);
   fields("range", node.range);
   el("range-group").hidden = !node.range.length;
-  el("loading").hidden = !state.running;
   const tree = renderTree(el("tree"), state, post);
   post("rendered", {
+    nodeId: node.id,
     kind: el("kind").textContent,
     properties: [...el("properties").querySelectorAll("dt")].map(
       (item) => item.textContent,

@@ -5,6 +5,7 @@ import type { NodeActionTarget } from "./actions.js";
 import {
   type AstEntry,
   type AstInspection,
+  type AstSemantics,
   astDisplay,
   type SourceSelection,
 } from "./ast-model.js";
@@ -19,6 +20,7 @@ interface Page {
   node: Result;
   children?: AstEntry[];
   nativeId?: string;
+  semantics?: AstSemantics | undefined;
 }
 const nodeMenuSchema = z.object({
   webviewSection: z.literal("ast-node"),
@@ -34,6 +36,7 @@ const messages = z.discriminatedUnion("type", [
   z.object({ type: z.literal("action") }),
   z.object({ type: z.literal("tab"), tab: z.enum(["ast", "properties"]) }),
   z.object({ type: z.literal("child"), id: z.string() }),
+  z.object({ type: z.literal("properties"), id: z.string() }),
   z.object({
     type: z.literal("expand"),
     id: z.string(),
@@ -41,6 +44,7 @@ const messages = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("rendered"),
+    nodeId: z.string(),
     kind: z.string(),
     properties: z.array(z.string()),
     children: z.array(z.string()),
@@ -120,12 +124,12 @@ export class DetailsView
 <button id="ast-tab" role="tab" aria-controls="ast-panel" aria-selected="true">AST</button>
 <button id="properties-tab" role="tab" aria-controls="properties-panel" aria-selected="false" tabindex="-1">Properties</button></div>
 <section id="ast-panel" class="outline" role="tabpanel" aria-labelledby="ast-tab">
-<p id="loading" role="status" hidden>Loading AST children…</p>
 <ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
 <section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><h2 id="name"></h2><span id="kind"></span></header>
 <p id="signature"></p><button id="location"></button><pre id="source"></pre>
 <button id="action">Run action on this node…</button>
-<details open><summary>Properties</summary><dl id="properties"></dl></details>
+<div id="semantics"></div>
+<details id="properties-group" open><summary>Properties</summary><dl id="properties"></dl></details>
 <details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details>
 </section></section></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
@@ -150,6 +154,7 @@ export class DetailsView
         ...astDisplay(child),
         file: child.file ? vscode.workspace.asRelativePath(child.file) : "",
       })),
+      semantics: this.current?.semantics,
       back: this.history.length > 0,
       running: this.running,
       canRunAction: Boolean(
@@ -268,6 +273,7 @@ export class DetailsView
         node: inspection.node,
         nativeId: inspection.node.id,
         children: inspection.children,
+        ...(inspection.semantics ? { semantics: inspection.semantics } : {}),
       };
       this.tree.apply(page, inspection.path, select);
       for (const ancestor of inspection.path ?? [])
@@ -310,6 +316,19 @@ export class DetailsView
     }
     if (message.type === "tab") {
       this.tab = message.tab;
+      this.publish();
+      return;
+    }
+    if (message.type === "properties") {
+      if (!this.tree.node(message.id))
+        throw new Error("This AST node is no longer available.");
+      if (this.running && this.current?.node.id !== message.id) return;
+      this.tab = "properties";
+      if (
+        !this.running &&
+        (this.current?.node.id !== message.id || !this.current.children)
+      )
+        await this.receive({ type: "child", id: message.id });
       this.publish();
       return;
     }

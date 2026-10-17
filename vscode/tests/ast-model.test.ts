@@ -3,6 +3,7 @@ import {
   type AstEntry,
   astDisplay,
   astInspectionSchema,
+  astSemanticsSchema,
 } from "../src/ast-model.js";
 
 const result = (binding: unknown): AstEntry => ({
@@ -17,6 +18,75 @@ const result = (binding: unknown): AstEntry => ({
   locationValid: true,
 });
 describe("AST inspector projection", () => {
+  it("rejects disconnected or unbounded semantic paths", () => {
+    const edge = {
+      name: "Base",
+      depth: 0,
+      access: "ACCESS_SPECIFIER_PUBLIC",
+      virtual: false,
+    };
+    expect(() =>
+      astSemanticsSchema.parse({ inheritance: [{ ...edge, depth: 1 }] }),
+    ).toThrow(/disconnected/);
+    expect(() =>
+      astSemanticsSchema.parse({ inheritance: [edge, { ...edge, depth: 2 }] }),
+    ).toThrow(/disconnected/);
+    expect(() =>
+      astSemanticsSchema.parse({ inheritance: Array(129).fill(edge) }),
+    ).toThrow();
+    expect(() =>
+      astSemanticsSchema.parse({
+        parameters: Array(1001).fill({ name: "x", type: "int" }),
+      }),
+    ).toThrow();
+  });
+  it("uses struct default access and hides implicit members and statement-only semantic sections", () => {
+    const cls = result({
+      node: {
+        cxxRecordDecl: { record: { tag: { tagKind: "TAG_KIND_STRUCT" } } },
+      },
+    });
+    const member = {
+      ...result({
+        node: {
+          fieldDecl: {
+            declarator: {
+              value: { type: { description: { spelling: "int" } } },
+            },
+          },
+        },
+      }),
+      id: "field",
+      name: "count",
+    };
+    const implicit = {
+      ...result({
+        node: {
+          cxxMethodDecl: {
+            method: {
+              function: {
+                declarator: {
+                  value: { named: { declaration: { isImplicit: true } } },
+                },
+              },
+            },
+          },
+        },
+      }),
+      id: "implicit",
+      name: "operator=",
+    };
+    expect(astDisplay(cls, [member, implicit]).sections).toEqual([
+      {
+        title: "Public members",
+        columns: ["Name", "Kind", "Type / signature", "Qualifiers"],
+        rows: [{ id: "field", values: ["count", "Field", "int", ""] }],
+      },
+    ]);
+    expect(
+      astDisplay(result({ node: { returnStmt: {} } }), []).sections,
+    ).toEqual([]);
+  });
   it("shows readable language facts while excluding transport and CTK metadata", () => {
     const node = result({
       node: {

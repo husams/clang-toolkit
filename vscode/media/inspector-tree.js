@@ -1,5 +1,6 @@
 let lastReveal;
 let wasVisible = false;
+const views = new WeakMap();
 
 export function renderTree(host, state, post) {
   const active =
@@ -20,18 +21,94 @@ export function renderTree(host, state, post) {
   for (const siblings of groups.values())
     for (const [index, id] of siblings.entries())
       positions.set(id, [index + 1, siblings.length]);
-  host.replaceChildren();
+  let view = views.get(host);
+  if (!view) {
+    view = { items: new Map() };
+    views.set(host, view);
+  }
+  view.state = state;
+  view.post = post;
+  const ids = new Set(rows.map((row) => row.id));
+  for (const [id, entry] of view.items)
+    if (!ids.has(id)) {
+      entry.item.remove();
+      view.items.delete(id);
+    }
   host.setAttribute("aria-busy", String(state.running));
-  const focus = (id) => {
-    elements.get(id)?.focus();
-    post("child", { id });
-  };
   for (const [index, row] of rows.entries()) {
-    const item = document.createElement("li"),
-      line = document.createElement("div"),
-      toggle = document.createElement(row.expandable ? "button" : "span"),
-      name = document.createElement("span"),
-      kind = document.createElement("span");
+    let entry = view.items.get(row.id);
+    if (!entry) {
+      const item = document.createElement("li"),
+        line = document.createElement("div"),
+        toggle = document.createElement("button"),
+        name = document.createElement("span"),
+        kind = document.createElement("span");
+      line.append(toggle, name, kind);
+      item.append(line);
+      entry = { item, line, toggle, name, kind };
+      view.items.set(row.id, entry);
+      const current = () =>
+        view.state.tree.find((candidate) => candidate.id === row.id);
+      toggle.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const row = current();
+        if (!row || view.state.running) return;
+        item.focus();
+        view.post("expand", { id: row.id, expanded: !row.expanded });
+      });
+      toggle.addEventListener("dblclick", (event) => event.stopPropagation());
+      item.addEventListener("click", () => {
+        if (view.state.running) return;
+        item.focus();
+        view.post("child", { id: row.id });
+      });
+      item.addEventListener("dblclick", () => {
+        if (view.state.running && !current()?.selected) return;
+        view.post("properties", { id: row.id });
+      });
+      item.addEventListener("keydown", (event) => {
+        if (view.state.running) return;
+        const row = current();
+        if (!row) return;
+        const rows = view.state.tree,
+          index = rows.findIndex((candidate) => candidate.id === row.id);
+        const select = (id) => {
+          view.items.get(id)?.item.focus();
+          view.post("child", { id });
+        };
+        const next =
+          event.key === "ArrowDown"
+            ? rows[index + 1]
+            : event.key === "ArrowUp"
+              ? rows[index - 1]
+              : event.key === "Home"
+                ? rows[0]
+                : event.key === "End"
+                  ? rows.at(-1)
+                  : undefined;
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          if (next) select(next.id);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          if (row.expandable && !row.expanded)
+            view.post("expand", { id: row.id, expanded: true });
+          else if (rows[index + 1]?.parent === row.id)
+            select(rows[index + 1].id);
+        } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          if (row.expandable && row.expanded)
+            view.post("expand", { id: row.id, expanded: false });
+          else if (row.parent) select(row.parent);
+        } else if (["Enter", " "].includes(event.key)) {
+          event.preventDefault();
+          view.post(event.key === "Enter" ? "properties" : "child", {
+            id: row.id,
+          });
+        }
+      });
+    }
+    const { item, line, toggle, name, kind } = entry;
     item.setAttribute("role", "treeitem");
     item.setAttribute("aria-level", String(row.depth + 1));
     item.setAttribute("aria-selected", String(row.selected));
@@ -40,6 +117,7 @@ export function renderTree(host, state, post) {
     item.setAttribute("aria-setsize", String(positions.get(row.id)[1]));
     if (row.expandable)
       item.setAttribute("aria-expanded", String(row.expanded));
+    else item.removeAttribute("aria-expanded");
     item.setAttribute("aria-label", `${row.kind}: ${row.name}`);
     item.dataset.node = row.id;
     item.dataset.vscodeContext = JSON.stringify({
@@ -54,7 +132,7 @@ export function renderTree(host, state, post) {
     item.className = row.selected ? "ast-item selected" : "ast-item";
     line.className = "tree-row";
     line.style.setProperty("--depth", String(row.depth));
-    toggle.className = "twisty";
+    toggle.className = row.expandable ? "twisty" : "twisty leaf";
     if (row.expandable) {
       toggle.textContent = row.expanded ? "▾" : "▸";
       toggle.tabIndex = -1;
@@ -63,12 +141,9 @@ export function renderTree(host, state, post) {
         "aria-label",
         `${row.expanded ? "Collapse" : "Expand"} ${row.name}`,
       );
-      toggle.addEventListener("click", (event) => {
-        event.stopPropagation();
-        item.focus();
-        post("expand", { id: row.id, expanded: !row.expanded });
-      });
-    } else toggle.setAttribute("aria-hidden", "true");
+    }
+    toggle.setAttribute("aria-hidden", String(!row.expandable));
+    toggle.tabIndex = -1;
     name.className = "tree-name";
     name.textContent = row.name;
     kind.className = "tree-kind";
@@ -76,45 +151,9 @@ export function renderTree(host, state, post) {
     item.title = row.locationValid
       ? `${row.kind} · ${row.file}:${row.line}:${row.column}`
       : row.kind;
-    line.append(toggle, name, kind);
-    item.append(line);
-    item.addEventListener("click", () => {
-      if (state.running) return;
-      item.focus();
-      post("child", { id: row.id });
-    });
-    item.addEventListener("keydown", (event) => {
-      if (state.running) return;
-      const next =
-        event.key === "ArrowDown"
-          ? rows[index + 1]
-          : event.key === "ArrowUp"
-            ? rows[index - 1]
-            : event.key === "Home"
-              ? rows[0]
-              : event.key === "End"
-                ? rows.at(-1)
-                : undefined;
-      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
-        event.preventDefault();
-        if (next) focus(next.id);
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault();
-        if (row.expandable && !row.expanded)
-          post("expand", { id: row.id, expanded: true });
-        else if (rows[index + 1]?.parent === row.id) focus(rows[index + 1].id);
-      } else if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        if (row.expandable && row.expanded)
-          post("expand", { id: row.id, expanded: false });
-        else if (row.parent) focus(row.parent);
-      } else if (["Enter", " "].includes(event.key)) {
-        event.preventDefault();
-        post("child", { id: row.id });
-      }
-    });
     elements.set(row.id, item);
-    host.append(item);
+    if (host.children[index] !== item)
+      host.insertBefore(item, host.children[index] ?? null);
   }
   host.scrollTop = top;
   if (active) (elements.get(active) ?? elements.get(selectedId))?.focus();

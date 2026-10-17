@@ -112,6 +112,43 @@ h3 {
   font-weight: 500;
   margin: 0 0 8px;
 }
+.node-details table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0 16px;
+  text-align: left;
+}
+.node-details th,
+.node-details td {
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.node-details th {
+  color: var(--vscode-descriptionForeground);
+  font-weight: normal;
+}
+.node-details td button {
+  padding: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.inheritance,
+.inheritance ul {
+  list-style: none;
+  padding-left: 20px;
+}
+.inheritance li {
+  border-left: 1px solid var(--vscode-tree-indentGuidesStroke);
+  padding: 4px 0 4px 12px;
+}
+.inheritance-root {
+  margin-bottom: 0;
+}
+.twisty.leaf {
+  visibility: hidden;
+}
 .outline,
 .node-details {
   min-width: 0;
@@ -141,6 +178,7 @@ dd {
 }
 .ast-item {
   cursor: pointer;
+  user-select: none;
   white-space: nowrap;
   min-width: max-content;
 }

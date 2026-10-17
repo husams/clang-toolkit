@@ -2,7 +2,7 @@
   "name": "clang-toolkit-prototype",
   "displayName": "Clang Toolkit Prototype",
   "description": "Unified Semantic Analysis and CTK script editing prototype",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "publisher": "clang-toolkit",
   "license": "MIT",
   "type": "module",

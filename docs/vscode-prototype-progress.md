@@ -751,3 +751,66 @@ literal. Right-clicking the unselected nested CallExpr opened
 **CTK · Action on secondTarget**; cancelling kept both the literal selection and
 the prior firstCaller action/results. The trial remains open on AST with the
 one-match result, the editor caret at 5:42 and custom-action tabs preserved.
+
+## Double-click Properties and node-specific semantics, version 0.2.16
+
+Double-clicking an AST row selects that exact native node and opens Properties;
+Enter offers the same keyboard behavior. Returning to AST keeps its selection,
+expanded branches and cached children. Tree rows keep their DOM identity across
+loading/selection updates so the first click cannot destroy the double-click
+target. A double-click during that node's initial load opens Properties and lets
+the same request finish. The Properties tab receives focus without moving the
+source caret again. Navigation keeps a fixed place even at the file root, and
+loading uses the status bar and tree's busy state; neither inserts a row above
+the tree between clicks. Tree text selection is disabled. Chevron clicks still
+only expand/collapse a branch.
+
+Properties now includes collapsible sections based on the selected node:
+
+- Records: own declared methods, fields, static members, aliases and nested
+  types grouped by public/protected/private access. Class/struct default access
+  and explicit access declarations determine the groups; implicit members are
+  omitted. Member links open that exact retained child in Properties.
+- Inheritance: the selected class and direct/transitive base paths, showing
+  access and virtual edges. The native base matcher resolves aliases to actual
+  declarations, with no name-based lookup or reparsing. Dependent/unresolved
+  bases are marked. Display is bounded to 16 levels and 128 base edges.
+- Functions/methods: ordered parameter names and types, with explicit unnamed
+  parameter labels. A root-only function match and exact declaration-context
+  comparison exclude parameters belonging to nested lambdas/callables. Native
+  FunctionProtoTypeLoc wrappers do not hide the signature's parameters.
+- Enums: evaluated enumerator values and underlying type. Aliases: underlying
+  type. Existing call/expression/cast/operator/literal properties remain; method
+  and field qualifiers include const/static/virtual/pure-virtual/mutable when
+  present. Statements and auxiliary nodes omit empty semantic/property groups.
+
+`vscode/examples/semantic-inspector.cpp` demonstrates multiple inheritance,
+an alias to a base, virtual transitive inheritance, all three member access
+groups, typed and unnamed parameters, a nested lambda, an enum and a type alias.
+
+Validation: `vscode/artifacts/validation/ast-semantics-20261017/`.
+TypeScript and Biome pass; 50 extension unit tests pass (16 native opt-ins
+skipped), along with 16 console adapter tests and nine native integration tests.
+The native fixture verifies the actual base paths and access/virtual labels,
+private class defaults, static fields, member types, method constness, ordered
+named/unnamed parameters, nested-lambda exclusion, enum values, alias types,
+empty statement semantics, cached facts and a single parse. Boundary tests
+reject disconnected inheritance paths and oversized inheritance/parameter lists.
+The real VS Code host (`host-final.log`) verifies Properties opening during a pending child load,
+rendered class groups/base paths/parameter tables, and exact tree state after
+returning to AST, alongside its existing search/action/history/completion suite.
+Its isolated test window/server closed normally. No shared native server, Python
+SDK or console runtime changed; the earlier repository-wide baseline still applies.
+
+Packaged and installed v0.2.16 in the normal VS Code profile. ZIP verification
+passed and the new renderer, native adapter and fixture are included. SHA256:
+`67341699e44275cca8df5b0a4c6e7d989dd456190b481cbfe726fa636e3f8aeb`.
+
+Used the normal-profile extension with the new example. A first double-click
+on the unloaded Widget row opened Properties, focused its tab and displayed
+MidAlias → virtual public Root, protected Hidden, and all three member groups.
+Returning to AST kept Widget selected with its direct children expanded. A
+double-click on its unloaded check method opened the method's Properties with
+limit:int and label:const char *, return type bool and Const:Yes. The sample is
+open in the existing trial window; custom action tabs are preserved. The shared
+managed CTK server was neither restarted nor replaced.

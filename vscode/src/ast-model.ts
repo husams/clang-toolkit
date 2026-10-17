@@ -1,5 +1,53 @@
 import { z } from "zod";
+import {
+  astBinding,
+  clangKind,
+  field,
+  nativeKind,
+  readable,
+  record,
+  spelling,
+} from "./ast-facts.js";
+
+import { type SemanticSection, semanticSections } from "./ast-semantics.js";
 import type { Result } from "./model.js";
+
+export { astBinding, nativeKind } from "./ast-facts.js";
+
+export const astSemanticsSchema = z
+  .object({
+    inheritance: z
+      .array(
+        z.object({
+          name: z.string(),
+          depth: z.number().int().min(0).max(15),
+          access: z.string(),
+          virtual: z.boolean(),
+          unresolved: z.boolean().optional(),
+        }),
+      )
+      .max(128)
+      .optional(),
+    parameters: z
+      .array(z.object({ name: z.string(), type: z.string() }))
+      .max(1000)
+      .optional(),
+    notice: z.string().optional(),
+  })
+  .superRefine((semantics, context) => {
+    const edges = semantics.inheritance;
+    if (
+      edges?.some(
+        (edge, index) =>
+          edge.depth > (index ? (edges[index - 1]?.depth ?? -1) + 1 : 0),
+      )
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Inheritance path is disconnected",
+      });
+  });
+export type AstSemantics = z.infer<typeof astSemanticsSchema>;
 
 export const astEntrySchema = z.object({
   id: z.string(),
@@ -15,6 +63,7 @@ export const astEntrySchema = z.object({
 export const astPageSchema = z.object({
   node: astEntrySchema,
   children: z.array(astEntrySchema).max(1000),
+  semantics: astSemanticsSchema.optional(),
 });
 export const astInspectionSchema = astPageSchema
   .extend({
@@ -50,104 +99,6 @@ export const sourceSelectionSchema = z
   })
   .refine((span) => span.end >= span.start, "Source range is reversed");
 export type SourceSelection = z.infer<typeof sourceSelectionSchema>;
-type RecordValue = Record<string, unknown>;
-const record = (value: unknown): RecordValue =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as RecordValue)
-    : {};
-export function astBinding(result: Result): RecordValue {
-  const raw = record(result.raw);
-  return record(raw.binding ?? raw);
-}
-export function nativeKind(result: Result): string {
-  const binding = astBinding(result);
-  const unsupported = record(binding.unsupported);
-  return (
-    Object.keys(record(binding.node))[0] ??
-    (typeof unsupported.clangClass === "string"
-      ? unsupported.clangClass
-      : binding.qualifiedType
-        ? "qualType"
-        : binding.baseSpecifier
-          ? "cxxBaseSpecifier"
-          : "")
-  );
-}
-const clangKind = (value: string) =>
-  value
-    .replace(/^cxx/, "CXX")
-    .replace(/^objc/, "ObjC")
-    .replace(/^./, (c) => c.toUpperCase());
-function field(value: unknown, name: string, depth = 0): unknown {
-  if (depth > 12) return undefined;
-  const object = record(value);
-  if (object[name] !== undefined) return object[name];
-  for (const [key, child] of Object.entries(object)) {
-    if (
-      ["directCallee", "containingScope", "callee", "referencedDecl"].includes(
-        key,
-      )
-    )
-      continue;
-    const found = field(child, name, depth + 1);
-    if (found !== undefined) return found;
-  }
-  return undefined;
-}
-function spelling(value: unknown): string | undefined {
-  const text = field(value, "spelling");
-  return typeof text === "string" && text ? text : undefined;
-}
-const enums: Record<string, string> = {
-  VALUE_CATEGORY_LVALUE: "lvalue",
-  VALUE_CATEGORY_XVALUE: "xvalue",
-  VALUE_CATEGORY_PRVALUE: "prvalue",
-  CALL_DISPATCH_DIRECT: "Direct",
-  CALL_DISPATCH_VIRTUAL: "Virtual",
-  CALL_DISPATCH_INDIRECT: "Indirect",
-  STORAGE_CLASS_STATIC: "Static",
-  STORAGE_CLASS_EXTERN: "Extern",
-  ACCESS_SPECIFIER_PUBLIC: "Public",
-  ACCESS_SPECIFIER_PRIVATE: "Private",
-  ACCESS_SPECIFIER_PROTECTED: "Protected",
-  BINARY_OPCODE_ADD: "+",
-  BINARY_OPCODE_SUB: "-",
-  BINARY_OPCODE_MUL: "*",
-  BINARY_OPCODE_DIV: "/",
-  BINARY_OPCODE_REM: "%",
-  BINARY_OPCODE_ASSIGN: "=",
-  BINARY_OPCODE_EQ: "==",
-  BINARY_OPCODE_NE: "!=",
-  BINARY_OPCODE_LT: "<",
-  BINARY_OPCODE_LE: "<=",
-  BINARY_OPCODE_GT: ">",
-  BINARY_OPCODE_GE: ">=",
-  BINARY_OPCODE_L_AND: "&&",
-  BINARY_OPCODE_L_OR: "||",
-  BINARY_OPCODE_AND: "&",
-  BINARY_OPCODE_OR: "|",
-  BINARY_OPCODE_XOR: "^",
-  BINARY_OPCODE_SHL: "<<",
-  BINARY_OPCODE_SHR: ">>",
-  BINARY_OPCODE_COMMA: ",",
-};
-function readable(value: string): string {
-  return (
-    enums[value] ??
-    (/^(?:CAST_KIND|CALL_DISPATCH|STORAGE_CLASS|ACCESS_SPECIFIER|VALUE_CATEGORY|BINARY_OPCODE|UNARY_OPCODE|TAG_KIND)_/.test(
-      value,
-    )
-      ? value
-          .replace(
-            /^(?:CAST_KIND|CALL_DISPATCH|STORAGE_CLASS|ACCESS_SPECIFIER|VALUE_CATEGORY|BINARY_OPCODE|UNARY_OPCODE|TAG_KIND)_/,
-            "",
-          )
-          .toLowerCase()
-          .replaceAll("_", " ")
-          .replace(/^./, (c) => c.toUpperCase())
-      : value)
-  );
-}
 export interface AstProperty {
   label: string;
   value: string;
@@ -164,6 +115,7 @@ export interface AstDisplay {
   locationValid: boolean;
   properties: AstProperty[];
   range: AstProperty[];
+  sections: SemanticSection[];
 }
 export function astDisplay(
   result: Result & { locationValid?: boolean },
@@ -197,6 +149,9 @@ export function astDisplay(
     add("Canonical type", canonical);
   add("Value category", field(node, "valueCategory"));
   add("Record kind", field(node, "tagKind"));
+  if (["typeAliasDecl", "typedefDecl"].includes(kind))
+    add("Underlying type", spelling(node.underlyingType));
+  if (kind === "enumDecl") add("Underlying type", spelling(node.integerType));
   add("Cast", record(node.cast).kind);
   if (["integerLiteral", "floatingLiteral"].includes(kind))
     add(
@@ -228,6 +183,13 @@ export function astDisplay(
     ["Implicit", "isImplicit"],
     ["Deleted", "isDeleted"],
     ["Defaulted", "isDefaulted"],
+    ["Static", "isStatic"],
+    ["Const", "isConst"],
+    ["Volatile", "isVolatile"],
+    ["Pure virtual", "isPureVirtual"],
+    ["Mutable", "isMutable"],
+    ["Bit field", "isBitField"],
+    ["Scoped enum", "isScoped"],
   ])
     if (field(node, key ?? "") === true) add(label ?? "", "Yes");
   const call = record(binding.callSite);
@@ -294,5 +256,6 @@ export function astDisplay(
         : Boolean(result.file),
     properties,
     range,
+    sections: semanticSections(result, children),
   };
 }

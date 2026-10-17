@@ -9,6 +9,7 @@ from google.protobuf.json_format import MessageToDict
 
 from run_service import Results
 from ast_selection import AstSelection
+from ast_semantics import inheritance, parameters
 
 if TYPE_CHECKING:
     from action_service import ActionHost
@@ -118,6 +119,15 @@ class AstInspector:
             response = dict(node=self.describe(identifier), children=children,
                             parseCount=self.host.parse_count,
                             root=dict(id=self.host.roots[file][0], file=file, label='File root'))
+            if response['node']['kind'] in ('Class', 'Struct') or any(
+                    key in response['node']['raw']['binding'].get('node', {})
+                    for key in ('cxxRecordDecl', 'classTemplateSpecializationDecl',
+                                'classTemplatePartialSpecializationDecl')):
+                response['semantics'] = inheritance(self.host, target)
+            elif any(key in response['node']['raw']['binding'].get('node', {})
+                     for key in ('functionDecl', 'cxxMethodDecl', 'cxxConstructorDecl',
+                                 'cxxDestructorDecl', 'cxxConversionDecl', 'cxxDeductionGuideDecl')):
+                response['semantics'] = dict(parameters=parameters(self.host, target))
         except BaseException:
             for child_id in pending:
                 self.host.nodes.pop(child_id, None)

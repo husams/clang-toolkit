@@ -81,6 +81,109 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         `${name}.ctk-action`,
         `---\nname: ${name}\ndescription: Test action\narguments: []\n---\n${body}`,
       );
+    it("shows access-grouped members, native transitive inheritance and typed parameters", async () => {
+      const fixture = resolve(directory, "semantic-inspector.cpp");
+      await writeFile(
+        fixture,
+        await readFile("examples/semantic-inspector.cpp", "utf8"),
+      );
+      const host = service(),
+        root = await host.inspect(settings, { translationUnit: fixture });
+      const find = (name: string) => {
+        const node = root.children.find((child) => child.name === name);
+        expect(node, name).toBeDefined();
+        return node!;
+      };
+      const widget = await host.inspect(settings, find("Widget").id);
+      const display = astDisplay(widget.node, widget.children);
+      expect(widget.semantics?.inheritance).toEqual([
+        {
+          name: "MidAlias",
+          depth: 0,
+          access: "ACCESS_SPECIFIER_PUBLIC",
+          virtual: false,
+        },
+        {
+          name: "Root",
+          depth: 1,
+          access: "ACCESS_SPECIFIER_PUBLIC",
+          virtual: true,
+        },
+        {
+          name: "Hidden",
+          depth: 0,
+          access: "ACCESS_SPECIFIER_PROTECTED",
+          virtual: false,
+        },
+      ]);
+      expect(display.sections.map((section) => section.title)).toEqual([
+        "Public members",
+        "Protected members",
+        "Private members",
+      ]);
+      const members = (access: string) =>
+        display.sections.find(
+          (section) => section.title === `${access} members`,
+        )!.rows;
+      expect(members("Private").map((row) => row.values[0])).toEqual([
+        "Widget::secret",
+        "Widget::reset",
+        "Widget::flags",
+      ]);
+      expect(
+        members("Public").find((row) => row.values[0] === "Widget::ready")
+          ?.values,
+      ).toEqual(["Widget::ready", "Field", "bool", "static"]);
+      expect(members("Protected").map((row) => row.values[0])).toEqual([
+        "Widget::ratio",
+        "Widget::update",
+      ]);
+      const method = widget.children.find(
+        (child) => child.name === "Widget::check",
+      )!;
+      const check = await host.inspect(settings, method.id);
+      expect(check.semantics?.parameters).toEqual([
+        { name: "limit", type: "int" },
+        { name: "label", type: "const char *" },
+      ]);
+      expect(astDisplay(check.node, check.children).properties).toContainEqual({
+        label: "Const",
+        value: "Yes",
+      });
+      const fn = await host.inspect(settings, find("calculate").id);
+      expect(fn.semantics?.parameters).toEqual([
+        { name: "count", type: "int" },
+        { name: "widget", type: "const Widget &" },
+        { name: "", type: "double" },
+      ]);
+      const body = fn.children.find(
+        (child) => astDisplay(child).kind === "CompoundStmt",
+      )!;
+      const statement = await host.inspect(settings, body.id);
+      expect(astDisplay(statement.node, statement.children).sections).toEqual(
+        [],
+      );
+      expect(statement.semantics).toBeUndefined();
+      const enumPage = await host.inspect(settings, find("State").id);
+      expect(
+        astDisplay(enumPage.node, enumPage.children).sections[0]?.rows.map(
+          (row) => row.values,
+        ),
+      ).toEqual([
+        ["State::Idle", "1"],
+        ["State::Running", "4"],
+      ]);
+      const alias = await host.inspect(settings, find("WidgetPointer").id);
+      expect(astDisplay(alias.node, alias.children).properties).toContainEqual({
+        label: "Underlying type",
+        value: "const Widget *",
+      });
+      expect(
+        (await host.inspect(settings, find("Widget").id)).semantics,
+      ).toEqual(widget.semantics);
+      expect(widget.parseCount).toBe(1);
+      expect(alias.parseCount).toBe(1);
+    }, 60000);
     it("opens a file AST without running an action and fetches unvisited children lazily", async () => {
       const host = service();
       const root = await host.inspect(settings, { translationUnit: file });
