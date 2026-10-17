@@ -262,7 +262,7 @@ class PrototypeRuntime(Runtime):
             raise LegacyEvaluationError(f"{path}: {error}") from error
         for wrapper in program.children:
             node = wrapper.children[0]
-            allowed = node.kind in {"let", "runnable"} or (
+            allowed = node.kind in {"let", "destructure", "runnable"} or (
                 node.kind == "host" and node.value[0].data in {"matcher_definition", "import_command"})
             if not allowed:
                 raise LegacyEvaluationError(
@@ -346,7 +346,7 @@ class ReplSession:
             if node.kind == "host":
                 node = replace(node, value=(prepare_host(node.value[0]), node.value[1]))
             node = replace(node, children=tuple(prepare(child) for child in node.children))
-            if node.kind in {"let", "assign"}:
+            if node.kind in {"let", "destructure", "assign"}:
                 children = list(node.children)
                 rhs = children[-1]
                 children[-1] = Node("consume", children=(rhs,), line=rhs.line, column=rhs.column)
@@ -464,7 +464,7 @@ class ReplSession:
         from clang_toolkit.cli.app import _match_result_key
 
         if node.kind == "loop_iteration":
-            if not context.consume_depth and value is not None and self.last_tail not in {"let", "runnable", "assign", "print", "host_display"}:
+            if not context.consume_depth and value is not None and self.last_tail not in {"let", "destructure", "runnable", "assign", "print", "host_display"}:
                 self.record("display", value)
                 self.emitted = True
             return
@@ -481,7 +481,7 @@ class ReplSession:
             return
         emitted, self.emitted = self.emitted, False
         self.last_tail = None
-        if node.kind in {"let", "runnable", "assign", "print"}:
+        if node.kind in {"let", "destructure", "runnable", "assign", "print"}:
             return
         if node.kind == "host":
             tree, mode = node.value

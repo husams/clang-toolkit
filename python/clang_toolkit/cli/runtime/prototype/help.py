@@ -48,6 +48,9 @@ Native unrequested/unavailable fields keep their diagnostic; use `fieldState`.
 _LET = """let: Bind a value, matcher function or runnable body.
 Usage:
   let NAME = VALUE
+  let [A, B] = LIST
+  let HEAD : TAIL = LIST
+  let NAME = { ([]) EXPR; (HEAD : TAIL) EXPR }
   let NAME(PARAM, ...) = MATCHER
   let NAME(PARAM, OPTIONAL = EXPR, ...) = EXPR
   let NAME(PARAM, OPTIONAL = EXPR, ...) = { STATEMENTS }
@@ -65,6 +68,12 @@ An expression body returns its value; braces are optional for a single expressio
 Inline (PARAM, ...) EXPR or { STATEMENTS } creates a callable without a name.
 The older (PARAM, ...) = BODY spelling remains accepted.
 Inline bodies support the same defaults, handlers and lexical captures.
+Patterns support exact lists, tuples, head : tail and _; names cannot repeat.
+Destructuring is atomic. Bound tails are independent shallow lists; discarded tails are not copied.
+Grouped clauses try top to bottom, share positional arity and cannot have defaults.
+A matching body's error does not fall through; unmatched arguments report a pattern error.
+Patterns compile to Python checks; pure numeric right folds use bounded indexed loops.
+Other recursion retains the ordinary call-depth limit. Native scripts are unchanged.
 Omitted defaults run per call, left to right, with earlier parameters in scope.
 Optional handlers come first: on error EXPR or { STATEMENTS }; on exit EXPR or { STATEMENTS }.
 Errors return the error handler value; exit cleanup runs after success or failure

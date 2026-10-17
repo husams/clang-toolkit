@@ -109,6 +109,13 @@ class CompletionTests(unittest.TestCase):
         self.assertIn('name', self.names('let obj = {name: "x"}\nobj.'))
         self.assertNotIn('push', self.names('let obj = {name: "x"}\nobj.'))
 
+    def test_list_destructuring_and_clause_functions_have_offline_completion(self):
+        self.assertIn('strip', self.names('let [name] = ["hello"]\nname.'))
+        self.assertIn('push', self.names('let head : tail = [1, 2]\ntail.'))
+        items = self.names('let classify = { ([]) 0; (head : tail) head }\nclassi')
+        self.assertIn('classify', items)
+        self.assertIn('classify([])', items['classify']['detail'])
+
     def test_user_function_signature_and_nested_argument_position(self):
         source = 'let scale(value, factor = 2) = { value * factor }\nsca'
         item = self.names(source)['scale']

@@ -15,6 +15,7 @@ from typing import Any
 
 from lark import Lark, Token, Transformer, v_args
 from lark.exceptions import VisitError
+from .patterns import ConsPattern, ListPattern, pattern_names
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,7 @@ def _nodes(items: list[Any] | tuple[Any, ...]) -> tuple[Node, ...]:
 
 
 def _pattern_names(pattern: Any) -> tuple[str, ...]:
-    if isinstance(pattern, str):
-        return () if pattern == "_" else (pattern,)
-    return tuple(name for item in pattern for name in _pattern_names(item))
+    return pattern_names(pattern)
 
 
 @v_args(meta=True)
@@ -89,9 +88,16 @@ class _Builder(Transformer[Any, Any]):
         return None
 
     def let_stmt(self, meta: Any, items: list[Any]) -> Node:
-        name, expression = items
+        pattern, expression = items
+        names = pattern_names(pattern.value)
+        if len(set(names)) != len(names):
+            raise ValueError("destructuring pattern has duplicate names")
         line, column = self._location(meta, items)
-        return Node("let", value=str(name), children=(expression,), line=line, column=column)
+        if expression.kind == "clause_runnable" and isinstance(pattern.value, str):
+            from dataclasses import replace
+            expression = replace(expression, value=pattern.value)
+        return Node("let" if isinstance(pattern.value, str) and pattern.value != "_" else "destructure",
+                    value=pattern.value, children=(expression,), line=line, column=column)
 
     def print_stmt(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)
@@ -124,6 +130,31 @@ class _Builder(Transformer[Any, Any]):
         line, column = self._location(meta, items)
         return Node("pattern_tuple", tuple(item.value for item in _nodes(items)), line=line, column=column)
 
+    def grouped_pattern(self, meta: Any, items: list[Any]) -> Node:
+        return _nodes(items)[0]
+
+    def empty_list_pattern(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("pattern_list", ListPattern(()), line=line, column=column)
+
+    def list_pattern(self, meta: Any, items: list[Any]) -> Node:
+        line, column = self._location(meta, items)
+        return Node("pattern_list", ListPattern(tuple(item.value for item in _nodes(items))), line=line, column=column)
+
+    def cons_pattern(self, meta: Any, items: list[Any]) -> Node:
+        head, tail = _nodes(items)
+        return Node("pattern_cons", ConsPattern(head.value, tail.value), line=head.line, column=head.column)
+
+    def clause_runnable(self, meta: Any, items: list[Any]) -> Node:
+        clauses = _nodes(items)
+        arities = {len(clause.value[1]) for clause in clauses}
+        if len(arities) != 1:
+            raise ValueError("function clauses must have the same arity")
+        if any(len(clause.children) > 1 for clause in clauses):
+            raise ValueError("function clauses cannot have defaults")
+        line, column = self._location(meta, items)
+        return Node("clause_runnable", "<inline>", clauses, line, column, (meta.start_pos, meta.end_pos))
+
     def parameters(self, meta: Any, items: list[Any]) -> tuple[Node, ...]:
         return _nodes(items)
 
@@ -142,8 +173,8 @@ class _Builder(Transformer[Any, Any]):
         default_seen = False
         for item in specs:
             if item.children:
-                if isinstance(item.value, tuple):
-                    raise ValueError(f"{name}: tuple-pattern parameters cannot have defaults")
+                if not isinstance(item.value, str):
+                    raise ValueError(f"{name}: pattern parameters cannot have defaults")
                 default_seen = True
             elif default_seen:
                 raise ValueError(f"{name}: required parameters must precede defaults")

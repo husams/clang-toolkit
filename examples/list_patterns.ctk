@@ -1,0 +1,21 @@
+// Empty/non-empty list clauses compile to an allocation-free numeric fold.
+let total = {
+    ([]) 0
+    (head : tail) head + total(tail)
+}
+
+// Parameter patterns work in named and inline runnables.
+let add_first_two(a : b : _) = a + b
+let heads = [[10, 20], [30, 40]]
+    | map((head : _) head)
+
+print total([10, 20, 30])
+print total([])
+print add_first_two([10, 20, 30])
+print heads | json
+
+// Destructuring binds all names together and leaves the input unchanged.
+let first : rest = [10, 20, 30]
+let [second, third] = rest
+print "Destructured: {first}, {second}, {third}"
+print "Large total: {total(range(5000))}"

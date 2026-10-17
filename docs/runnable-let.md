@@ -73,6 +73,11 @@ Inline bodies form the same loop-control boundary as named bodies. Foreground
 batches inspect reachable inline callbacks before admission and snapshot their
 captures; dormant bodies do not request native work.
 
+List patterns and grouped multi-clause functions are described in
+[List patterns](list-patterns.md), with a complete [example](../examples/list_patterns.ctk).
+Exact list, cons and tuple patterns work in named and inline runnable parameters.
+Grouped clauses try patterns in order and preserve existing `let` rebinding.
+
 Defaults are optional trailing parameters. An omitted default is evaluated once
 per call, left to right, after supplied arguments, in the definition's lexical
 call frame. It can use earlier parameters. Mutable defaults are fresh values;

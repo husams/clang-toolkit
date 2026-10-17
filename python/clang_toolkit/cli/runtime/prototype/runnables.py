@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
 from .semantics import Context, ExecutionLimitError, PrototypeError, _error, child_values
+from .patterns import compile_matcher, pattern_names, format_pattern
 
 _MISSING = object()
 
@@ -29,7 +30,8 @@ class RunnableBlock:
     def __str__(self) -> str:
         return f"{self.name}({', '.join(_format_pattern(item) for item in self.parameters)})"
 
-    def invoke(self, context: Context, node: Any, arguments: list[Any], keywords: Mapping[str, Any] | None = None) -> Any:
+    def invoke(self, context: Context, node: Any, arguments: list[Any], keywords: Mapping[str, Any] | None = None,
+               *, _bound: dict[str, Any] | None = None, _executable: Callable[[Context], Any] | None = None) -> Any:
         runtime = getattr(getattr(context, "session", None), "runtime", None)
         depth = getattr(runtime, "_matcher_call_depth", context.call_depth)
         if depth >= 64:
@@ -48,9 +50,12 @@ class RunnableBlock:
                 raise _error(context, node, f"{self.name} got multiple values for {key!r}")
             supplied[names[key]] = value
         local: dict[str, Any] = {self.name: self}
-        for index, pattern in enumerate(self.parameters):
-            if index in supplied:
-                bind_pattern(local, pattern, supplied[index], context, node)
+        if _bound is not None:
+            local.update(_bound)
+        else:
+            for index, pattern in enumerate(self.parameters):
+                if index in supplied:
+                    bind_pattern(local, pattern, supplied[index], context, node)
         context.call_depth += 1
         if runtime is not None:
             runtime._matcher_call_depth += 1
@@ -62,7 +67,7 @@ class RunnableBlock:
             for index, default in enumerate(self.defaults, start=len(self.parameters) - len(self.defaults)):
                 if index not in supplied:
                     bind_pattern(context._scopes[-1], self.parameters[index], default(context), context, node)
-            return self.executable(context)
+            return (_executable or self.executable)(context)
         except Exception as error:
             if not getattr(error, "runnable_frame", False):
                 line, column = self.definition_location
@@ -81,6 +86,41 @@ class RunnableBlock:
             context.call_depth -= 1
             if runtime is not None:
                 runtime._matcher_call_depth -= 1
+
+
+@dataclass(frozen=True, repr=False)
+class MultiClauseBlock(RunnableBlock):
+    matchers: tuple[Callable[[list[Any]], dict[str, Any] | None], ...] = ()
+    executables: tuple[Callable[[Context], Any], ...] = ()
+    optimized: Callable[[Context, list[Any], Any], Any] | None = None
+
+    def invoke(self, context: Context, node: Any, arguments: list[Any], keywords: Mapping[str, Any] | None = None) -> Any:
+        if keywords:
+            raise _error(context, node, "multi-clause functions accept positional arguments only")
+        if self.optimized is not None:
+            return super().invoke(context, node, arguments, _bound={},
+                                  _executable=lambda ctx: self.optimized(ctx, arguments, node))
+        for matcher, executable in zip(self.matchers, self.executables):
+            context.tick(self.body)
+            bindings = matcher(arguments)
+            if bindings is not None:
+                return super().invoke(context, node, arguments, _bound=bindings, _executable=executable)
+        raise _error(context, node, f"no matching clause for {self.name}")
+
+
+def create_clause_runnable(context: Context, node: Any,
+                           executables: tuple[Callable[[Context], Any], ...]) -> MultiClauseBlock:
+    from .folds import compile_right_fold
+
+    parameters = node.children[0].value[1]
+    return MultiClauseBlock(
+        name=node.value, parameters=parameters, body=node, executable=executables[0],
+        scopes=context.scopes, source=context.source, string_templates=context.string_templates,
+        definition_location=(node.line, node.column), source_name=context.source_name,
+        definition=context.source[slice(*node.source_span)] if node.source_span else "",
+        matchers=tuple(compile_matcher(clause.value[1]) for clause in node.children),
+        executables=executables, optimized=compile_right_fold(node),
+    )
 
 
 def define_runnable(context: Context, node: Any, executable: Callable[[Context], Any],
@@ -173,6 +213,8 @@ def _preflight(context: Context, node: Any, name: str, value: Any, positional_co
                keywords: tuple[str, ...]) -> None:
     value = _current_filter_callable(context, value)
     if isinstance(value, RunnableBlock):
+        if isinstance(value, MultiClauseBlock) and keywords:
+            raise _error(context, node, "multi-clause functions accept positional arguments only")
         required = len(value.parameters) - len(value.defaults)
         names = {item for item in value.parameters if isinstance(item, str) and item != "_"}
         if any(key not in names for key in keywords):
@@ -213,29 +255,20 @@ def _preflight(context: Context, node: Any, name: str, value: Any, positional_co
 
 
 def bind_pattern(target: dict[str, Any], pattern: Any, value: Any, context: Context, node: Any) -> None:
-    if isinstance(pattern, str):
-        if pattern != "_":
-            target[pattern] = value
-        return
-    if not isinstance(value, tuple) or len(value) != len(pattern):
-        raise _error(context, node, f"tuple pattern expects {len(pattern)} element(s), got {len(value) if isinstance(value, tuple) else type(value).__name__}")
-    for child_pattern, child_value in zip(pattern, value):
-        bind_pattern(target, child_pattern, child_value, context, node)
+    bindings = compile_matcher((pattern,))([value])
+    if bindings is None:
+        if isinstance(pattern, tuple):
+            raise _error(context, node, f"tuple pattern expects {len(pattern)} element(s), got {len(value) if isinstance(value, tuple) else type(value).__name__}")
+        raise _error(context, node, f"pattern {format_pattern(pattern)} does not match {type(value).__name__}")
+    target.update(bindings)
 
 
 def _pattern_names(pattern: Any) -> tuple[str, ...]:
-    if isinstance(pattern, str):
-        return () if pattern == "_" else (pattern,)
-    return tuple(name for child_pattern in pattern for name in _pattern_names(child_pattern))
+    return pattern_names(pattern)
 
 
 def _format_pattern(pattern: Any) -> str:
-    if isinstance(pattern, str):
-        return pattern
-    values = ", ".join(_format_pattern(item) for item in pattern)
-    if len(pattern) == 1:
-        values += ","
-    return "(" + values + ")"
+    return format_pattern(pattern)
 
 
 def prepare_callback(context: Context, node: Any, callback: Any) -> Callable[[Any], Any]:

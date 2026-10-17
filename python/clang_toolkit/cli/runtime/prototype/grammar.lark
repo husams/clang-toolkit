@@ -20,8 +20,8 @@ program: separators? statement (separators statement)* separators?
                | target ASSIGN_OP open_expression -> assign_stmt
                | open_expression
 
-let_stmt.10: "let" CNAME "=" closed_expression
-open_let_stmt.10: "let" CNAME "=" open_expression -> let_stmt
+let_stmt.10: "let" pattern "=" closed_expression
+open_let_stmt.10: "let" pattern "=" open_expression -> let_stmt
 print_stmt.50: "print" closed_expression
 open_print_stmt.50: "print" open_expression -> print_stmt
 assign_stmt: target ASSIGN_OP closed_expression
@@ -35,11 +35,19 @@ open_inline_runnable: "(" parameters? ")" "="? open_expression -> inline_runnabl
 
 parameters: separators? parameter ("," separators? parameter)* ","? separators?
 parameter: pattern ("=" expression)?
-?pattern: "(" separators? ")" -> empty_pattern
+?pattern: pattern_atom ":" pattern -> cons_pattern
+        | pattern_atom
+?pattern_atom: "(" separators? ")" -> empty_pattern
         | CNAME -> name_pattern
         | "_" -> discard_pattern
         | "(" pattern "," separators? ")" -> tuple_single_pattern
         | "(" pattern "," separators? pattern ("," separators? pattern)* ","? ")" -> tuple_pattern
+        | "(" pattern ")" -> grouped_pattern
+        | "[" separators? "]" -> empty_list_pattern
+        | "[" separators? pattern ("," separators? pattern)* ","? separators? "]" -> list_pattern
+
+clause_runnable: "{" separators? runnable_clause (separators runnable_clause)* separators? "}"
+?runnable_clause: inline_runnable | inline_block_runnable
 
 ?expression: closed_expression | open_expression
 ?closed_expression: inline_runnable | closed_pipe_expr
@@ -150,6 +158,7 @@ target: reference target_part*
 reference: "$"? CNAME
 
 ?atom: literal
+     | clause_runnable
      | reference
      | named_call
      | list_literal
