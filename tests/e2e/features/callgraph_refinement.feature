@@ -85,3 +85,24 @@ Feature: Useful callgraphs from retained native inputs
     Given an isolated callgraph server with small messages
     When I consume a callgraph larger than one message
     Then event bounds counts cancellation and completion remain explicit
+
+
+  Scenario Outline: Optional strict filters remove excluded callee facts
+    Given an isolated callgraph server using <transport>
+    When I use optional strict directory filters on all retained inputs
+    Then strict graphs contain only the project calls without reparsing
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
+  Scenario Outline: Strict filtering is available in both console engines
+    Given an isolated callgraph server using unix
+    When I run the strict directory filter console example with <engine>
+    Then the strict console prints project-only sites for all three input forms
+
+    Examples:
+      | engine   |
+      | tree     |
+      | compiled |

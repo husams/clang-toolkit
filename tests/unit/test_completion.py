@@ -105,8 +105,9 @@ def test_callgraph_node_limit_completes_unlimited_option():
 
 
 def test_callgraph_boundaries_complete_from_grammar():
-    assert {"exclude-system", "node-filter"} <= set(complete('callgraph "fixture.cc" '))
+    assert {"exclude-system", "node-filter", "strict-node-filter"} <= set(complete('callgraph "fixture.cc" '))
     assert {"true", "false"} <= set(complete('callgraph in $tree exclude-system '))
+    assert {"true", "false"} <= set(complete('callgraph in $tree strict-node-filter '))
 
 
 def test_references_are_injected_and_fields_follow_dot():

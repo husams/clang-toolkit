@@ -14,7 +14,8 @@ def call_graph_request(path: str | Path, *, working_directory: str | Path | None
                        max_edges: int | None = None, projection: str = "shallow",
                       main_file_only: bool = False,
                       exclude_system_headers: bool = False,
-                      node_filter: str | None = None, payload_depth: int = 24,
+                      node_filter: str | None = None,
+                      strict_node_filter: bool = False, payload_depth: int = 24,
                       payload_nodes: int = 10000) -> pb.CallGraphRequest:
     request = pb.CallGraphRequest(file=file_request(path, "unused",
         working_directory=working_directory, compile_arguments=compile_arguments).file)
@@ -40,6 +41,11 @@ def call_graph_request(path: str | Path, *, working_directory: str | Path | None
         not isinstance(node_filter, str) or not node_filter.strip()
     ):
         raise ValueError("node_filter must be non-empty matcher text")
+    if type(strict_node_filter) is not bool:
+        raise ValueError("strict_node_filter must be a boolean")
+    if strict_node_filter and node_filter is None:
+        raise ValueError("strict_node_filter requires node_filter")
+    request.strict_node_filter = strict_node_filter
     request.exclude_system_headers = exclude_system_headers
     if node_filter is not None:
         request.node_filter = node_filter

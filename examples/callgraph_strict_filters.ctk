@@ -1,0 +1,20 @@
+// Run with source=examples/callgraph_strict_filters/main.cc output=/tmp/strict-results.
+let source = arg.source
+let ordinary = callgraph source exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))'
+print "DEFAULT: sites={ordinary.call_sites.length}, strict={ordinary.strict_node_filter}"
+let filename = callgraph source exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let tree = parse source
+let parsed = callgraph in tree exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let entries = match functionDecl(hasName("entry"), isDefinition()).bind("f") in tree
+let matched = callgraph in entries[0].f depth all exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+foreach row in [{"label": "FILENAME", "graph": filename}, {"label": "PARSED", "graph": parsed}, {"label": "MATCHED", "graph": matched}] do {
+    let graph = row.graph
+    let roots = graph.call_sites | filter((site) = site.caller_node == graph.root_node)
+    print "{row.label}: nodes={graph.nodes.length}, edges={graph.edges.length}, sites={graph.call_sites.length}, root_sites={roots.length}, strict={graph.strict_node_filter}, complete={graph.is_complete}"
+    foreach site in graph.call_sites do {
+        print "{row.label}_CALL: {graph.nodes[site.caller_node].function.qualified_name} -> {site.facts.static_callee_name}"
+    }
+}
+save filename to "{arg.output}/filename.json" as json
+save parsed to "{arg.output}/parsed.json" as json
+save matched to "{arg.output}/matched.json" as json

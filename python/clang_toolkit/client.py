@@ -1286,7 +1286,8 @@ class AsyncClient:
                         projection: str = "shallow",
                         main_file_only: bool = False,
                         exclude_system_headers: bool = False,
-                        node_filter: str | None = None, payload_depth: int = 24,
+                        node_filter: str | None = None,
+                        strict_node_filter: bool = False, payload_depth: int = 24,
                         payload_nodes: int = 10000,
                         scope: ResourceScope[AsyncClient] | str | None = None) -> call_graph_response_pb2.CallGraphResponse:
         request = _call_graph_value_request(self, target, function,
@@ -1297,6 +1298,7 @@ class AsyncClient:
             direction=direction, max_depth=max_depth, projection=projection,
             main_file_only=main_file_only,
             exclude_system_headers=exclude_system_headers, node_filter=node_filter,
+            strict_node_filter=strict_node_filter,
             payload_depth=payload_depth,
             payload_nodes=payload_nodes, scope=scope)
         return await self._collect_call_graph_request(request)
@@ -1345,6 +1347,7 @@ class AsyncClient:
             expect_unlimited_depth=request.unlimited_depth,
             expect_exclude_system_headers=request.exclude_system_headers,
             expect_node_filter=request.node_filter,
+            expect_strict_node_filter=request.strict_node_filter,
         )
         try:
             call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamCallGraph(
@@ -1413,7 +1416,8 @@ class AsyncClient:
                     "server did not confirm unlimited call-graph depth support",
                 )
             if (response.exclude_system_headers != request.exclude_system_headers
-                    or response.node_filter != request.node_filter):
+                    or response.node_filter != request.node_filter
+                    or response.strict_node_filter != request.strict_node_filter):
                 raise AnalysisError(
                     grpc.StatusCode.FAILED_PRECONDITION,
                     "server did not confirm call-graph boundary filters",
@@ -2610,6 +2614,7 @@ def _call_graph_value_request(
     main_file_only: bool = False,
     exclude_system_headers: bool = False,
     node_filter: str | None = None,
+    strict_node_filter: bool = False,
     payload_depth: int = 24,
     payload_nodes: int = 10000,
     scope: ResourceScope[Any] | str | None = None,
@@ -2657,6 +2662,7 @@ def _call_graph_value_request(
             visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
             max_edges=max_edges, projection=projection, main_file_only=main_file_only,
             exclude_system_headers=exclude_system_headers, node_filter=node_filter,
+            strict_node_filter=strict_node_filter,
             payload_depth=payload_depth, payload_nodes=payload_nodes)
         if descriptor is not None:
             _apply_input_descriptor(request.file, descriptor)
@@ -2669,6 +2675,7 @@ def _call_graph_value_request(
             max_nodes=max_nodes, max_edges=max_edges, projection=projection,
             main_file_only=main_file_only,
             exclude_system_headers=exclude_system_headers, node_filter=node_filter,
+            strict_node_filter=strict_node_filter,
             payload_depth=payload_depth,
             payload_nodes=payload_nodes)
         request.ClearField("file")

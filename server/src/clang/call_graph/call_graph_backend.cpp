@@ -71,11 +71,12 @@ class CallSiteCollector final
 public:
   CallSiteCollector(calls::CallGraphBudget &budget, std::size_t limit,
                     clang::ASTContext &ast, bool main_file_only,
-                    bool exclude_system_headers,
+                    bool exclude_system_headers, bool strict_node_filter,
                     std::function<bool(const clang::Decl *)> admitted)
       : budget_(budget), limit_(limit), sources_(ast.getSourceManager()),
         ast_(ast), main_file_only_(main_file_only),
         exclude_system_headers_(exclude_system_headers),
+        strict_node_filter_(strict_node_filter),
         admitted_(std::move(admitted)) {}
   bool TraverseDecl(clang::Decl *decl) {
     // A default argument executes at each invocation, not at its declaration.
@@ -122,6 +123,13 @@ public:
     if (!caller && exclude_system_headers_ && location.isValid() &&
         sources_.isInSystemHeader(location))
       return true;
+    // Filter known excluded callees before charging the site budget. Missing
+    // graph indices can also mean depth boundaries or unknown indirect calls;
+    // they are not evidence that a callable failed its admission rules.
+    if (strict_node_filter_)
+      if (const auto *callee = call->getDirectCallee();
+          callee && admitted_ && !admitted_(callee))
+        return true;
     if (budget_.call_sites >= limit_)
       throw calls::CallGraphFailure(MatchCode::ResourceExhausted,
                                     "call graph call-site limit exceeded");
@@ -147,6 +155,7 @@ private:
   clang::ASTContext &ast_;
   bool main_file_only_;
   bool exclude_system_headers_;
+  bool strict_node_filter_;
   std::function<bool(const clang::Decl *)> admitted_;
   bool visit_implicit_{true};
   bool visit_templates_{true};
@@ -292,6 +301,9 @@ private:
       if (!owner || !owner->unit)
         return {MatchCode::Internal, "invalid native snapshot owner", {}};
       auto &ast = owner->unit->getASTContext();
+      if (request.strict_node_filter() && request.node_filter().empty())
+        return {MatchCode::InvalidArgument,
+                "strict_node_filter requires node_filter", {}};
       std::unique_ptr<CallableMatcher> node_matcher;
       if (!request.node_filter().empty())
         node_matcher = std::make_unique<CallableMatcher>(request.node_filter());
@@ -487,7 +499,8 @@ private:
           request.has_max_call_sites() ? request.max_call_sites() : 100000;
       CallSiteCollector collector(budget, max_sites, ast,
                                   request.main_file_only(),
-                                  request.exclude_system_headers(), in_scope);
+                                  request.exclude_system_headers(),
+                                  request.strict_node_filter(), in_scope);
       collector.set_visit_flags(graph.ShouldVisitImplicitCode,
                                 graph.ShouldVisitTemplateInstantiations);
       collector.TraverseDecl(ast.getTranslationUnitDecl());
@@ -667,6 +680,7 @@ private:
       header->set_main_file_only(request.main_file_only());
       header->set_exclude_system_headers(request.exclude_system_headers());
       header->set_node_filter(request.node_filter());
+      header->set_strict_node_filter(request.strict_node_filter());
       header->set_external_edges_omitted(external_edges);
       header->set_snapshot_generation(snapshot->generation);
       const auto main_file = owner->unit->getMainFileName().str();

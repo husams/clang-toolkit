@@ -92,6 +92,7 @@ call_graph_option: NODES (NUMBER | ALL) -> call_graph_nodes
                  | INSTANTIATIONS (TRUE | FALSE) -> call_graph_instantiations
                  | EXCLUDE_SYSTEM (TRUE | FALSE) -> call_graph_exclude_system
                  | NODE_FILTER STRING -> call_graph_node_filter
+                 | STRICT_NODE_FILTER (TRUE | FALSE) -> call_graph_strict_node_filter
 
 cfg_option: OPTION NAME (TRUE | FALSE) -> cfg_build_option
           | FUNCTIONS NUMBER -> cfg_functions
@@ -515,6 +516,7 @@ AT.2: /at(?![a-zA-Z0-9_])/
 PROJECTION.2: /projection(?![a-zA-Z0-9_])/
 MAIN_FILE.2: /main-file(?![a-zA-Z0-9_])/
 EXCLUDE_SYSTEM.11: /exclude-system(?![a-zA-Z0-9_])/
+STRICT_NODE_FILTER.11: /strict-node-filter(?![a-zA-Z0-9_])/
 NODE_FILTER.11: /node-filter(?![a-zA-Z0-9_])/
 CALLSITES.2: /callsites(?![a-zA-Z0-9_])/
 PAYLOAD_DEPTH.2: /payload-depth(?![a-zA-Z0-9_])/

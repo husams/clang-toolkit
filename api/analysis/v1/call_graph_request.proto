@@ -43,4 +43,8 @@ message CallGraphRequest {
   // when available). Combined with the other scope filters using AND. Excluded
   // callables are boundaries: traversal never passes through them.
   string node_filter = 19;
+  // Opt in to dropping call-site facts whose known static callee is excluded
+  // by the callable scope filters. Requires node_filter. Unknown indirect
+  // targets remain; this does not change depth selection or root-site scoping.
+  bool strict_node_filter = 20;
 }
