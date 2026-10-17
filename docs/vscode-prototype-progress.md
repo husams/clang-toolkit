@@ -1600,3 +1600,34 @@ Logs: `vscode/artifacts/validation/base-doubleclick-20261017/`.
   code outside the extension; no broader-suite-green claim is made.
 
 Logs: `vscode/artifacts/validation/unsaved-bases-20261017/`.
+
+## Follow the cursor in unsaved C++ buffers, version 0.2.36
+
+Cursor and text-selection events now include dirty C++ documents. A stale
+retained file context rebuilds from the current source/header snapshots before
+looking up the smallest enclosing node; unchanged snapshots keep their native
+context. Cursor lookup and base links share the same refresh path. Cursor
+requests are debounced and canceled when a later request, edit, tab switch or
+inspector navigation supersedes them. A failed buffer parse retains the last
+valid AST and waits for another edit/save before automatic cursor retries.
+The editor caret, focus and unsaved disk state are preserved.
+
+Verification: TypeScript, Biome and all 115 extension unit tests pass. The full
+real VS Code host regression passes, including dirty-header lookup,
+snapshot replacement after another edit, unchanged-context reuse, Properties
+tab preservation, automatic tree expansion and unchanged disk contents.
+No native/Python worker or server source changed; the broader-suite failures
+recorded for v0.2.35 remain the separate baseline.
+
+Packaged and installed v0.2.36 in the normal profile and reloaded only the
+existing user window. Moving the caret to line 6, column 9 of the original
+unsaved match-groups-demo.cpp selects Sample::first and expands its tree path;
+the editor retains focus and its caret. The dirty indicator remains visible,
+every original source/action tab is preserved, and a disk checksum confirms
+the user's source was untouched. The managed server was not restarted.
+The full host harness reports CTK_TEST_PROCESSES_CLOSED, and an independent
+audit finds zero remaining disposable VS Code test processes.
+Screenshot: `vscode/artifacts/validation/unsaved-cursor-20261017/normal-profile-cursor.png`.
+VSIX SHA-256: 2745ab7ffecf6333e15424ee66d904487892d884dd4fd6b9b4cae72bfc7504d0.
+
+Logs: `vscode/artifacts/validation/unsaved-cursor-20261017/`.

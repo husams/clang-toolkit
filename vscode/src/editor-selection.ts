@@ -4,6 +4,7 @@ import type { SourceHighlight } from "./source-highlight.js";
 import { selectedSource } from "./source-range.js";
 
 export class EditorSelectionSync implements vscode.Disposable {
+  private generation = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly listener: vscode.Disposable;
   private readonly activeEditor = vscode.window.onDidChangeActiveTextEditor(
@@ -30,7 +31,6 @@ export class EditorSelectionSync implements vscode.Disposable {
       const document = editor.document;
       if (
         !vscode.workspace.isTrusted ||
-        document.isDirty ||
         document.uri.scheme !== "file" ||
         !/\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(document.uri.fsPath)
       )
@@ -43,10 +43,11 @@ export class EditorSelectionSync implements vscode.Disposable {
       );
       if (!source) return;
       highlight.clear();
-      const version = document.version;
+      const version = document.version,
+        generation = this.generation;
       const current = () =>
+        generation === this.generation &&
         !document.isClosed &&
-        !document.isDirty &&
         document.version === version &&
         editor.selection.isEqual(selection) &&
         vscode.window.activeTextEditor === editor;
@@ -58,6 +59,7 @@ export class EditorSelectionSync implements vscode.Disposable {
     });
   }
   cancel(): void {
+    this.generation++;
     clearTimeout(this.timer);
     this.timer = undefined;
   }

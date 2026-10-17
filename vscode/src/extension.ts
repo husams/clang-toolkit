@@ -5,7 +5,7 @@ import * as vscode from "vscode";
 import { z } from "zod";
 import { ActionsController } from "./actions-controller.js";
 import { SearchAstAccess, type SearchAstContext } from "./ast-access.js";
-import type { AstReference } from "./ast-model.js";
+import type { AstReference, SourceSelection } from "./ast-model.js";
 import { findPython } from "./console-service.js";
 import {
   DetailsView,
@@ -162,7 +162,7 @@ export class Prototype {
     );
     this.editorSelection = new EditorSelectionSync(
       this.sourceHighlight,
-      (selection, current) => this.details.selectSource(selection, current),
+      (selection, current) => this.selectEditorSource(selection, current),
       (error) => this.output.appendLine(`Source selection: ${String(error)}`),
     );
     context.subscriptions.push(
@@ -873,6 +873,52 @@ export class Prototype {
       const target = await context.reference(reference);
       return current() ? target.node.id : false;
     }
+    const session = this.activeFileSession;
+    const refreshed = await this.refreshFileContext();
+    if (!refreshed) return false;
+    if (!refreshed.refreshed) return;
+    const target = await refreshed.context.reference(reference);
+    return this.activeFileSession === session ? target.node.id : false;
+  }
+  private async selectEditorSource(
+    selection: SourceSelection,
+    current: () => boolean,
+  ): Promise<void> {
+    await this.editQueue;
+    if (!current()) return;
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+    const file = await realpath(selection.file).catch(() => selection.file);
+    if (!current()) return;
+    const owned =
+      this.activeFileSession &&
+      (file === this.inspectionFile || this.inspectionSources.has(file));
+    if (!owned && !editor.document.isDirty) {
+      await this.details.selectSource(selection, current);
+      return;
+    }
+    // Cancel a pending automatic file load before starting this cursor's
+    // snapshot. An earlier cursor or file load must not replace a later one.
+    this.fileInspection.pause();
+    try {
+      if (owned) {
+        if (!(await this.refreshFileContext(current, false))) return;
+      } else {
+        await this.inspectFile(editor, current);
+      }
+      if (current()) await this.details.selectSource(selection, current);
+    } catch (error) {
+      if (current()) throw error;
+    } finally {
+      this.fileInspection.resume();
+    }
+  }
+  private async refreshFileContext(
+    valid: () => boolean = () => true,
+    retryFailure = true,
+  ): Promise<{ context: SearchAstContext; refreshed: boolean } | undefined> {
+    await this.editQueue;
+    if (!valid()) return;
     const session = this.activeFileSession,
       file = this.inspectionFile,
       document = session?.document;
@@ -882,12 +928,17 @@ export class Prototype {
         const context = await session.context;
         if (context && session.source === document.getText()) {
           context.session();
-          return;
+          return valid() ? { context, refreshed: false } : undefined;
         }
       } catch {
         // An edit can invalidate the native context before its watcher callback.
       }
     }
+    if (
+      !valid() ||
+      (!retryFailure && session.failure && !session.failureEdited)
+    )
+      return;
     this.captureBookmark(session, file);
     session.access.close();
     delete session.context;
@@ -897,7 +948,9 @@ export class Prototype {
       text = document.getText(),
       bookmark = session.bookmark;
     const current = () =>
+      valid() &&
       this.activeFileSession === session &&
+      this.inspectionFile === file &&
       this.fileSessions.get(file) === session &&
       session.revision === revision &&
       !document.isClosed &&
@@ -919,16 +972,15 @@ export class Prototype {
         (valid) => this.buildFileState(session, file, text, bookmark, valid),
         current,
       );
-      if (!state || !current()) return false;
+      if (!state || !current()) return;
       this.acceptFileState(session, file, text, state);
     } catch (error) {
-      if (current()) await this.failFileState(session, file, error, current);
+      if (!current()) return;
+      await this.failFileState(session, file, error, current);
       throw error;
     }
     const context = await this.fileSessions.get(file)?.context;
-    if (!context || !current()) return false;
-    const target = await context.reference(reference);
-    return current() ? target.node.id : false;
+    return context && current() ? { context, refreshed: true } : undefined;
   }
   private async inspectFile(
     editor: vscode.TextEditor,

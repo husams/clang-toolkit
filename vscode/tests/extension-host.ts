@@ -2655,6 +2655,16 @@ export async function run(): Promise<void> {
     ),
   );
   await api.actions.refresh();
+  const dirtyHeaderContext = astState().contextId;
+  const dirtyHeaderField = await moveEditorCursor(
+    draftHeaderUri,
+    "bufferField",
+    "FieldDecl",
+    3,
+  );
+  assert.equal(dirtyHeaderField.node?.name, "draft::Base::bufferField");
+  assert.equal(dirtyHeaderField.contextId, dirtyHeaderContext);
+  assert.equal(draftHeaderDocument.isDirty, true);
   await vscode.window.showTextDocument(draftHeaderDocument);
   await vscode.commands.executeCommand(
     "workbench.action.revertAndCloseActiveEditor",
@@ -2696,6 +2706,47 @@ export async function run(): Promise<void> {
   await api.details.receive({ type: "related", id: firstBase });
   assert.equal(astState().node?.name, "BufferBase");
   assert.equal(highlightedSource(), "struct BufferBase { int field; }");
+  assert.equal(firstDirtyDocument.isDirty, true);
+  assert.equal(
+    Buffer.from(await vscode.workspace.fs.readFile(firstDirtyUri)).toString(),
+    firstSaved,
+  );
+  const bufferField = await moveEditorCursor(
+    firstDirtyUri,
+    "field",
+    "FieldDecl",
+    2,
+  );
+  assert.equal(bufferField.node?.name, "BufferBase::field");
+  const beforeCursorEdit = bufferField.contextId;
+  const newerDraft =
+    "// λ😀 unsaved cursor edit\nstruct BufferBase { int fresh; };\nstruct BufferDerived : BufferBase {};\n";
+  const cursorEdit = new vscode.WorkspaceEdit();
+  cursorEdit.replace(
+    firstDirtyUri,
+    new vscode.Range(
+      firstDirtyDocument.positionAt(0),
+      firstDirtyDocument.positionAt(firstDirtyDocument.getText().length),
+    ),
+    newerDraft,
+  );
+  await vscode.workspace.applyEdit(cursorEdit);
+  const freshField = await moveEditorCursor(
+    firstDirtyUri,
+    "fresh",
+    "FieldDecl",
+    2,
+  );
+  assert.equal(freshField.node?.name, "BufferBase::fresh");
+  assert.notEqual(freshField.contextId, beforeCursorEdit);
+  assert.equal(freshField.tab, "properties");
+  const freshBase = await moveEditorCursor(
+    firstDirtyUri,
+    "BufferBase",
+    "CXXRecordDecl",
+    3,
+  );
+  assert.equal(freshBase.contextId, freshField.contextId);
   assert.equal(firstDirtyDocument.isDirty, true);
   assert.equal(
     Buffer.from(await vscode.workspace.fs.readFile(firstDirtyUri)).toString(),
