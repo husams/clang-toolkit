@@ -96,7 +96,7 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       };
       const widget = await host.inspect(settings, find("Widget").id);
       const display = astDisplay(widget.node, widget.children);
-      expect(widget.semantics?.inheritance).toEqual([
+      expect(widget.semantics?.inheritance).toMatchObject([
         {
           name: "MidAlias",
           depth: 0,
@@ -116,6 +116,32 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
           virtual: false,
         },
       ]);
+      const middleId = widget.semantics?.inheritance?.[0]?.nodeId;
+      expect(middleId).toBe(find("Middle").id);
+      const middle = await host.inspect(settings, middleId!);
+      expect(middle.node.id).toBe(middleId);
+      expect(middle.path?.[0]?.node.id).toBe(root.node.id);
+      expect(middle.path?.at(-1)?.node.id).toBe(middleId);
+      expect(astDisplay(middle.node).name).toBe("Middle");
+      const rootBaseId = middle.semantics?.inheritance?.[0]?.nodeId;
+      expect(rootBaseId).toBe(find("Root").id);
+      const rootBase = await host.inspect(settings, rootBaseId!);
+      const baseAction = await host.run(
+        action("base-fields", 'match fieldDecl().bind("field") in node'),
+        {},
+        [fixture],
+        settings,
+        100,
+        () => {},
+        rootBase.node.id,
+      );
+      expect(baseAction.matches).toBe(1);
+      expect(
+        baseAction.results
+          .filter((node) => node.binding === "field")
+          .map((node) => node.name),
+      ).toEqual(["Root::id"]);
+      expect(baseAction.parseCount).toBe(1);
       expect(display.sections.map((section) => section.title)).toEqual([
         "Public members",
         "Protected members",
@@ -183,6 +209,56 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       ).toEqual(widget.semantics);
       expect(widget.parseCount).toBe(1);
       expect(alias.parseCount).toBe(1);
+    }, 60000);
+    it("reveals a header base definition through its real TU ancestry and rejects expired references", async () => {
+      const header = resolve(directory, "base[decl].hpp"),
+        derived = resolve(directory, "derived.cpp");
+      await writeFile(
+        header,
+        "namespace vendor { struct Base; struct Base { int own; }; }\n",
+      );
+      await writeFile(
+        derived,
+        '#include "base[decl].hpp"\nnamespace other { struct Base { int wrong; }; }\nclass Derived : public vendor::Base { int local; };\n',
+      );
+      const host = service(),
+        root = await host.inspect(settings, { translationUnit: derived });
+      const child = root.children.find((node) => node.name === "Derived")!;
+      const page = await host.inspect(settings, child.id);
+      const baseId = page.semantics?.inheritance?.[0]?.nodeId;
+      expect(baseId).toBeTruthy();
+      const base = await host.inspect(settings, baseId!);
+      expect(astDisplay(base.node).name).toBe("vendor::Base");
+      expect(base.node.file).toBe(
+        await import("node:fs/promises").then((fs) => fs.realpath(header)),
+      );
+      expect(
+        base.children.some((node) => node.name === "vendor::Base::own"),
+      ).toBe(true);
+      expect(base.path?.map((part) => astDisplay(part.node).kind)).toEqual([
+        "TranslationUnitDecl",
+        "NamespaceDecl",
+        "CXXRecordDecl",
+      ]);
+      expect(base.path?.at(-1)?.node.id).toBe(baseId);
+      const report = await host.run(
+        action("header-base-fields", 'match fieldDecl().bind("field") in node'),
+        {},
+        [derived],
+        settings,
+        100,
+        () => {},
+        base.node.id,
+      );
+      expect(report.matches).toBe(1);
+      expect(
+        report.results
+          .filter((node) => node.binding === "field")
+          .map((node) => node.name),
+      ).toEqual(["vendor::Base::own"]);
+      expect(report.parseCount).toBe(1);
+      await host.reset();
+      await expect(host.inspect(settings, baseId!)).rejects.toThrow(/expired/);
     }, 60000);
     it("opens a file AST without running an action and fetches unvisited children lazily", async () => {
       const host = service();

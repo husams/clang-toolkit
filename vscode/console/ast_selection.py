@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 import re
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 from clang_toolkit import Matcher
 
@@ -37,13 +36,17 @@ class AstSelection:
             query = Matcher('decl', Matcher('isExpansionInFileMatching', re.escape(file) + '$'))
             rows = host.client.peek(target, axis='children', query=query, max_nodes=1000)
             pending = {}
+            children = []
             try:
-                if len(page['children']) + len(rows) > 1000 or len(host.nodes) + len(rows) > 10000:
+                if len(page['children']) + len(rows) > 1000:
                     raise ValueError('AST child limit reached; refresh or narrow the file context.')
                 for row in rows:
-                    pending[str(uuid4())] = (row.binding('target'), root_file, 'AST child')
+                    existing = len(host.nodes)
+                    identifier = self.inspector.retain(row.binding('target'), root_file, 'AST child')
+                    if len(host.nodes) > existing:
+                        pending[identifier] = host.nodes[identifier]
+                    children.append(self.inspector.describe(identifier))
                 host.nodes.update(pending)
-                children = [self.inspector.describe(identifier) for identifier in pending]
                 page = {**page, 'children': [*page['children'], *children]}
             except BaseException:
                 for identifier in pending:
@@ -104,8 +107,11 @@ class AstSelection:
             if depth > 64 or len(visited) >= 128:
                 raise ValueError('Source selection traversal limit reached; narrow the selection or refresh analysis.')
             visited.add(current_id)
-            page = self.inspector.inspect(dict(settings=host.settings, nodeId=current_id))
-            path = [*parents, dict(node=page['node'], children=page['children'])]
+            page = self.inspector.inspect(dict(settings=host.settings, nodeId=current_id,
+                                               resolveRelated=False))
+            path = [*parents, {key: page[key] for key in ('node', 'children', 'semantics') if key in page}]
+            if current_id == request.get('expectedId'):
+                return {**page, 'path': path}
             native, _, _ = host.check_input(current_id)
             span = self.span(native.value, file)
             if span:
@@ -124,7 +130,24 @@ class AstSelection:
                 elif depth > 0 and not native_child.value.range.expansion_begin.valid:
                     # Type-location visitors can own source-bearing parameters.
                     pending.append((child['id'], depth + 1, path))
-        return {**best[1], 'path': best[2]} if best else None
+        return {**best[1], 'path': best[2]} if best and not request.get('expectedId') else None
+
+    def related(self, identifier: str) -> dict[str, Any]:
+        host = self.inspector.host
+        target, _, _ = host.check_input(identifier)
+        file = target.value.location.file
+        if not file:
+            raise ValueError('This base declaration has no source location.')
+        file = str(Path(file).resolve())
+        span = self.span(target.value, file)
+        if span is None:
+            raise ValueError('This base declaration has no usable source range.')
+        page = self.locate(dict(settings=host.settings, nodeId=identifier,
+                                expectedId=identifier,
+                                selection=dict(file=file, start=span[0], end=span[1])))
+        if page is None:
+            raise ValueError('Could not reveal the exact base declaration in the file AST.')
+        return page
 
     def clear(self) -> None:
         self.files.clear()

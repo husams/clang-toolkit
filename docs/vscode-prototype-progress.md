@@ -814,3 +814,60 @@ double-click on its unloaded check method opened the method's Properties with
 limit:int and label:const char *, return type bool and Const:Yes. The sample is
 open in the existing trial window; custom action tabs are preserved. The shared
 managed CTK server was neither restarted nor replaced.
+
+## Selectable base declarations and collapsible sections, version 0.2.17
+
+Resolved base classes in Inheritance are now links to retained native class
+declarations. Clicking one loads its Properties, selects the actual declaration
+in the AST tree and highlights its full source range, including definitions in
+headers. Aliases select the underlying declaration. Base links also offer the
+native Run Action context menu; the selected base works with the existing
+Properties action button. Dependent/unresolved bases remain plain text.
+
+The adapter keeps the base matcher collections alive and assigns declaration
+handles from the same registry as TU/header navigation. Identity includes the
+owning parsed file, serialized declaration facts and its exact source range.
+This keeps related links and native tree rows on the same handle. Following a
+base uses its native range to walk the retained TU and validates the exact
+expected handle before returning a connected ancestry path. It never substitutes
+a same-named class or reconstructs a node from display JSON. Other expanded
+branches stay open; Back restores the derived selection. Cached ancestry pages
+retain semantic sections too. Inspection, history, source-file, depth, result
+and retention limits still apply; closing or refreshing invalidates old links.
+
+AST, Source, Inheritance, member groups, Parameters, Properties and Source range
+now have full-width collapsible headers with VS Code-style chevrons and native
+Enter/Space disclosure behavior. Open/closed choices persist by section title
+across nodes, tabs and webview reloads, storing only UI booleans. Collapsing AST
+keeps its selection and expanded branches; source synchronization updates the
+retained tree without forcing the section open. Reopening reveals the selection.
+
+Validation logs: `vscode/artifacts/validation/ast-base-navigation-20261017/`.
+TypeScript and Biome pass. Fifty extension unit tests pass (17 native opt-ins
+skipped), 16 console adapter tests pass, and all ten native integration tests
+pass (`native-final.log`). New native checks cover alias/transitive-base handle
+identity, forward declarations in a header, a same-named unrelated class, real
+TU/namespace ancestry, exact one-match field actions, a single parse and expired
+references. The final real VS Code host run (`host-final.log`) passes the full
+existing suite plus rendered section headers, selected-base source highlighting,
+preserved derived/base expansion, Back, invalid-link rejection and an action
+targeted at the selected base. Test windows and isolated servers closed normally.
+No shared server, Python SDK or console runtime changed; the earlier repository
+baseline still applies.
+
+Packaged and installed v0.2.17 in the approved normal VS Code profile; ZIP
+verification passed. VSIX SHA256:
+`65fb0b6cb16c3c0b3e3483eeed613907de04add5b37c43bcb06757efa4e69494`.
+
+Reloaded the existing normal-profile trial and used the extension directly.
+Clicking Widget's transitive Root base selected Root's declaration, highlighted
+its complete four-line source and opened its Properties. The AST tab showed
+Root selected/expanded while Widget's expanded branch remained intact. Folding
+Public members kept it folded when selecting Root and returning to Widget;
+folding AST kept it closed across a Properties/AST round trip. Reopening kept
+the native selection. The Properties action picker was titled Action on Root;
+Find classes ran with Input: CXXRecordDecl: Root and returned one Root match at
+line 1. Right-clicking the MidAlias link opened Action on Middle, confirming the
+alias targets its actual class. The picker is closed, the one-match result and
+sample remain available, and custom-action tabs are preserved. The user's
+managed server was not restarted or replaced.

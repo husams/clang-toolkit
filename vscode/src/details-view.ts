@@ -37,6 +37,7 @@ const messages = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tab"), tab: z.enum(["ast", "properties"]) }),
   z.object({ type: z.literal("child"), id: z.string() }),
   z.object({ type: z.literal("properties"), id: z.string() }),
+  z.object({ type: z.literal("related"), id: z.string() }),
   z.object({
     type: z.literal("expand"),
     id: z.string(),
@@ -63,6 +64,9 @@ const messages = z.discriminatedUnion("type", [
     text: z.string().max(100000),
     tab: z.enum(["ast", "properties"]),
     panels: z.object({ ast: z.boolean(), properties: z.boolean() }),
+    sections: z
+      .array(z.object({ title: z.string(), open: z.boolean() }))
+      .max(32),
   }),
 ]);
 export class DetailsView
@@ -124,13 +128,14 @@ export class DetailsView
 <button id="ast-tab" role="tab" aria-controls="ast-panel" aria-selected="true">AST</button>
 <button id="properties-tab" role="tab" aria-controls="properties-panel" aria-selected="false" tabindex="-1">Properties</button></div>
 <section id="ast-panel" class="outline" role="tabpanel" aria-labelledby="ast-tab">
-<ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
+<details id="ast-section" data-section="AST" open><summary>AST</summary><ul id="tree" role="tree" aria-label="C++ AST"></ul></details></section>
 <section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><h2 id="name"></h2><span id="kind"></span></header>
-<p id="signature"></p><button id="location"></button><pre id="source"></pre>
+<p id="signature"></p>
+<details id="source-section" data-section="Source" open><summary>Source</summary><div class="section-body"><button id="location"></button><pre id="source"></pre></div></details>
 <button id="action">Run action on this node…</button>
 <div id="semantics"></div>
-<details id="properties-group" open><summary>Properties</summary><dl id="properties"></dl></details>
-<details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details>
+<details id="properties-group" data-section="Properties" open><summary>Properties</summary><div class="section-body"><dl id="properties"></dl></div></details>
+<details id="range-group" data-section="Source range" hidden><summary>Source range</summary><div class="section-body"><dl id="range"></dl></div></details>
 </section></section></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
@@ -333,6 +338,20 @@ export class DetailsView
       return;
     }
     if (this.running) return;
+    if (message.type === "related") {
+      if (!this.relatedNode(message.id))
+        throw new Error("This base class is no longer available.");
+      const previous = this.current;
+      await this.inspect(message.id);
+      if (
+        previous &&
+        this.current !== previous &&
+        this.current?.nativeId === message.id
+      )
+        this.history.push(previous);
+      this.publish();
+      return;
+    }
     if (message.type === "action") {
       await this.chooseAction(await this.actionTarget());
       return;
@@ -407,7 +426,10 @@ export class DetailsView
         this.contextId !== context.ctkAstContext ||
         !this.prepareAction ||
         this.running ||
-        !this.tree.node(context.ctkAstNodeId)
+        !(
+          this.tree.node(context.ctkAstNodeId) ||
+          this.relatedNode(context.ctkAstNodeId)
+        )
       )
         throw new Error(
           "This AST node menu is no longer current; reopen the menu.",
@@ -426,6 +448,13 @@ export class DetailsView
         return target.activate();
       },
     });
+  }
+  private relatedNode(id: string): boolean {
+    return (
+      this.current?.semantics?.inheritance?.some(
+        (base) => base.nodeId === id && !base.unresolved,
+      ) ?? false
+    );
   }
   dispose(): void {
     this.generation++;

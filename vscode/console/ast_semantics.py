@@ -9,15 +9,20 @@ from clang_toolkit._generated.match.v1.match_result_pb2 import BINDING_MATCH_SCO
 
 if TYPE_CHECKING:
     from action_service import ActionHost
+    from ast_inspector import AstInspector
 
 BASE_QUERY = ('cxxBaseSpecifier(optionally(hasType(qualType('
               'hasUnqualifiedDesugaredType(recordType(hasDeclaration('
               'cxxRecordDecl().bind("base"))))))))')
 
 
-def inheritance(host: ActionHost, target: Any) -> dict[str, Any]:
-    """Return bounded, display-only base paths from this exact retained class."""
+def inheritance(inspector: AstInspector, target: Any, file: str) -> dict[str, Any]:
+    """Keep exact base declarations alive for navigation and follow-up actions."""
+    host = inspector.host
     items: list[dict[str, Any]] = []
+    retained: list[Any] = []
+    created: set[str] = set()
+    related: set[str] = set()
     notice = ''
 
     def visit(node: Any, depth: int) -> None:
@@ -26,7 +31,8 @@ def inheritance(host: ActionHost, target: Any) -> dict[str, Any]:
             notice = 'Inheritance display limited to 16 levels and 128 base edges.'
             return
         rows = host.client.peek(node, query=BASE_QUERY, max_nodes=1000)
-        try:
+        retained.append(rows)
+        if rows:
             for row in rows:
                 if len(items) >= 128:
                     notice = 'Inheritance display limited to 16 levels and 128 base edges.'
@@ -39,13 +45,26 @@ def inheritance(host: ActionHost, target: Any) -> dict[str, Any]:
                             access=raw.get('access', ''), virtual=edge.is_virtual)
                 items.append(item)
                 if 'base' in row.bindings:
-                    visit(row.binding('base'), depth + 1)
+                    base = row.binding('base')
+                    existing = len(host.nodes)
+                    identifier = inspector.retain(base, file, 'Base class')
+                    if len(host.nodes) > existing:
+                        created.add(identifier)
+                    related.add(identifier)
+                    item['nodeId'] = identifier
+                    visit(base, depth + 1)
                 else:
                     item['unresolved'] = True
-        finally:
+    try:
+        visit(target, 0)
+    except BaseException:
+        for identifier in created:
+            host.nodes.pop(identifier, None)
+        for rows in retained:
             rows.close()
-
-    visit(target, 0)
+        raise
+    inspector.collections.extend(retained)
+    inspector.related.update(related)
     return dict(inheritance=items, notice=notice)
 
 

@@ -1537,6 +1537,42 @@ export async function run(): Promise<void> {
   const widgetTree = astState().tree;
   await inspectorTab("ast");
   assert.deepEqual(astState().tree, widgetTree);
+  for (const title of [
+    "AST",
+    "Source",
+    "Inheritance",
+    "Public members",
+    "Protected members",
+    "Private members",
+    "Properties",
+    "Source range",
+  ])
+    assert.ok(
+      widgetProperties.sections.some((section) => section.title === title),
+      title,
+    );
+  const rootBaseId = astState().semantics?.inheritance?.find(
+    (base) => base.name === "Root",
+  )?.nodeId;
+  assert.ok(rootBaseId);
+  await api.details.receive({ type: "related", id: rootBaseId });
+  assert.equal(astState().node?.id, rootBaseId);
+  assert.equal(astState().node?.name, "Root");
+  assert.match(highlightedSource(), /^struct Root \{/);
+  assert.ok(astState().canRunAction);
+  assert.ok(
+    astState().tree.some((row) => row.id === rootBaseId && row.selected),
+  );
+  assert.ok(
+    astState().tree.some((row) => row.id === widget.id && row.expanded),
+    "base navigation must keep the derived branch open",
+  );
+  await api.details.receive({ type: "back" });
+  assert.equal(astState().node?.id, widget.id);
+  assert.ok(
+    astState().tree.some((row) => row.id === rootBaseId && row.expanded),
+    "Back must keep the visited base branch",
+  );
   const check = astState().children?.find(
     (node) => node.name === "Widget::check",
   );
@@ -1548,7 +1584,43 @@ export async function run(): Promise<void> {
   const functionTree = astState().tree;
   await inspectorTab("ast");
   assert.deepEqual(astState().tree, functionTree);
+  await api.details.receive({ type: "back" });
+  await assert.rejects(
+    api.details.receive({ type: "related", id: check.id }),
+    /base class is no longer available/,
+  );
+  await api.details.receive({ type: "related", id: rootBaseId });
+  const baseActionUri = vscode.Uri.joinPath(
+    actionFolder,
+    "inspect-base-fields.ctk-action",
+  );
+  const baseActionSource =
+    '---\nname: inspect-base-fields\ndescription: Inspect the selected base class\narguments: []\n---\nmatch fieldDecl().bind("field") in node';
+  await vscode.workspace.fs.writeFile(
+    baseActionUri,
+    Buffer.from(baseActionSource),
+  );
+  await api.actions.setAction(
+    parseNodeAction(baseActionUri.fsPath, baseActionSource),
+    true,
+    await api.details.actionTarget(),
+  );
+  assert.equal(actionState().input.id, rootBaseId);
+  await api.actions.run();
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "an inheritance action must reuse its retained TU",
+  );
+  assert.equal(actionState().matches, 1);
+  assert.deepEqual(
+    actionState()
+      .results.filter((node) => node.binding === "field")
+      .map((node) => node.name),
+    ["Root::id"],
+  );
+  await api.actions.close();
   console.log(
-    "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, access-grouped members, inheritance and parameters",
+    "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
   );
 }

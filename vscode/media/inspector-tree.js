@@ -157,7 +157,8 @@ export function renderTree(host, state, post) {
   }
   host.scrollTop = top;
   if (active) (elements.get(active) ?? elements.get(selectedId))?.focus();
-  const visible = !host.closest("[hidden]");
+  const visible =
+    !host.closest("[hidden]") && !host.closest("details:not([open])");
   if (visible && (state.treeReveal !== lastReveal || !wasVisible)) {
     elements
       .get(selectedId)

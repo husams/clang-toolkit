@@ -24,6 +24,7 @@ export const astSemanticsSchema = z
           access: z.string(),
           virtual: z.boolean(),
           unresolved: z.boolean().optional(),
+          nodeId: z.string().min(1).optional(),
         }),
       )
       .max(128)

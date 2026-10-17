@@ -22,7 +22,28 @@ class AstInspector:
         self.cache: dict[str, dict[str, Any]] = {}
         self.locations: dict[tuple[Any, ...], str] = {}
         self.file_nodes: dict[str, str] = {}
+        self.declarations: dict[tuple[Any, ...], str] = {}
+        self.related: set[str] = set()
         self.selection = AstSelection(self)
+
+    def retain(self, target: Any, file: str, label: str) -> str:
+        value = target.value
+        kind = value.node.WhichOneof('payload')
+        key = None
+        if kind in ('cxx_record_decl', 'class_template_specialization_decl',
+                    'class_template_partial_specialization_decl'):
+            key = (file, value.symbol_identity, value.node.SerializeToString(deterministic=True),
+                   value.range.SerializeToString(deterministic=True))
+            previous = self.declarations.get(key)
+            if previous in self.host.nodes:
+                return previous
+        if len(self.host.nodes) >= 10000:
+            raise ValueError('AST retention limit reached; refresh analysis.')
+        identifier = str(uuid4())
+        self.host.nodes[identifier] = (target, file, label)
+        if key is not None:
+            self.declarations[key] = identifier
+        return identifier
 
     def describe(self, identifier: str) -> dict[str, Any]:
         target, file, _ = self.host.check_input(identifier)
@@ -98,6 +119,8 @@ class AstInspector:
             self.locate(request) if request.get('result')
             else self.file_node(request['translationUnit']))
         target, file, _ = self.host.check_input(identifier)
+        if identifier in self.related and request.get('resolveRelated', True):
+            return self.selection.related(identifier)
         if identifier in self.cache:
             return self.cache[identifier]
         if len(self.cache) >= 128 or len(self.host.nodes) >= 10000:
@@ -109,13 +132,12 @@ class AstInspector:
         try:
             for row in rows:
                 child = row.binding('target')
-                child_id = str(uuid4())
-                pending[child_id] = (child, file, 'AST child')
-            if len(self.host.nodes) + len(pending) > 10000:
-                raise ValueError('AST inspection limit reached; refresh analysis to release inspected nodes.')
-            self.host.nodes.update(pending)
-            for child_id in pending:
+                existing = len(self.host.nodes)
+                child_id = self.retain(child, file, 'AST child')
+                if len(self.host.nodes) > existing:
+                    pending[child_id] = self.host.nodes[child_id]
                 children.append(self.describe(child_id))
+            self.host.nodes.update(pending)
             response = dict(node=self.describe(identifier), children=children,
                             parseCount=self.host.parse_count,
                             root=dict(id=self.host.roots[file][0], file=file, label='File root'))
@@ -123,7 +145,7 @@ class AstInspector:
                     key in response['node']['raw']['binding'].get('node', {})
                     for key in ('cxxRecordDecl', 'classTemplateSpecializationDecl',
                                 'classTemplatePartialSpecializationDecl')):
-                response['semantics'] = inheritance(self.host, target)
+                response['semantics'] = inheritance(self, target, file)
             elif any(key in response['node']['raw']['binding'].get('node', {})
                      for key in ('functionDecl', 'cxxMethodDecl', 'cxxConstructorDecl',
                                  'cxxDestructorDecl', 'cxxConversionDecl', 'cxxDeductionGuideDecl')):
@@ -142,6 +164,8 @@ class AstInspector:
         self.cache.clear()
         self.locations.clear()
         self.file_nodes.clear()
+        self.declarations.clear()
+        self.related.clear()
         for rows in self.collections:
             rows.close()
         self.collections.clear()

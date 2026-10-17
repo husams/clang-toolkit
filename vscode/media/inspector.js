@@ -1,9 +1,11 @@
+import { sectionState } from "./inspector-sections.js";
 import { renderSemantics } from "./inspector-semantics.js";
 import { renderTree } from "./inspector-tree.js";
 
 const api = acquireVsCodeApi();
 const el = (id) => document.getElementById(id);
 const post = (type, data = {}) => api.postMessage({ type, ...data });
+const restoreSections = sectionState(api, () => post("ready"));
 const tabs = ["ast", "properties"];
 for (const [index, tab] of tabs.entries()) {
   const button = el(`${tab}-tab`);
@@ -72,6 +74,7 @@ window.addEventListener("message", ({ data }) => {
   el("location").textContent = `${node.file}:${node.line}:${node.column}`;
   el("source").textContent = node.excerpt;
   el("source").hidden = !node.excerpt;
+  el("source-section").hidden = !node.locationValid && !node.excerpt;
   el("back").disabled = !state.back || state.running;
   el("root").textContent = state.rootLabel;
   el("root").disabled = !state.back || state.running;
@@ -84,7 +87,8 @@ window.addEventListener("message", ({ data }) => {
   el("retry").disabled = state.running;
   fields("properties", node.properties);
   el("properties-group").hidden = !node.properties.length;
-  renderSemantics(el("semantics"), node, state.semantics, post);
+  renderSemantics(el("semantics"), node, state.semantics, post, state);
+  restoreSections(document.querySelector("main"));
   fields("range", node.range);
   el("range-group").hidden = !node.range.length;
   const tree = renderTree(el("tree"), state, post);
@@ -103,6 +107,9 @@ window.addEventListener("message", ({ data }) => {
       ast: !el("ast-panel").hidden,
       properties: !el("properties-panel").hidden,
     },
+    sections: [...document.querySelectorAll("details[data-section]")].map(
+      (group) => ({ title: group.dataset.section, open: group.open }),
+    ),
     text: document.querySelector("main").innerText.slice(0, 100000),
   });
 });

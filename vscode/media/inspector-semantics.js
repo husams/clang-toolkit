@@ -1,4 +1,4 @@
-export function renderSemantics(host, node, semantics, post) {
+export function renderSemantics(host, node, semantics, post, context) {
   const previous = new Map(
     [...host.querySelectorAll("details")].map((group) => [
       group.dataset.title,
@@ -10,13 +10,16 @@ export function renderSemantics(host, node, semantics, post) {
   host.replaceChildren();
   function group(title) {
     const details = document.createElement("details"),
-      summary = document.createElement("summary");
+      summary = document.createElement("summary"),
+      body = document.createElement("div");
+    body.className = "section-body";
     details.dataset.title = title;
+    details.dataset.section = title;
     details.open = sameNode ? (previous.get(title) ?? true) : true;
     summary.textContent = title;
-    details.append(summary);
+    details.append(summary, body);
     host.append(details);
-    return details;
+    return body;
   }
   if (semantics?.inheritance) {
     const details = group("Inheritance"),
@@ -36,7 +39,24 @@ export function renderSemantics(host, node, semantics, post) {
       }
       const item = document.createElement("li"),
         access = base.access.replace("ACCESS_SPECIFIER_", "").toLowerCase();
-      item.textContent = `${base.name} · ${access}${base.virtual ? " virtual" : ""}${base.unresolved ? " · dependent / unresolved" : ""}`;
+      const label = `${base.name} · ${access}${base.virtual ? " virtual" : ""}${base.unresolved ? " · dependent / unresolved" : ""}`;
+      if (base.nodeId && !base.unresolved) {
+        const link = document.createElement("button");
+        link.textContent = label;
+        link.title = `Inspect base class ${base.name}`;
+        link.disabled = context.running;
+        link.dataset.vscodeContext = JSON.stringify({
+          webviewSection: "ast-node",
+          ctkAstNodeId: base.nodeId,
+          ctkAstContext: context.contextId,
+          ctkAstCanRun: !context.running,
+          preventDefaultContextMenuItems: true,
+        });
+        link.addEventListener("click", () =>
+          post("related", { id: base.nodeId }),
+        );
+        item.append(link);
+      } else item.textContent = label;
       levels.at(-1).append(item);
     }
     details.append(list);
