@@ -17,6 +17,7 @@ from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
 from clang_toolkit.client import Client
 from clang_toolkit.match_values import MatchRow, MatchValue, NativeMatchCollection
 from run_service import Output, Results
+from ast_inspector import AstInspector
 
 
 class ActionError(ValueError):
@@ -44,6 +45,7 @@ class ActionHost:
         self.runs: list[list[Any]] = []
         self.parse_count = 0
         self.sources: dict[str, list[str]] = {}
+        self.inspector = AstInspector(self)
 
     def dispatch(self, source: str) -> None:
         result = self.runtime._prototype_session.dispatch(source)
@@ -146,6 +148,7 @@ class ActionHost:
                     truncated=truncated, parseCount=self.parse_count)
 
     def close(self) -> None:
+        self.inspector.close()
         self.nodes.clear()
         self.roots.clear()
         self.runs.clear()
@@ -177,6 +180,10 @@ def main() -> None:
                         continue
                     if host is None:
                         host = ActionHost(request['settings'])
+                    if request['type'] == 'inspect':
+                        inspection = host.inspector.inspect(request)
+                        send(identity, {'inspection': inspection})
+                        continue
                     report = host.run(request, lambda value: send(identity, value))
                 text = output.getvalue().rstrip('\n')
                 report['output'] = [text] if text else []

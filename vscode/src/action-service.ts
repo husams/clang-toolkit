@@ -7,7 +7,13 @@ import {
   actionReportSchema,
   type NodeAction,
 } from "./actions.js";
-import type { RunRequest } from "./model.js";
+import {
+  type AstInspection,
+  astDisplay,
+  astInspectionSchema,
+  nativeKind,
+} from "./ast-model.js";
+import type { Result, RunRequest } from "./model.js";
 
 export type ActionSettings = Pick<
   RunRequest,
@@ -26,6 +32,7 @@ const responseSchema = z.object({
   output: z.array(z.string()).optional(),
   report: actionReportSchema.optional(),
   reset: z.boolean().optional(),
+  inspection: astInspectionSchema.optional(),
 });
 type Response = z.infer<typeof responseSchema>;
 interface Pending {
@@ -77,6 +84,36 @@ export class ActionService {
   async reset(): Promise<void> {
     if (this.child)
       await this.request({ type: "reset" }, process.cwd(), 15000, () => {});
+  }
+  async inspect(
+    settings: ActionSettings,
+    target: string | { result: Result; translationUnit: string },
+  ): Promise<AstInspection> {
+    const input =
+      typeof target === "string"
+        ? { nodeId: target }
+        : {
+            translationUnit: target.translationUnit,
+            result: {
+              ...target.result,
+              raw: undefined,
+              nativeKind: nativeKind(target.result),
+              implicit: astDisplay(target.result).properties.some(
+                (property) => property.label === "Implicit",
+              ),
+              kind: nativeKind(target.result).replace(/^./, (c) =>
+                c.toUpperCase(),
+              ),
+            },
+          };
+    const response = await this.request(
+      { type: "inspect", settings, ...input },
+      settings.directory,
+      settings.timeoutMs + 10000,
+      () => {},
+    );
+    if (!response.inspection) throw new Error("AST inspector returned no node");
+    return response.inspection;
   }
   private start(directory: string): ChildProcessWithoutNullStreams {
     if (this.child) return this.child;

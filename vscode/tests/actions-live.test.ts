@@ -6,6 +6,7 @@ import { Client } from "@clang-toolkit/sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActionService, type ActionSettings } from "../src/action-service.js";
 import { parseNodeAction, resolveArguments } from "../src/actions.js";
+import { astDisplay } from "../src/ast-model.js";
 
 describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
   "retained node actions",
@@ -80,6 +81,64 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         `${name}.ctk-action`,
         `---\nname: ${name}\ndescription: Test action\narguments: []\n---\n${body}`,
       );
+    it("inspects actual AST children, reuses native handles and rejects stale navigation", async () => {
+      const host = service();
+      const first = await host.run(
+        action(
+          "inspect",
+          'match functionDecl(hasName("processOrder")).bind("function") in node',
+        ),
+        {},
+        [file],
+        settings,
+        100,
+      );
+      const selected = first.results.find(
+        (node) => node.binding === "function",
+      );
+      expect(selected).toBeDefined();
+      const start = await host.inspect(settings, selected!.nodeId);
+      expect(astDisplay(start.node, start.children).kind).toBe("FunctionDecl");
+      expect(astDisplay(start.node, start.children).signature).toBe(
+        "int processOrder(int)",
+      );
+      expect(
+        astDisplay(start.node, start.children).properties,
+      ).not.toContainEqual({ label: "Parameters", value: "None" });
+      const body = start.children.find(
+        (node) => astDisplay(node).kind === "CompoundStmt",
+      );
+      expect(body).toBeDefined();
+      const returned = await host.inspect(settings, body!.id);
+      const statement = returned.children.find(
+        (node) => astDisplay(node).kind === "ReturnStmt",
+      );
+      expect(statement).toBeDefined();
+      const call = await host.inspect(settings, statement!.id);
+      const expression = call.children.find(
+        (node) => astDisplay(node).kind === "CallExpr",
+      );
+      expect(expression).toBeDefined();
+      const callPage = await host.inspect(settings, expression!.id);
+      expect(
+        astDisplay(callPage.node, callPage.children).properties,
+      ).toContainEqual({ label: "Callee", value: "adjust" });
+      expect(callPage.parseCount).toBe(1);
+      expect(
+        (await host.inspect(settings, selected!.nodeId)).children.map(
+          (node) => node.id,
+        ),
+      ).toEqual(start.children.map((node) => node.id));
+      const located = await host.inspect(settings, {
+        result: selected!,
+        translationUnit: file,
+      });
+      expect(located.children.length).toBe(start.children.length);
+      await host.reset();
+      await expect(host.inspect(settings, expression!.id)).rejects.toThrow(
+        /expired/,
+      );
+    }, 60000);
     it("reuses the parsed root and exact binding, preserves multi-binding rows and earlier results after errors", async () => {
       const host = service();
       const functions = parseNodeAction(
