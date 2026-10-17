@@ -189,7 +189,7 @@ public:
             "name LIKE ?1 ESCAPE '\\' ORDER BY " + order +
             " LIMIT ?3), qualified_matches AS MATERIALIZED (" + columns +
             "qualified_name LIKE ?2 ESCAPE '\\' ORDER BY " + order +
-            " LIMIT ?3), candidates AS MATERIALIZED ("
+            " LIMIT ?3), selected AS MATERIALIZED ("
             "SELECT * FROM name_matches UNION SELECT * FROM qualified_matches "
             "ORDER BY " +
             order + " LIMIT ?3), ";
@@ -197,7 +197,7 @@ public:
       // Unary + keeps BINARY equality as a residual filter: otherwise SQLite
       // can choose that equality for access and scan instead of the NOCASE
       // index.
-      sql = "WITH candidates AS MATERIALIZED (" + projection +
+      sql = "WITH selected AS MATERIALIZED (" + projection +
             " INDEXED BY symbol_name_prefix WHERE name=?1 COLLATE NOCASE "
             "AND +name=?1 COLLATE BINARY UNION " +
             projection +
@@ -205,9 +205,31 @@ public:
             "COLLATE NOCASE AND +qualified_name=?2 COLLATE BINARY ORDER BY " +
             order + " LIMIT ?3), ";
     } else {
-      sql = "WITH candidates AS MATERIALIZED (" + columns + "usr=?1 ORDER BY " +
+      sql = "WITH selected AS MATERIALIZED (" + columns + "usr=?1 ORDER BY " +
             order + " LIMIT ?2), ";
     }
+    // A shared header owner can expand into many TUs. Include every owner tied
+    // at the physical boundary before limiting logical results by real TU ID.
+    sql +=
+        "boundary AS MATERIALIZED (SELECT qualified_name,file_path,byte_offset "
+        "FROM selected ORDER BY qualified_name" +
+        std::string(prefix ? " COLLATE NOCASE" : "") +
+        " DESC,file_path DESC,byte_offset DESC LIMIT 1), "
+        "candidates AS MATERIALIZED (SELECT * FROM selected UNION " +
+        projection +
+        " INDEXED BY symbol_qualified_prefix WHERE qualified_name="
+        "(SELECT qualified_name FROM boundary) COLLATE NOCASE " +
+        (prefix ? std::string()
+                : "AND +qualified_name=(SELECT qualified_name FROM boundary) "
+                  "COLLATE BINARY ") +
+        "AND file_path=(SELECT file_path FROM boundary) AND byte_offset="
+        "(SELECT byte_offset FROM boundary) AND " +
+        (by_usr ? "usr=?1"
+         : prefix
+             ? "(name LIKE ?1 ESCAPE '\\' OR qualified_name LIKE ?2 ESCAPE "
+               "'\\')"
+             : "(name=?1 COLLATE BINARY OR qualified_name=?2 COLLATE BINARY)") +
+        "), ";
     // Older stores remain readable before their background schema upgrade.
     // Once available, force the covering index: SQLite otherwise sometimes
     // prefers the TU primary key without accounting for manifest overflow I/O.
@@ -217,18 +239,39 @@ public:
         lookup_index.step()
             ? "translation_unit INDEXED BY translation_unit_lookup"
             : "translation_unit";
+    Statement header_index(db, "SELECT 1 FROM sqlite_master WHERE type='index' "
+                               "AND name='translation_unit_header_members'");
+    if (header_index.step()) {
+      sql +=
+          "owners AS MATERIALIZED (SELECT id,dependencies_json FROM "
+          "translation_unit INDEXED BY translation_unit_header_members "
+          "WHERE indexed_at=0 AND id IN (SELECT tu_id FROM candidates)), "
+          "expanded AS MATERIALIZED (SELECT c.tu_id AS owner_id,"
+          "COALESCE(m.value,c.tu_id) AS tu_id,c.usr,c.file_path,c.byte_offset,"
+          "c.is_definition,c.qualified_name FROM candidates c LEFT JOIN "
+          "owners o ON o.id=c.tu_id LEFT JOIN json_each(o.dependencies_json) m "
+          "ORDER BY c.qualified_name" +
+          std::string(prefix ? " COLLATE NOCASE" : "") +
+          ",c.file_path,c.byte_offset,COALESCE(m.value,c.tu_id) LIMIT " +
+          (by_usr ? "?2), " : "?3), ");
+    } else {
+      sql += "expanded AS MATERIALIZED (SELECT *,tu_id AS owner_id FROM "
+             "candidates), ";
+    }
     sql +=
         "units AS MATERIALIZED (SELECT id,main_file,arguments,status FROM " +
         metadata_source +
-        " WHERE id IN (SELECT tu_id FROM candidates)) "
+        " WHERE id IN (SELECT tu_id FROM expanded)) "
         "SELECT "
         "s.usr,s.name,s.qualified_name,s.kind,s.file_path,s.line,s.column_no,s."
         "signature,t.main_file,t.arguments,s.byte_offset,s.is_definition,t."
-        "status FROM candidates c JOIN symbol s "
-        "USING(tu_id,usr,file_path,byte_offset,is_definition) "
-        "JOIN units t ON t.id=s.tu_id ORDER BY s.qualified_name" +
+        "status FROM expanded c JOIN symbol s ON s.tu_id=c.owner_id AND "
+        "s.usr=c.usr AND s.file_path=c.file_path AND "
+        "s.byte_offset=c.byte_offset "
+        "AND s.is_definition=c.is_definition "
+        "JOIN units t ON t.id=c.tu_id ORDER BY s.qualified_name" +
         std::string(prefix ? " COLLATE NOCASE" : "") +
-        ",s.file_path,s.byte_offset,s.tu_id";
+        ",s.file_path,s.byte_offset,t.id";
     Statement symbols(db, sql.c_str());
     const auto pattern = prefix ? escaped_prefix(query) : query;
     symbols.bind(1, pattern);
@@ -318,8 +361,8 @@ private:
       if (foreground_busy_ && foreground_busy_())
         throw Interrupted();
       if (auto bytes = worker.resident_bytes();
-          bytes && *bytes > 1024ULL * 1024 * 1024)
-        throw std::runtime_error("index worker exceeded 1 GiB memory budget");
+          bytes && *bytes > 1536ULL * 1024 * 1024)
+        throw std::runtime_error("index worker exceeded 1.5 GiB memory budget");
       const auto exit = worker.poll();
       if (exit) {
         IndexWorkerResponse response;
@@ -462,22 +505,95 @@ private:
     sqlite3_wal_checkpoint_v2(db.handle, nullptr, SQLITE_CHECKPOINT_PASSIVE,
                               nullptr, nullptr);
   }
+  void release_group(Database &db, const std::string &owner,
+                     const std::string &id) {
+    Statement release(
+        db, "UPDATE translation_unit SET dependencies_json=(SELECT "
+            "json_group_array(value) FROM json_each(dependencies_json) WHERE "
+            "value!=?1) WHERE id=?2");
+    release.bind(1, id);
+    release.bind(2, owner);
+    release.step();
+  }
+  IndexWorkerResponse stored_response(const Job &job, Database &db,
+                                      const std::string &id,
+                                      const std::string &manifest) {
+    IndexWorkerResponse response;
+    response.set_success(true);
+    for (const auto &[path, hash] : dependencies(manifest)) {
+      auto *dependency = response.add_dependencies();
+      dependency->set_path(path);
+      dependency->set_sha256(hash);
+    }
+    Statement rows(
+        db, "SELECT usr,name,qualified_name,kind,file_path,byte_offset,"
+            "is_definition,line,column_no,signature FROM symbol WHERE tu_id=?");
+    rows.bind(1, id);
+    while (rows.step()) {
+      await_admission(job);
+      auto *symbol = response.add_symbols();
+      symbol->set_usr(rows.text(0));
+      symbol->set_name(rows.text(1));
+      symbol->set_qualified_name(rows.text(2));
+      symbol->set_kind(rows.text(3));
+      symbol->set_file_path(rows.text(4));
+      symbol->set_byte_offset(rows.number(5));
+      symbol->set_is_definition(rows.number(6));
+      symbol->set_line(rows.number(7));
+      symbol->set_column(rows.number(8));
+      symbol->set_signature(rows.text(9));
+    }
+    return response;
+  }
   void replace(const Job &job, Database &db,
                const IndexWorkerTranslationUnit &unit, const std::string &id,
                const std::string &command_hash,
                const IndexWorkerResponse &response,
                const std::string &commands_digest,
                fs::file_time_type worker_time) {
+    std::map<std::string, std::vector<const Symbol *>> files, owners;
+    std::map<std::string, std::string> header_files;
+    for (const auto &symbol : response.symbols())
+      files[symbol.file_path()].push_back(&symbol);
     google::protobuf::Struct manifest;
     for (const auto &dependency : response.dependencies())
       (*manifest.mutable_fields())[dependency.path()].set_string_value(
           dependency.sha256());
+    (*manifest.mutable_fields())["@symbol-layout"].set_string_value(
+        "shared-v1");
+    for (const auto &[file, symbols] : files) {
+      if (file == unit.source()) {
+        owners[id] = symbols;
+        continue;
+      }
+      std::vector<std::string> records;
+      for (const auto *symbol : symbols)
+        records.push_back(symbol->SerializeAsString());
+      std::sort(records.begin(), records.end());
+      records.erase(std::unique(records.begin(), records.end()), records.end());
+      std::string content;
+      for (const auto &record : records)
+        content += std::to_string(record.size()) + ':' + record;
+      const auto owner = "header:" + digest_text(file + '\n' + content);
+      owners[owner] = symbols;
+      header_files[owner] = file;
+      (*manifest.mutable_fields())["@symbol-group:" + owner].set_string_value(
+          owner);
+    }
     const auto encoded = json(manifest);
     std::map<std::string, std::string> fresh;
     if (!manifest_current(job, dependencies(encoded), fresh))
       throw Interrupted();
     await_admission(job);
     Transaction transaction(db);
+    std::set<std::string> previous_groups;
+    {
+      Statement previous(
+          db, "SELECT dependencies_json FROM translation_unit WHERE id=?");
+      previous.bind(1, id);
+      if (previous.step())
+        previous_groups = symbol_groups(previous.text(0));
+    }
     Statement row(
         db,
         "INSERT INTO "
@@ -497,32 +613,93 @@ private:
     row.bind(7, encoded);
     row.bind(8, timestamp());
     row.step();
-    Statement remove(db, "DELETE FROM symbol WHERE tu_id=?");
-    remove.bind(1, id);
-    remove.step();
+    std::set<std::string> new_owners;
+    for (const auto &[owner, file] : header_files) {
+      await_admission(job);
+      Statement create(
+          db,
+          "INSERT INTO translation_unit "
+          "VALUES(?,?,'','',?,?,'[]',0,'ready','') ON CONFLICT(id) DO NOTHING");
+      create.bind(1, owner);
+      create.bind(2, file);
+      create.bind(3, owner);
+      create.bind(4, owner);
+      create.step();
+      if (sqlite3_changes(db.handle))
+        new_owners.insert(owner);
+      Statement member(db, "UPDATE translation_unit SET "
+                           "dependencies_json=json_insert(dependencies_json,'$["
+                           "#]',?1) WHERE id=?2 AND NOT EXISTS (SELECT 1 FROM "
+                           "json_each(dependencies_json) WHERE value=?1)");
+      member.bind(1, id);
+      member.bind(2, owner);
+      member.step();
+      previous_groups.erase(owner);
+    }
+    for (const auto &owner : previous_groups)
+      release_group(db, owner, id);
+    db.exec("DELETE FROM translation_unit WHERE indexed_at=0 AND "
+            "dependencies_json='[]'");
+    // Track this response's keys in connection-local temporary storage. Keep
+    // unchanged header rows in place instead of deleting/reinserting them.
+    db.exec("CREATE TEMP TABLE IF NOT EXISTS index_symbol_seen(usr TEXT NOT "
+            "NULL,file_path TEXT NOT NULL,byte_offset INTEGER NOT NULL,"
+            "is_definition INTEGER NOT NULL,PRIMARY KEY(usr,file_path,"
+            "byte_offset,is_definition)) WITHOUT ROWID;"
+            "DELETE FROM temp.index_symbol_seen;");
+    Statement seen(db, "INSERT OR IGNORE INTO temp.index_symbol_seen "
+                       "VALUES(?,?,?,?)");
     Statement symbol(
         db,
-        "INSERT OR IGNORE INTO "
+        "INSERT INTO "
         "symbol(tu_id,usr,name,qualified_name,kind,file_path,byte_offset,is_"
-        "definition,line,column_no,signature) VALUES(?,?,?,?,?,?,?,?,?,?,?)");
-    for (const auto &value : response.symbols()) {
-      // WAL readers do not need our writer lock. Yield to foreground work
-      // without discarding all already-staged rows and re-extracting the TU.
-      await_admission(job);
-      symbol.bind(1, id);
-      symbol.bind(2, value.usr());
-      symbol.bind(3, value.name());
-      symbol.bind(4, value.qualified_name());
-      symbol.bind(5, value.kind());
-      symbol.bind(6, value.file_path());
-      symbol.bind(7, value.byte_offset());
-      symbol.bind(8, static_cast<std::uint64_t>(value.is_definition()));
-      symbol.bind(9, static_cast<std::uint64_t>(value.line()));
-      symbol.bind(10, static_cast<std::uint64_t>(value.column()));
-      symbol.bind(11, value.signature());
-      symbol.step();
-      symbol.reset();
+        "definition,line,column_no,signature) VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(tu_id,usr,file_path,byte_offset,is_definition) DO UPDATE "
+        "SET name=excluded.name,qualified_name=excluded.qualified_name,"
+        "kind=excluded.kind,line=excluded.line,column_no=excluded.column_no,"
+        "signature=excluded.signature WHERE name!=excluded.name OR "
+        "qualified_name!=excluded.qualified_name OR kind!=excluded.kind OR "
+        "line!=excluded.line OR column_no!=excluded.column_no OR "
+        "signature!=excluded.signature");
+    for (const auto &[owner, symbols] : owners) {
+      if (owner != id && !new_owners.contains(owner))
+        continue;
+      for (const auto *entry : symbols) {
+        const auto &value = *entry;
+        // WAL readers do not need our writer lock. Yield to foreground work
+        // without discarding all already-staged rows and re-extracting the TU.
+        await_admission(job);
+        symbol.bind(1, owner);
+        symbol.bind(2, value.usr());
+        symbol.bind(3, value.name());
+        symbol.bind(4, value.qualified_name());
+        symbol.bind(5, value.kind());
+        symbol.bind(6, value.file_path());
+        symbol.bind(7, value.byte_offset());
+        symbol.bind(8, static_cast<std::uint64_t>(value.is_definition()));
+        symbol.bind(9, static_cast<std::uint64_t>(value.line()));
+        symbol.bind(10, static_cast<std::uint64_t>(value.column()));
+        symbol.bind(11, value.signature());
+        symbol.step();
+        symbol.reset();
+        if (owner == id) {
+          seen.bind(1, value.usr());
+          seen.bind(2, value.file_path());
+          seen.bind(3, value.byte_offset());
+          seen.bind(4, static_cast<std::uint64_t>(value.is_definition()));
+          seen.step();
+          seen.reset();
+        }
+      }
     }
+    await_admission(job);
+    Statement remove(db, "DELETE FROM symbol WHERE tu_id=? AND NOT EXISTS "
+                         "(SELECT 1 FROM temp.index_symbol_seen s WHERE "
+                         "s.usr=symbol.usr AND s.file_path=symbol.file_path "
+                         "AND s.byte_offset=symbol.byte_offset AND "
+                         "s.is_definition=symbol.is_definition)");
+    remove.bind(1, id);
+    remove.step();
     // Files or build commands may have changed while publication yielded.
     // Publish only if the extracted inputs still match the current inputs.
     fresh.clear();
@@ -550,7 +727,9 @@ private:
     row.step();
     // A changed compile command has a new ID. Keep any last-good contribution
     // for this source, but expose it as stale while the new context fails.
-    Statement previous(db, "SELECT id FROM translation_unit WHERE main_file=?");
+    Statement previous(
+        db,
+        "SELECT id FROM translation_unit WHERE main_file=? AND indexed_at>0");
     previous.bind(1, source);
     Statement stale(db,
                     "UPDATE translation_unit SET status='failed',last_error=? "
@@ -612,15 +791,21 @@ private:
       progress(job,
                [&](auto &s) { s.set_current_translation_unit(unit.source()); });
       bool unchanged = false;
+      std::string previous_manifest;
       {
         Statement prior(
             db, "SELECT dependencies_json FROM translation_unit WHERE id=?");
         prior.bind(1, id);
-        if (prior.step())
-          unchanged =
-              manifest_current(job, dependencies(prior.text(0)), digest_cache);
+        if (prior.step()) {
+          previous_manifest = prior.text(0);
+          unchanged = manifest_current(job, dependencies(previous_manifest),
+                                       digest_cache);
+        }
       }
-      if (unchanged) {
+      const bool migrate =
+          unchanged &&
+          previous_manifest.find("\"@symbol-layout\"") == std::string::npos;
+      if (unchanged && !migrate) {
         Transaction transaction(db);
         Statement ready(
             db, "UPDATE translation_unit SET status='ready',last_error='' "
@@ -632,12 +817,17 @@ private:
         ++completed;
       } else {
         try {
-          IndexWorkerRequest request;
-          request.set_source(unit.source());
-          request.set_compile_commands_directory(job.commands);
-          request.set_working_directory(unit.working_directory());
-          *request.mutable_compile_arguments() = unit.compile_arguments();
-          auto response = execute(job, std::move(request), directory);
+          IndexWorkerResponse response;
+          if (migrate && symbol_groups(previous_manifest).empty())
+            response = stored_response(job, db, id, previous_manifest);
+          else {
+            IndexWorkerRequest request;
+            request.set_source(unit.source());
+            request.set_compile_commands_directory(job.commands);
+            request.set_working_directory(unit.working_directory());
+            *request.mutable_compile_arguments() = unit.compile_arguments();
+            response = execute(job, std::move(request), directory);
+          }
           if (commands_digest !=
               digest_file(
                   (fs::path(job.commands) / "compile_commands.json").string()))
@@ -664,28 +854,101 @@ private:
         s.set_revision(saved_revision);
         s.set_translation_units_indexed(saved_count);
       });
-      if (!unchanged)
+      if (!unchanged || migrate)
         checkpoint(job, db);
     }
     await_admission(job);
     std::vector<std::string> obsolete;
+    std::vector<std::string> retained;
     {
-      Statement rows(db, "SELECT id,main_file FROM translation_unit");
-      while (rows.step())
+      Statement rows(
+          db, "SELECT id,main_file FROM translation_unit WHERE indexed_at>0");
+      while (rows.step()) {
         if (!active.contains(rows.text(0)) &&
             !failed_sources.contains(rows.text(1)))
           obsolete.push_back(rows.text(0));
+        else
+          retained.push_back(rows.text(0));
+      }
     }
     if (!obsolete.empty()) {
+      const bool compact =
+          obsolete.size() >= 32 && obsolete.size() > retained.size() / 4;
       Transaction transaction(db);
-      Statement remove(db, "DELETE FROM translation_unit WHERE id=?");
-      for (const auto &id : obsolete) {
-        remove.bind(1, id);
-        remove.step();
-        remove.reset();
+      struct Budget {
+        BackgroundSymbolIndexer &owner;
+        const Job &job;
+        bool interrupted = false;
+      } budget{*this, job};
+      sqlite3_progress_handler(
+          db.handle, 1000,
+          [](void *raw) {
+            auto &b = *static_cast<Budget *>(raw);
+            try {
+              b.owner.await_admission(b.job);
+              return 0;
+            } catch (...) {
+              b.interrupted = true;
+              return 1;
+            }
+          },
+          &budget);
+      struct Reset {
+        sqlite3 *handle;
+        ~Reset() { sqlite3_progress_handler(handle, 0, nullptr, nullptr); }
+      } reset{db.handle};
+      try {
+        for (const auto &id : obsolete) {
+          Statement previous(
+              db, "SELECT dependencies_json FROM translation_unit WHERE id=?");
+          previous.bind(1, id);
+          if (previous.step())
+            for (const auto &owner : symbol_groups(previous.text(0)))
+              release_group(db, owner, id);
+        }
+        {
+          Statement groups(db, "SELECT id FROM translation_unit WHERE "
+                               "indexed_at=0 AND dependencies_json!='[]'");
+          while (groups.step())
+            retained.push_back(groups.text(0));
+        }
+        // A policy upgrade can retire millions of repeated system symbols.
+        // Copy retained contributions and rebuild their much smaller indexes,
+        // rather than updating every secondary index for every discarded row.
+        // WAL readers see the previous three-table schema until this commits.
+        if (compact) {
+          db.exec("ALTER TABLE symbol RENAME TO symbol_retired;");
+          db.exec(symbol_schema);
+          {
+            Statement copy(db, "INSERT INTO symbol SELECT * FROM "
+                               "symbol_retired WHERE tu_id=?");
+            for (const auto &id : retained) {
+              await_admission(job);
+              copy.bind(1, id);
+              copy.step();
+              copy.reset();
+            }
+          }
+          db.exec("DROP TABLE symbol_retired;");
+          db.exec(symbol_indexes);
+        }
+        Statement remove(db, "DELETE FROM translation_unit WHERE id=?");
+        for (const auto &id : obsolete) {
+          await_admission(job);
+          remove.bind(1, id);
+          remove.step();
+          remove.reset();
+        }
+        db.exec("DELETE FROM translation_unit WHERE indexed_at=0 AND "
+                "dependencies_json='[]'");
+        bump(db);
+        sqlite3_progress_handler(db.handle, 0, nullptr, nullptr);
+        commit(job, transaction);
+      } catch (...) {
+        if (budget.interrupted)
+          throw Interrupted();
+        throw;
       }
-      bump(db);
-      commit(job, transaction);
     }
     saved_revision = revision(db);
     saved_count = count_units(db);

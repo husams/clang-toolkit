@@ -84,17 +84,31 @@ class Visitor : public clang::RecursiveASTVisitor<Visitor> {
 public:
   Visitor(clang::ASTContext &c, ProjectIndexExtraction &r)
       : context(c), output(r) {}
+  bool TraverseDecl(clang::Decl *d) {
+    // Parse system headers for semantic correctness, but do not enumerate their
+    // declarations or repeatedly publish the standard library for every TU.
+    if (d && d->getLocation().isValid() &&
+        context.getSourceManager().isInSystemHeader(d->getLocation()))
+      return true;
+    return clang::RecursiveASTVisitor<Visitor>::TraverseDecl(d);
+  }
   bool VisitNamedDecl(clang::NamedDecl *d) {
     if (d->isImplicit() || d->getNameAsString().empty() ||
         !d->getLocation().isValid())
       return true;
+    auto &sm = context.getSourceManager();
+    auto loc = sm.getSpellingLoc(d->getLocation());
+    if (sm.isInSystemHeader(loc))
+      return true;
+    const auto file_name = sm.getFilename(loc);
+    if (file_name.empty())
+      return true;
     llvm::SmallString<128> usr;
     if (clang::index::generateUSRForDecl(d, usr))
       return true;
-    auto &sm = context.getSourceManager();
-    auto loc = sm.getSpellingLoc(d->getLocation());
-    const auto file_name = sm.getFilename(loc);
-    if (file_name.empty())
+    const auto key = std::make_tuple(usr.str().str(), file_name.str(),
+                                     sm.getFileOffset(loc), d->getKind());
+    if (!seen.insert(key).second)
       return true;
     IndexedSymbol s;
     s.usr = usr.str().str();
@@ -118,6 +132,8 @@ public:
   }
   clang::ASTContext &context;
   ProjectIndexExtraction &output;
+  std::set<std::tuple<std::string, std::string, unsigned, clang::Decl::Kind>>
+      seen;
 };
 class Consumer final : public clang::ASTConsumer {
 public:

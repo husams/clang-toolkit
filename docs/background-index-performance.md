@@ -259,8 +259,225 @@ final UNION build and all passed (36.04 seconds). Logs:
 `/tmp/ctk-publication-bdd.log`, `/tmp/ctk-publication-bdd-{0,1,2}.log` and
 `/tmp/ctk-publication-index-bdd-final.log`.
 
+## Exclude system symbols and retain unchanged header rows (17 October 2026)
+
+The remaining write volume was mostly the standard library, repeated for each
+translation unit. The captured ANTLRFileStream.cpp extraction contained 53,347
+symbols across 877 files; only 280 symbols belonged to project files. Its
+largest contributors were libc++ string, unordered_map, hash-table and other
+standard headers. A TU contribution is not an appropriate place to replicate
+the entire standard library.
+
+The extractor now prunes declaration subtrees classified by Clang as system
+headers, with a second spelling-location check before USR generation. It still
+parses those includes for correct project types and keeps their input hashes
+for invalidation. Project headers and macro-dependent TU variants remain
+indexed. A per-extraction USR/location/kind set also removes repeated visits
+before serialization.
+
+TU refreshes no longer delete and reinsert every symbol. Conditional UPSERTs
+leave unchanged rows and their secondary indexes intact; a connection-local
+temporary key set identifies removed declarations for deletion. The existing
+transaction publishes all changes atomically and keeps pause/cancel and input
+revalidation gates. There are still only three persistent tables. Project
+header contributions retain each TU's provenance and compile context; they are
+not incorrectly merged across macro variants.
+
+The identical real TU now emits 280 symbols (99.5% fewer) in 1.227 seconds.
+The previous extraction took 1.832 seconds. Publishing the new emitted rows
+with the same insert benchmark, populated-store snapshot, three secondary
+indexes and 32MiB cache took 0.153 seconds versus 16.473 seconds for the previous
+53,347 rows. Page writes fell from 127,336 to 899. This benchmark measures the
+reduced row set; the full service also performs manifest checks and differential
+publication, so this is not an end-to-end 107-fold speedup claim.
+
+All 435 initial native checks passed (85.95 seconds), including standard vector/string
+headers, an explicitly marked system header, project-header macro variants,
+and database triggers that reject physical rewrites of unchanged header rows.
+All 2,500 Python unit checks passed (235.48 seconds). Independent review found
+no blockers; formatting and whitespace checks passed.
+
+A follow-up live sample placed the controller in repeated include-directory
+inventory scans rather than symbol insertion. The shared inventory walker now
+derives ordinary directory paths from their resolved parent and calls
+`weakly_canonical` only for symlink directories. It retains cycle/alias
+detection, file-name output and limits. A paired comparison on the actual SDK
+framework tree produced identical 850,544-byte output in 0.245 seconds before
+and 0.216 seconds after. A regression compares the full encoded output with
+the original canonical walk across nested directories, aliases and a cycle.
+This change preserves include-shadowing invalidation rather than skipping SDK
+dependency checks.
+
+All 436 final native checks passed (113.98 seconds), as did all four index
+end-to-end scenarios rerun against the final build (57.85 seconds). Independent
+review also approved the inventory change. The initial complete BDD run overlaps
+the rebuild; its final result is recorded separately below.
+
+During the full managed-project pass, 20 populated cross-TU lookups passed at
+15.69ms mean / 18.50ms maximum; eight distinct-file parses passed at 346.22ms
+mean / 464.37ms maximum after a separately recorded 8.66-second cold warmup.
+Twenty status calls passed at 134.77ms mean / 316.68ms maximum. The full BDD suite
+was running concurrently, so these are loaded responsiveness observations.
+
+Evidence: `/tmp/ctk-project-only-extraction.log`,
+`/tmp/ctk-project-only-publication.log`, `/tmp/ctk-project-only-native.log`,
+`/tmp/ctk-project-only-unit.log`, `/tmp/ctk-project-only-foreground.log`, and
+`/tmp/ctk-project-only-progress.log`.
+
 Evidence logs: `/tmp/ctk-real-extraction.log`,
 `/tmp/ctk-publication-three-indexes.log`,
 `/tmp/ctk-publication-native-union.log`, `/tmp/ctk-publication-unit.log`,
 `/tmp/ctk-publication-live-union.log` and
 `/tmp/ctk-publication-live-running.log`.
+
+### Shared project-header payloads
+
+System-header exclusion alone was insufficient. The real batch.pb.cc contribution
+still contained 110,087 project symbols, including 80,992 from the same generated
+semantic.pb.h header. Repeating those payloads through secondary indexes remained
+expensive and one preliminary live lookup exceeded its budget during that write
+load. That preliminary run is not a successful final responsiveness result.
+
+The final publisher groups each header's exact serialized symbol records in
+sorted order and hashes that content together with its file path. Identical
+payloads are stored once; differing macro-dependent payloads receive different
+owners. Membership changes update one header owner rather than rewriting every
+declaration in that header. Main-file rows remain private to their TU and use
+the differential update described above.
+
+This preserves the three persistent tables and their columns. Header owners
+use translation_unit rows with indexed_at=0, whose dependencies_json is a JSON
+array of referring real TU IDs. Real TU rows retain positive timestamps, ordinary
+file-dependency manifests, a reserved layout marker and reserved group references.
+Dependency validation excludes only those reserved bookkeeping fields. A partial
+covering index contains the header membership arrays; actual TU counts continue
+to count only positive timestamps.
+
+Lookups materialize bounded physical candidates, include every physical owner
+tied at the candidate boundary, expand header memberships, and sort/limit by
+the real TU IDs before fetching payloads and covering TU metadata. The boundary
+step preserves logical ordering for small limits across macro variants; review
+caught this edge case and a deliberately inverse-order, three-variant regression
+now covers it. Callers still receive each TU's actual file and compilation
+context, not a synthetic header owner.
+
+Unchanged flat contributions whose IDs match the current extractor and whose
+inputs still validate are migrated from their stored rows without running Clang
+again. Publication still rechecks dependencies, commands and worker identity
+before committing. Refresh/removal releases memberships and removes unreferenced
+header owners. A large obsolete cohort is retired by atomically copying retained
+owners, dropping the old symbol table and rebuilding the smaller indexes; WAL
+readers retain the previous snapshot. SQL progress callbacks yield to foreground
+requests and honor pause/cancel. The private populated-snapshot benchmark spent
+147.24 seconds dropping the old approximately 10GB symbol table, rather than
+performing per-symbol secondary-index deletions; that one-time cost is separate
+from ordinary TU publication.
+
+The 20-TU regression stores 200 physical header declarations for 4,000 logical
+contributions, while exact lookup returns all 20 TU provenances and prefix lookup
+honors its limit/truncation flag. Trigger guards confirm unchanged header rows
+are not physically rewritten. All 440 final native checks passed (70.07 seconds).
+Independent review approved shared ownership, logical ordering and fast migration.
+
+### Final verification
+
+Before the memory-guard adjustment below, the shared-header build passed
+all 440 native checks, all 2,500 Python unit checks,
+and all 199 end-to-end scenarios. The latter ran in three isolated batches
+(67/66/66 scenarios, 627.57/644.52/613.32 seconds).
+
+The oversized old symbol cache was preserved by renaming its directory to
+`31f15246fed0bcde30334e9a53a0e0a94ea31ef5c4d498f9cc42cce4330f2830.before-shared-20261017T135742Z`
+under `~/.cache/clang-toolkit/storage/symbol-index/`. A clean full-project
+pass started at 2026-10-17 13:57:42 UTC. This measures a clean index rather
+than hiding the separately reported old-cache migration cost. The backup
+remains available for rollback.
+
+During this pass, simultaneous foreground probes measured eight fresh-file
+parses at 130.45ms mean / 153.66ms maximum, 20 populated cross-TU lookups at
+6.57ms / 7.97ms, and 20 server-status calls at 39.87ms / 68.51ms. A separate
+40-request exact/prefix/USR cross-TU probe passed with zero errors at 8.13ms
+mean / 17.58ms maximum. The client and initial parse warmup took 3.99 seconds
+and is reported separately from the steady-state requests.
+
+A brief paused comparison used eight other fresh files and the same request
+mix: parses 150.06ms / 187.77ms, lookups 10.04ms / 15.40ms, status 58.19ms /
+85.01ms. These bounded samples show no observed foreground regression under
+indexing; they are not a claim of zero scheduling overhead in every workload.
+Indexing was resumed immediately after the comparison.
+
+At 204 indexed TUs, the live database contained zero symbol rows from libc++
+include paths, SDKs, system `/usr/include`, or Clang resource includes. The
+generated semantic.pb.h had two genuine payload variants: one shared by 47
+TUs and one by a single TU, each stored once rather than copied per TU.
+
+The clean pass reached 622/623 TUs at 14:19:42 UTC, exactly 22 minutes after
+starting, with all 129 populated cross-TU lookup probes successful (10.54ms
+mean / 68.76ms maximum). One test TU, `serialization/testing/test_cached_values.cpp`,
+hit the existing 1GiB worker guard. A separate low-priority, 2GiB-guarded
+diagnostic completed that TU in 7.53 seconds, emitting 213,102 project symbols
+with a measured peak of 1,080.19MiB. The production guard was therefore raised
+to a still-bounded 1.5GiB; worker priority, foreground yielding and time/output
+limits remain unchanged.
+
+After rebuilding/restarting with that adjustment, the server reused the 622
+stored TUs and filled the missing contribution. It reported COMPLETE at
+14:24:00 UTC with 623 completed, 623 skipped on its final reconciliation,
+zero pending and zero failed. The elapsed wall time from the clean start was
+26 minutes 18 seconds, including the brief pause comparison, diagnostic,
+rebuild/restart and foreground interruptions. This is substantially below
+the previous 4–5 hour estimate, which was an estimate rather than a completed
+baseline measurement.
+
+Final read-only inspection found exactly three persistent tables, all 623
+real TUs, 531,276 physical symbol rows and zero system-include-path symbol rows.
+The shared semantic.pb.h payload had 98 members in one variant and one member
+in its other variant, with 80,992 physical declarations per variant. The main
+database occupied 574MiB with 58MiB of WAL at inspection; the old backup is
+retained. No standard-library/system-header declarations are indexed, while
+their dependencies remain validated for correct invalidation.
+
+During the final retry, with regression suites also running, eight fresh-file
+parses completed at 254.56ms mean / 545.35ms maximum, 20 populated lookups at
+15.28ms / 90.27ms, and 20 status calls at 106.71ms / 325.91ms. A separately
+recorded cold client/parse warmup took 5.10 seconds. The retry/reconciliation
+monitor made another 16 successful populated lookups at 21.59ms / 45.78ms.
+These loaded samples remain responsive but are not directly comparable with
+the quieter paused baseline. Forty generated-header exact/prefix/USR lookups
+also passed during the clean pass (6.72ms mean / 15.38ms maximum).
+
+After the memory-guard adjustment, all 440 native checks passed again
+(162.89 seconds) with a dedicated `CTK_STORAGE_ROOT`, as did all 2,500 Python
+unit checks (435.07 seconds). Initial native reruns without that isolation
+failed storage expectations because the managed server owns the default cache;
+the sandboxed attempt also denied local socket binding. Those attempts are
+retained in their logs and are not counted as successful checks. Independent
+review approved the bounded guard adjustment.
+
+The final end-to-end rerun passed 198/199 scenarios initially. The remaining
+PCH scenario required `CTK_TEST_CLANG`, which was absent from that runner;
+it passed separately in 2.92 seconds with the server's LLVM compiler and the
+repository import path configured. Thus all 199 scenarios were verified
+against the final build; the initial environment failure is retained in
+`/tmp/ctk-shared-memory-bdd-2.log` rather than reported as a clean first pass.
+The two clean batches passed 67 and 66 scenarios in 926.55 and 947.55 seconds.
+
+A final steady-state probe, with all 623 TUs stored and background
+reconciliation still enabled, passed another 20 populated cross-TU lookups
+at 8.80ms mean / 11.92ms maximum and 20 status calls at 61.09ms / 160.45ms.
+Eight fresh-file parses passed at 177.45ms mean / 234.22ms maximum, with a
+separate 299.93ms client/parse warmup.
+
+Evidence: `/tmp/ctk-shared-final-native.log`,
+`/tmp/ctk-shared-migration-focused.log`, `/tmp/ctk-project-only-unit.log`,
+`/tmp/ctk-shared-final-bdd.log`, `/tmp/ctk-shared-final-bdd-{0,1,2}.log`,
+`/tmp/ctk-shared-clean-progress.log`, `/tmp/ctk-shared-clean-foreground.log`,
+`/tmp/ctk-shared-clean-lookups.log`, and
+`/tmp/ctk-shared-paused-foreground.log`. Additional final evidence:
+`/tmp/ctk-heavy-index-profile.log`, `/tmp/ctk-shared-memory-progress.log`,
+`/tmp/ctk-shared-final-memory-foreground.log`, and
+`/tmp/ctk-shared-generated-lookups.log`, plus
+`/tmp/ctk-shared-memory-native-private.log` and
+`/tmp/ctk-shared-memory-unit.log`, `/tmp/ctk-shared-memory-bdd.log`,
+`/tmp/ctk-shared-memory-pch-configured.log`, and
+`/tmp/ctk-shared-final-steady.log`.
