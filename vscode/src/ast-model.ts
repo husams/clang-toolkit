@@ -12,12 +12,34 @@ export const astEntrySchema = z.object({
   raw: z.unknown(),
   locationValid: z.boolean(),
 });
-export const astInspectionSchema = z.object({
+export const astPageSchema = z.object({
   node: astEntrySchema,
   children: z.array(astEntrySchema).max(1000),
-  parseCount: z.number().int().nonnegative(),
-  root: z.object({ id: z.string(), file: z.string(), label: z.string() }),
 });
+export const astInspectionSchema = astPageSchema
+  .extend({
+    parseCount: z.number().int().nonnegative(),
+    root: z.object({ id: z.string(), file: z.string(), label: z.string() }),
+    path: z.array(astPageSchema).min(1).max(65).optional(),
+  })
+  .superRefine((inspection, context) => {
+    const path = inspection.path;
+    if (!path) return;
+    if (
+      path.at(-1)?.node.id !== inspection.node.id ||
+      path.some((page, index) => {
+        const next = path[index + 1];
+        return (
+          next && !page.children.some((child) => child.id === next.node.id)
+        );
+      })
+    )
+      context.addIssue({
+        code: "custom",
+        message: "AST source path is disconnected",
+      });
+  });
+export type AstPage = z.infer<typeof astPageSchema>;
 export type AstEntry = z.infer<typeof astEntrySchema>;
 export type AstInspection = z.infer<typeof astInspectionSchema>;
 export const sourceSelectionSchema = z

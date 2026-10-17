@@ -1,3 +1,5 @@
+import { renderTree } from "./inspector-tree.js";
+
 const api = acquireVsCodeApi();
 const el = (id) => document.getElementById(id);
 const post = (type, data = {}) => api.postMessage({ type, ...data });
@@ -56,38 +58,16 @@ window.addEventListener("message", ({ data }) => {
   fields("range", node.range);
   el("range-group").hidden = !node.range.length;
   el("loading").hidden = !state.running;
-  el("no-children").hidden =
-    state.running || state.children === undefined || state.children.length > 0;
-  el("children").replaceChildren();
-  for (const child of state.children ?? []) {
-    const li = document.createElement("li"),
-      button = document.createElement("button"),
-      kind = document.createElement("span"),
-      name = document.createElement("span");
-    button.className = "child";
-    button.dataset.node = child.id;
-    button.setAttribute("aria-label", `Inspect ${child.kind}: ${child.name}`);
-    kind.className = "child-kind";
-    kind.textContent = child.kind;
-    name.className = "muted";
-    name.textContent = child.name === child.kind ? "" : child.name;
-    button.title = child.locationValid
-      ? `${child.file}:${child.line}:${child.column}`
-      : child.kind;
-    button.disabled = state.running;
-    button.append(kind, name);
-    button.addEventListener("click", () => post("child", { id: child.id }));
-    li.append(button);
-    el("children").append(li);
-  }
+  const tree = renderTree(el("tree"), state, post);
   post("rendered", {
     kind: el("kind").textContent,
     properties: [...el("properties").querySelectorAll("dt")].map(
       (item) => item.textContent,
     ),
-    children: [...el("children").querySelectorAll("button")].map(
-      (item) => item.dataset.node,
-    ),
+    children: state.tree
+      .filter((row) => row.parent === node.id)
+      .map((row) => row.id),
+    tree,
     text: document.querySelector("main").innerText.slice(0, 100000),
   });
 });

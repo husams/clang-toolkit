@@ -641,3 +641,59 @@ node fetched its function properties/type/body children; clicking CompoundStmt
 fetched ReturnStmt, with the expected source highlights. No search or action was
 run. The trial remains open at that body node with File AST navigation available;
 custom action tabs were preserved.
+
+## Expandable AST tree and cursor reveal, version 0.2.14
+
+CTK Result now keeps a hierarchical AST outline beside the selected node's
+properties. Chevron expansion fetches unloaded children without changing the
+selection or source highlight; collapsing and reopening keeps cached children
+and their exact native IDs. Row selection loads properties, expands that node and
+highlights its source. The tree has ARIA levels/selection/expanded state, roving
+focus, sibling positions and Up/Down/Left/Right/Home/End/Enter/Space navigation.
+Horizontal/vertical scrolling keeps deep nodes usable in a narrow panel.
+
+Cursor lookup now walks the same retained TU child graph used by the outline,
+returning a validated, connected root-to-selected-node path. The client merges
+those pages, expands every ancestor and scrolls the selected row into view
+without moving focus or the editor caret. Other expanded branches remain open.
+This replaces disconnected matcher-result handles and the old declaration index;
+native IDs in cursor paths are exactly the IDs displayed by the tree. Included
+header declarations are fetched as actual TU children only when that header is
+selected. Limits remain explicit: 16 source files, 1,000 direct neighbours,
+128 inspected/visited nodes, 64 cursor-path levels and 10,000 retained handles.
+An unmatched source position clears tree selection and disables actions while
+keeping the previous facts and notice visible. Branch-load errors preserve the
+tree and Retry repeats that branch load.
+
+Validation logs: `vscode/artifacts/validation/ast-tree-20261017/`.
+TypeScript, Biome, 48 extension tests (15 native opt-ins skipped), 16 console
+adapter tests and eight native integration tests passed. New tree-model checks
+cover unloaded versus leaf state, collapsed branch caching, preserved sibling
+expansion, selection reveal on Back, and rejection of disconnected native paths.
+Native tests verify actual TU-to-function-to-body-to-return-to-call child edges
+and stable IDs shared with the file root, alongside existing UTF-8, source-point
+and follow-up-action checks. The real VS Code host verifies rendered tree rows,
+expansion without changing the selected node, unloaded grandchildren, collapse
+and cached reopening, and automatic expansion from a fully collapsed tree for
+every tested editor cursor move. Exact editor selection and focus remain intact;
+source lookup into an included header also expands the real TU path without
+reparsing. The full existing search/action/history/completion suite passes;
+`host-final.log` is the final successful run. Isolated test windows and servers
+closed normally. Shared server/SDK/console runtime implementations are unchanged;
+the previously recorded repository-wide Python baseline failures still apply.
+
+Packaged and installed v0.2.14 in the normal VS Code profile. The VSIX includes
+the tree renderer and passed ZIP verification. SHA256:
+`fcb315df1a4b48642f142190f4d4c23bc1b0a6f13546e4352a44fee7c0457088`.
+
+Reloaded only the existing normal-profile trial. The file AST appeared as an
+outline with four collapsed function branches. Clicking the root chevron hid
+the branches; Right reopened them, and Down selected firstTarget, fetched its
+unvisited children and highlighted its full source while focus stayed in the
+tree. After collapsing the entire root again, moving the C++ caret to line 5,
+column 42 automatically reopened TU → secondCaller → CompoundStmt → ReturnStmt
+→ CallExpr and selected IntegerLiteral value 2. The earlier firstTarget expansion
+was retained. Right in the editor selected the containing CallExpr at column 43;
+Left returned to IntegerLiteral. The selected row scrolled into view and the C++
+editor retained keyboard focus with no text selected. The trial remains in that
+state, with custom action tabs preserved; no search or action was needed.

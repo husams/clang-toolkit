@@ -19,9 +19,41 @@ WRAPPERS = {'implicitCastExpr', 'exprWithCleanups', 'materializeTemporaryExpr',
 class AstSelection:
     def __init__(self, inspector: AstInspector) -> None:
         self.inspector = inspector
-        self.declarations: dict[tuple[str, str], list[tuple[int, int, Any]]] = {}
-        self.handles: dict[tuple[str, str, int], str] = {}
+        self.files: set[tuple[str, str]] = set()
         self.bytes: dict[str, bytes] = {}
+
+    def file_page(self, root_file: str, file: str) -> dict[str, Any]:
+        host = self.inspector.host
+        root_id = self.inspector.file_node(root_file)
+        page = self.inspector.inspect(dict(settings=host.settings, nodeId=root_id))
+        key = (root_file, file)
+        if key in self.files:
+            return page
+        if len(self.files) >= 16:
+            raise ValueError('Source selection file limit reached; refresh analysis.')
+        if file != root_file:
+            # Header declarations remain real TU children, fetched only when needed.
+            target, _, _ = host.check_input(root_id)
+            query = Matcher('decl', Matcher('isExpansionInFileMatching', re.escape(file) + '$'))
+            rows = host.client.peek(target, axis='children', query=query, max_nodes=1000)
+            pending = {}
+            try:
+                if len(page['children']) + len(rows) > 1000 or len(host.nodes) + len(rows) > 10000:
+                    raise ValueError('AST child limit reached; refresh or narrow the file context.')
+                for row in rows:
+                    pending[str(uuid4())] = (row.binding('target'), root_file, 'AST child')
+                host.nodes.update(pending)
+                children = [self.inspector.describe(identifier) for identifier in pending]
+                page = {**page, 'children': [*page['children'], *children]}
+            except BaseException:
+                for identifier in pending:
+                    host.nodes.pop(identifier, None)
+                rows.close()
+                raise
+            self.inspector.collections.append(rows)
+            self.inspector.cache[root_id] = page
+        self.files.add(key)
+        return page
 
     def span(self, value: Any, file: str) -> tuple[int, int] | None:
         begin, end = value.range.expansion_begin, value.range.expansion_end_exclusive
@@ -61,51 +93,19 @@ class AstSelection:
                     else span[0] <= start and end <= span[1])
 
         file = str(Path(selection['file']).resolve())
-        key = (root_file, file)
-        if key not in self.declarations:
-            if len(self.declarations) >= 16:
-                raise ValueError('Source selection file limit reached; refresh analysis.')
-            tree, _, _ = host.check_input(host.root(root_file))
-            query = Matcher('decl', Matcher('isExpansionInFileMatching', re.escape(file) + '$'),
-                            Matcher('unless', Matcher('isImplicit'))).bind('candidate')
-            rows = host.client.match_in(query, tree)
-            try:
-                if len(rows) > 5000:
-                    raise ValueError('Source selection declaration limit reached (5000); narrow the file or refresh analysis.')
-                candidates = []
-                for row in rows:
-                    span = self.span(row.bindings['candidate'], file)
-                    if span:
-                        candidates.append((*span, row.binding('candidate')))
-            except BaseException:
-                rows.close()
-                raise
-            self.inspector.collections.append(rows)
-            self.declarations[key] = candidates
-        covering = [(stop - begin, index, target) for index, (begin, stop, target) in
-                    enumerate(self.declarations[key]) if covers((begin, stop))]
-        if not covering:
-            return None
-        _, index, target = min(covering, key=lambda item: (item[0], item[1]))
-        handle_key = (*key, index)
-        if handle_key not in self.handles:
-            if len(host.nodes) >= 10000:
-                raise ValueError('AST selection handle limit reached; refresh analysis.')
-            identifier = str(uuid4())
-            host.nodes[identifier] = (target, root_file, 'Source selection')
-            self.handles[handle_key] = identifier
-        identifier = self.handles[handle_key]
-        best: tuple[Any, dict[str, Any]] | None = None
-        pending = [(identifier, 0)]
+        root = self.file_page(root_file, file)
+        best: tuple[Any, dict[str, Any], list[dict[str, Any]]] | None = None
+        pending = [(root['node']['id'], 0, [])]
         visited: set[str] = set()
         while pending:
-            current_id, depth = pending.pop()
+            current_id, depth, parents = pending.pop()
             if current_id in visited:
                 continue
             if depth > 64 or len(visited) >= 128:
                 raise ValueError('Source selection traversal limit reached; narrow the selection or refresh analysis.')
             visited.add(current_id)
             page = self.inspector.inspect(dict(settings=host.settings, nodeId=current_id))
+            path = [*parents, dict(node=page['node'], children=page['children'])]
             native, _, _ = host.check_input(current_id)
             span = self.span(native.value, file)
             if span:
@@ -114,19 +114,18 @@ class AstSelection:
                 macro = native.value.range.expansion_begin.is_macro
                 score = (span[1] - span[0], kind in WRAPPERS, depth if macro else -depth)
                 if best is None or score < best[0]:
-                    best = (score, page)
+                    best = (score, page, path)
             for child in page['children']:
                 native_child, _, _ = host.check_input(child['id'])
                 child_span = self.span(native_child.value, file)
                 if child_span:
                     if covers(child_span):
-                        pending.append((child['id'], depth + 1))
-                elif not native_child.value.range.expansion_begin.valid:
+                        pending.append((child['id'], depth + 1, path))
+                elif depth > 0 and not native_child.value.range.expansion_begin.valid:
                     # Type-location visitors can own source-bearing parameters.
-                    pending.append((child['id'], depth + 1))
-        return best[1] if best else None
+                    pending.append((child['id'], depth + 1, path))
+        return {**best[1], 'path': best[2]} if best else None
 
     def clear(self) -> None:
-        self.declarations.clear()
-        self.handles.clear()
+        self.files.clear()
         self.bytes.clear()

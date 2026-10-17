@@ -8,6 +8,7 @@ import {
   astDisplay,
   type SourceSelection,
 } from "./ast-model.js";
+import { InspectorTree } from "./inspector-tree.js";
 import type { Result } from "./model.js";
 
 type Load = (
@@ -28,10 +29,26 @@ const messages = z.discriminatedUnion("type", [
   z.object({ type: z.literal("action") }),
   z.object({ type: z.literal("child"), id: z.string() }),
   z.object({
+    type: z.literal("expand"),
+    id: z.string(),
+    expanded: z.boolean(),
+  }),
+  z.object({
     type: z.literal("rendered"),
     kind: z.string(),
     properties: z.array(z.string()),
     children: z.array(z.string()),
+    tree: z
+      .array(
+        z.object({
+          id: z.string(),
+          level: z.number().int().positive(),
+          expanded: z.boolean().optional(),
+          selected: z.boolean(),
+          loaded: z.boolean(),
+        }),
+      )
+      .max(10000),
     text: z.string().max(100000),
   }),
 ]);
@@ -46,6 +63,9 @@ export class DetailsView
     | ((id: string) => Promise<NodeActionTarget>)
     | undefined;
   private cache = new Map<string, Page>();
+  private readonly tree = new InspectorTree();
+  private treeReveal = 0;
+  private retry: (() => Promise<void>) | undefined;
   private generation = 0;
   private running = false;
   private error = "";
@@ -77,7 +97,23 @@ export class DetailsView
     const js = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.uri, "media", "inspector.js"),
     );
-    view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"></head><body><main><p id="empty">Open a C++ file or select a match to inspect its AST.</p><section id="inspector" hidden><nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav><header><h2 id="name"></h2><span id="kind"></span></header><p id="signature"></p><button id="location"></button><pre id="source"></pre><div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button><button id="action">Run action on this node…</button><div class="columns"><details open><summary>Properties</summary><dl id="properties"></dl></details><details open><summary>Children</summary><p id="loading" role="status" hidden>Loading AST children…</p><p id="no-children" hidden>No child nodes.</p><ul id="children"></ul></details></div><details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details></section></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
+    view.webview.html = `<!doctype html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}' ${view.webview.cspSource};">
+<link rel="stylesheet" href="${css}"></head><body><main>
+<p id="empty">Open a C++ file or select a match to inspect its AST.</p>
+<section id="inspector" hidden>
+<nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav>
+<div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button>
+<div class="columns"><section class="outline" aria-label="AST outline"><h3>AST</h3>
+<p id="loading" role="status" hidden>Loading AST children…</p>
+<ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
+<section class="node-details" aria-label="Selected AST node"><header><h2 id="name"></h2><span id="kind"></span></header>
+<p id="signature"></p><button id="location"></button><pre id="source"></pre>
+<button id="action">Run action on this node…</button>
+<details open><summary>Properties</summary><dl id="properties"></dl></details>
+<details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details>
+</section></div></section></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
         this.error = error instanceof Error ? error.message : String(error);
@@ -112,6 +148,20 @@ export class DetailsView
       error: this.error,
       notice: this.notice,
       rootLabel: this.rootLabel,
+      treeReveal: this.treeReveal,
+      tree: this.tree.rows().map(({ node, ...row }) => {
+        const display = astDisplay(node);
+        return {
+          ...row,
+          id: node.id,
+          name: display.name,
+          kind: display.kind,
+          file: node.file ? vscode.workspace.asRelativePath(node.file) : "",
+          line: node.line,
+          column: node.column,
+          locationValid: display.locationValid,
+        };
+      }),
       rendered: this.rendered,
     };
   }
@@ -135,6 +185,8 @@ export class DetailsView
     this.current = { node: result };
     this.history = [];
     this.cache.clear();
+    this.tree.reset();
+    this.retry = undefined;
     this.load = load;
     this.prepareAction = prepareAction;
     this.error = "";
@@ -159,8 +211,9 @@ export class DetailsView
     selection?: SourceSelection,
     selectionCurrent: () => boolean = () => true,
     revealSource = true,
+    select = true,
   ): Promise<void> {
-    if (!this.load || !this.current) return;
+    if (!this.load || !this.current || !selectionCurrent()) return;
     const generation = ++this.generation;
     this.running = true;
     this.error = "";
@@ -181,27 +234,44 @@ export class DetailsView
       const inspection = await operation;
       if (generation !== this.generation || !selectionCurrent()) return;
       if (!inspection) {
+        this.tree.clearSelection();
         const location =
           selection?.start === selection?.end ? "position" : "selection";
         this.notice = `No AST node covers this ${location} in the current analysis; showing the previous node.`;
         return;
       }
       if (
+        select &&
         selection &&
         this.current &&
         this.current.nativeId !== inspection.node.id
       )
         this.history.push(this.current);
-      this.current = {
+      const page = {
         node: inspection.node,
         nativeId: inspection.node.id,
         children: inspection.children,
       };
-      this.cache.set(inspection.node.id, this.current);
-      if (!selection && revealSource) await this.openSource(this.current.node);
+      this.tree.apply(page, inspection.path, select);
+      for (const ancestor of inspection.path ?? [])
+        this.cache.set(ancestor.node.id, {
+          ...ancestor,
+          nativeId: ancestor.node.id,
+        });
+      this.cache.set(inspection.node.id, page);
+      if (select) {
+        this.current = page;
+        this.treeReveal++;
+      }
+      this.retry = undefined;
+      if (select && !selection && revealSource)
+        await this.openSource(page.node);
     } catch (error) {
-      if (generation === this.generation && selectionCurrent())
+      if (generation === this.generation && selectionCurrent()) {
         this.error = error instanceof Error ? error.message : String(error);
+        this.retry = () =>
+          this.inspect(id, selection, selectionCurrent, revealSource, select);
+      }
     } finally {
       if (this.operation === operation) this.operation = undefined;
       if (generation === this.generation) {
@@ -233,7 +303,16 @@ export class DetailsView
       return;
     }
     if (message.type === "retry") {
-      await this.inspect(this.current?.nativeId);
+      await this.retry?.();
+      return;
+    }
+    if (message.type === "expand") {
+      if (!this.tree.node(message.id))
+        throw new Error("This AST branch is no longer available.");
+      this.tree.expand(message.id, message.expanded);
+      this.publish();
+      if (message.expanded && !this.tree.loaded(message.id))
+        await this.inspect(message.id, undefined, () => true, false, false);
       return;
     }
     if (message.type === "back" || message.type === "root") {
@@ -243,6 +322,8 @@ export class DetailsView
       if (message.type === "root") this.history = [];
       else this.history.pop();
       this.current = page;
+      this.tree.apply(page);
+      this.treeReveal++;
       this.error = "";
       this.notice = "";
       this.publish();
@@ -250,18 +331,18 @@ export class DetailsView
       return;
     }
     if (message.type === "child") {
-      const child = this.current?.children?.find(
-        (node) => node.id === message.id,
-      );
+      const child = this.tree.node(message.id);
       if (!child || !this.current)
         throw new Error("This AST child is no longer available.");
-      this.history.push(this.current);
+      if (this.current.node.id !== child.id) this.history.push(this.current);
       this.current = this.cache.get(child.id) ?? {
         node: child,
         nativeId: child.id,
       };
       this.error = "";
       this.notice = "";
+      this.tree.apply(this.current);
+      this.treeReveal++;
       this.publish();
       if (!this.current.children) await this.inspect(child.id);
       else await this.openSource(this.current.node);

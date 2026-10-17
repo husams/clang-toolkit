@@ -162,6 +162,22 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       expect(call, "an exact call selection must resolve").toBeDefined();
       expect(astDisplay(call!.node).kind).toBe("CallExpr");
       expect(call!.parseCount).toBe(1);
+      expect(call!.path?.map((page) => astDisplay(page.node).kind)).toEqual([
+        "TranslationUnitDecl",
+        "FunctionDecl",
+        "CompoundStmt",
+        "ReturnStmt",
+        "CallExpr",
+      ]);
+      for (const [index, page] of call!.path!.entries()) {
+        const next = call!.path![index + 1];
+        if (next)
+          expect(page.children.some((child) => child.id === next.node.id)).toBe(
+            true,
+          );
+      }
+      const fileRoot = await host.inspect(settings, { translationUnit: file });
+      expect(call!.path![0]!.node.id).toBe(fileRoot.node.id);
       const argument = await select("quantity", true);
       expect(astDisplay(argument!.node).kind).toBe("DeclRefExpr");
       const returned = await select("return adjust(quantity)");

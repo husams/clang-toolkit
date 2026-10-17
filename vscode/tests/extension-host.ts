@@ -68,6 +68,42 @@ export async function run(): Promise<void> {
     (node) => node.kind === "NamespaceDecl",
   );
   assert.ok(namespace);
+  const initialTreeRoot = astState().node!.id;
+  await api.details.receive({
+    type: "expand",
+    id: namespace.id,
+    expanded: true,
+  });
+  assert.equal(
+    astState().node!.id,
+    initialTreeRoot,
+    "expanding a branch must preserve the inspected selection",
+  );
+  const expandedClass = astState().tree.find(
+    (row) => row.kind === "CXXRecordDecl" && row.name.endsWith("Order"),
+  );
+  assert.ok(
+    expandedClass && expandedClass.depth === 2 && !expandedClass.loaded,
+    "unvisited descendants must remain unloaded",
+  );
+  await api.details.receive({
+    type: "expand",
+    id: namespace.id,
+    expanded: false,
+  });
+  assert.ok(
+    !astState().tree.some((row) => row.id === expandedClass.id),
+    "collapsing a branch must hide its descendants",
+  );
+  await api.details.receive({
+    type: "expand",
+    id: namespace.id,
+    expanded: true,
+  });
+  assert.ok(
+    astState().tree.some((row) => row.id === expandedClass.id),
+    "reopening a branch must preserve retained child IDs",
+  );
   await api.details.receive({ type: "child", id: namespace.id });
   assert.equal(astState().node?.kind, "NamespaceDecl");
   const lazyClass = astState().children?.find(
@@ -206,6 +242,7 @@ export async function run(): Promise<void> {
           code,
           "reverse sync must preserve the user's exact selection",
         );
+        if (kind !== "unmatched") await revealedTree(kind, state.node!.id);
         return state;
       }
       await new Promise((done) => setTimeout(done, 40));
@@ -233,6 +270,19 @@ export async function run(): Promise<void> {
       start + offset + (start + offset ? -1 : 1),
     );
     const previousId = astState().node?.id;
+    const treeRoot = astState().tree.find((row) => row.depth === 0);
+    if (treeRoot) {
+      await api.details.receive({
+        type: "expand",
+        id: treeRoot.id,
+        expanded: false,
+      });
+      assert.equal(
+        astState().tree.length,
+        1,
+        "cursor reveal must start with collapsed ancestors",
+      );
+    }
     editor.selection = new vscode.Selection(before, before);
     await vscode.commands.executeCommand("cursorMove", {
       to: start + offset ? "right" : "left",
@@ -261,6 +311,7 @@ export async function run(): Promise<void> {
           editor.selection.active.isEqual(position),
           "cursor lookup must preserve the caret",
         );
+        if (kind !== "unmatched") await revealedTree(kind, state.node!.id);
         return state;
       }
       await new Promise((done) => setTimeout(done, 40));
@@ -278,6 +329,9 @@ export async function run(): Promise<void> {
         !state.running &&
         rendered?.type === "rendered" &&
         rendered.kind === kind &&
+        rendered.tree.some(
+          (row) => row.id === state.node?.id && row.selected,
+        ) &&
         rendered.children.length === (state.children?.length ?? 0)
       )
         return rendered;
@@ -286,6 +340,21 @@ export async function run(): Promise<void> {
     assert.fail(
       `AST inspector did not render ${kind}: ${JSON.stringify(astState())}`,
     );
+  }
+  async function revealedTree(kind: string, id: string) {
+    const rendered = await renderedAst(kind);
+    assert.ok(rendered.tree.some((row) => row.id === id && row.selected));
+    const tree = astState().tree;
+    let selected = tree.find((row) => row.selected);
+    assert.ok(
+      selected,
+      "cursor lookup must select its corresponding visible tree row",
+    );
+    while (selected.parent) {
+      selected = tree.find((row) => row.id === selected!.parent);
+      assert.ok(selected?.expanded, "cursor lookup must expand every ancestor");
+    }
+    assert.equal(selected.kind, "TranslationUnitDecl");
   }
   assert.equal(astState().error, "", JSON.stringify(astState()));
   assert.equal(astState().node?.kind, "CXXRecordDecl");
