@@ -23,10 +23,13 @@ From another working directory, resolve the installed skill root and pass absolu
 The complete script is [callgraph_match_nodes.ctk](../scripts/callgraph_match_nodes.ctk).
 It creates filename, parsed-file and matched-function graphs and matches directly
 from each returned node. The following actual compiled-console output was verified
-on macOS and on Linux on 17 October 2026. The Linux run used merged main
-`8c6d2c97b8a6`, including PR #50, with the rebuilt client and restarted server at
-`unix:///tmp/ctk.sock`. Linux matching also succeeded after closing the original
-handles and removing all fixture source/header files, as reproduced below:
+on macOS and on Linux on 17 October 2026. The latest recorded Linux run used
+merged main `396306c2684a`, including PRs #50 and #52, with the refreshed client
+and rebuilt, restarted server at `unix:///tmp/ctk.sock`. All three installed Linux
+skill copies matched the repository skill and passed validation. The rerun used
+the synced skill's console statements with a fresh disposable fixture; matching
+succeeded after closing the original handles and removing all fixture
+source/header files, as reproduced below:
 
 ```text
 FILENAME: nodes=4, edges=5, sites=2, root_sites=0
@@ -53,20 +56,23 @@ closing source values and deleting both the main file and its project header.
 
 ### Linux proof after closing handles and removing source files
 
-The verified Linux client and server both reported revision `8c6d2c97b8a6`.
+The verified Linux checkout was at
+`396306c2684afc8d0a83a8b82c2492e219d4bee7`; both the client and server reported
+`396306c2684a`, and the running server binary matched the rebuilt executable.
 This is recorded verification, not a health check of a later endpoint. Use an
 authorized existing server and keep both console stages in one live session.
 The filename graph creates or reuses an AST; the parsed-file and matched-node
 graph requests use retained inputs. The proof then closes those original inputs
 and removes the disposable source and headers before any direct node matching.
 
-From the Linux checkout, prepare the same disposable fixture and open a console:
+From the Linux checkout, copy the synced skill's bundled fixture, including its
+project, vendor and generated headers, and open a console:
 
 ```sh
 cd /home/husam/clang-toolkit
-proof_dir=/tmp/ctk-node-match-main.8qKQpz
+proof_dir=/tmp/ctk-callgraph-proof-396306c.8IboxV
 mkdir -p "$proof_dir/fixture" "$proof_dir/empty-libraries"
-cp -R examples/callgraph_strict_filters/. "$proof_dir/fixture/"
+cp -R "$HOME/.codex/skills/ctk-script/assets/callgraph_project/." "$proof_dir/fixture/"
 .venv/bin/ctk --server unix:///tmp/ctk.sock --script-engine compiled --ui prompt --lib-dir "$proof_dir/empty-libraries"
 ```
 
@@ -75,7 +81,7 @@ default shallow semantic payload. `depth all` on the matched seed controls call
 hops, independently of payload expansion:
 
 ```ctk
-let source = "/tmp/ctk-node-match-main.8qKQpz/fixture/main.cc"
+let source = "/tmp/ctk-callgraph-proof-396306c.8IboxV/fixture/main.cc"
 let filename = callgraph source exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
 let tree = parse source
 let entries = match functionDecl(hasName("entry"), isDefinition()).bind("f") in tree
@@ -99,12 +105,13 @@ remove only this disposable fixture, including the project, vendor and generated
 headers; never delete the user's original source as a verification step:
 
 ```sh
-rm -r -- /tmp/ctk-node-match-main.8qKQpz/fixture
-test ! -e /tmp/ctk-node-match-main.8qKQpz/fixture && printf 'SOURCE_AND_HEADERS_REMOVED=true\n'
+rm -r -- /tmp/ctk-callgraph-proof-396306c.8IboxV/fixture
+test ! -e /tmp/ctk-callgraph-proof-396306c.8IboxV/fixture && printf 'SOURCE_AND_HEADERS_REMOVED=true\n'
 ```
 
-The recorded run confirmed `SOURCE_AND_HEADERS_REMOVED=true` before the following
-queries. Back in the original console, match both the exact callable through
+The rerun confirmed closed original handles and
+`SOURCE_AND_HEADERS_REMOVED=true` before the following queries. Back in the
+original console, match both the exact callable through
 `graph.nodes[...]` and the calls inside `graph.function("project::work")`:
 
 ```ctk
@@ -122,7 +129,17 @@ foreach row in [{"label": "FILENAME", "graph": filename}, {"label": "PARSED", "g
 print "POST_REMOVAL_MATCHES={3}"
 ```
 
-This produced the twelve actual output lines above, followed by:
+The proof runner recorded these checks before the direct matches:
+
+```text
+GRAPH_CREATION_COMPLETE=true
+ORIGINAL_OWNERS_CLOSED=true
+SOURCE_AND_HEADERS_REMOVED=true
+```
+
+All three inputs then produced the twelve actual shallow-output lines above,
+including the successful definition/call matches, unchanged snapshot checks and
+zero root-site counts, followed by:
 
 ```text
 POST_REMOVAL_MATCHES=3
@@ -138,8 +155,11 @@ Graph ownership preserves the native references independently of shallow AST
 fields and of the original parsed/matched owners.
 
 Recorded evidence for this Linux run is under
-`linux-dev:/tmp/ctk-node-match-main.8qKQpz/`: `console-screen.txt`, `console.raw`,
-`actual-output.txt` and the real-TTY verification driver `verify.py`. The same
+`linux-dev:/tmp/ctk-callgraph-proof-396306c.8IboxV/`: `console-screen.txt`,
+`console.raw`, `actual-output.txt`, `proof-meta.json` and the real-TTY driver
+`ctk-linux-installed-skill-proof.py`. The metadata records the full checkout
+revision, installed skill guide, closed original handles, source/header removal
+before matching and an exact match to the documented shallow output. The same
 examples and output are on the
 [callgraph Page](https://chatgpt.com/space/page_97441a03020481919a9361964dc17ff6).
 
