@@ -180,6 +180,10 @@ def main() -> None:
                         continue
                     if host is None:
                         host = ActionHost(request['settings'])
+                    if request['type'] == 'selectSource':
+                        inspection = host.inspector.selection.locate(request)
+                        send(identity, {'inspection': inspection} if inspection else {'notFound': True})
+                        continue
                     if request['type'] == 'inspect':
                         inspection = host.inspector.inspect(request)
                         send(identity, {'inspection': inspection})

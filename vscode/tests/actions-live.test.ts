@@ -81,6 +81,96 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         `${name}.ctk-action`,
         `---\nname: ${name}\ndescription: Test action\narguments: []\n---\n${body}`,
       );
+    it("resolves source selections to native nodes across the parsed file without reparsing", async () => {
+      const host = service();
+      const found = await host.run(
+        action(
+          "source-functions",
+          'match functionDecl(isDefinition()).bind("function") in node',
+        ),
+        {},
+        [file],
+        settings,
+        100,
+      );
+      const reference = found.results.find(
+        (node) => node.name === "processOrder",
+      )!;
+      const text = await readFile(file, "utf8");
+      const select = (code: string, last = false) => {
+        const index = last ? text.lastIndexOf(code) : text.indexOf(code);
+        expect(index).toBeGreaterThanOrEqual(0);
+        return host.selectSource(settings, reference.nodeId, {
+          file,
+          start: Buffer.byteLength(text.slice(0, index)),
+          end: Buffer.byteLength(text.slice(0, index + code.length)),
+        });
+      };
+      const call = await select("adjust(quantity)");
+      expect(call, "an exact call selection must resolve").toBeDefined();
+      expect(astDisplay(call!.node).kind).toBe("CallExpr");
+      expect(call!.parseCount).toBe(1);
+      const argument = await select("quantity", true);
+      expect(astDisplay(argument!.node).kind).toBe("DeclRefExpr");
+      const returned = await select("return adjust(quantity)");
+      expect(astDisplay(returned!.node).kind).toBe("ReturnStmt");
+      const otherFunction = await select("int unrelated() { return 0; }");
+      expect(astDisplay(otherFunction!.node).kind).toBe("FunctionDecl");
+      expect(otherFunction!.node.name).toBe("unrelated");
+      const repeated = await select("adjust(quantity)");
+      expect(repeated!.node.id).toBe(call!.node.id);
+      const followed = await host.run(
+        action("selected-calls", 'match callExpr().bind("call") in node'),
+        {},
+        [file],
+        settings,
+        100,
+        () => {},
+        call!.node.id,
+      );
+      expect(followed.input.id).toBe(call!.node.id);
+      expect(followed.matches).toBe(1);
+      expect(followed.parseCount).toBe(1);
+      const newline = text.indexOf("\n");
+      expect(
+        await host.selectSource(settings, reference.nodeId, {
+          file,
+          start: newline,
+          end: newline + 1,
+        }),
+      ).toBeUndefined();
+      await host.reset();
+      await expect(select("quantity", true)).rejects.toThrow(/expired/);
+    }, 60000);
+    it("resolves UTF-8 selections in paths containing regex metacharacters", async () => {
+      const host = service();
+      const unicodeFile = resolve(directory, "source [1].cpp");
+      const text = "// café 😀\nint unicode() { return 42; }\n";
+      await writeFile(unicodeFile, text);
+      const first = await host.run(
+        action(
+          "unicode-source",
+          'match functionDecl().bind("function") in node',
+        ),
+        {},
+        [unicodeFile],
+        settings,
+        100,
+      );
+      const start = Buffer.byteLength(text.slice(0, text.indexOf("42")));
+      const selected = await host.selectSource(
+        settings,
+        first.results[0]!.nodeId,
+        { file: unicodeFile, start, end: start + 2 },
+      );
+      expect(selected).toBeDefined();
+      expect(astDisplay(selected!.node).kind).toBe("IntegerLiteral");
+      expect(astDisplay(selected!.node).properties).toContainEqual({
+        label: "Literal value",
+        value: "42",
+      });
+      expect(selected!.parseCount).toBe(1);
+    }, 60000);
     it("inspects actual AST children, reuses native handles and rejects stale navigation", async () => {
       const host = service();
       const first = await host.run(

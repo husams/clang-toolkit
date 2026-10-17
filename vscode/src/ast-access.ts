@@ -1,12 +1,16 @@
 import { dirname } from "node:path";
 import * as vscode from "vscode";
 import { ActionService, type ActionSettings } from "./action-service.js";
-import type { AstInspection } from "./ast-model.js";
+import type { AstInspection, SourceSelection } from "./ast-model.js";
 import { findPython } from "./console-service.js";
 import type { Result } from "./model.js";
 
 export interface SearchAstContext {
   inspect(id?: string): Promise<AstInspection>;
+  selectSource(
+    id: string,
+    selection: SourceSelection,
+  ): Promise<AstInspection | undefined>;
   session(): {
     service: ActionService;
     settings: ActionSettings;
@@ -113,6 +117,12 @@ export class SearchAstAccess implements vscode.Disposable {
         if (!root)
           throw new Error("Inspect this node before choosing an action.");
         return { service, settings, root };
+      },
+      selectSource: async (id, selection) => {
+        current();
+        const inspection = await service.selectSource(settings, id, selection);
+        current();
+        return inspection;
       },
       transfer: () => {
         current();

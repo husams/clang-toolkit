@@ -75,6 +75,52 @@ export async function run(): Promise<void> {
     );
     return editor.document.getText(editor.selection);
   };
+  async function selectEditorCode(
+    uri: vscode.Uri,
+    code: string,
+    kind: string,
+    last = false,
+  ) {
+    const document = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(document, {
+      preserveFocus: false,
+    });
+    const text = document.getText();
+    const start = last ? text.lastIndexOf(code) : text.indexOf(code);
+    assert.ok(start >= 0, `Missing selection fixture: ${code}`);
+    editor.selection = new vscode.Selection(
+      document.positionAt(start),
+      document.positionAt(start),
+    );
+    await vscode.commands.executeCommand("cursorMove", {
+      to: "right",
+      by: "character",
+      value: code.length,
+      select: true,
+    });
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const state = astState();
+      if (
+        !state.running &&
+        !state.error &&
+        (kind === "unmatched"
+          ? Boolean(state.notice) && !state.canRunAction
+          : !state.notice && state.node?.kind === kind)
+      ) {
+        assert.equal(
+          highlightedSource(),
+          code,
+          "reverse sync must preserve the user's exact selection",
+        );
+        return state;
+      }
+      await new Promise((done) => setTimeout(done, 40));
+    }
+    assert.fail(
+      `Editor selection did not resolve ${kind}: ${JSON.stringify(astState())}`,
+    );
+  }
   async function renderedAst(kind: string) {
     const end = Date.now() + 10000;
     while (Date.now() < end) {
@@ -124,6 +170,9 @@ export async function run(): Promise<void> {
     "{ return quantity > 0; }",
     "Symbol Search child navigation must select its complete body",
   );
+  await selectEditorCode(target, "quantity > 0", "BinaryOperator");
+  await api.details.receive({ type: "back" });
+  await renderedAst("CompoundStmt");
   const symbolTarget = await api.details.actionTarget();
   await api.actions.setAction(symbolFunctions, true, symbolTarget);
   const symbolState = () =>
@@ -594,6 +643,56 @@ export async function run(): Promise<void> {
     "child inspection must not reparse the action file",
   );
   assert.equal(actionState().stale, false, JSON.stringify(actionState()));
+  await selectEditorCode(actionTarget, "adjust(quantity)", "CallExpr");
+  const sourceSelectedId = astState().node!.id;
+  assert.equal(
+    (await (await api.details.actionTarget()).activate()).id,
+    sourceSelectedId,
+    "source-selected nodes must remain executable",
+  );
+  await selectEditorCode(actionTarget, "djust", "DeclRefExpr", true);
+  await selectEditorCode(
+    actionTarget,
+    "return adjust(quantity);",
+    "ReturnStmt",
+  );
+  await selectEditorCode(
+    actionTarget,
+    "int unrelated() { return 0; }",
+    "FunctionDecl",
+  );
+  assert.equal(
+    astState().node?.name,
+    "unrelated",
+    "editor lookup must cover the parsed file beyond the original match",
+  );
+  assert.equal(actionState().parseCount, 1);
+  await selectEditorCode(target, "Order", "unmatched");
+  await assert.rejects(api.details.actionTarget(), /Select a current AST node/);
+  await selectEditorCode(actionTarget, "adjust(quantity)", "CallExpr");
+  const currentId = astState().node!.id;
+  const sourceText = (
+    await vscode.workspace.openTextDocument(actionTarget)
+  ).getText();
+  const otherStart = sourceText.indexOf("int unrelated()");
+  let selectionCurrent = true;
+  const superseded = api.details.selectSource(
+    {
+      file: actionTarget.fsPath,
+      start: otherStart,
+      end: sourceText.indexOf("}", otherStart) + 1,
+    },
+    () => selectionCurrent,
+  );
+  selectionCurrent = false;
+  await superseded;
+  assert.equal(
+    astState().node!.id,
+    currentId,
+    "an outdated in-flight selection must not replace the current inspector node",
+  );
+  await api.details.receive({ type: "root" });
+  await renderedAst("FunctionDecl");
   assert.equal(
     vscode.window.activeTextEditor?.document.uri.fsPath,
     await realpath(actionTarget.fsPath),
@@ -1006,7 +1105,16 @@ export async function run(): Promise<void> {
     "{ return value + 1; }",
     "header child selection must automatically highlight its header range",
   );
-  assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, headerPath);
+  await selectEditorCode(relatedHeader, "value + 1", "BinaryOperator");
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "header selection must reuse the original translation unit",
+  );
+  assert.equal(
+    await realpath(vscode.window.activeTextEditor!.document.uri.fsPath),
+    headerPath,
+  );
   await api.details.receive({ type: "root" });
   await api.actions.setAction(functions, true);
   assert.equal(actionState().input.id, relatedCallee.nodeId);

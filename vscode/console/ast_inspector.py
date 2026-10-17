@@ -8,6 +8,7 @@ from uuid import uuid4
 from google.protobuf.json_format import MessageToDict
 
 from run_service import Results
+from ast_selection import AstSelection
 
 if TYPE_CHECKING:
     from action_service import ActionHost
@@ -19,6 +20,7 @@ class AstInspector:
         self.collections: list[Any] = []
         self.cache: dict[str, dict[str, Any]] = {}
         self.locations: dict[tuple[Any, ...], str] = {}
+        self.selection = AstSelection(self)
 
     def describe(self, identifier: str) -> dict[str, Any]:
         target, _, _ = self.host.check_input(identifier)
@@ -102,6 +104,7 @@ class AstInspector:
         return response
 
     def close(self) -> None:
+        self.selection.clear()
         self.cache.clear()
         self.locations.clear()
         for rows in self.collections:

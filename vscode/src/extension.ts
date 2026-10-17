@@ -7,6 +7,7 @@ import { ActionsController } from "./actions-controller.js";
 import { SearchAstAccess } from "./ast-access.js";
 import { findPython } from "./console-service.js";
 import { DetailsView } from "./details-view.js";
+import { EditorSelectionSync } from "./editor-selection.js";
 import { registerLanguage } from "./language.js";
 import {
   type Action,
@@ -72,6 +73,7 @@ export class Prototype {
   readonly details: DetailsView;
   private readonly searchAst: SearchAstAccess;
   private readonly sourceHighlight = new SourceHighlight();
+  private readonly editorSelection: EditorSelectionSync;
   private readonly output = vscode.window.createOutputChannel("CTK Output");
   private readonly taskStatus = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -119,6 +121,11 @@ export class Prototype {
       this.output,
       (message) => this.view.post(message),
     );
+    this.editorSelection = new EditorSelectionSync(
+      this.sourceHighlight,
+      (selection, current) => this.details.selectSource(selection, current),
+      (error) => this.output.appendLine(`Source selection: ${String(error)}`),
+    );
     context.subscriptions.push(
       this.output,
       this.taskStatus,
@@ -126,6 +133,7 @@ export class Prototype {
       this.details,
       this.searchAst,
       this.sourceHighlight,
+      this.editorSelection,
       vscode.window.registerWebviewViewProvider("ctk.analysis", this.view, {
         webviewOptions: { retainContextWhenHidden: true },
       }),
@@ -562,16 +570,22 @@ export class Prototype {
         : undefined;
     await this.details.show(
       result,
-      async (id) => {
-        if (actionId) return this.actions.inspect(id ?? actionId);
+      async (id, selection) => {
+        if (actionId)
+          return selection
+            ? this.actions.selectSource(id ?? actionId, selection)
+            : this.actions.inspect(id ?? actionId);
         searchLoad ??= await this.searchAst.open(result, translationUnit);
-        return searchLoad.inspect(id);
+        return selection && id
+          ? searchLoad.selectSource(id, selection)
+          : searchLoad.inspect(id);
       },
       (id) =>
         this.actions.inspectorTarget(id, actionId ? undefined : searchLoad),
     );
   }
   private async openSource(result: Result): Promise<void> {
+    this.editorSelection.cancel();
     await this.sourceHighlight.reveal(result);
   }
 }

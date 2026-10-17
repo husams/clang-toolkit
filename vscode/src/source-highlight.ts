@@ -6,6 +6,7 @@ export class SourceHighlight implements vscode.Disposable {
   private generation = 0;
   private editor: vscode.TextEditor | undefined;
   private range: vscode.Range | undefined;
+  private expected: { uri: string; range: vscode.Range } | undefined;
   private readonly decoration = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor(
       "editor.findMatchHighlightBackground",
@@ -24,7 +25,17 @@ export class SourceHighlight implements vscode.Disposable {
     },
   );
 
-  private clear(collapseSelection = false): void {
+  ownsSelection(
+    editor: vscode.TextEditor,
+    selection: vscode.Selection,
+  ): boolean {
+    return Boolean(
+      (this.expected?.uri === editor.document.uri.toString() &&
+        this.expected.range.isEqual(selection)) ||
+        (this.editor === editor && this.range?.isEqual(selection)),
+    );
+  }
+  clear(collapseSelection = false): void {
     this.generation++;
     if (
       collapseSelection &&
@@ -38,6 +49,7 @@ export class SourceHighlight implements vscode.Disposable {
     this.editor?.setDecorations(this.decoration, []);
     this.editor = undefined;
     this.range = undefined;
+    this.expected = undefined;
   }
   async reveal(result: Result): Promise<void> {
     this.clear(true);
@@ -58,6 +70,7 @@ export class SourceHighlight implements vscode.Disposable {
     const visible = vscode.window.visibleTextEditors.find(
       (editor) => editor.document === document,
     );
+    this.expected = { uri: document.uri.toString(), range };
     const editor = await vscode.window.showTextDocument(document, {
       viewColumn: visible?.viewColumn ?? vscode.ViewColumn.One,
       selection: range,
@@ -76,6 +89,7 @@ export class SourceHighlight implements vscode.Disposable {
     editor.setDecorations(this.decoration, range.isEmpty ? [] : [range]);
     this.editor = editor;
     this.range = range;
+    this.expected = undefined;
   }
   dispose(): void {
     this.clear();

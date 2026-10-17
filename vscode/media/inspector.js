@@ -47,6 +47,8 @@ window.addEventListener("message", ({ data }) => {
   el("location").disabled = state.running;
   el("action").disabled = !state.canRunAction;
   el("error").textContent = state.error;
+  el("notice").textContent = state.notice;
+  el("notice").hidden = !state.notice;
   el("retry").hidden = !state.error;
   el("retry").disabled = state.running;
   fields("properties", node.properties);

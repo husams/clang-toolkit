@@ -2,10 +2,18 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { z } from "zod";
 import type { NodeActionTarget } from "./actions.js";
-import { type AstEntry, type AstInspection, astDisplay } from "./ast-model.js";
+import {
+  type AstEntry,
+  type AstInspection,
+  astDisplay,
+  type SourceSelection,
+} from "./ast-model.js";
 import type { Result } from "./model.js";
 
-type Load = (id?: string) => Promise<AstInspection>;
+type Load = (
+  id?: string,
+  selection?: SourceSelection,
+) => Promise<AstInspection | undefined>;
 interface Page {
   node: Result;
   children?: AstEntry[];
@@ -41,6 +49,7 @@ export class DetailsView
   private generation = 0;
   private running = false;
   private error = "";
+  private notice = "";
   private rendered: z.infer<typeof messages> | undefined;
   private operation: Promise<AstInspection | undefined> | undefined;
   private readonly status = vscode.window.createStatusBarItem(
@@ -67,7 +76,7 @@ export class DetailsView
     const js = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.uri, "media", "inspector.js"),
     );
-    view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"></head><body><main><p id="empty">Select a match to inspect its AST.</p><section id="inspector" hidden><nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav><header><h2 id="name"></h2><span id="kind"></span></header><p id="signature"></p><button id="location"></button><pre id="source"></pre><div id="error" role="alert"></div><button id="retry" hidden>Retry loading children</button><button id="action">Run action on this node…</button><div class="columns"><details open><summary>Properties</summary><dl id="properties"></dl></details><details open><summary>Children</summary><p id="loading" role="status" hidden>Loading AST children…</p><p id="no-children" hidden>No child nodes.</p><ul id="children"></ul></details></div><details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details></section></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
+    view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"></head><body><main><p id="empty">Select a match to inspect its AST.</p><section id="inspector" hidden><nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav><header><h2 id="name"></h2><span id="kind"></span></header><p id="signature"></p><button id="location"></button><pre id="source"></pre><div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button><button id="action">Run action on this node…</button><div class="columns"><details open><summary>Properties</summary><dl id="properties"></dl></details><details open><summary>Children</summary><p id="loading" role="status" hidden>Loading AST children…</p><p id="no-children" hidden>No child nodes.</p><ul id="children"></ul></details></div><details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details></section></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
         this.error = error instanceof Error ? error.message : String(error);
@@ -96,9 +105,11 @@ export class DetailsView
         this.current?.nativeId &&
           this.prepareAction &&
           !this.error &&
+          !this.notice &&
           !this.running,
       ),
       error: this.error,
+      notice: this.notice,
       rendered: this.rendered,
     };
   }
@@ -122,15 +133,28 @@ export class DetailsView
     this.load = load;
     this.prepareAction = prepareAction;
     this.error = "";
+    this.notice = "";
     await vscode.commands.executeCommand("ctk.result.focus");
     this.publish();
     await this.inspect();
   }
-  private async inspect(id?: string): Promise<void> {
+  async selectSource(
+    selection: SourceSelection,
+    current: () => boolean = () => true,
+  ): Promise<void> {
+    if (!this.current?.nativeId || !this.view?.visible) return;
+    await this.inspect(this.current.nativeId, selection, current);
+  }
+  private async inspect(
+    id?: string,
+    selection?: SourceSelection,
+    selectionCurrent: () => boolean = () => true,
+  ): Promise<void> {
     if (!this.load || !this.current) return;
     const generation = ++this.generation;
     this.running = true;
     this.error = "";
+    this.notice = "";
     this.status.text = "$(loading~spin) CTK · inspecting AST";
     this.status.show();
     this.publish();
@@ -139,22 +163,33 @@ export class DetailsView
     const operation = (async () => {
       // Finish an earlier, superseded selection before reusing its native host.
       if (previous) await previous.catch(() => undefined);
-      if (generation !== this.generation) return;
-      return load(id);
+      if (generation !== this.generation || !selectionCurrent()) return;
+      return load(id, selection);
     })();
     this.operation = operation;
     try {
       const inspection = await operation;
-      if (!inspection || generation !== this.generation) return;
+      if (generation !== this.generation || !selectionCurrent()) return;
+      if (!inspection) {
+        this.notice =
+          "No AST node covers this selection in the current analysis; showing the previous node.";
+        return;
+      }
+      if (
+        selection &&
+        this.current &&
+        this.current.nativeId !== inspection.node.id
+      )
+        this.history.push(this.current);
       this.current = {
         node: inspection.node,
         nativeId: inspection.node.id,
         children: inspection.children,
       };
       this.cache.set(inspection.node.id, this.current);
-      await this.openSource(this.current.node);
+      if (!selection) await this.openSource(this.current.node);
     } catch (error) {
-      if (generation === this.generation)
+      if (generation === this.generation && selectionCurrent())
         this.error = error instanceof Error ? error.message : String(error);
     } finally {
       if (this.operation === operation) this.operation = undefined;
@@ -181,6 +216,8 @@ export class DetailsView
       return;
     }
     if (message.type === "source" && this.current) {
+      this.notice = "";
+      this.publish();
       await this.openSource(this.current.node);
       return;
     }
@@ -196,6 +233,7 @@ export class DetailsView
       else this.history.pop();
       this.current = page;
       this.error = "";
+      this.notice = "";
       this.publish();
       await this.openSource(page.node);
       return;
@@ -212,6 +250,7 @@ export class DetailsView
         nativeId: child.id,
       };
       this.error = "";
+      this.notice = "";
       this.publish();
       if (!this.current.children) await this.inspect(child.id);
       else await this.openSource(this.current.node);
@@ -221,6 +260,7 @@ export class DetailsView
     if (
       this.running ||
       this.error ||
+      this.notice ||
       !this.current?.nativeId ||
       !this.prepareAction
     )

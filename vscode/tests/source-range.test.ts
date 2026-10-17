@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Result } from "../src/model.js";
-import { sourceOffsets, sourceTarget } from "../src/source-range.js";
+import {
+  selectedSource,
+  sourceOffsets,
+  sourceTarget,
+} from "../src/source-range.js";
 
 const file = "/workspace/demo.cpp";
 const node = (range: unknown): Result => ({
@@ -21,6 +25,30 @@ const point = (offset: number, line = 1, column = offset + 1) => ({
   offset: String(offset),
 });
 describe("AST source ranges", () => {
+  it("normalizes editor whitespace and a trailing statement terminator", () => {
+    const text = "\n  return target(); \n";
+    expect(selectedSource(file, text, 0, text.length)).toEqual({
+      file,
+      start: 3,
+      end: 18,
+    });
+    expect(selectedSource(file, text, text.length, 0)).toEqual(
+      selectedSource(file, text, 0, text.length),
+    );
+  });
+  it("converts editor selections after Unicode to byte ranges", () => {
+    const text = "// café 😀\ntarget()";
+    const start = text.indexOf("target");
+    expect(selectedSource(file, text, start, text.length)).toEqual({
+      file,
+      start: Buffer.byteLength(text.slice(0, start)),
+      end: Buffer.byteLength(text),
+    });
+  });
+  it("ignores empty and whitespace-only editor selections", () => {
+    expect(selectedSource(file, "   ", 0, 3)).toBeUndefined();
+    expect(selectedSource(file, "code", 2, 2)).toBeUndefined();
+  });
   it("includes the final token using the server's exclusive end", () => {
     const text = "return secondTarget(2);";
     const target = sourceTarget(

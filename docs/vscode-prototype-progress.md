@@ -486,3 +486,53 @@ confirmed only `secondTarget(2)` highlighted for the CallExpr. The trial remains
 open there, and isolated test windows closed normally. VSIX ZIP verification
 passed; SHA256 is
 `cc792e83323cbd783e41619087d3cea529d41dbe3a80479bf17960f6e59cf6f3`.
+
+## Editor selection to AST inspector, version 0.2.11
+
+With an analysis open in CTK Result, selecting saved C++ source now navigates the
+inspector to its smallest enclosing AST node. It keeps the editor's exact text
+selection and focus. Lookup trims surrounding whitespace and a final statement
+semicolon, converts UTF-16 editor offsets to UTF-8 byte spans, and prefers explicit
+nodes over implicit expression wrappers sharing the same range. It can find
+unvisited nodes in other functions and included headers of the current parsed
+translation unit. The selected native handle supports children, Back, Selected
+result and further actions without reparsing.
+
+The worker lazily indexes native source declarations in each selected file, then
+navigates retained children of the smallest covering declaration. All inspection
+collections remain owned by the same action/search context and close with it.
+Bounds are explicit: 16 indexed files, 5,000 declarations per file, 128 visited
+nodes and 64 levels per lookup, plus existing inspector limits. No partial lookup
+is published on failure. No matching node produces a visible notice and disables
+actions on the previous displayed node; it does not silently switch parsed files.
+
+Mouse/keyboard/selection-command events are debounced for 180 ms. Programmatic
+inspector highlights are ignored, preventing a feedback loop. Pending requests
+cancel on editor changes; document version, dirty state, active editor and exact
+selection are checked before dispatch and again before applying a reply. Native
+operations serialize with other inspection requests, and newer selections
+supersede older work. Dirty/untrusted/non-C++ documents do not trigger lookup.
+
+Validation logs: `vscode/artifacts/validation/editor-ast-sync-20261017/`.
+TypeScript, Biome, 44 extension tests (14 native opt-ins skipped), 16 console
+adapter tests and seven native integration tests passed. Native checks cover
+calls, references instead of implicit casts, return statements, a different
+function, repeated handle reuse, follow-up execution, no-match/closed contexts,
+UTF-8 source and a path containing spaces/regex metacharacters. The real VS Code
+host exercises actual editor selection commands from both Symbol Search and
+Actions, partial identifiers, statement terminators, editor focus/selection
+preservation, unmatched selection guards, outdated replies and included headers.
+One header assertion was corrected to compare physical paths because preserving
+the user's editor also preserves its `/var` alias; the diagnostic is retained in
+`host-path-alias.log`. Shared server, SDK and console runtime implementations are
+unchanged; the repository-wide Python limitations above remain applicable.
+
+Installed v0.2.11 in the normal profile and reloaded only the existing trial
+window. Opened secondCaller through Symbol Search, then used the C++ editor's
+Go to Line and Shift+Right to select the argument `2` at line 5, column 42.
+Without clicking an AST child or running a command from the inspector, CTK Result
+changed from FunctionDecl to IntegerLiteral with Type int, prvalue and Literal
+value 2. The editor retained its one-character selection and keyboard focus.
+The trial remains open in that state; isolated host test windows closed normally.
+The VSIX includes the native lookup adapter and passed ZIP verification. SHA256:
+`37d9fc819cb51eb67ef56eb023bbb38f8e5c719c0a101d00e948e03ecd70785c`.

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SourceSelection } from "./ast-model.js";
 import { astBinding } from "./ast-model.js";
 import type { Result } from "./model.js";
 
@@ -17,6 +18,29 @@ export interface SourceTarget {
   file: string;
   begin: SourcePoint;
   end?: SourcePoint;
+}
+
+export function selectedSource(
+  file: string,
+  text: string,
+  from: number,
+  to: number,
+): SourceSelection | undefined {
+  let start = Math.min(from, to),
+    end = Math.max(from, to);
+  const selected = text.slice(start, end);
+  start += selected.length - selected.trimStart().length;
+  end -= selected.length - selected.trimEnd().length;
+  if (start >= end) return;
+  // Clang statement/declaration spans commonly stop before their semicolon.
+  if (text[end - 1] === ";" && end - start > 1)
+    end = text.slice(start, end - 1).trimEnd().length + start;
+  if (start >= end) return;
+  return {
+    file,
+    start: Buffer.byteLength(text.slice(0, start)),
+    end: Buffer.byteLength(text.slice(0, end)),
+  };
 }
 
 export function sourceTarget(result: Result): SourceTarget | undefined {

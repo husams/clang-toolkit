@@ -21,7 +21,7 @@ import {
   validateCatalog,
 } from "./actions.js";
 import type { SearchAstContext } from "./ast-access.js";
-import { astDisplay } from "./ast-model.js";
+import { astDisplay, type SourceSelection } from "./ast-model.js";
 import { findPython } from "./console-service.js";
 import type { Result } from "./model.js";
 
@@ -750,6 +750,18 @@ export class ActionsController implements vscode.Disposable {
     await this.show(selected);
   }
   async inspect(id: string) {
+    return this.inspectNative((service, settings) =>
+      service.inspect(settings, id),
+    );
+  }
+  async selectSource(id: string, selection: SourceSelection) {
+    return this.inspectNative((service, settings) =>
+      service.selectSource(settings, id, selection),
+    );
+  }
+  private async inspectNative<T>(
+    operation: (service: ActionService, settings: ActionSettings) => Promise<T>,
+  ): Promise<T> {
     if (this.busy || this.execution)
       throw new Error("Wait for the current action before inspecting its AST.");
     if (this.stale)
@@ -763,7 +775,7 @@ export class ActionsController implements vscode.Disposable {
     this.busy = true;
     this.changed();
     try {
-      return await this.service.inspect(this.sessionSettings, id);
+      return await operation(this.service, this.sessionSettings);
     } finally {
       this.busy = false;
       this.changed();

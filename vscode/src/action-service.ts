@@ -12,6 +12,8 @@ import {
   astDisplay,
   astInspectionSchema,
   nativeKind,
+  type SourceSelection,
+  sourceSelectionSchema,
 } from "./ast-model.js";
 import type { Result, RunRequest } from "./model.js";
 
@@ -33,6 +35,7 @@ const responseSchema = z.object({
   report: actionReportSchema.optional(),
   reset: z.boolean().optional(),
   inspection: astInspectionSchema.optional(),
+  notFound: z.boolean().optional(),
 });
 type Response = z.infer<typeof responseSchema>;
 interface Pending {
@@ -122,6 +125,27 @@ export class ActionService {
       () => {},
     );
     if (!response.inspection) throw new Error("AST inspector returned no node");
+    return response.inspection;
+  }
+  async selectSource(
+    settings: ActionSettings,
+    nodeId: string,
+    selection: SourceSelection,
+  ): Promise<AstInspection | undefined> {
+    const response = await this.request(
+      {
+        type: "selectSource",
+        settings,
+        nodeId,
+        selection: sourceSelectionSchema.parse(selection),
+      },
+      settings.directory,
+      settings.timeoutMs + 10000,
+      () => {},
+    );
+    if (response.notFound) return;
+    if (!response.inspection)
+      throw new Error("Source lookup returned no AST result");
     return response.inspection;
   }
   private start(directory: string): ChildProcessWithoutNullStreams {
