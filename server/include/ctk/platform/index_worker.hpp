@@ -31,5 +31,7 @@ private:
 std::filesystem::path current_executable_sibling(const char *name);
 // Called only inside the child, never on a foreground server thread.
 void lower_index_worker_priority();
+// Lower only the index controller thread, leaving foreground RPC threads alone.
+void lower_index_thread_priority();
 
 } // namespace ctk::platform

@@ -82,8 +82,8 @@ protected:
     contents.replace(position, original.size(), replacement);
     std::ofstream(path) << contents;
   }
-  void write_shadow_commands(const std::string &option,
-                             const fs::path &first, const fs::path &second) {
+  void write_shadow_commands(const std::string &option, const fs::path &first,
+                             const fs::path &second) {
     std::ofstream out(project / "compile_commands.json");
     const auto compiler = quote(CTK_TEST_CLANG_TOOL_PATH);
     const auto directory = quote(project.string());
@@ -95,8 +95,8 @@ protected:
     for (int flavor = 1; flavor <= 2; ++flavor) {
       out << "{\"directory\":" << directory << ",\"file\":" << source_one
           << ",\"arguments\":[" << compiler << ",\"-std=c++20\","
-          << include_first << "," << include_second << ",\"-DFLAVOR="
-          << flavor << "\",\"-c\"," << source_one << "]},";
+          << include_first << "," << include_second << ",\"-DFLAVOR=" << flavor
+          << "\",\"-c\"," << source_one << "]},";
     }
     out << "{\"directory\":" << directory << ",\"file\":" << source_two
         << ",\"arguments\":[" << compiler
@@ -220,8 +220,9 @@ TEST_F(ProjectIndexServiceTest,
   const auto initial = start_and_wait(service);
   ASSERT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
 
-  write("shared.h", "#if FLAVOR == 3\n#error invalid context\n#elif FLAVOR == 1\n"
-                    "#define ALPHA_FEATURE 1\n#else\n#define BETA_FEATURE 1\n#endif\n");
+  write("shared.h",
+        "#if FLAVOR == 3\n#error invalid context\n#elif FLAVOR == 1\n"
+        "#define ALPHA_FEATURE 1\n#else\n#define BETA_FEATURE 1\n#endif\n");
   replace_argument("-DFLAVOR=1", "-DFLAVOR=3");
   ProjectIndexRequest request;
   request.set_project_root(project.string());
@@ -230,7 +231,8 @@ TEST_F(ProjectIndexServiceTest,
       std::chrono::steady_clock::now() + std::chrono::seconds(60);
   do {
     grpc::ServerContext context;
-    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &request, &status).ok());
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&context, &request, &status).ok());
     if (status.state() == INDEX_STATE_FAILED)
       break;
     std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -248,7 +250,8 @@ TEST_F(ProjectIndexServiceTest,
       std::chrono::steady_clock::now() + std::chrono::seconds(60);
   do {
     grpc::ServerContext context;
-    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &request, &status).ok());
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&context, &request, &status).ok());
     if (status.state() == INDEX_STATE_COMPLETE &&
         status.revision() > initial.revision())
       break;
@@ -272,7 +275,8 @@ TEST_F(ProjectIndexServiceTest,
       std::chrono::steady_clock::now() + std::chrono::seconds(60);
   do {
     grpc::ServerContext context;
-    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &request, &status).ok());
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&context, &request, &status).ok());
     if (status.state() == INDEX_STATE_FAILED)
       break;
     std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -280,6 +284,65 @@ TEST_F(ProjectIndexServiceTest,
   ASSERT_EQ(status.state(), INDEX_STATE_FAILED);
   EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
   EXPECT_TRUE(find(service, "alphaOnly", false).stale());
+}
+
+TEST_F(ProjectIndexServiceTest,
+       LegacySymbolLayoutMigratesWithoutLosingSymbolsOrBlockingReaders) {
+  ProjectIndexStatus initial;
+  {
+    IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+    initial = start_and_wait(service);
+  }
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  sqlite3_stmt *schema = nullptr;
+  ASSERT_EQ(sqlite3_prepare_v2(
+                db, "SELECT sql FROM sqlite_master WHERE name='symbol'", -1,
+                &schema, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(schema), SQLITE_ROW);
+  std::string legacy(
+      reinterpret_cast<const char *>(sqlite3_column_text(schema, 0)));
+  sqlite3_finalize(schema);
+  legacy += " WITHOUT ROWID;";
+  const auto downgrade =
+      "BEGIN; ALTER TABLE symbol RENAME TO saved_symbol;" + legacy +
+      "INSERT INTO symbol SELECT tu_id,usr,name,qualified_name,kind,"
+      "file_path,byte_offset,is_definition,line,column_no,signature "
+      "FROM saved_symbol; DROP TABLE saved_symbol; COMMIT;";
+  ASSERT_EQ(sqlite3_exec(db, downgrade.c_str(), nullptr, nullptr, nullptr),
+            SQLITE_OK)
+      << sqlite3_errmsg(db);
+  // Keep a WAL reader on the old schema while the background migration runs.
+  ASSERT_EQ(sqlite3_exec(db, "BEGIN; SELECT count(*) FROM symbol;", nullptr,
+                         nullptr, nullptr),
+            SQLITE_OK);
+  {
+    IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+    const auto migrated = start_and_wait(service);
+    EXPECT_EQ(migrated.revision(), initial.revision());
+    EXPECT_EQ(migrated.translation_units_skipped(), 3);
+    EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+    EXPECT_EQ(sqlite3_exec(db, "SELECT count(*) FROM symbol; COMMIT;", nullptr,
+                           nullptr, nullptr),
+              SQLITE_OK);
+    sqlite3_stmt *rowid = nullptr;
+    ASSERT_EQ(sqlite3_prepare_v2(db, "SELECT rowid FROM symbol LIMIT 1", -1,
+                                 &rowid, nullptr),
+              SQLITE_OK);
+    EXPECT_EQ(sqlite3_step(rowid), SQLITE_ROW);
+    sqlite3_finalize(rowid);
+    sqlite3_stmt *tables = nullptr;
+    ASSERT_EQ(sqlite3_prepare_v2(db,
+                                 "SELECT count(*) FROM sqlite_master WHERE "
+                                 "type='table' AND name NOT LIKE 'sqlite_%'",
+                                 -1, &tables, nullptr),
+              SQLITE_OK);
+    ASSERT_EQ(sqlite3_step(tables), SQLITE_ROW);
+    EXPECT_EQ(sqlite3_column_int(tables, 0), 3);
+    sqlite3_finalize(tables);
+  }
+  sqlite3_close(db);
 }
 
 TEST_F(ProjectIndexServiceTest,
@@ -303,7 +366,8 @@ TEST_F(ProjectIndexServiceTest,
       std::chrono::steady_clock::now() + std::chrono::seconds(60);
   do {
     grpc::ServerContext context;
-    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &request, &status).ok());
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&context, &request, &status).ok());
     if (status.state() == INDEX_STATE_COMPLETE &&
         status.revision() >= initial.revision() + 2)
       break;

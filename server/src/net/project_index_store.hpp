@@ -95,6 +95,22 @@ dependencies(const std::string &json_text) {
   return result;
 }
 
+inline constexpr auto symbol_schema =
+    "CREATE TABLE IF NOT EXISTS symbol(tu_id TEXT NOT NULL REFERENCES "
+    "translation_unit(id) ON DELETE CASCADE,usr TEXT NOT NULL,name "
+    "TEXT NOT NULL,qualified_name TEXT NOT NULL,kind TEXT NOT "
+    "NULL,file_path TEXT NOT NULL,byte_offset INTEGER NOT "
+    "NULL,is_definition INTEGER NOT NULL,line INTEGER NOT "
+    "NULL,column_no INTEGER NOT NULL,signature TEXT NOT NULL,PRIMARY "
+    "KEY(tu_id,usr,file_path,byte_offset,is_definition));";
+inline constexpr auto symbol_indexes =
+    "CREATE INDEX IF NOT EXISTS symbol_usr ON symbol(usr); CREATE "
+    "INDEX IF NOT EXISTS symbol_name ON symbol(name); CREATE INDEX IF "
+    "NOT EXISTS symbol_qualified ON symbol(qualified_name);"
+    "CREATE INDEX IF NOT EXISTS symbol_name_prefix ON symbol(name "
+    "COLLATE NOCASE); CREATE INDEX IF NOT EXISTS "
+    "symbol_qualified_prefix ON symbol(qualified_name COLLATE NOCASE);";
+
 class Database {
 public:
   sqlite3 *handle = nullptr;
@@ -116,7 +132,8 @@ public:
     if (writer) {
       try {
         exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA "
-             "foreign_keys=ON; PRAGMA wal_autocheckpoint=0;");
+             "foreign_keys=ON; PRAGMA wal_autocheckpoint=0; "
+             "PRAGMA cache_size=-32768; PRAGMA journal_size_limit=67108864;");
         exec("CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value "
              "TEXT NOT NULL) WITHOUT ROWID;");
         exec("CREATE TABLE IF NOT EXISTS translation_unit(id TEXT PRIMARY "
@@ -125,21 +142,10 @@ public:
              "NULL,input_fingerprint TEXT NOT NULL,dependencies_json TEXT NOT "
              "NULL,indexed_at INTEGER NOT NULL,status TEXT NOT NULL,last_error "
              "TEXT NOT NULL) WITHOUT ROWID;");
-        exec("CREATE TABLE IF NOT EXISTS symbol(tu_id TEXT NOT NULL REFERENCES "
-             "translation_unit(id) ON DELETE CASCADE,usr TEXT NOT NULL,name "
-             "TEXT NOT NULL,qualified_name TEXT NOT NULL,kind TEXT NOT "
-             "NULL,file_path TEXT NOT NULL,byte_offset INTEGER NOT "
-             "NULL,is_definition INTEGER NOT NULL,line INTEGER NOT "
-             "NULL,column_no INTEGER NOT NULL,signature TEXT NOT NULL,PRIMARY "
-             "KEY(tu_id,usr,file_path,byte_offset,is_definition)) WITHOUT "
-             "ROWID;");
-        exec("CREATE INDEX IF NOT EXISTS symbol_usr ON symbol(usr); CREATE "
-             "INDEX IF NOT EXISTS symbol_name ON symbol(name); CREATE INDEX IF "
-             "NOT EXISTS symbol_qualified ON symbol(qualified_name);");
-        exec("CREATE INDEX IF NOT EXISTS symbol_name_prefix ON symbol(name "
-             "COLLATE NOCASE); CREATE INDEX IF NOT EXISTS "
-             "symbol_qualified_prefix ON symbol(qualified_name COLLATE "
-             "NOCASE);");
+        // Secondary indexes store a compact rowid instead of repeating the
+        // long (TU, USR, file, offset, definition) primary key in every entry.
+        exec(symbol_schema);
+        exec(symbol_indexes);
       } catch (...) {
         sqlite3_close_v2(handle);
         handle = nullptr;
