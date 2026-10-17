@@ -697,3 +697,57 @@ was retained. Right in the editor selected the containing CallExpr at column 43;
 Left returned to IntegerLiteral. The selected row scrolled into view and the C++
 editor retained keyboard focus with no text selected. The trial remains in that
 state, with custom action tabs preserved; no search or action was needed.
+
+## AST node context actions and inspector tabs, version 0.2.15
+
+CTK Result now has full-width **AST** and **Properties** tabs in place of the
+split layout. Switching tabs keeps the native node, loaded children and expanded
+branches. Editor cursor updates respect the current tab; returning to AST reveals
+the latest selection. The tab list supports Left/Right and Home/End navigation,
+with ARIA selection and a single visible panel.
+
+Each AST row contributes a native VS Code **Run Action…** context-menu entry.
+The existing predefined/workspace/create action picker receives that clicked
+row's retained native ID, including an unselected node with unloaded children.
+Opening or cancelling the picker keeps the inspector selection unchanged.
+Choosing an action sets that exact node as its input; arguments and Run remain
+in Actions. Context changes, unknown node IDs and busy inspection reject old
+menu requests, including a context change while the picker is open. The existing
+native session and changed-source checks remain in force. The Properties tab's
+action button continues to use its selected node. The menu follows the official
+[VS Code webview context-menu API](https://code.visualstudio.com/api/extension-guides/webview#context-menus).
+
+Validation logs: `vscode/artifacts/validation/ast-menu-tabs-20261017/`.
+TypeScript and Biome pass, along with 48 extension unit tests (15 native opt-ins
+skipped), 16 console adapter tests and eight native integration tests. The native
+server, Python SDK and console runtime are unchanged; previously recorded
+repository-wide Python baseline failures still apply.
+
+The final real VS Code host run (`host-final.log`) passed the existing
+search/action/history/completion suite and the new context-menu/tab cases.
+It invokes the registered menu command with the DOM context of an unselected,
+unloaded namespace row, activates the resulting action target and verifies its
+exact native ID while the inspector remains on the TU root. Unknown IDs and
+activation after changing files reject. Tab switching preserves all tree rows
+and the native selection; cursor movement while Properties is active keeps that
+tab active and returning to AST shows the updated tree. Isolated test windows
+and servers closed normally.
+
+Packaged and installed v0.2.15 in the normal VS Code profile; ZIP verification
+passed. VSIX SHA256:
+`d6b676eb89781d24baf1f34ee560990846cc0400e2321e3ffb2124765c5abf8f`.
+
+Reloaded the existing normal-profile trial and used its real native menu.
+With the TU root selected, right-clicking the collapsed, unloaded firstCaller
+opened **CTK · Action on firstCaller**. Choosing Find calls set
+**Input: FunctionDecl: firstCaller**; Run returned one match containing
+**call · firstTarget · line 4**. Properties still showed the TU root, confirming
+that right-clicking and choosing an action did not silently change selection.
+Left/Right switched the tabs with only one panel visible. With Properties active,
+moving the C++ caret to line 5, column 42 updated it to IntegerLiteral value 2
+and kept editor focus and the Properties tab. Returning to AST revealed the
+expanded secondCaller → CompoundStmt → ReturnStmt → CallExpr path and selected
+literal. Right-clicking the unselected nested CallExpr opened
+**CTK · Action on secondTarget**; cancelling kept both the literal selection and
+the prior firstCaller action/results. The trial remains open on AST with the
+one-match result, the editor caret at 5:42 and custom-action tabs preserved.

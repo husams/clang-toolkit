@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import {
   type ActionNode,
   type NodeAction,
+  type NodeActionTarget,
   parseNodeAction,
 } from "../src/actions.js";
 import type { Prototype } from "../src/extension.js";
@@ -50,6 +51,32 @@ export async function run(): Promise<void> {
     );
   }
   const automatic = await automaticFile("demo.cpp");
+  async function inspectorTab(tab: "ast" | "properties") {
+    await api.details.receive({ type: "tab", tab });
+    const end = Date.now() + 10000;
+    while (Date.now() < end) {
+      const rendered = astState().rendered;
+      if (
+        rendered?.type === "rendered" &&
+        rendered.tab === tab &&
+        rendered.panels.ast === (tab === "ast") &&
+        rendered.panels.properties === (tab === "properties")
+      )
+        return rendered;
+      await new Promise((done) => setTimeout(done, 40));
+    }
+    assert.fail(`Inspector tab did not render: ${JSON.stringify(astState())}`);
+  }
+  assert.equal(astState().tab, "ast");
+  const originalTree = astState().tree;
+  await inspectorTab("properties");
+  assert.equal(astState().node!.id, automatic.node!.id);
+  assert.deepEqual(
+    astState().tree,
+    originalTree,
+    "tabs must preserve expansion and selection without loading another AST",
+  );
+  await inspectorTab("ast");
   assert.equal(
     vscode.window.activeTextEditor,
     initialEditor,
@@ -68,6 +95,48 @@ export async function run(): Promise<void> {
     (node) => node.kind === "NamespaceDecl",
   );
   assert.ok(namespace);
+  const menuRow =
+    automatic.rendered?.type === "rendered"
+      ? automatic.rendered.tree.find((row) => row.id === namespace.id)
+      : undefined;
+  assert.ok(menuRow && !menuRow.loaded && !menuRow.selected);
+  const picker: { target?: NodeActionTarget } = {};
+  const originalChoose = api.actions.choose;
+  try {
+    api.actions.choose = async (_file, followup, node) => {
+      assert.equal(followup, true);
+      assert.ok(node);
+      picker.target = node;
+    };
+    await vscode.commands.executeCommand(
+      "ctk.runInspectorNodeAction",
+      menuRow.context,
+    );
+  } finally {
+    api.actions.choose = originalChoose;
+  }
+  assert.ok(
+    picker.target,
+    "the context menu command must open the existing action picker",
+  );
+  const clickedTarget = picker.target;
+  assert.equal(
+    (await clickedTarget.activate()).id,
+    namespace.id,
+    "right-click actions must use the clicked unloaded node, not the selected root",
+  );
+  assert.equal(
+    astState().node!.id,
+    automatic.node!.id,
+    "opening an action picker must preserve inspector selection",
+  );
+  await assert.rejects(
+    api.details.runNodeAction({
+      ...menuRow.context,
+      ctkAstNodeId: "expired-node",
+    }),
+    /no longer current/,
+  );
   const initialTreeRoot = astState().node!.id;
   await api.details.receive({
     type: "expand",
@@ -124,6 +193,7 @@ export async function run(): Promise<void> {
     await vscode.workspace.openTextDocument(otherFile),
   );
   const otherAst = await automaticFile("auto-file.cpp");
+  await assert.rejects(clickedTarget.activate(), /no longer current/);
   assert.ok(
     otherAst.children?.some((node) => node.name === "automaticallyLoaded"),
   );
@@ -831,6 +901,7 @@ export async function run(): Promise<void> {
   assert.ok(callExpression);
   await api.details.receive({ type: "child", id: callExpression.id });
   const callInspector = await renderedAst("CallExpr");
+  const callProperties = await inspectorTab("properties");
   assert.equal(
     highlightedSource(),
     "adjust(quantity)",
@@ -838,11 +909,12 @@ export async function run(): Promise<void> {
   );
   assert.ok(callInspector.properties.includes("Callee"));
   assert.ok(astState().canRunAction);
-  assert.match(callInspector.text, /Run action on this node/);
+  assert.match(callProperties.text, /Run action on this node/);
   assert.doesNotMatch(
-    callInspector.text,
+    callProperties.text,
     /FIELD_STATE|BINDING_MATCH_SCOPE|supportedScopes|symbolIdentity|availability|Semantic fields/,
   );
+  await inspectorTab("ast");
   await api.details.receive({ type: "source" });
   assert.equal(vscode.window.activeTextEditor?.selection.start.line, 1);
   await api.details.receive({ type: "back" });
@@ -870,11 +942,22 @@ export async function run(): Promise<void> {
     "child inspection must not reparse the action file",
   );
   assert.equal(actionState().stale, false, JSON.stringify(actionState()));
+  await inspectorTab("properties");
   await moveEditorCursor(
     actionTarget,
     "value + 1",
     "IntegerLiteral",
     "value + ".length,
+  );
+  assert.equal(
+    astState().tab,
+    "properties",
+    "cursor updates must keep the user's inspector tab",
+  );
+  await inspectorTab("ast");
+  const restoredAstPanel = astState().rendered;
+  assert.ok(
+    restoredAstPanel?.type === "rendered" && restoredAstPanel.panels.ast,
   );
   await moveEditorCursor(actionTarget, "quantity", "DeclRefExpr", 2, true);
   await moveEditorCursor(actionTarget, "adjust(quantity)", "DeclRefExpr", 2);

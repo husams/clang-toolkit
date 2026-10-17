@@ -20,6 +20,11 @@ interface Page {
   children?: AstEntry[];
   nativeId?: string;
 }
+const nodeMenuSchema = z.object({
+  webviewSection: z.literal("ast-node"),
+  ctkAstNodeId: z.string().min(1),
+  ctkAstContext: z.string().min(1),
+});
 const messages = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
   z.object({ type: z.literal("back") }),
@@ -27,6 +32,7 @@ const messages = z.discriminatedUnion("type", [
   z.object({ type: z.literal("retry") }),
   z.object({ type: z.literal("source") }),
   z.object({ type: z.literal("action") }),
+  z.object({ type: z.literal("tab"), tab: z.enum(["ast", "properties"]) }),
   z.object({ type: z.literal("child"), id: z.string() }),
   z.object({
     type: z.literal("expand"),
@@ -46,10 +52,13 @@ const messages = z.discriminatedUnion("type", [
           expanded: z.boolean().optional(),
           selected: z.boolean(),
           loaded: z.boolean(),
+          context: nodeMenuSchema,
         }),
       )
       .max(10000),
     text: z.string().max(100000),
+    tab: z.enum(["ast", "properties"]),
+    panels: z.object({ ast: z.boolean(), properties: z.boolean() }),
   }),
 ]);
 export class DetailsView
@@ -71,6 +80,8 @@ export class DetailsView
   private error = "";
   private notice = "";
   private rootLabel = "Selected result";
+  private tab: "ast" | "properties" = "ast";
+  private contextId = randomBytes(12).toString("hex");
   private rendered: z.infer<typeof messages> | undefined;
   private operation: Promise<AstInspection | undefined> | undefined;
   private readonly status = vscode.window.createStatusBarItem(
@@ -105,15 +116,18 @@ export class DetailsView
 <section id="inspector" hidden>
 <nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav>
 <div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button>
-<div class="columns"><section class="outline" aria-label="AST outline"><h3>AST</h3>
+<div class="inspector-tabs" role="tablist" aria-label="AST inspector">
+<button id="ast-tab" role="tab" aria-controls="ast-panel" aria-selected="true">AST</button>
+<button id="properties-tab" role="tab" aria-controls="properties-panel" aria-selected="false" tabindex="-1">Properties</button></div>
+<section id="ast-panel" class="outline" role="tabpanel" aria-labelledby="ast-tab">
 <p id="loading" role="status" hidden>Loading AST children…</p>
 <ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
-<section class="node-details" aria-label="Selected AST node"><header><h2 id="name"></h2><span id="kind"></span></header>
+<section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><h2 id="name"></h2><span id="kind"></span></header>
 <p id="signature"></p><button id="location"></button><pre id="source"></pre>
 <button id="action">Run action on this node…</button>
 <details open><summary>Properties</summary><dl id="properties"></dl></details>
 <details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details>
-</section></div></section></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
+</section></section></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
         this.error = error instanceof Error ? error.message : String(error);
@@ -148,6 +162,8 @@ export class DetailsView
       error: this.error,
       notice: this.notice,
       rootLabel: this.rootLabel,
+      tab: this.tab,
+      contextId: this.contextId,
       treeReveal: this.treeReveal,
       tree: this.tree.rows().map(({ node, ...row }) => {
         const display = astDisplay(node);
@@ -186,6 +202,7 @@ export class DetailsView
     this.history = [];
     this.cache.clear();
     this.tree.reset();
+    this.contextId = randomBytes(12).toString("hex");
     this.retry = undefined;
     this.load = load;
     this.prepareAction = prepareAction;
@@ -291,6 +308,11 @@ export class DetailsView
       this.publish();
       return;
     }
+    if (message.type === "tab") {
+      this.tab = message.tab;
+      this.publish();
+      return;
+    }
     if (this.running) return;
     if (message.type === "action") {
       await this.chooseAction(await this.actionTarget());
@@ -358,6 +380,33 @@ export class DetailsView
     )
       throw new Error("Select a current AST node before choosing an action.");
     return this.prepareAction(this.current.nativeId);
+  }
+  async runNodeAction(input: unknown): Promise<void> {
+    const context = nodeMenuSchema.parse(input);
+    const current = () => {
+      if (
+        this.contextId !== context.ctkAstContext ||
+        !this.prepareAction ||
+        this.running ||
+        !this.tree.node(context.ctkAstNodeId)
+      )
+        throw new Error(
+          "This AST node menu is no longer current; reopen the menu.",
+        );
+    };
+    current();
+    const prepare = this.prepareAction;
+    if (!prepare)
+      throw new Error("Open a current file AST before choosing an action.");
+    const target = await prepare(context.ctkAstNodeId);
+    current();
+    await this.chooseAction({
+      ...target,
+      activate: async () => {
+        current();
+        return target.activate();
+      },
+    });
   }
   dispose(): void {
     this.generation++;

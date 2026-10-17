@@ -637,6 +637,19 @@ export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<Prototype> {
   const prototype = new Prototype(context);
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "ctk.runInspectorNodeAction",
+      (input: unknown) =>
+        prototype.details
+          .runNodeAction(input)
+          .catch((error: unknown) =>
+            vscode.window.showErrorMessage(
+              error instanceof Error ? error.message : String(error),
+            ),
+          ),
+    ),
+  );
   for (const [name, handler] of [
     ["ctk.openAnalysis", () => prototype.view.reveal()],
     [

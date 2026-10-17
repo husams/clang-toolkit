@@ -3,6 +3,27 @@ import { renderTree } from "./inspector-tree.js";
 const api = acquireVsCodeApi();
 const el = (id) => document.getElementById(id);
 const post = (type, data = {}) => api.postMessage({ type, ...data });
+const tabs = ["ast", "properties"];
+for (const [index, tab] of tabs.entries()) {
+  const button = el(`${tab}-tab`);
+  button.addEventListener("click", () => post("tab", { tab }));
+  button.addEventListener("keydown", (event) => {
+    const next =
+      event.key === "ArrowRight"
+        ? tabs[(index + 1) % tabs.length]
+        : event.key === "ArrowLeft"
+          ? tabs[(index + tabs.length - 1) % tabs.length]
+          : event.key === "Home"
+            ? tabs[0]
+            : event.key === "End"
+              ? tabs.at(-1)
+              : undefined;
+    if (!next) return;
+    event.preventDefault();
+    el(`${next}-tab`).focus();
+    post("tab", { tab: next });
+  });
+}
 for (const [id, type] of [
   ["back", "back"],
   ["root", "root"],
@@ -35,6 +56,12 @@ window.addEventListener("message", ({ data }) => {
   el("empty").hidden = Boolean(node);
   el("inspector").hidden = !node;
   if (!node) return;
+  for (const tab of tabs) {
+    const selected = state.tab === tab;
+    el(`${tab}-tab`).setAttribute("aria-selected", String(selected));
+    el(`${tab}-tab`).tabIndex = selected ? 0 : -1;
+    el(`${tab}-panel`).hidden = !selected;
+  }
   el("name").textContent = node.name;
   el("kind").textContent = node.kind;
   el("signature").textContent = node.signature;
@@ -68,6 +95,11 @@ window.addEventListener("message", ({ data }) => {
       .filter((row) => row.parent === node.id)
       .map((row) => row.id),
     tree,
+    tab: state.tab,
+    panels: {
+      ast: !el("ast-panel").hidden,
+      properties: !el("properties-panel").hidden,
+    },
     text: document.querySelector("main").innerText.slice(0, 100000),
   });
 });

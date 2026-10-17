@@ -88,10 +88,24 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.columns {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(0, 1.1fr);
-  gap: 24px;
+.inspector-tabs {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  margin-bottom: 16px;
+}
+.inspector-tabs button {
+  padding: 6px 0 8px;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 2px solid transparent;
+}
+.inspector-tabs button[aria-selected="true"] {
+  color: var(--vscode-foreground);
+  border-bottom-color: var(--vscode-focusBorder);
+}
+.inspector-tabs button:hover {
+  text-decoration: none;
+  color: var(--vscode-foreground);
 }
 h3 {
   font-size: 1em;
@@ -109,7 +123,7 @@ summary {
 }
 dl {
   display: grid;
-  grid-template-columns: minmax(90px, 0.8fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(90px, 160px) minmax(0, 1fr);
   gap: 8px 12px;
   margin: 3px 0 12px;
 }
@@ -121,7 +135,7 @@ dd {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: max(180px, calc(100vh - 100px));
+  max-height: max(180px, calc(100vh - 140px));
   overflow: auto;
   border: 1px solid var(--vscode-panel-border);
 }
@@ -176,10 +190,6 @@ dd {
   margin: 8px 0;
 }
 @media (max-width: 560px) {
-  .columns {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 14px;
-  }
   main {
     padding: 14px;
   }

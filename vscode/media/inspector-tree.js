@@ -1,4 +1,5 @@
 let lastReveal;
+let wasVisible = false;
 
 export function renderTree(host, state, post) {
   const active =
@@ -41,6 +42,13 @@ export function renderTree(host, state, post) {
       item.setAttribute("aria-expanded", String(row.expanded));
     item.setAttribute("aria-label", `${row.kind}: ${row.name}`);
     item.dataset.node = row.id;
+    item.dataset.vscodeContext = JSON.stringify({
+      webviewSection: "ast-node",
+      ctkAstNodeId: row.id,
+      ctkAstContext: state.contextId,
+      ctkAstCanRun: !state.running,
+      preventDefaultContextMenuItems: true,
+    });
     item.dataset.loaded = String(row.loaded);
     item.tabIndex = row.selected || (!selectedId && index === 0) ? 0 : -1;
     item.className = row.selected ? "ast-item selected" : "ast-item";
@@ -110,12 +118,14 @@ export function renderTree(host, state, post) {
   }
   host.scrollTop = top;
   if (active) (elements.get(active) ?? elements.get(selectedId))?.focus();
-  if (state.treeReveal !== lastReveal) {
+  const visible = !host.closest("[hidden]");
+  if (visible && (state.treeReveal !== lastReveal || !wasVisible)) {
     elements
       .get(selectedId)
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
     lastReveal = state.treeReveal;
   }
+  wasVisible = visible;
   return [...host.querySelectorAll("[role=treeitem]")].map((item) => ({
     id: item.dataset.node,
     level: Number(item.getAttribute("aria-level")),
@@ -124,5 +134,6 @@ export function renderTree(host, state, post) {
       : {}),
     selected: item.getAttribute("aria-selected") === "true",
     loaded: item.dataset.loaded === "true",
+    context: JSON.parse(item.dataset.vscodeContext),
   }));
 }
