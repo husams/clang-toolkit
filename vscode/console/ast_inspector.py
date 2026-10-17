@@ -20,10 +20,11 @@ class AstInspector:
         self.collections: list[Any] = []
         self.cache: dict[str, dict[str, Any]] = {}
         self.locations: dict[tuple[Any, ...], str] = {}
+        self.file_nodes: dict[str, str] = {}
         self.selection = AstSelection(self)
 
     def describe(self, identifier: str) -> dict[str, Any]:
-        target, _, _ = self.host.check_input(identifier)
+        target, file, _ = self.host.check_input(identifier)
         value = target.value
         raw = MessageToDict(value)
         display = Results(1)
@@ -32,8 +33,28 @@ class AstInspector:
         kind = next(iter(raw.get('node', {})), 'Node')
         item = display.items[0] if display.items else dict(
             name=kind, kind=kind, file='', line=1, column=1, excerpt='', raw=raw)
+        if identifier == self.file_nodes.get(file):
+            item.update(name=Path(file).name, file=file)
         return {**item, 'id': identifier, 'locationValid': bool(value.location.valid),
                 'raw': {'binding': raw}}
+
+    def file_node(self, file: str) -> str:
+        root_id = self.host.root(file)
+        tree, file, _ = self.host.check_input(root_id)
+        if file in self.file_nodes:
+            return self.file_nodes[file]
+        rows = self.host.client.match_in('translationUnitDecl().bind("file")', tree)
+        try:
+            if len(rows) != 1:
+                raise ValueError('Could not locate the parsed file AST root.')
+            identifier = str(uuid4())
+            self.host.nodes[identifier] = (rows[0].binding('file'), file, 'File AST')
+        except BaseException:
+            rows.close()
+            raise
+        self.collections.append(rows)
+        self.file_nodes[file] = identifier
+        return identifier
 
     def locate(self, request: dict[str, Any]) -> str:
         result = request['result']
@@ -72,13 +93,16 @@ class AstInspector:
     def inspect(self, request: dict[str, Any]) -> dict[str, Any]:
         if request.get('settings') != self.host.settings:
             raise ValueError('Analysis settings changed; refresh analysis before inspecting AST nodes.')
-        identifier = request.get('nodeId') or self.locate(request)
+        identifier = request.get('nodeId') or (
+            self.locate(request) if request.get('result')
+            else self.file_node(request['translationUnit']))
         target, file, _ = self.host.check_input(identifier)
         if identifier in self.cache:
             return self.cache[identifier]
         if len(self.cache) >= 128 or len(self.host.nodes) >= 10000:
             raise ValueError('AST inspection limit reached; refresh analysis to release inspected nodes.')
-        rows = self.host.client.peek(target, axis='children', max_nodes=1000)
+        query = 'decl(isExpansionInMainFile())' if identifier == self.file_nodes.get(file) else None
+        rows = self.host.client.peek(target, axis='children', query=query, max_nodes=1000)
         pending: dict[str, tuple[Any, str, str]] = {}
         children = []
         try:
@@ -107,6 +131,7 @@ class AstInspector:
         self.selection.clear()
         self.cache.clear()
         self.locations.clear()
+        self.file_nodes.clear()
         for rows in self.collections:
             rows.close()
         self.collections.clear()

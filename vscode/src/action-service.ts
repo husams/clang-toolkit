@@ -99,25 +99,27 @@ export class ActionService {
   }
   async inspect(
     settings: ActionSettings,
-    target: string | { result: Result; translationUnit: string },
+    target: string | { result?: Result; translationUnit: string },
   ): Promise<AstInspection> {
     const input =
       typeof target === "string"
         ? { nodeId: target }
-        : {
-            translationUnit: target.translationUnit,
-            result: {
-              ...target.result,
-              raw: undefined,
-              nativeKind: nativeKind(target.result),
-              implicit: astDisplay(target.result).properties.some(
-                (property) => property.label === "Implicit",
-              ),
-              kind: nativeKind(target.result).replace(/^./, (c) =>
-                c.toUpperCase(),
-              ),
-            },
-          };
+        : !target.result
+          ? { translationUnit: target.translationUnit }
+          : {
+              translationUnit: target.translationUnit,
+              result: {
+                ...target.result,
+                raw: undefined,
+                nativeKind: nativeKind(target.result),
+                implicit: astDisplay(target.result).properties.some(
+                  (property) => property.label === "Implicit",
+                ),
+                kind: nativeKind(target.result).replace(/^./, (c) =>
+                  c.toUpperCase(),
+                ),
+              },
+            };
     const response = await this.request(
       { type: "inspect", settings, ...input },
       settings.directory,

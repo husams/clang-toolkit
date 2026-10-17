@@ -50,6 +50,7 @@ export class DetailsView
   private running = false;
   private error = "";
   private notice = "";
+  private rootLabel = "Selected result";
   private rendered: z.infer<typeof messages> | undefined;
   private operation: Promise<AstInspection | undefined> | undefined;
   private readonly status = vscode.window.createStatusBarItem(
@@ -76,7 +77,7 @@ export class DetailsView
     const js = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.uri, "media", "inspector.js"),
     );
-    view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"></head><body><main><p id="empty">Select a match to inspect its AST.</p><section id="inspector" hidden><nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav><header><h2 id="name"></h2><span id="kind"></span></header><p id="signature"></p><button id="location"></button><pre id="source"></pre><div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button><button id="action">Run action on this node…</button><div class="columns"><details open><summary>Properties</summary><dl id="properties"></dl></details><details open><summary>Children</summary><p id="loading" role="status" hidden>Loading AST children…</p><p id="no-children" hidden>No child nodes.</p><ul id="children"></ul></details></div><details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details></section></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
+    view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"></head><body><main><p id="empty">Open a C++ file or select a match to inspect its AST.</p><section id="inspector" hidden><nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav><header><h2 id="name"></h2><span id="kind"></span></header><p id="signature"></p><button id="location"></button><pre id="source"></pre><div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button><button id="action">Run action on this node…</button><div class="columns"><details open><summary>Properties</summary><dl id="properties"></dl></details><details open><summary>Children</summary><p id="loading" role="status" hidden>Loading AST children…</p><p id="no-children" hidden>No child nodes.</p><ul id="children"></ul></details></div><details id="range-group" hidden><summary>Source range</summary><dl id="range"></dl></details></section></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
         this.error = error instanceof Error ? error.message : String(error);
@@ -110,6 +111,7 @@ export class DetailsView
       ),
       error: this.error,
       notice: this.notice,
+      rootLabel: this.rootLabel,
       rendered: this.rendered,
     };
   }
@@ -123,8 +125,11 @@ export class DetailsView
     result: Result,
     load: Load,
     prepareAction: (id: string) => Promise<NodeActionTarget>,
+    options: { preserveEditor?: boolean; current?: () => boolean } = {},
   ): Promise<void> {
-    this.generation++;
+    const generation = ++this.generation;
+    const current = options.current ?? (() => true);
+    if (!current()) return;
     this.running = false;
     this.status.hide();
     this.current = { node: result };
@@ -134,9 +139,13 @@ export class DetailsView
     this.prepareAction = prepareAction;
     this.error = "";
     this.notice = "";
-    await vscode.commands.executeCommand("ctk.result.focus");
+    this.rootLabel = options.preserveEditor ? "File AST" : "Selected result";
+    await vscode.commands.executeCommand("ctk.result.focus", {
+      preserveFocus: options.preserveEditor ?? false,
+    });
+    if (generation !== this.generation || !current()) return;
     this.publish();
-    await this.inspect();
+    await this.inspect(undefined, undefined, current, !options.preserveEditor);
   }
   async selectSource(
     selection: SourceSelection,
@@ -149,6 +158,7 @@ export class DetailsView
     id?: string,
     selection?: SourceSelection,
     selectionCurrent: () => boolean = () => true,
+    revealSource = true,
   ): Promise<void> {
     if (!this.load || !this.current) return;
     const generation = ++this.generation;
@@ -188,7 +198,7 @@ export class DetailsView
         children: inspection.children,
       };
       this.cache.set(inspection.node.id, this.current);
-      if (!selection) await this.openSource(this.current.node);
+      if (!selection && revealSource) await this.openSource(this.current.node);
     } catch (error) {
       if (generation === this.generation && selectionCurrent())
         this.error = error instanceof Error ? error.message : String(error);

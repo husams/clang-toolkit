@@ -585,3 +585,59 @@ column 42 with no text selected. Right moved to column 43 and displayed the
 enclosing CallExpr for secondTarget, including caller secondCaller; Left returned
 to IntegerLiteral at column 42. Keyboard focus stayed in the C++ editor throughout.
 The trial remains open at that cursor position; custom action tabs were preserved.
+
+## Automatic file AST and unloaded child fetching, version 0.2.13
+
+Opening saved C/C++ source activates the extension and loads CTK Result without
+running a search or action. The native adapter matches the parsed tree's actual
+TranslationUnitDecl, retains it as a selectable native handle and fetches only
+its direct declarations in the main file. Clicking a previously unvisited child
+loads its actual direct children using the same native visitor and cached pages;
+descendants are not fetched recursively at file-open time. File AST replaces
+Selected result as the root navigation label for this context. Actions can use
+the file inspector's exact selected native child without another parse.
+
+Automatic loading preserves the editor's focus, caret and text selection. File
+switches are debounced, and version/generation checks suppress stale loads.
+Saving the active file or changing CTK settings reloads the file context.
+Inspector-driven source navigation pauses automatic file loading, so navigating
+into a header does not replace the selected node or its original translation
+unit. Trust and saved-source guards remain in force; load errors are shown with
+Retry. A newer file/context cannot claim a worker created by an older pending
+Python-runtime lookup.
+
+The real VS Code checks exposed two lifecycle races. A delayed file-create
+notification could dispose a worker while the newly opened file was loading;
+source invalidation now schedules a fresh automatic load with generation guards.
+Also, VS Code can hold `/var` and `/private/var` editors for one physical file.
+Automatic loading resolves physical paths before replacing a context, preserving
+cursor synchronization and header navigation across those editor aliases.
+
+Validation logs: `vscode/artifacts/validation/auto-file-ast-20261017/`.
+TypeScript, Biome, 45 extension tests (15 native opt-ins skipped), 16 console
+adapter tests and eight native integration tests passed. Native checks open a
+file without an action, run an action on its real TU binding, lazily inspect
+unvisited function/body children, reuse child handles and parsed roots, and
+reject closed handles. The real VS Code host activates from the C++ language
+event without calling extension.activate or any CTK command, opens the file AST
+with no search results, navigates unvisited namespace/class children, switches
+files and automatically replaces stale handles after saving changed C++ source.
+The existing search/actions, cursor sync, source highlighting, header navigation,
+completion and history checks also passed. Initial failures are retained in
+`host.log` and `host-restart.log`; the passing run is `host-final.log`. Isolated
+test windows and servers closed normally. Shared server/SDK/console runtime
+implementations are unchanged; previously recorded repository-wide Python
+baseline failures remain applicable.
+
+Packaged and installed v0.2.13 in the normal VS Code profile; ZIP verification
+passed. VSIX SHA256:
+`9a20ba50a579ce833cda72c80ca70e2e364400f00db1419f5bfa6b52fd7a707b`.
+
+Reloaded only the existing normal-profile trial window. Its already-open
+match-groups-demo.cpp loaded TranslationUnitDecl and the four function children
+automatically while Symbol Search remained empty. The editor kept focus and its
+caret at line 5, column 42 with no selection. Clicking the unvisited secondCaller
+node fetched its function properties/type/body children; clicking CompoundStmt
+fetched ReturnStmt, with the expected source highlights. No search or action was
+run. The trial remains open at that body node with File AST navigation available;
+custom action tabs were preserved.

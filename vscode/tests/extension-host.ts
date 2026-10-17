@@ -13,13 +13,107 @@ export async function run(): Promise<void> {
     "clang-toolkit.clang-toolkit-prototype",
   );
   assert.ok(extension);
-  const api = await extension.activate();
   const folder = vscode.workspace.workspaceFolders?.[0];
   assert.ok(folder);
   const target = vscode.Uri.joinPath(folder.uri, "demo.cpp");
-  await vscode.window.showTextDocument(
+  const initialEditor = await vscode.window.showTextDocument(
     await vscode.workspace.openTextDocument(target),
   );
+  const activationDeadline = Date.now() + 20000;
+  while (!extension.isActive && Date.now() < activationDeadline)
+    await new Promise((done) => setTimeout(done, 40));
+  assert.ok(
+    extension.isActive,
+    "opening C++ must activate the extension without a CTK command",
+  );
+  const api = extension.exports;
+  const astState = () => api.details.snapshot();
+  async function automaticFile(file: string, child?: string) {
+    const end = Date.now() + 20000;
+    while (Date.now() < end) {
+      const state = astState();
+      if (
+        !state.running &&
+        !state.error &&
+        state.node?.kind === "TranslationUnitDecl" &&
+        state.node.file.endsWith(file) &&
+        state.children !== undefined &&
+        (!child || state.children.some((node) => node.name === child)) &&
+        state.rendered?.type === "rendered" &&
+        state.rendered.kind === "TranslationUnitDecl"
+      )
+        return state;
+      await new Promise((done) => setTimeout(done, 40));
+    }
+    assert.fail(
+      `File AST did not load automatically: ${JSON.stringify(astState())}`,
+    );
+  }
+  const automatic = await automaticFile("demo.cpp");
+  assert.equal(
+    vscode.window.activeTextEditor,
+    initialEditor,
+    "automatic AST loading must keep editor focus",
+  );
+  assert.ok(
+    initialEditor.selection.isEmpty,
+    "automatic AST loading must not select source",
+  );
+  assert.deepEqual(
+    (api.snapshot() as { results: unknown[] }).results,
+    [],
+    "opening a file must not require a search",
+  );
+  const namespace = automatic.children?.find(
+    (node) => node.kind === "NamespaceDecl",
+  );
+  assert.ok(namespace);
+  await api.details.receive({ type: "child", id: namespace.id });
+  assert.equal(astState().node?.kind, "NamespaceDecl");
+  const lazyClass = astState().children?.find(
+    (node) => node.kind === "CXXRecordDecl" && node.name.endsWith("Order"),
+  );
+  assert.ok(lazyClass, JSON.stringify(astState()));
+  await api.details.receive({ type: "child", id: lazyClass.id });
+  assert.ok(
+    astState().children?.some((node) => node.name.includes("valid")),
+    "clicking an unloaded AST child must fetch its children",
+  );
+  const otherFile = vscode.Uri.joinPath(folder.uri, "auto-file.cpp");
+  await vscode.workspace.fs.writeFile(
+    otherFile,
+    Buffer.from("int automaticallyLoaded() { return 7; }\n"),
+  );
+  const otherEditor = await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(otherFile),
+  );
+  const otherAst = await automaticFile("auto-file.cpp");
+  assert.ok(
+    otherAst.children?.some((node) => node.name === "automaticallyLoaded"),
+  );
+  assert.equal(vscode.window.activeTextEditor, otherEditor);
+  const reloadEdit = new vscode.WorkspaceEdit();
+  reloadEdit.replace(
+    otherFile,
+    new vscode.Range(
+      otherEditor.document.positionAt(0),
+      otherEditor.document.positionAt(otherEditor.document.getText().length),
+    ),
+    "int refreshedAutomatically() { return 8; }\n",
+  );
+  await vscode.workspace.applyEdit(reloadEdit);
+  await otherEditor.document.save();
+  const reloaded = await automaticFile(
+    "auto-file.cpp",
+    "refreshedAutomatically",
+  );
+  assert.notEqual(
+    reloaded.node?.id,
+    otherAst.node?.id,
+    "saving source must replace stale native handles automatically",
+  );
+  await vscode.window.showTextDocument(initialEditor.document);
+  await automaticFile("demo.cpp");
   await vscode.commands.executeCommand("ctk.openAnalysis");
   const running = api.execute({
     action: predefined[0]!,
@@ -66,7 +160,6 @@ export async function run(): Promise<void> {
   );
   assert.equal(rendered?.groups, 1, "webview must group results by file");
   await api.openResult(snapshot.results[0]!.id);
-  const astState = () => api.details.snapshot();
   const highlightedSource = () => {
     const editor = vscode.window.activeTextEditor;
     assert.ok(
@@ -544,7 +637,7 @@ export async function run(): Promise<void> {
   await vscode.workspace.fs.writeFile(
     actionTarget,
     Buffer.from(
-      "int adjust(int value) { return value + 1; }\nint processOrder(int quantity) { return adjust(quantity); }\nint unrelated() { return 0; }\n",
+      "int adjust(int value) { return value + 1; }\nint processOrder(int quantity) { return adjust(quantity); }\nint unrelated() { return 0; }\n// outside AST\n",
     ),
   );
   await vscode.window.showTextDocument(
@@ -760,7 +853,7 @@ export async function run(): Promise<void> {
     "editor lookup must cover the parsed file beyond the original match",
   );
   assert.equal(actionState().parseCount, 1);
-  await selectEditorCode(target, "Order", "unmatched");
+  await selectEditorCode(actionTarget, "outside AST", "unmatched");
   await assert.rejects(api.details.actionTarget(), /Select a current AST node/);
   await selectEditorCode(actionTarget, "adjust(quantity)", "CallExpr");
   const currentId = astState().node!.id;

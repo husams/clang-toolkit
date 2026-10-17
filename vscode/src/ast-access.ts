@@ -19,17 +19,23 @@ export interface SearchAstContext {
   transfer(): void;
 }
 
-// Search workers release their cursors after returning results. This owns a
-// separate live context; action results instead use their existing action host.
+// Owns a live context for an opened file or a search result; action results use
+// their existing action host instead.
 export class SearchAstAccess implements vscode.Disposable {
   private service: ActionService | undefined;
   private generation = 0;
   private readonly disposables: vscode.Disposable[] = [];
-  constructor(private readonly uri: vscode.Uri) {
+  constructor(
+    private readonly uri: vscode.Uri,
+    invalidated: () => void = () => {},
+  ) {
     const watcher = vscode.workspace.createFileSystemWatcher(
       "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
     );
-    const reset = () => this.reset();
+    const reset = () => {
+      this.reset();
+      invalidated();
+    };
     this.disposables.push(
       watcher,
       watcher.onDidChange(reset),
@@ -50,7 +56,7 @@ export class SearchAstAccess implements vscode.Disposable {
     this.service = undefined;
   }
   async open(
-    result: Result,
+    result: Result | undefined,
     translationUnit: string,
   ): Promise<SearchAstContext> {
     if (!vscode.workspace.isTrusted)
@@ -82,18 +88,10 @@ export class SearchAstAccess implements vscode.Disposable {
         }),
       ),
     };
-    // A newly selected search result starts a fresh inspector history. Release
-    // the previous search context, including any bounded native child caches.
+    // A newly opened file or selected search result starts a fresh history.
+    // Release the previous context, including bounded native child caches.
     this.reset();
-    this.service ??= new ActionService(
-      vscode.Uri.joinPath(this.uri, "console", "action_service.py").fsPath,
-      await findPython(
-        config.get<string>("pythonPath", ""),
-        settings.directory,
-      ),
-    );
-    const generation = this.generation,
-      service = this.service;
+    const generation = this.generation;
     let root: AstInspection["root"] | undefined;
     const current = () => {
       if (generation !== this.generation)
@@ -101,12 +99,22 @@ export class SearchAstAccess implements vscode.Disposable {
           "Source or settings changed; reselect a current analysis result.",
         );
     };
+    const python = await findPython(
+      config.get<string>("pythonPath", ""),
+      settings.directory,
+    );
+    current();
+    const service = new ActionService(
+      vscode.Uri.joinPath(this.uri, "console", "action_service.py").fsPath,
+      python,
+    );
+    this.service = service;
     return {
       inspect: async (id) => {
         current();
         const inspection = await service.inspect(
           settings,
-          id ?? { result, translationUnit },
+          id ?? { ...(result ? { result } : {}), translationUnit },
         );
         current();
         root = inspection.root;

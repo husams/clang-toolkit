@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as vscode from "vscode";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import { SearchAstAccess } from "./ast-access.js";
 import { findPython } from "./console-service.js";
 import { DetailsView } from "./details-view.js";
 import { EditorSelectionSync } from "./editor-selection.js";
+import { FileInspectionSync } from "./file-inspection.js";
 import { registerLanguage } from "./language.js";
 import {
   type Action,
@@ -74,6 +75,8 @@ export class Prototype {
   private readonly searchAst: SearchAstAccess;
   private readonly sourceHighlight = new SourceHighlight();
   private readonly editorSelection: EditorSelectionSync;
+  private readonly fileInspection: FileInspectionSync;
+  private automaticInspection = false;
   private readonly output = vscode.window.createOutputChannel("CTK Output");
   private readonly taskStatus = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -101,7 +104,9 @@ export class Prototype {
       (result) => this.openSource(result),
       (target) => this.actions.choose(undefined, true, target),
     );
-    this.searchAst = new SearchAstAccess(context.extensionUri);
+    this.searchAst = new SearchAstAccess(context.extensionUri, () => {
+      if (this.automaticInspection) this.fileInspection?.refresh();
+    });
     this.view = new AnalysisView(
       context.extensionUri,
       (message) => {
@@ -149,7 +154,12 @@ export class Prototype {
       }
     };
     remember(vscode.window.activeTextEditor);
+    this.fileInspection = new FileInspectionSync(
+      (editor, current) => this.inspectFile(editor, current),
+      (error) => this.output.appendLine(`File AST: ${String(error)}`),
+    );
     context.subscriptions.push(
+      this.fileInspection,
       vscode.window.onDidChangeActiveTextEditor(remember),
       vscode.workspace.onDidChangeTextDocument(({ document }) => {
         if (document === this.customDocument) this.publish();
@@ -561,6 +571,7 @@ export class Prototype {
     await this.showResult(result);
   }
   private async showResult(result: Result): Promise<void> {
+    this.automaticInspection = false;
     const translationUnit = this.target?.fsPath ?? result.file;
     await this.openSource(result);
     let searchLoad: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
@@ -586,7 +597,40 @@ export class Prototype {
   }
   private async openSource(result: Result): Promise<void> {
     this.editorSelection.cancel();
-    await this.sourceHighlight.reveal(result);
+    this.fileInspection.pause();
+    try {
+      await this.sourceHighlight.reveal(result);
+    } finally {
+      this.fileInspection.resume();
+    }
+  }
+  private async inspectFile(
+    editor: vscode.TextEditor,
+    current: () => boolean,
+  ): Promise<void> {
+    this.automaticInspection = true;
+    const file = editor.document.uri.fsPath;
+    let context: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
+    await this.details.show(
+      {
+        id: editor.document.uri.toString(),
+        name: basename(file),
+        kind: "File",
+        file,
+        line: 1,
+        column: 1,
+        excerpt: "",
+        raw: {},
+      },
+      async (id, selection) => {
+        context ??= await this.searchAst.open(undefined, file);
+        return selection && id
+          ? context.selectSource(id, selection)
+          : context.inspect(id);
+      },
+      (id) => this.actions.inspectorTarget(id, context),
+      { preserveEditor: true, current },
+    );
   }
 }
 export async function activate(

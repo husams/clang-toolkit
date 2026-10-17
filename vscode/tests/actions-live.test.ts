@@ -81,6 +81,58 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         `${name}.ctk-action`,
         `---\nname: ${name}\ndescription: Test action\narguments: []\n---\n${body}`,
       );
+    it("opens a file AST without running an action and fetches unvisited children lazily", async () => {
+      const host = service();
+      const root = await host.inspect(settings, { translationUnit: file });
+      expect(astDisplay(root.node).kind).toBe("TranslationUnitDecl");
+      expect(root.parseCount).toBe(1);
+      const rootAction = await host.run(
+        action(
+          "file-root-functions",
+          'match functionDecl(isDefinition()).bind("function") in node',
+        ),
+        {},
+        [file],
+        settings,
+        100,
+        () => {},
+        root.node.id,
+      );
+      expect(rootAction.matches).toBe(3);
+      expect(rootAction.parseCount).toBe(1);
+      const functionNode = root.children.find(
+        (node) => node.name === "processOrder",
+      );
+      expect(functionNode).toBeDefined();
+      const functionPage = await host.inspect(settings, functionNode!.id);
+      const body = functionPage.children.find(
+        (node) => astDisplay(node).kind === "CompoundStmt",
+      );
+      expect(body).toBeDefined();
+      const bodyPage = await host.inspect(settings, body!.id);
+      expect(
+        bodyPage.children.some(
+          (node) => astDisplay(node).kind === "ReturnStmt",
+        ),
+      ).toBe(true);
+      expect(bodyPage.parseCount).toBe(1);
+      expect((await host.inspect(settings, body!.id)).children).toEqual(
+        bodyPage.children,
+      );
+      const followed = await host.run(
+        action("file-child-calls", 'match callExpr().bind("call") in node'),
+        {},
+        [file],
+        settings,
+        100,
+        () => {},
+        body!.id,
+      );
+      expect(followed.matches).toBe(1);
+      expect(followed.parseCount).toBe(1);
+      await host.reset();
+      await expect(host.inspect(settings, body!.id)).rejects.toThrow(/expired/);
+    }, 60000);
     it("resolves source selections to native nodes across the parsed file without reparsing", async () => {
       const host = service();
       const found = await host.run(

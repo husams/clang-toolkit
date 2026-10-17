@@ -43,6 +43,7 @@ window.addEventListener("message", ({ data }) => {
   el("back").disabled = !state.back || state.running;
   el("back").parentElement.hidden = !state.back;
   el("root").hidden = !state.back;
+  el("root").textContent = state.rootLabel;
   el("root").disabled = state.running;
   el("location").disabled = state.running;
   el("action").disabled = !state.canRunAction;
