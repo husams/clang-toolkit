@@ -506,6 +506,55 @@ TEST_F(CallGraph, ScopeFiltersAreAppliedBeforeTopologyAndEchoedInHeader) {
   EXPECT_EQ(invalid_stream.code, MatchCode::InvalidArgument);
   EXPECT_EQ(events, 0U);
 }
+TEST_F(CallGraph, SystemRootCallSitesAreFilteredBeforeTheSiteBudget) {
+  std::ofstream(directory.path() / "system_roots.hpp")
+      << "#pragma GCC system_header\n"
+         "inline int system_leaf() { return 1; }\n"
+         "inline int system_global = system_leaf();\n"
+         "#define SYSTEM_ROOT_CALL() system_leaf()\n";
+  std::ofstream(directory.path() / "user_roots.hpp")
+      << "inline int user_leaf() { return 2; }\n"
+         "inline int user_global = user_leaf();\n"
+         "inline int user_macro_global = SYSTEM_ROOT_CALL();\n"
+         "inline int user_work() { system_leaf(); return user_leaf(); }\n";
+  std::ofstream(directory.path() / "roots.cc")
+      << "#include \"system_roots.hpp\"\n"
+         "#include \"user_roots.hpp\"\n"
+         "int main_global = user_leaf();\n"
+         "int entry() { return user_work(); }\n";
+  request.mutable_file()->set_file_path("roots.cc");
+  const auto full = controller.build(request, [] { return true; });
+  ASSERT_EQ(full.code, MatchCode::Ok) << full.message;
+  EXPECT_EQ(full.response.call_sites_size(), 7);
+
+  request.set_exclude_system_headers(true);
+  request.set_node_filter("functionDecl(unless(hasName(\"system_leaf\")))");
+  const auto filtered = controller.build(request, [] { return true; });
+  ASSERT_EQ(filtered.code, MatchCode::Ok) << filtered.message;
+  EXPECT_TRUE(filtered.response.is_complete());
+  EXPECT_EQ(filtered.response.call_sites_size(), 6);
+  int user_header_roots = 0, main_roots = 0, boundary_sites = 0;
+  for (const auto &site : filtered.response.call_sites()) {
+    if (site.caller_node() == filtered.response.root_node()) {
+      EXPECT_FALSE(site.location().file().ends_with("system_roots.hpp"));
+      user_header_roots += site.location().file().ends_with("user_roots.hpp");
+      main_roots += site.location().file().ends_with("roots.cc");
+    }
+    if (site.facts().static_callee_name() == "system_leaf") {
+      ++boundary_sites;
+      EXPECT_FALSE(site.has_callee_node());
+    }
+  }
+  EXPECT_EQ(user_header_roots, 2)
+      << "retain ordinary and system-macro calls expanded in user headers";
+  EXPECT_EQ(main_roots, 1);
+  EXPECT_EQ(boundary_sites, 2)
+      << "retain calls from admitted callers to an excluded callee";
+  request.set_max_call_sites(6);
+  const auto limited = controller.build(request, [] { return true; });
+  ASSERT_EQ(limited.code, MatchCode::Ok) << limited.message;
+  EXPECT_EQ(limited.response.call_sites_size(), 6);
+}
 TEST_F(CallGraph, CancellationDuringFilteredInventoryPublishesNoEvents) {
   auto source = std::ofstream(directory.path() / "many.cc");
   for (int index = 0; index < 200; ++index)

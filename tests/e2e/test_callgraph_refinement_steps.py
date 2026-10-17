@@ -175,6 +175,89 @@ def boundaries_are_respected(boundary_graphs):
 
 
 @when(
+    "I exclude system root call sites from filename parsed and matched inputs",
+    target_fixture="root_site_graphs",
+)
+def root_site_graphs(callgraph_server):
+    server, source = callgraph_server
+    system_header = source.with_name("system_roots.hpp")
+    system_header.write_text(
+        "#pragma GCC system_header\n"
+        "namespace system_lib { inline int leaf() { return 1; } }\n"
+        "inline int system_global = system_lib::leaf();\n"
+        "#define SYSTEM_ROOT_CALL() system_lib::leaf()\n"
+    )
+    own_header = source.with_name("user_roots.hpp")
+    own_header.write_text(
+        "namespace app { inline int leaf() { return 2; } "
+        "inline int work() { system_lib::leaf(); return leaf(); } }\n"
+        "inline int user_global = app::leaf();\n"
+        "inline int user_macro_global = SYSTEM_ROOT_CALL();\n"
+    )
+    source.write_text(
+        '#include "system_roots.hpp"\n#include "user_roots.hpp"\n'
+        "int main_global = app::leaf();\n"
+        "int entry() { return app::work(); }\n"
+    )
+    matcher = 'functionDecl(anyOf(matchesName("(^|::)app::"), hasName("entry")))'
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            baseline = await client.callgraph(source, node_filter=matcher)
+            assert len(baseline.call_sites) == 7
+            tree = await client.parse(source)
+            rows = await client.match_in(
+                'functionDecl(hasName("entry")).bind("f")', tree
+            )
+            binding = rows[0].binding("f")
+            options = dict(exclude_system_headers=True, node_filter=matcher,
+                           max_call_sites=6)
+            filename = await client.callgraph(source, **options)
+            parsed = await client.callgraph(tree, **options)
+            matched = await client.callgraph(binding, max_depth="all", **options)
+            assert filename == parsed
+            stub = analysis_service_pb2_grpc.AnalysisServiceStub(client._channel)
+            assert await stub.CallGraph(_call_graph_value_request(
+                client, tree, **options
+            )) == parsed
+            source.unlink()
+            own_header.unlink()
+            system_header.unlink()
+            assert await client.callgraph(tree, **options) == parsed
+            assert await client.callgraph(binding, max_depth="all", **options) == matched
+            await rows.aclose()
+            await client.close_file(tree)
+            status = await client.resource_status()
+            assert (status.explicit_file_leases, status.result_cursors,
+                    status.active_work, status.reserved_bytes) == (0, 0, 0, 0)
+            return filename, parsed, matched
+
+    return asyncio.run(run())
+
+
+@then("system root facts are absent and user header calls keep their snapshot")
+def system_root_facts_are_absent(root_site_graphs):
+    filename, parsed, matched = root_site_graphs
+    for graph in (filename, parsed, matched):
+        assert graph.is_complete and graph.exclude_system_headers
+        assert {n.function.qualified_name for n in graph.nodes if not n.is_virtual_root} == {
+            "app::leaf", "app::work", "entry"
+        }
+        assert all(not s.location.file.endswith("system_roots.hpp") for s in graph.call_sites)
+        assert any(s.facts.caller_name == "app::work" and
+                   s.facts.static_callee_name == "system_lib::leaf" and
+                   not s.HasField("callee_node") for s in graph.call_sites)
+    for graph in (filename, parsed):
+        assert len(graph.call_sites) == 6
+        roots = [s for s in graph.call_sites if s.caller_node == graph.root_node]
+        assert len(roots) == 3
+        assert sum(s.location.file.endswith("user_roots.hpp") for s in roots) == 2
+        assert any(s.facts.static_callee_name == "system_lib::leaf" for s in roots)
+    assert len(matched.call_sites) == 3
+    assert all(s.caller_node != matched.root_node for s in matched.call_sites)
+
+
+@when(
     parsers.parse("I run the header boundary console example with {engine}"),
     target_fixture="boundary_console",
 )

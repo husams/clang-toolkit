@@ -19,6 +19,16 @@ Feature: Useful callgraphs from retained native inputs
       | unix      |
       | tcp       |
 
+  Scenario Outline: System root call sites are excluded while user headers remain
+    Given an isolated callgraph server using <transport>
+    When I exclude system root call sites from filename parsed and matched inputs
+    Then system root facts are absent and user header calls keep their snapshot
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
   Scenario Outline: Node limits are configurable and explicitly unlimited
     Given a callgraph server with node budget <budget> using <transport>
     When I override callgraph node budgets through filename tree and matched inputs
