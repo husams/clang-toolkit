@@ -142,7 +142,9 @@ export class Prototype {
       vscode.window.registerWebviewViewProvider("ctk.analysis", this.view, {
         webviewOptions: { retainContextWhenHidden: true },
       }),
-      vscode.window.registerWebviewViewProvider("ctk.result", this.details),
+      vscode.window.registerWebviewViewProvider("ctk.result", this.details, {
+        webviewOptions: { retainContextWhenHidden: true },
+      }),
     );
     const remember = (editor: vscode.TextEditor | undefined): void => {
       if (

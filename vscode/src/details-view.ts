@@ -128,7 +128,7 @@ export class DetailsView
 <button id="ast-tab" role="tab" aria-controls="ast-panel" aria-selected="true">AST</button>
 <button id="properties-tab" role="tab" aria-controls="properties-panel" aria-selected="false" tabindex="-1">Properties</button></div>
 <section id="ast-panel" class="outline" role="tabpanel" aria-labelledby="ast-tab">
-<details id="ast-section" data-section="AST" open><summary>AST</summary><ul id="tree" role="tree" aria-label="C++ AST"></ul></details></section>
+<ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
 <section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><h2 id="name"></h2><span id="kind"></span></header>
 <p id="signature"></p>
 <details id="source-section" data-section="Source" open><summary>Source</summary><div class="section-body"><button id="location"></button><pre id="source"></pre></div></details>
@@ -142,6 +142,9 @@ export class DetailsView
         this.error = error instanceof Error ? error.message : String(error);
         this.publish();
       });
+    });
+    view.onDidChangeVisibility(() => {
+      if (view.visible) this.publish();
     });
     this.publish();
   }
@@ -172,6 +175,7 @@ export class DetailsView
       error: this.error,
       notice: this.notice,
       rootLabel: this.rootLabel,
+      visible: this.view?.visible ?? false,
       tab: this.tab,
       contextId: this.contextId,
       treeReveal: this.treeReveal,
@@ -219,9 +223,8 @@ export class DetailsView
     this.error = "";
     this.notice = "";
     this.rootLabel = options.preserveEditor ? "File AST" : "Selected result";
-    await vscode.commands.executeCommand("ctk.result.focus", {
-      preserveFocus: options.preserveEditor ?? false,
-    });
+    if (!options.preserveEditor)
+      await vscode.commands.executeCommand("ctk.result.focus");
     if (generation !== this.generation || !current()) return;
     this.publish();
     await this.inspect(undefined, undefined, current, !options.preserveEditor);
@@ -230,7 +233,7 @@ export class DetailsView
     selection: SourceSelection,
     current: () => boolean = () => true,
   ): Promise<void> {
-    if (!this.current?.nativeId || !this.view?.visible) return;
+    if (!this.current?.nativeId) return;
     await this.inspect(this.current.nativeId, selection, current);
   }
   private async inspect(

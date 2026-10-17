@@ -871,3 +871,42 @@ line 1. Right-clicking the MidAlias link opened Action on Middle, confirming the
 alias targets its actual class. The picker is closed, the one-match result and
 sample remain available, and custom-action tabs are preserved. The user's
 managed server was not restarted or replaced.
+
+## Explorer sidebar AST Inspector, version 0.2.18
+
+Moved the complete inspector from the contributed bottom-panel container into
+Explorer as **AST Inspector**, alongside native sections such as Outline and
+Timeline. Its native header folds the whole view, including the **AST** and
+**Properties** tabs. Removed the redundant disclosure around the AST tab's
+tree; semantic property groups retain their individual disclosure controls.
+The sidebar uses the sidebar theme background and tighter horizontal spacing.
+
+The webview retains its context while hidden. Automatic file loading and
+cursor lookup update the retained model without focusing the view or forcing
+it open; visibility changes publish the latest state when reopened. The
+selected tab, loaded tree branches and native selection survive hiding and
+reopening. Explicit result selection still reveals the inspector.
+
+Validation: TypeScript and Biome pass; 50 extension tests pass with the 17
+native opt-ins skipped. The full isolated VS Code extension-host suite passes,
+including an actual hidden sidebar, opening another C++ file while hidden,
+moving the cursor onto its IntegerLiteral, preserving the exact caret and
+Properties tab, reopening with the same tree/native selection, and all existing
+action, source navigation and semantic/base checks. The isolated test window
+and server closed normally. Logs are in
+`vscode/artifacts/validation/ast-sidebar-20261017/`.
+
+Packaged and installed v0.2.18 in the approved normal VS Code profile; archive
+verification passed and the installed extension reports 0.2.18. VSIX SHA256:
+`91efba84e68dde45bfc13d6aad13220dc18cfb57835521c4c0cc10967b821cc8`.
+
+Reloaded the existing normal-profile trial and verified the native Explorer
+section directly. **AST Inspector** appears beside Outline, Timeline and
+AST Match Bindings; the old contributed CTK Result panel is absent. Expanding
+its header shows both tabs inside it. Double-clicking Widget opened Properties;
+collapsing the native header hid both tabs and all content. Moving the C++ caret
+to the `check` method kept it collapsed. Reopening restored Properties showing
+`Widget::check` and its two parameter types; returning to AST showed that method
+selected with its Widget/TU ancestors expanded. The trial remains open with
+the AST tab visible; custom action editor tabs were preserved. The user's
+managed server was not restarted or replaced.

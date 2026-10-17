@@ -2,7 +2,7 @@
   "name": "clang-toolkit-prototype",
   "displayName": "Clang Toolkit Prototype",
   "description": "Unified Semantic Analysis and CTK script editing prototype",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "publisher": "clang-toolkit",
   "license": "MIT",
   "type": "module",
@@ -57,13 +57,6 @@
           "title": "Semantic Analysis",
           "icon": "media/semantic.svg"
         }
-      ],
-      "panel": [
-        {
-          "id": "ctkResults",
-          "title": "CTK Result",
-          "icon": "media/semantic.svg"
-        }
       ]
     },
     "views": {
@@ -74,11 +67,11 @@
           "name": "Semantic Analysis"
         }
       ],
-      "ctkResults": [
+      "explorer": [
         {
           "type": "webview",
           "id": "ctk.result",
-          "name": "CTK Result"
+          "name": "AST Inspector"
         }
       ]
     },

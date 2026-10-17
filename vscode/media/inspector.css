@@ -1,11 +1,11 @@
 body {
   padding: 0;
   color: var(--vscode-foreground);
-  background: var(--vscode-panel-background);
+  background: var(--vscode-sideBar-background);
   font: var(--vscode-font-size) / 1.5 var(--vscode-font-family);
 }
 main {
-  padding: 16px 20px;
+  padding: 8px 12px;
 }
 [hidden] {
   display: none;

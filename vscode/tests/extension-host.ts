@@ -14,6 +14,13 @@ export async function run(): Promise<void> {
     "clang-toolkit.clang-toolkit-prototype",
   );
   assert.ok(extension);
+  assert.deepEqual(extension.packageJSON.contributes.views.explorer, [
+    { type: "webview", id: "ctk.result", name: "AST Inspector" },
+  ]);
+  assert.equal(
+    extension.packageJSON.contributes.viewsContainers.panel,
+    undefined,
+  );
   const folder = vscode.workspace.workspaceFolders?.[0];
   assert.ok(folder);
   const target = vscode.Uri.joinPath(folder.uri, "demo.cpp");
@@ -29,7 +36,11 @@ export async function run(): Promise<void> {
   );
   const api = extension.exports;
   const astState = () => api.details.snapshot();
-  async function automaticFile(file: string, child?: string) {
+  async function automaticFile(file: string, child?: string, visible = true) {
+    if (visible)
+      await vscode.commands.executeCommand("ctk.result.focus", {
+        preserveFocus: true,
+      });
     const end = Date.now() + 20000;
     while (Date.now() < end) {
       const state = astState();
@@ -40,8 +51,9 @@ export async function run(): Promise<void> {
         state.node.file.endsWith(file) &&
         state.children !== undefined &&
         (!child || state.children.some((node) => node.name === child)) &&
-        state.rendered?.type === "rendered" &&
-        state.rendered.kind === "TranslationUnitDecl"
+        (!visible ||
+          (state.rendered?.type === "rendered" &&
+            state.rendered.kind === "TranslationUnitDecl"))
       )
         return state;
       await new Promise((done) => setTimeout(done, 40));
@@ -52,6 +64,9 @@ export async function run(): Promise<void> {
   }
   const automatic = await automaticFile("demo.cpp");
   async function inspectorTab(tab: "ast" | "properties") {
+    await vscode.commands.executeCommand("ctk.result.focus", {
+      preserveFocus: true,
+    });
     await api.details.receive({ type: "tab", tab });
     const end = Date.now() + 10000;
     while (Date.now() < end) {
@@ -207,10 +222,52 @@ export async function run(): Promise<void> {
     otherFile,
     Buffer.from("int automaticallyLoaded() { return 7; }\n"),
   );
+  await inspectorTab("properties");
+  await vscode.commands.executeCommand("workbench.action.closeSidebar");
+  const hiddenDeadline = Date.now() + 10000;
+  while (astState().visible && Date.now() < hiddenDeadline)
+    await new Promise((done) => setTimeout(done, 40));
+  assert.equal(astState().visible, false);
   const otherEditor = await vscode.window.showTextDocument(
     await vscode.workspace.openTextDocument(otherFile),
   );
-  const otherAst = await automaticFile("auto-file.cpp");
+  const otherAst = await automaticFile("auto-file.cpp", undefined, false);
+  assert.equal(
+    otherAst.visible,
+    false,
+    "opening C++ must keep the sidebar hidden",
+  );
+  const literal = otherEditor.document.getText().indexOf("7");
+  const beforeLiteral = otherEditor.document.positionAt(literal - 1);
+  otherEditor.selection = new vscode.Selection(beforeLiteral, beforeLiteral);
+  await vscode.commands.executeCommand("cursorMove", {
+    to: "right",
+    by: "character",
+    value: 1,
+  });
+  const cursorDeadline = Date.now() + 15000;
+  while (
+    (astState().running || astState().node?.kind !== "IntegerLiteral") &&
+    Date.now() < cursorDeadline
+  )
+    await new Promise((done) => setTimeout(done, 40));
+  const hiddenSelection = astState();
+  assert.equal(hiddenSelection.node?.kind, "IntegerLiteral");
+  assert.equal(
+    hiddenSelection.visible,
+    false,
+    "cursor updates must keep the sidebar hidden",
+  );
+  assert.equal(hiddenSelection.tab, "properties");
+  assert.ok(otherEditor.selection.isEmpty);
+  assert.equal(
+    otherEditor.document.offsetAt(otherEditor.selection.active),
+    literal,
+  );
+  await inspectorTab("properties");
+  assert.deepEqual(astState().tree, hiddenSelection.tree);
+  assert.equal(astState().node?.id, hiddenSelection.node?.id);
+  await inspectorTab("ast");
   await assert.rejects(clickedTarget.activate(), /no longer current/);
   assert.ok(
     otherAst.children?.some((node) => node.name === "automaticallyLoaded"),
@@ -409,6 +466,9 @@ export async function run(): Promise<void> {
     );
   }
   async function renderedAst(kind: string) {
+    await vscode.commands.executeCommand("ctk.result.focus", {
+      preserveFocus: true,
+    });
     const end = Date.now() + 10000;
     while (Date.now() < end) {
       const state = astState();
@@ -849,6 +909,9 @@ export async function run(): Promise<void> {
   const binding = actionState().results.find((r) => r.binding === "function");
   assert.ok(binding);
   async function renderedActions() {
+    await vscode.commands.executeCommand("ctk.analysis.focus", {
+      preserveFocus: true,
+    });
     const end = Date.now() + 10000;
     while (Date.now() < end) {
       const s = actionState();
@@ -1538,7 +1601,6 @@ export async function run(): Promise<void> {
   await inspectorTab("ast");
   assert.deepEqual(astState().tree, widgetTree);
   for (const title of [
-    "AST",
     "Source",
     "Inheritance",
     "Public members",
@@ -1621,6 +1683,6 @@ export async function run(): Promise<void> {
   );
   await api.actions.close();
   console.log(
-    "CTK_EXTENSION_HOST_PASS: symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
+    "CTK_EXTENSION_HOST_PASS: Explorer AST Inspector, hidden-file/cursor updates, preserved tabs/tree, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
   );
 }
