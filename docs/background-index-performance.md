@@ -173,3 +173,18 @@ at **117.09ms mean / 221.89ms maximum**. This ran while the BDD suite was also
 active, so it is an observed responsiveness check rather than an isolated
 throughput benchmark. Index revision had advanced from 181 to 185; indexing was
 still active with zero reported failures. Log: `/tmp/ctk-symbol-lookup-fresh.log`.
+
+Full BDD coverage verified **195 unique scenarios**: **194/195** passed in the
+three-batch run, and the remaining unchanged multiline-console scenario passed
+in isolation in **7.18 seconds**. Its batch failure was a 30-second CLI subprocess
+startup timeout; no symbol-index operation was involved and no timeout or test
+expectation was changed. The first isolated retry needed the same repository
+PYTHONPATH as the full driver to collect cross-test imports. Logs:
+`/tmp/ctk-symbol-lookup-bdd.log`, `/tmp/ctk-symbol-lookup-bdd-{0,1,2}.log`, and
+`/tmp/ctk-symbol-lookup-bdd-retry.log`. This is not a claim that all BDD scenarios
+passed together in one run.
+
+Final managed-server check: PID 28071 remains running, indexing is active at
+revision **195**, **609 current-pass TUs remain pending**, and **zero TUs have
+failed**. Stored contribution counts still include retained older contexts until
+this pass retires them. The full 623-TU project pass is not yet complete.
