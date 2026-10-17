@@ -64,6 +64,16 @@ class DispatchResult:
     outline_value: tuple[str, Any] | None = None
     parts: tuple[DispatchResult, ...] = ()
     exit_requested: bool = False
+    result_key: str | None = None
+
+
+def _match_result_key(statement: Tree, source: str) -> str | None:
+    """Identify reruns independently of whitespace and script coordinates."""
+    if statement.data != "match":
+        return None
+    text = source[statement.meta.start_pos:statement.meta.end_pos]
+    return repr(tuple(str(token) for token in lex(text)
+                      if token.type not in {"WS", "COMMENT"}))
 
 
 class _SessionCompletionTracker:
@@ -241,7 +251,10 @@ def _dispatch_statement(
         if freeze_display and outline_value is not None:
             kind, value = outline_value
             outline_value = (kind, snapshot_collections(value))
-        return DispatchResult(output, True, outline_value=outline_value)
+        return DispatchResult(
+            output, True, outline_value=outline_value,
+            result_key=_match_result_key(statement, source),
+        )
     except _DISPATCH_ERRORS as exc:
         return DispatchResult(f"error: {exc}", False)
 

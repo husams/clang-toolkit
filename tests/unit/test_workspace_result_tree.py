@@ -25,8 +25,8 @@ from clang_toolkit.cli.workspace_state import (
     outline_snapshot,
     resource_snapshot,
 )
-from clang_toolkit.client import Client
-from clang_toolkit.match_values import MatchValue
+from clang_toolkit.client import Client, QueryError
+from clang_toolkit.match_values import MatchValue, ParsedTree
 from clang_toolkit.resources import FileSet, InputDescriptor
 from test_workspace import SizedOutput, interact, wait_until
 
@@ -53,6 +53,142 @@ def select_result(ui: WorkspaceConsole, identity: str) -> None:
         ui.results.buffer.document.translate_row_col_to_index(first + index, 0)
     )
     ui.app.layout.focus(ui.results.window)
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+def test_workspace_switches_traversal_without_reparsing(tmp_path: Path, engine: str) -> None:
+    from clang_toolkit.cli.runtime.config import ConfigStore
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, cwd=tmp_path, environment={}, script_engine=engine))
+    runtime.config_store = ConfigStore(tmp_path, home=tmp_path / "home", system=tmp_path / "system.yaml")
+    runtime.capture_display = True
+    root = ParsedTree("fixture.cc", CursorOwner(client, "parsed-tree", 1, lambda _: None))
+    client.parse.return_value = root
+    retained = []
+
+    def match(query, target, **options):
+        assert target is root
+        assert query == 'memberExpr(hasDeclaration(fieldDecl(hasName("value"))))'
+        count = 2 if options["traversal_mode"] == pb.MATCH_TRAVERSAL_MODE_AS_IS else 1
+        value = matches(count)
+        retained.append(value)
+        return value
+
+    client.match_in.side_effect = match
+    submissions = []
+
+    async def execute(source: str) -> DispatchResult:
+        result = dispatch_result(client, source, runtime)
+        submissions.append(result)
+        return result
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        pipe.send_text('let root = parse "fixture.cc"\x0a')
+        await wait_until(lambda: client.parse.call_count == 1 and not ui.busy)
+        assert submissions[-1].success, submissions[-1].output
+        target = "$root" if engine == "legacy" else "root"
+        query = f'match memberExpr(hasDeclaration(fieldDecl(hasName("value")))) in {target}'
+        for mode, count in [
+            ("AsIs", 2), ("IgnoreUnlessSpelledInSource", 1),
+            ("AsIs", 2), ("IgnoreUnlessSpelledInSource", 1),
+        ]:
+            before = len(submissions)
+            pipe.send_text(f"set traversal {mode}\x0a")
+            await wait_until(lambda: len(submissions) > before and not ui.busy)
+            assert submissions[-1].success, submissions[-1].output
+            assert runtime.config_store.effective["traversal"] == mode
+            before = len(submissions)
+            pipe.send_text(query + "\x0a")
+            await wait_until(lambda: len(submissions) > before and not ui.busy)
+            assert submissions[-1].success, submissions[-1].output
+            assert len(ui.result_trees.trees) == 1, ui.results.text
+            latest = ui.result_trees.trees[-1]
+            assert len(latest.value) == count
+            assert f"MatchValue [{count}]" in latest.text
+            assert ui.results.text.count("MatchValue [") == 1
+            assert "traversal:" not in ui.results.text
+            assert not latest.expanded and not latest.pages
+            # Expanded rows from the previous traversal must disappear too.
+            select_result(ui, "$Matches")
+            pipe.send_text("\x1b[C")
+            await wait_until(lambda: len(latest.entries) > 1)
+            ui.app.layout.focus(ui.editor)
+            assert ui.status == "Ready"
+        before = len(submissions)
+        pipe.send_text(
+            f"set traversal AsIs; {query}; "
+            f"set traversal IgnoreUnlessSpelledInSource; {query}\x0a"
+        )
+        await wait_until(lambda: len(submissions) > before and not ui.busy)
+        assert submissions[-1].success, submissions[-1].output
+        assert len(ui.result_trees.trees) == 1
+        assert len(ui.result_trees.trees[0].value) == 1
+        assert ui.results.text.count("MatchValue [") == 1
+        select_result(ui, "$Matches")
+        pipe.send_text("\x1b[C")
+        await wait_until(lambda: len(ui.result_trees.trees[-1].entries) > 1)
+        assert "traversal:" not in ui.result_trees.trees[-1].text
+        client.parse.assert_called_once()
+        assert [call.kwargs["traversal_mode"] for call in client.match_in.call_args_list] == [
+            pb.MATCH_TRAVERSAL_MODE_AS_IS, pb.MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE,
+            pb.MATCH_TRAVERSAL_MODE_AS_IS, pb.MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE,
+            pb.MATCH_TRAVERSAL_MODE_AS_IS, pb.MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE,
+        ]
+
+        async def submit(source: str) -> DispatchResult:
+            ui.app.layout.focus(ui.editor)
+            before = len(submissions)
+            pipe.send_text(source + "\x0a")
+            await wait_until(lambda: len(submissions) > before and not ui.busy)
+            return submissions[-1]
+
+        # Different queries and ordinary output keep their own results.
+        other = matches(3)
+        retained.append(other)
+        client.match_in.side_effect = None
+        client.match_in.return_value = other
+        assert (await submit("match fieldDecl() in $root")).success
+        assert (await submit("print [42]")).success
+        previous = ui.result_trees.trees[0]
+        client.match_in.side_effect = QueryError("request failed")
+        assert not (await submit(query)).success
+        assert ui.result_trees.trees[0] is previous
+        assert ui.results.text.count("MatchValue [") == 2
+
+        # Even an empty rerun replaces the old rows; insignificant whitespace
+        # and the surrounding submission do not change the matcher identity.
+        empty = matches(0)
+        retained.append(empty)
+        client.match_in.side_effect = None
+        client.match_in.return_value = empty
+        assert (await submit(query.replace("match ", "match  "))).success
+        assert [tree.kind for tree in ui.result_trees.trees] == ["match", "print", "match"]
+        assert ui.result_trees.trees[0].value is other
+        assert ui.result_trees.trees[-1].value is empty
+        assert ui.results.text.count("MatchValue [") == 2
+        assert "MatchValue [1]" not in ui.results.text
+        assert "MatchValue [2]" not in ui.results.text
+        assert "MatchValue [0]" in ui.results.text
+        assert query in ui.results.text
+        for tree in ui.result_trees.trees:
+            assert ui.results.text.startswith(tree.text, tree.start)
+        for block in ui.transcript_lexer.blocks:
+            assert ui.results.text.startswith(block.text, block.start)
+        select_result(ui, "$Matches")
+        pipe.send_text("\x1b[C")
+        await wait_until(lambda: "$Matches" in ui.result_trees.trees[-1].expanded)
+        assert ui.result_trees.trees[-1].value is empty
+        client.parse.assert_called_once()
+
+    try:
+        asyncio.run(interact(tmp_path, drive, execute=execute, script_engine=engine))
+    finally:
+        runtime.close()
+        for value in retained:
+            value.close()
 
 
 @pytest.mark.parametrize("prefix", ["", "print "])
@@ -583,3 +719,28 @@ def test_old_result_trees_become_explicit_static_previews(tmp_path: Path) -> Non
             assert ui.results.text.startswith(tree.text, tree.start)
 
     asyncio.run(interact(tmp_path, drive))
+
+
+def test_match_rerun_replaces_an_evicted_static_preview(tmp_path: Path) -> None:
+    old, new = matches(2), matches(1)
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        await ui.result_trees.show("match", old, result_key="same matcher")
+        for index in range(20):
+            await ui.result_trees.show("print", [index])
+        assert "MatchValue [2]" in ui.results.text
+        assert not any(tree.value is old for tree in ui.result_trees.trees)
+        await ui.result_trees.show("match", new, result_key="same matcher")
+        assert "MatchValue [2]" not in ui.results.text
+        assert ui.results.text.count("MatchValue [") == 1
+        assert "MatchValue [1]" in ui.results.text
+        for tree in ui.result_trees.trees:
+            assert ui.results.text.startswith(tree.text, tree.start)
+        for block in ui.transcript_lexer.blocks:
+            assert ui.results.text.startswith(block.text, block.start)
+
+    try:
+        asyncio.run(interact(tmp_path, drive))
+    finally:
+        old.close()
+        new.close()
