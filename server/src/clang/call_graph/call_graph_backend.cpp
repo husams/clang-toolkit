@@ -71,9 +71,11 @@ class CallSiteCollector final
 public:
   CallSiteCollector(calls::CallGraphBudget &budget, std::size_t limit,
                     clang::ASTContext &ast, bool main_file_only,
+                    bool exclude_system_headers,
                     std::function<bool(const clang::Decl *)> admitted)
       : budget_(budget), limit_(limit), sources_(ast.getSourceManager()),
         ast_(ast), main_file_only_(main_file_only),
+        exclude_system_headers_(exclude_system_headers),
         admitted_(std::move(admitted)) {}
   bool TraverseDecl(clang::Decl *decl) {
     // A default argument executes at each invocation, not at its declaration.
@@ -108,13 +110,18 @@ public:
     return result;
   }
   bool VisitCallExpr(clang::CallExpr *call) {
-    if (main_file_only_ && !sources_.isWrittenInMainFile(
-                               sources_.getExpansionLoc(call->getExprLoc())))
+    budget_.check();
+    const auto location = sources_.getExpansionLoc(call->getExprLoc());
+    if (main_file_only_ && !sources_.isWrittenInMainFile(location))
       return true;
     const auto *caller = invoking_callable_ ? invoking_callable_ : callable_;
     if (caller && admitted_ && !admitted_(caller))
       return true;
-    budget_.check();
+    // Global initializers and template arguments have no callable to scope.
+    // Filter their expansion location before charging the call-site budget.
+    if (!caller && exclude_system_headers_ && location.isValid() &&
+        sources_.isInSystemHeader(location))
+      return true;
     if (budget_.call_sites >= limit_)
       throw calls::CallGraphFailure(MatchCode::ResourceExhausted,
                                     "call graph call-site limit exceeded");
@@ -139,6 +146,7 @@ private:
   clang::SourceManager &sources_;
   clang::ASTContext &ast_;
   bool main_file_only_;
+  bool exclude_system_headers_;
   std::function<bool(const clang::Decl *)> admitted_;
   bool visit_implicit_{true};
   bool visit_templates_{true};
@@ -478,7 +486,8 @@ private:
       const auto max_sites =
           request.has_max_call_sites() ? request.max_call_sites() : 100000;
       CallSiteCollector collector(budget, max_sites, ast,
-                                  request.main_file_only(), in_scope);
+                                  request.main_file_only(),
+                                  request.exclude_system_headers(), in_scope);
       collector.set_visit_flags(graph.ShouldVisitImplicitCode,
                                 graph.ShouldVisitTemplateInstantiations);
       collector.TraverseDecl(ast.getTranslationUnitDecl());

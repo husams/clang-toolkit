@@ -138,6 +138,22 @@ name can therefore still appear in a call-site fact. Excluded callers contribute
 no sites and do not consume the call-site budget. `is_complete` describes the
 requested scope and projection.
 
+For call-site facts without an enclosing callable (the virtual-root caller),
+`exclude-system true` also checks the call expression's expansion location.
+System-header facts are omitted before consuming the call-site budget. Facts
+from your own headers and main file remain, including system-defined macros
+expanded there. Calls from an admitted function to an excluded callee still
+retain their boundary facts. `node-filter` remains a callable matcher; it does
+not apply a declaration matcher to root-level expressions.
+
+Run `examples/callgraph_system_sites.ctk` against the updated server for a
+complete filename, parsed-file and matched-node console check using both
+`exclude-system true` and a custom matcher. It prints the virtual-root call-site
+count explicitly. On Linux with the checked-in stdexcept fixture, all three
+forms return `root_sites=0`; filename and parsed-file results contain 4 nodes,
+5 edges and 3 call sites, while the matched `depth all` result has 4 nodes,
+2 edges and 3 call sites. Both user-header functions remain.
+
 The response echoes `exclude_system_headers` and `node_filter`; Python clients
 reject servers that do not confirm these filters. Retained inputs reuse the
 pinned snapshot, and graph methods that query a retained binding preserve its
