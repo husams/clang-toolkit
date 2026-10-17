@@ -70,11 +70,13 @@ def test_unbraced_control_bodies_consume_the_complete_expression() -> None:
     assert conditional.children[2].children[0].value == "*"
 
 
-def test_only_named_calls_are_supported() -> None:
-    with pytest.raises(UnexpectedInput):
-        parse("$obj.fn()")
-    with pytest.raises(UnexpectedInput):
-        parse("range(1)()")
+def test_member_and_returned_calls_keep_their_callee_expressions() -> None:
+    member_call = parse("$obj.fn()").children[0]
+    assert member_call.kind == "invoke"
+    assert (member_call.children[0].kind, member_call.children[0].value) == ("get", "fn")
+    returned_call = parse("range(1)()").children[0]
+    assert returned_call.kind == "invoke"
+    assert (returned_call.children[0].kind, returned_call.children[0].value) == ("call", "range")
 
 
 def test_member_index_and_assignment_targets_keep_their_structure() -> None:

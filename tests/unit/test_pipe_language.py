@@ -62,12 +62,10 @@ def test_error_recovery_wraps_the_whole_pipeline(engine: str) -> None:
     assert result.value == 99
 
 
-def test_newline_before_pipe_is_a_statement_boundary_without_grouping() -> None:
-    from lark.exceptions import UnexpectedCharacters
-    from clang_toolkit.cli.runtime.prototype.syntax import parse
-
-    with pytest.raises(UnexpectedCharacters):
-        parse("let inc(x) = x + 1\nlet value = 1\nvalue\n| inc")
+@pytest.mark.parametrize("engine", ["tree", "compiled"])
+def test_newline_before_pipe_continues_without_grouping(engine: str) -> None:
+    result = run_source("let inc(x) = x + 1\nlet value = 1\nvalue\n| inc", engine=engine)
+    assert result.value == 2
 
 
 @pytest.mark.parametrize("engine", ["tree", "compiled"])

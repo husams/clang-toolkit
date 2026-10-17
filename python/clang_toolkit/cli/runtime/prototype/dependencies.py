@@ -23,10 +23,16 @@ class _Definition:
     defaults: tuple[Node, ...] = ()
 
 
+@dataclass
+class _Alternatives:
+    values: tuple[Any, ...]
+
+
 def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
     from clang_toolkit.cli.runtime.matcher_functions import MatcherFunction
 
     active = set()
+    resolving: set[int] = set()
     builtin_aliases = {
         name for name, value in bindings.items()
         if getattr(value, "__ctk_filter_name__", None) in _FILTER_CALLBACKS
@@ -40,10 +46,91 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
             return _Definition(name, parameters, node.children[0], environment, node.children[1:])
         if isinstance(node, Node) and node.kind == "ref":
             return environment.get(node.value)
+        if isinstance(node, Node) and node.kind == "literal":
+            return node.value
+        if isinstance(node, Node) and node.kind in {"list", "tuple"}:
+            values = [resolve(child, environment) for child in node.children]
+            return tuple(values) if node.kind == "tuple" else values
+        if isinstance(node, Node) and node.kind == "dict":
+            return {child.value: resolve(child.children[0], environment) for child in node.children}
+        if isinstance(node, Node) and node.kind == "conditional":
+            condition = resolve(node.children[0], environment)
+            if type(condition) is bool:
+                return resolve(node.children[1 if condition else 2], environment)
+            return _Alternatives(tuple(resolve(branch, environment) for branch in node.children[1:]))
+        if isinstance(node, Node) and node.kind in {"index", "get"}:
+            base = resolve(node.children[0], environment)
+            key = node.value if node.kind == "get" else resolve(node.children[1], environment)
+            return project(base, key)
+        if isinstance(node, Node) and node.kind in {"call", "invoke"}:
+            callee = environment.get(node.value) if node.kind == "call" else resolve(node.children[0], environment)
+            args = node.children if node.kind == "call" else node.children[1:]
+            return call_result(callee, args, environment)
+        if isinstance(node, Node) and node.kind in {"program", "block"}:
+            local = dict(environment)
+            result = None
+            for child in node.children:
+                while child.kind in {"consume", "observe"}:
+                    child = child.children[0]
+                if child.kind == "let":
+                    result = resolve(child.children[0], local)
+                    local[child.value] = result
+                elif child.kind == "runnable":
+                    name, parameters = child.value
+                    result = _Definition(name, parameters, child.children[0], local, child.children[1:])
+                    local[name] = result
+                else:
+                    result = resolve(child, local)
+            return result
         return None
+
+    def project(base: Any, key: Any) -> Any:
+        if isinstance(base, _Alternatives):
+            return _Alternatives(tuple(project(candidate, key) for candidate in base.values))
+        if type(base) in {list, tuple, dict}:
+            if type(key) in {int, str}:
+                try:
+                    return base[key]
+                except (IndexError, KeyError, TypeError):
+                    return None
+            if key is None:
+                return _Alternatives(tuple(base.values()) if type(base) is dict else tuple(base))
+        return None
+
+    def call_result(callee: Any, args: tuple[Node, ...], environment: dict[str, Any]) -> Any:
+        if isinstance(callee, _Alternatives):
+            return _Alternatives(tuple(call_result(candidate, args, environment) for candidate in callee.values))
+        if not isinstance(callee, (RunnableBlock, _Definition)) or id(callee) in resolving:
+            return None
+        resolving.add(id(callee))
+        try:
+            captured = ({key: value for scope in callee.scopes for key, value in scope.items()}
+                        if isinstance(callee, RunnableBlock) else dict(callee.environment))
+            captured[callee.name] = callee
+            positional = [arg for arg in args if arg.kind != "keyword_arg"]
+            keywords = {arg.value: arg.children[0] for arg in args if arg.kind == "keyword_arg"}
+            defaults = callee.default_nodes if isinstance(callee, RunnableBlock) else callee.defaults
+            default_start = len(callee.parameters) - len(defaults)
+            for index, pattern in enumerate(callee.parameters):
+                if index < len(positional):
+                    value = resolve(positional[index], environment)
+                elif isinstance(pattern, str) and pattern in keywords:
+                    value = resolve(keywords[pattern], environment)
+                elif index >= default_start:
+                    value = resolve(defaults[index - default_start].children[0], captured)
+                else:
+                    value = None
+                bind_pattern(captured, pattern, value)
+            return resolve(callee.body, captured)
+        finally:
+            resolving.remove(id(callee))
 
     def call(value: Any, arguments: list[Any], environment: dict[str, Any],
              keywords: dict[str, Any] | None = None) -> Iterator[Tree]:
+        if isinstance(value, _Alternatives):
+            for candidate in value.values:
+                yield from call(candidate, arguments, environment, keywords)
+            return
         if not isinstance(value, (RunnableBlock, _Definition, MatcherFunction)) or id(value) in active:
             return
         active.add(id(value))
@@ -85,8 +172,9 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
             if pattern != "_":
                 target[pattern] = value
             return
-        for item in pattern:
-            bind_pattern(target, item, None)
+        values = value if type(value) is tuple and len(value) == len(pattern) else (None,) * len(pattern)
+        for item, child in zip(pattern, values):
+            bind_pattern(target, item, child)
 
     def callback_definition(node: Any, environment: dict[str, Any]) -> Any:
         value = resolve(node.children[0], environment) if isinstance(node, Node) and node.kind == "keyword_arg" else resolve(node, environment)
@@ -137,6 +225,13 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
                     builtin_aliases.add(node.value)
             if node.kind == "call":
                 yield from visit_call(node, environment)
+            if node.kind == "invoke":
+                arguments = node.children[1:]
+                yield from call(resolve(node.children[0], environment),
+                                [resolve(arg, environment) for arg in arguments if arg.kind != "keyword_arg"],
+                                environment,
+                                {arg.value: resolve(arg.children[0], environment)
+                                 for arg in arguments if arg.kind == "keyword_arg"})
             if node.kind == "pipe":
                 values = node.children
                 injected = None

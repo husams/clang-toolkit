@@ -23,12 +23,13 @@ defaults and named arguments. Built-in names can be shadowed; choose helper name
 that do not hide filters you intend to call.
 
 Pipes evaluate eagerly once per stage, from left to right. They bind below
-arithmetic, Boolean and conditional expressions. Put a multiline pipeline in
-parentheses; an ungrouped newline ends a statement. `on error` applies to the
+arithmetic, Boolean and conditional expressions. A leading `|` continues a
+pipeline across newlines without outer parentheses. A semicolon ends the
+statement. `on error` applies to the
 whole preceding pipeline. Execution budgets and cancellation still apply;
 `take(3)` does not prevent earlier eager stages from processing their input.
-For host commands with legacy operands, such as `save`, assign a pipeline to a
-`let` value first and pass that name to the command.
+Command value and path operands accept full expressions, so a pipeline can be
+passed directly: `save (rows | map(project)) to "report.json" as json`.
 
 ## Tuples and callback unpacking
 
@@ -79,12 +80,12 @@ It needs no C++ fixture and combines a parameterized user filter with `zip`,
 let prefixed(input, prefix) = prefix + input
 let names = ["Widget", "Empty", "Widget", "Other"]
 let counts = [2, 0, 5, 2]
-let report = (names
+let report = names
     | zip(counts)
-    | filter((name, count) = count > 0)
-    | sort_by((name, count) = count, reverse = true)
-    | unique_by((name, count) = name)
-    | map((name, count) = {name: name | snake_case | prefixed("class_"), count: count}))
+    | filter((name, count) count > 0)
+    | sort_by((name, count) count, reverse = true)
+    | unique_by((name, count) name)
+    | map((name, count) {name: name | snake_case | prefixed("class_"), count: count})
 print report | json(indent = 2)
 ```
 

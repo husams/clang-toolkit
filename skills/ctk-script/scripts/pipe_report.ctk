@@ -2,10 +2,10 @@
 let prefixed(input, prefix) = prefix + input
 let names = ["Widget", "Empty", "Widget", "Other"]
 let counts = [2, 0, 5, 2]
-let report = (names
+let report = names
     | zip(counts)
-    | filter((name, count) = count > 0)
-    | sort_by((name, count) = count, reverse = true)
-    | unique_by((name, count) = name)
-    | map((name, count) = {name: name | snake_case | prefixed("class_"), count: count}))
+    | filter((name, count) count > 0)
+    | sort_by((name, count) count, reverse = true)
+    | unique_by((name, count) name)
+    | map((name, count) {name: name | snake_case | prefixed("class_"), count: count})
 print report | json(indent = 2)

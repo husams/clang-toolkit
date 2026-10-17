@@ -47,6 +47,39 @@ def _command(server, library, *args):
             "-c", str(server.config), "--lib-dir", str(library), *args]
 
 
+@when(parsers.parse('I execute syntax composition using the "{engine}" engine'),
+      target_fixture="composition_output")
+def composition_output(pipe_console, tmp_path, engine):
+    server, source, library = pipe_console
+    example = Path(__file__).resolve().parents[2] / "examples/syntax_composition.ctk"
+    script = tmp_path / "composition.ctk"
+    script.write_text(example.read_text() + '\n'
+        'let makers = [() cxxRecordDecl(isDefinition(), hasName("demo::Widget")).bind("c")]\n'
+        f'let tree = parse ({json.dumps(str(source))} + "")\n'
+        'let selected = match makers[0]() in (if true then tree else null)\n'
+        'print "NATIVE={selected[0].c.decl_name}"\n')
+    destination = tmp_path / "composition.json"
+    result = subprocess.run(
+        _command(server, library, "--script-engine", engine, "--script", str(script),
+                 f"output={destination}"),
+        cwd=tmp_path, text=True, capture_output=True, timeout=90,
+        env=dict(os.environ, NO_COLOR="1"),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout, json.loads(destination.read_text())
+
+
+@then("composition prints the expected calls and saved records")
+def verify_composition_output(composition_output):
+    output, records = composition_output
+    lines = output.splitlines()
+    assert lines[:2] == ["RETURNED=42", "INDEXED=42"]
+    expected = [{"name": "Other", "count": 1}, {"name": "Widget", "count": 2}]
+    assert records == expected
+    assert json.loads(lines[-2]) == expected
+    assert lines[-1] == "NATIVE=demo::Widget"
+
+
 @when(parsers.parse('I execute the complete filter script using the "{engine}" engine'),
       target_fixture="pipe_script_output")
 def pipe_script_output(pipe_console, tmp_path, engine):

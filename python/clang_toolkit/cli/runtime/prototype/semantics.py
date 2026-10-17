@@ -488,6 +488,15 @@ def iterable_value(ctx: Context, node: Any, value: Any) -> Any:
 
 def property_value(value: Any, name: str) -> Any:
     """Read a safe property, including CTK's descriptor-backed semantic views."""
+    from dataclasses import replace
+    from ..values import MatcherExpr
+
+    if isinstance(value, MatcherExpr) and name == "bind":
+        def bind(binding: str) -> MatcherExpr:
+            if not isinstance(binding, str):
+                raise TypeError("matcher binding must be a string")
+            return replace(value, binding=binding)
+        return bind
     try:
         from ..references import property_value as ctk_property_value
 
@@ -745,6 +754,20 @@ def eval_expr(ctx: Context, node: Any) -> Any:
                                lambda context: eval_block(context, child_values(node)[0], scoped=False),
                                tuple(lambda context, spec=default: eval_block(context, spec, scoped=False)
                                      for default in child_values(node)[1:]))
+    if kind == "invoke":
+        from dataclasses import replace
+        from .runnables import invoke_value
+
+        values = child_values(node)
+        callee = eval_expr(ctx, values[0])
+        try:
+            return invoke_value(ctx, replace(node, children=values[1:]), callee,
+                                lambda: [eval_expr(ctx, child_values(arg)[0] if _kind(arg) == "keyword_arg" else arg)
+                                         for arg in values[1:]])
+        except PrototypeError:
+            raise
+        except Exception as error:
+            raise _error(ctx, node, f"call failed: {error}") from error
     if kind == "call":
         name = _name(node)
         from .runnables import invoke_named
@@ -880,7 +903,7 @@ def eval_statement(ctx: Context, node: Any, *, value_context: bool = False) -> A
         return eval_condition_loop(ctx, node, collect=value_context)
     if kind == "block":
         return eval_block(ctx, node)
-    if kind in {"conditional", "list", "tuple", "dict", "literal", "ref", "get", "index", "call", "pipe", "binary", "predicate", "unary", "host", "recovery", "inline_runnable"}:
+    if kind in {"conditional", "list", "tuple", "dict", "literal", "ref", "get", "index", "call", "invoke", "pipe", "binary", "predicate", "unary", "host", "recovery", "inline_runnable"}:
         return eval_expr(ctx, node)
     raise _error(ctx, node, f"unknown statement node {kind!r}")
 

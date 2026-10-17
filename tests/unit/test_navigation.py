@@ -137,6 +137,25 @@ def test_console_navigation_reuses_matcher_variables(selected_client, tmp_path):
 
 
 @pytest.mark.parametrize("engine", ["tree", "compiled"])
+def test_computed_navigation_matcher_keeps_binding(selected_client, tmp_path, engine):
+    from clang_toolkit.cli.app import dispatch_result
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client, source, requests, _ = selected_client
+    runtime = PrototypeRuntime(client, cwd=tmp_path, script_engine=engine)
+    runtime.bindings["node"] = source
+    try:
+        result = dispatch_result(client,
+            'let make() = compoundStmt(); '
+            'let rows = peek children make().bind("edge") in node', runtime)
+        assert result.success, result.output
+        assert requests[-1].query == 'compoundStmt().bind("edge")'
+        assert requests[-1].binding.session_id == "source"
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["tree", "compiled"])
 def test_compiled_navigation_assignment_is_silent_and_standalone_streams(
         selected_client, tmp_path, capsys, engine):
     from clang_toolkit.cli.app import dispatch_result

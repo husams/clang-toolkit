@@ -1068,6 +1068,7 @@ _PIPE_ENTRY = CommandHelp(
     ),
     (
         "Each stage receives the value on its left as its first argument; its result flows to the next stage.",
+        "A leading | continues the preceding expression on the next line without outer parentheses; semicolons end statements.",
         "Built-in stages include collection, tuple, string, and formatting helpers. Their signatures are shown by stage completion.",
         "List selection: xs[-1] selects the last item; xs[start:stop:step] returns a shallow list with an exclusive stop. Bounds clamp; step must be nonzero. xs[::-1] reverses order.",
         "first and last return one item or null for empty input. first(n) and last(n) return up to n items as lists; counts must be nonnegative integers. last(n) keeps original order; reverse returns a new reversed list.",
@@ -1077,8 +1078,8 @@ _PIPE_ENTRY = CommandHelp(
         "User-defined console runnables can be pipeline stages. These features belong to the compiled interactive console; native server scripts and server-side batch bodies retain their separate language.",
     ),
     (
-        "let positive = pairs | filter((name, count) = count > 0)",
-        "let ordered = pairs | sort_by((name, count) = count, reverse = true)",
+        "let positive = pairs | filter((name, count) count > 0)",
+        "let ordered = pairs | sort_by((name, count) count, reverse = true)",
         "print values | json(indent = 2)",
         "print 10 | my_filter(1)",
     ),

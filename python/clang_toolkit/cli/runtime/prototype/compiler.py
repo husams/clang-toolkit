@@ -110,6 +110,18 @@ def _call(context: Context, node: Any, name: str, args: Callable[[], list[Any]])
         raise _error(context, node, f"host function {name!r} failed: {error}") from error
 
 
+def _invoke(context: Context, node: Node, callee: Callable[[], Any], args: Callable[[], list[Any]]) -> Any:
+    from dataclasses import replace
+    from .runnables import invoke_value
+
+    try:
+        return invoke_value(context, replace(node, children=node.children[1:]), callee(), args)
+    except PrototypeError:
+        raise
+    except Exception as error:
+        raise _error(context, node, f"call failed: {error}") from error
+
+
 def _pipe(context: Context, node: Any, initial: Callable[[], Any], stages: list[Any]) -> Any:
     from .runnables import run_pipe
 
@@ -296,6 +308,10 @@ class _Lowerer:
         elif kind == "call":
             args = [self.emit_expr(child_values(x)[0] if _kind(x) == "keyword_arg" else x) for x in child_values(node)]
             expr = self.call("_call", context, nref, ast.Constant(_name(node)), self.lambda0(ast.List(args, ast.Load())))
+        elif kind == "invoke":
+            values = child_values(node)
+            args = [self.emit_expr(child_values(x)[0] if _kind(x) == "keyword_arg" else x) for x in values[1:]]
+            expr = self.call("_invoke", context, nref, self.lambda0(self.emit_expr(values[0])), self.lambda0(ast.List(args, ast.Load())))
         elif kind == "pipe":
             values = child_values(node)
             stages = []
@@ -536,7 +552,7 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_make_dict": _make_dict, "_make_tuple": _make_tuple, "_get": _get, "_index": _index, "_slice": _slice, "_iterable": _iterable,
         "_logical": _logical, "_binary": _binary, "_unary": _unary,
         "_predicate": _predicate, "_predicate_binding": _predicate_binding,
-        "_call": _call, "_pipe": _pipe, "_conditional": _conditional, "_run_scoped": _run_scoped,
+        "_call": _call, "_invoke": _invoke, "_pipe": _pipe, "_conditional": _conditional, "_run_scoped": _run_scoped,
         "_print": _print, "_assign_ref": _assign_ref, "_assign_index": _assign_index, "_assign_get": _assign_get,
         "_loop_condition": loop_condition, "_complete_loop_iteration": complete_loop_iteration,
         "_bad_target": _bad_target, "_check_items": _check_items, "len": len, "enumerate": enumerate,

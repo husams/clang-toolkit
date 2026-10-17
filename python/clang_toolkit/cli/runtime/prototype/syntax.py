@@ -388,7 +388,14 @@ class _Builder(Transformer[Any, Any]):
                 result = Node("get", value=part.value, children=(result,), line=part.line, column=part.column)
             elif part.kind == "index":
                 result = Node("index", children=(result, part.children[0]), line=part.line, column=part.column)
+            elif part.kind == "call":
+                result = Node("invoke", children=(result, *part.children), line=part.line, column=part.column)
         return result
+
+    def call_suffix(self, meta: Any, items: list[Any]) -> _Part:
+        line, column = self._location(meta, items)
+        arguments = next((item for item in items if isinstance(item, tuple)), ())
+        return _Part("call", children=arguments, line=line, column=column)
 
     def member_part(self, meta: Any, items: list[Any]) -> _Part:
         line, column = self._location(meta, items)
@@ -638,6 +645,14 @@ def _validate_integer_ranges(node: Node, *, unary_minus_operand: bool = False) -
     out-of-range integer.
     """
 
+    if node.kind == "host":
+        def visit_host(tree: Any) -> None:
+            for child in getattr(tree, "children", ()):
+                if isinstance(child, Node):
+                    _validate_integer_ranges(child)
+                else:
+                    visit_host(child)
+        visit_host(node.value[0])
     if node.kind == "literal" and isinstance(node.value, int) and not isinstance(node.value, bool):
         if node.value > _INT64_MAX and not unary_minus_operand:
             raise ValueError(

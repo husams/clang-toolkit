@@ -26,3 +26,13 @@ Feature: Pipe filters and tuple callbacks in the console
     Given an isolated pipe-filter console and class fixture
     When I paste the tuple pipeline into the real console terminal
     Then the terminal prints the verified tuple pipeline result
+
+  Scenario Outline: Expressions compose across callbacks, calls and file operands
+    Given an isolated pipe-filter console and class fixture
+    When I execute syntax composition using the "<engine>" engine
+    Then composition prints the expected calls and saved records
+
+    Examples:
+      | engine   |
+      | compiled |
+      | tree     |

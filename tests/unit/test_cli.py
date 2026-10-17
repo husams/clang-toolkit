@@ -320,6 +320,8 @@ def test_background_stream_is_consumed_while_prompt_accepts_next_command(monkeyp
     import asyncio
     from clang_toolkit.cli import app
 
+    monkeypatch.chdir(tmp_path)
+
     background_consumed = None
 
     class BackgroundClient:

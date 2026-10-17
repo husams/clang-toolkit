@@ -48,12 +48,12 @@ right. Each stage returns the value passed to the next stage:
 ```ctk
 let names = ["Widget", "Empty", "Widget", "Other"]
 let counts = [2, 0, 5, 2]
-let report = (names
+let report = names
     | zip(counts)
-    | filter((name, count) = count > 0)
-    | sort_by((name, count) = count, reverse = true)
-    | unique_by((name, count) = name)
-    | map((name, count) = {name: name, count: count}))
+    | filter((name, count) count > 0)
+    | sort_by((name, count) count, reverse = true)
+    | unique_by((name, count) name)
+    | map((name, count) {name: name, count: count})
 print report | json(indent = 2)
 ```
 
@@ -105,8 +105,9 @@ pair. Tuple patterns require matching tuple shapes; `_` discards an element.
 Loop bindings stay local to each iteration.
 
 Pipelines evaluate eagerly from left to right. Each stage receives its input
-once, and `print` prints the final value once. Parentheses allow a pipeline
-to continue on following lines; an ungrouped newline ends a statement.
+once, and `print` prints the final value once. A leading `|` continues the
+preceding expression across newlines, including blank and comment-only lines;
+outer parentheses are optional. A semicolon always ends the statement.
 `on error` applies to the whole preceding pipeline:
 
 ```ctk
