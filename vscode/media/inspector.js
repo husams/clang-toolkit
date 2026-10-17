@@ -1,3 +1,4 @@
+import { referenceNavigation } from "./inspector-navigation.js";
 import { sectionState } from "./inspector-sections.js";
 import { renderSemantics } from "./inspector-semantics.js";
 import { renderTree } from "./inspector-tree.js";
@@ -5,6 +6,7 @@ import { renderTree } from "./inspector-tree.js";
 const api = acquireVsCodeApi();
 const el = (id) => document.getElementById(id);
 const post = (type, data = {}) => api.postMessage({ type, ...data });
+const navigate = referenceNavigation(post);
 const restoreSections = sectionState(api);
 restoreSections(document.querySelector("main"));
 const tabs = ["ast", "properties"];
@@ -79,11 +81,11 @@ window.addEventListener("message", ({ data }) => {
   el("action").disabled = !state.canRunAction;
   fields("properties", node.properties);
   el("properties-group").hidden = !node.properties.length;
-  renderSemantics(el("semantics"), node, state.semantics, post, state);
+  renderSemantics(el("semantics"), node, state.semantics, state, navigate);
   restoreSections(document.querySelector("main"));
   fields("range", node.range);
   el("range-group").hidden = !node.range.length;
-  const tree = renderTree(el("tree"), state, post);
+  const tree = renderTree(el("tree"), state, post, navigate);
   post("rendered", {
     nodeId: node.id,
     kind: el("kind").textContent,

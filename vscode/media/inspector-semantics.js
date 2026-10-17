@@ -1,4 +1,4 @@
-export function renderSemantics(host, node, semantics, post, context) {
+export function renderSemantics(host, node, semantics, context, navigate) {
   const previous = new Map(
     [...host.querySelectorAll("details")].map((group) => [
       group.dataset.title,
@@ -35,8 +35,8 @@ export function renderSemantics(host, node, semantics, post, context) {
       ctkAstCanRun: !context.running,
       preventDefaultContextMenuItems: true,
     });
-    link.addEventListener("click", () =>
-      post("related", { id: reference.nodeId }),
+    link.addEventListener("click", (event) =>
+      navigate(event, "related", reference.nodeId),
     );
     details.append(link);
   }
@@ -71,8 +71,8 @@ export function renderSemantics(host, node, semantics, post, context) {
           ctkAstCanRun: !context.running,
           preventDefaultContextMenuItems: true,
         });
-        link.addEventListener("click", () =>
-          post("related", { id: base.nodeId }),
+        link.addEventListener("click", (event) =>
+          navigate(event, "related", base.nodeId),
         );
         item.append(link);
       } else item.textContent = label;
@@ -138,8 +138,8 @@ export function renderSemantics(host, node, semantics, post, context) {
           const link = document.createElement("button");
           link.textContent = value;
           link.title = `Inspect ${value}`;
-          link.addEventListener("click", () =>
-            post("properties", { id: row.id }),
+          link.addEventListener("click", (event) =>
+            navigate(event, "properties", row.id),
           );
           cell.append(link);
         } else cell.textContent = value || "—";

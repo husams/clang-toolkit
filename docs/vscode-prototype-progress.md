@@ -1505,3 +1505,41 @@ restarted.
   harness and independent process audit confirm no test processes remain.
 
 Validation logs: `vscode/artifacts/validation/status-base-20261017/`.
+
+## Keep double-click base navigation on its intended class, version 0.2.34
+
+Reproduced in the existing normal VS Code window: double-clicking MidAlias in
+Widget's Properties first opened Middle, then the second click hit Middle's
+new Root link at the same screen position and incorrectly opened Root. The
+Properties DOM can redraw between physical clicks, resetting browser click
+counts. Reference navigation now keeps the first activation and ignores the
+second activation of that physical gesture across redraws. Single clicks remain
+immediate; separate pointer locations, later clicks and keyboard activation
+remain usable. The same guard covers base links in AST and member links in
+Properties. Four regression cases cover those behaviors.
+
+The current user-owned match-groups-demo.cpp has unsaved edits and stale native
+handles; those edits were preserved. Navigating that stale AST still requires
+saving first, consistent with the existing session and source-range policy.
+
+TypeScript, Biome and all 104 extension unit tests pass (18 native cases remain
+opt-in). Packaged and installed v0.2.34 in the approved normal profile; archive
+integrity and the installed version are verified. VSIX SHA256:
+`cd44f0ab22f4177c193e163fabba62df44f5d31157dbfc570874916f579878e0`.
+
+Verified the original physical double-click in the updated normal window:
+Widget -> double-click MidAlias -> Middle, with its full class selected at
+lines 6-9. It no longer follows Root on the second click. A later single click
+on Root still opens Root. Run Action remains enabled on the selected saved
+class. Restored the user's original dirty C++ tab and preserved all source and
+custom action tabs; no user edits were saved or changed. No additional manual
+window was opened and the managed server was not restarted.
+
+The first full host run failed its early saved-file refresh wait; a second run
+passed that stage but returned no hover in a separate language-provider check.
+Both failure logs are preserved and both test windows closed automatically.
+The final full run passes with the default console helper library, without
+overlapping installation or manual UI. The harness reports
+CTK_TEST_PROCESSES_CLOSED; an independent audit confirms zero remaining
+temporary test processes.
+Logs: `vscode/artifacts/validation/base-doubleclick-20261017/`.

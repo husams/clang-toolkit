@@ -2,7 +2,7 @@ let lastReveal;
 let wasVisible = false;
 const views = new WeakMap();
 
-export function renderTree(host, state, post) {
+export function renderTree(host, state, post, navigate) {
   const active =
     document.hasFocus() && host.contains(document.activeElement)
       ? document.activeElement.closest("[role=treeitem]")?.dataset.node
@@ -54,7 +54,7 @@ export function renderTree(host, state, post) {
         event.stopPropagation();
         const reference = current()?.referencedDeclaration;
         if (reference && !view.state.running)
-          view.post("related", { id: reference.nodeId });
+          navigate(event, "related", reference.nodeId);
       });
       declaration.addEventListener("dblclick", (event) =>
         event.stopPropagation(),
