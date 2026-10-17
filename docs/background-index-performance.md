@@ -87,14 +87,28 @@ indexing checks passed again.
 - Full isolated Python unit validation passed 2,493 tests. An initial run's
   configuration-sensitive console mock read the local compilation-database
   setting; the unchanged test passes in an isolated working directory.
-- Full native regression validation is running at background CPU/I/O priority,
-  with per-test storage isolation. An earlier normal-priority run was stopped
-  because it distorted foreground latency measurements; no test limits changed.
+- Full native validation passed 427 unique checks across the full run and two
+  unchanged isolated timing reruns, with per-test storage isolation.
+- Full BDD validation passed 195 scenarios in three batches of 65.
 
 The final full isolated Python unit run passed **2,493 tests** in 155.54 seconds
 (`/tmp/ctk-index-throughput-unit-isolated.log`); test code and limits were unchanged.
 The initial isolated collection needed the repository on PYTHONPATH for its
-cross-test imports. Full native checks and the queued full BDD run remain in progress.
-The native suite's background scheduling made one existing 200 ms cursor-expiry
-test fail; remaining validation returned to normal scheduling after the approved
-server policy was active. Timing-only failures are rerun unchanged in isolation.
+cross-test imports. Background validation scheduling affected an existing 200 ms
+cursor-expiry test and a shutdown-drain timing check; remaining validation returned
+to normal scheduling after the approved server policy was active. Both checks
+passed unchanged in isolation.
+
+Full native coverage is complete: **425/427 passed in the full run**, and the two
+background-scheduling-sensitive checks passed unchanged on isolated normal-priority
+reruns (**2/2 passed**). Total unique native checks passing: **427**. No test
+limits or expectations were relaxed. Logs:
+`/tmp/ctk-index-throughput-ctest-final.log` and
+`/tmp/ctk-index-throughput-ctest-retries.log`.
+Full BDD validation passed **195/195** in three batches after the native suite.
+Log: `/tmp/ctk-index-throughput-bdd-complete.log`; detailed batch logs are
+`/tmp/ctk-index-throughput-bdd-{0,1,2}.log`.
+Final live verification: the Interactive service is running, indexing is active,
+and the latest status reports zero failed TUs. The first full 623-entry pass is
+still in progress; stored contribution counts can include retained older contexts
+until that pass retires them.
