@@ -112,3 +112,79 @@ Final live verification: the Interactive service is running, indexing is active,
 and the latest status reports zero failed TUs. The first full 623-entry pass is
 still in progress; stored contribution counts can include retained older contexts
 until that pass retires them.
+
+## Populated symbol lookup follow-up
+
+Subsequent live checks reproduced `UNAVAILABLE: interrupted` for populated exact
+and prefix searches during indexing. An empty-result probe had not exercised the
+expensive response path. The old query joined TU metadata before sorting and
+limiting matches; `status` follows the potentially large dependency manifest in
+its overflow record. Repeated matching declarations amplified those reads.
+
+The lookup now materializes a bounded set of narrow symbol keys before fetching
+payloads, then materializes metadata once per distinct returned TU. A new covering
+`translation_unit_lookup(id,main_file,arguments,status)` index avoids manifest
+pages entirely. Reads explicitly select that index when present because SQLite
+sometimes chose the primary key instead. Stores without the index remain readable;
+the background writer adds it without rebuilding symbol contributions or adding
+a table.
+
+Prefix searches bound the name and qualified-name arms independently before
+merging and deduplicating them. Prefix ordering now uses SQLite NOCASE to match
+its existing case-insensitive matching and let the qualified-name prefix index
+stop early; exact and USR ordering remain unchanged. Literal LIKE wildcard
+escaping, distinct TU variants, truncation, and snapshot revision/staleness remain
+supported.
+
+A remaining first cold-page read exceeded the previous 250ms server cutoff even
+after the query changes. The server budget is now one second, still bounded by an
+earlier client deadline and cancellation. This allows cold disk reads without
+relaxing result limits or serializing other RPCs. It is separate from the SQL
+work reduction and must not be interpreted as a fourfold performance gain.
+
+A new native regression exercises 3,000 contributions across three TU variants
+with 2MiB manifests, exact and qualified matches, both prefix arms, a 1,000-row
+USR response, deduplication, literal wildcard escaping, and a pre-upgrade store.
+The plan guard requires the response metadata query to use a covering index.
+
+Immediate post-restart live verification passed **40/40 populated lookups**
+(exact names, a roughly 97,000-match prefix, and USRs) while indexing was active
+and status/parse requests ran concurrently. Results included up to **64 distinct
+TUs**. Lookup mean was **47.11ms**, maximum **495.69ms** including the first cold
+read; all 40 status requests passed with a **2.87ms mean / 37.97ms maximum**.
+Four parse calls succeeded; the first cold client/parse call took 8.63 seconds,
+so their aggregate must not be described as uniformly fast. The real console
+also returned populated `ANTLRInputStream` results at index revision 182.
+Logs: `/tmp/ctk-symbol-lookup-live.log` and `/tmp/ctk-symbol-console.log`.
+
+Full native validation passed **428/428 checks** in one isolated GoogleTest
+process (102.38 seconds), including the new populated-lookup regression. The
+initial per-test CTest invocation was stopped after 31 passing cases to avoid
+repeating process startup for every check; it is not claimed as a complete CTest
+pass. Full isolated Python unit validation passed **2,493/2,493** (369.47 seconds).
+Logs: `/tmp/ctk-symbol-lookup-native-all.log` and `/tmp/ctk-bounded-python.log`.
+Formatting and `git diff --check` also pass.
+
+A separate concurrent run used **eight distinct source files** after explicitly
+recording client/parse warmup (585.62ms). All fresh parses succeeded at **293.52ms
+mean / 365.75ms maximum**, all 20 populated cross-TU lookups succeeded at
+**26.90ms mean / 131.50ms maximum**, and all 20 server-status requests succeeded
+at **117.09ms mean / 221.89ms maximum**. This ran while the BDD suite was also
+active, so it is an observed responsiveness check rather than an isolated
+throughput benchmark. Index revision had advanced from 181 to 185; indexing was
+still active with zero reported failures. Log: `/tmp/ctk-symbol-lookup-fresh.log`.
+
+Full BDD coverage verified **195 unique scenarios**: **194/195** passed in the
+three-batch run, and the remaining unchanged multiline-console scenario passed
+in isolation in **7.18 seconds**. Its batch failure was a 30-second CLI subprocess
+startup timeout; no symbol-index operation was involved and no timeout or test
+expectation was changed. The first isolated retry needed the same repository
+PYTHONPATH as the full driver to collect cross-test imports. Logs:
+`/tmp/ctk-symbol-lookup-bdd.log`, `/tmp/ctk-symbol-lookup-bdd-{0,1,2}.log`, and
+`/tmp/ctk-symbol-lookup-bdd-retry.log`. This is not a claim that all BDD scenarios
+passed together in one run.
+
+Final managed-server check: PID 28071 remains running, indexing is active at
+revision **195**, **609 current-pass TUs remain pending**, and **zero TUs have
+failed**. Stored contribution counts still include retained older contexts until
+this pass retires them. The full 623-TU project pass is not yet complete.

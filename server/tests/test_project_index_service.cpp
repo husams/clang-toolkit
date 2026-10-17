@@ -7,6 +7,7 @@
 #include <iterator>
 #include <sqlite3.h>
 #include <thread>
+#include <utility>
 
 namespace ctk::net {
 namespace fs = std::filesystem;
@@ -151,6 +152,83 @@ protected:
 };
 
 TEST_F(ProjectIndexServiceTest,
+       PopulatedLookupsBoundMetadataReadsBeforeJoining) {
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  start_and_wait(service);
+  ProjectIndexRequest project_request;
+  project_request.set_project_root(project.string());
+  ProjectIndexStatus paused;
+  grpc::ServerContext pause_context;
+  ASSERT_TRUE(
+      service.PauseProjectIndex(&pause_context, &project_request, &paused)
+          .ok());
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  // Large manifests sit before status in each TU's overflow record. A lookup
+  // must not read them for thousands of candidates discarded by its limit.
+  ASSERT_EQ(sqlite3_exec(
+                db,
+                "UPDATE translation_unit SET "
+                "dependencies_json=printf('%.*c',2097152,'x');"
+                "WITH RECURSIVE n(v) AS (VALUES(0) UNION ALL SELECT v+1 FROM n "
+                "WHERE v<999) "
+                "INSERT INTO symbol SELECT t.id,'c:@LookupProbe','LookupProbe',"
+                "'ns::LookupProbe','function',t.main_file,n.v,1,1,1,'int()' "
+                "FROM translation_unit t CROSS JOIN n;",
+                nullptr, nullptr, nullptr),
+            SQLITE_OK);
+  sqlite3_close(db);
+  for (const auto &[query, prefix] :
+       {std::pair{"LookupProbe", false}, std::pair{"ns::LookupProbe", false},
+        std::pair{"lookuppro", true}, std::pair{"ns::lookuppro", true}}) {
+    FindSymbolsRequest request;
+    request.set_project_root(project.string());
+    request.set_query(query);
+    request.set_match_mode(prefix ? FindSymbolsRequest::MATCH_MODE_PREFIX
+                                  : FindSymbolsRequest::MATCH_MODE_EXACT);
+    request.set_limit(2);
+    FindSymbolsResponse result;
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.FindSymbols(&context, &request, &result).ok());
+    ASSERT_EQ(result.symbols_size(), 2);
+    EXPECT_TRUE(result.truncated());
+    EXPECT_TRUE(result.stale());
+    EXPECT_EQ(result.symbols(0).byte_offset(), 0);
+    EXPECT_EQ(result.symbols(1).byte_offset(), 0);
+    EXPECT_NE(result.symbols(0).compile_context(),
+              result.symbols(1).compile_context());
+  }
+  LookupSymbolRequest request;
+  request.set_project_root(project.string());
+  request.set_usr("c:@LookupProbe");
+  FindSymbolsResponse result;
+  grpc::ServerContext context;
+  ASSERT_TRUE(service.LookupSymbol(&context, &request, &result).ok());
+  EXPECT_EQ(result.symbols_size(), 1000);
+  EXPECT_TRUE(result.truncated());
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  ASSERT_EQ(sqlite3_exec(db,
+                         "INSERT INTO symbol SELECT id,'c:@literal',"
+                         "'Lookup%_Probe','Lookup%_Probe','function',main_file,"
+                         "2000,1,1,1,'int()' FROM translation_unit;",
+                         nullptr, nullptr, nullptr),
+            SQLITE_OK);
+  sqlite3_close(db);
+  // Both search arms match these rows: deduplicate contributions while keeping
+  // distinct TU variants, and preserve literal LIKE wildcard escaping.
+  const auto literal = find(service, "Lookup%_", true);
+  EXPECT_EQ(literal.symbols_size(), 3);
+  EXPECT_FALSE(literal.truncated());
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  ASSERT_EQ(sqlite3_exec(db, "DROP INDEX translation_unit_lookup", nullptr,
+                         nullptr, nullptr),
+            SQLITE_OK);
+  sqlite3_close(db);
+  // A reader must also work on a pre-upgrade store before indexing starts.
+  EXPECT_EQ(find(service, "Lookup%_", true).symbols_size(), 3);
+}
+
+TEST_F(ProjectIndexServiceTest,
        ThreeTableIndexMatchesPrefixesTracksMacroHeaderAndReusesRestart) {
   const fs::path worker = CTK_TEST_INDEX_WORKER;
   ProjectIndexStatus first;
@@ -174,10 +252,14 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_EQ(sqlite3_column_int(tables, 0), 3);
   sqlite3_finalize(tables);
   // These hot-path counts must remain independent of manifest payload size.
-  for (const char *query : {"EXPLAIN QUERY PLAN SELECT count(*) FROM "
-                            "translation_unit WHERE indexed_at>0",
-                            "EXPLAIN QUERY PLAN SELECT count(*) FROM "
-                            "translation_unit WHERE status!='ready'"}) {
+  for (const char *query :
+       {"EXPLAIN QUERY PLAN SELECT count(*) FROM "
+        "translation_unit WHERE indexed_at>0",
+        "EXPLAIN QUERY PLAN SELECT count(*) FROM "
+        "translation_unit WHERE status!='ready'",
+        "EXPLAIN QUERY PLAN SELECT main_file,arguments,status "
+        "FROM translation_unit INDEXED BY "
+        "translation_unit_lookup WHERE id='test'"}) {
     sqlite3_stmt *plan = nullptr;
     ASSERT_EQ(sqlite3_prepare_v2(db, query, -1, &plan, nullptr), SQLITE_OK);
     bool covering = false;
