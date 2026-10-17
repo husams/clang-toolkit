@@ -22,11 +22,12 @@ Alternatively, run `pnpm package` and use **Extensions → Install from VSIX…*
 
 ## Deploy on RHEL 9
 
-Copy or check out this **prototype checkout** on the RHEL machine, then run as
+Check out the merged `main` branch on the RHEL machine, then run as
 your normal VS Code user (not `sudo bash`):
 
 ```sh
-bash vscode/scripts/deploy-rhel9.sh --workspace /path/to/cpp-project
+bash vscode/scripts/deploy-rhel9.sh
+code /path/to/cpp-project
 ```
 
 RHEL 9, Rocky Linux 9, AlmaLinux 9 and CentOS Stream 9 are supported targets.
@@ -46,21 +47,38 @@ starts `ctk-vscode-prototype.service` in your systemd user session. Existing hel
 files in `~/.ctk/lib` are kept, including user functions. A live check uses the actual
 packaged worker to verify unsaved-buffer parsing, base-class navigation and an
 action on the selected node before installing the extension. Its server, storage,
-runtime, configuration and workspace are under `~/.local/share/ctk-vscode`
+runtime and server configuration are under `~/.local/share/ctk-vscode`
 (`$XDG_DATA_HOME/ctk-vscode` when set). The native binary and Python package are
 copied/installed there; running the extension does not depend on keeping the build
 checkout in place.
 
-Open the generated `ctk.code-workspace` using the command printed at completion,
-then trust the workspace. No editor window opens during deployment. Project and
-user settings are not overwritten; existing folder-level `ctk.*` settings can take
-precedence over the generated workspace settings. Without `--workspace`, the script
-creates a small demo project with a custom action. Reload an existing VS Code
-window after an extension update. Rerunning updates the same managed deployment.
+The extension is installed for your user, and the four CTK deployment settings
+(`ctk.server`, `ctk.configPath`, `ctk.pythonPath`, `ctk.libraryDirectory`) are written
+to VS Code's **user settings**. Open any trusted C++ project normally; there is no
+required `.code-workspace` file, and deployment does not create a demo by default.
+Desktop installs use `$XDG_CONFIG_HOME/Code/User/settings.json` (normally
+`~/.config/Code/User/settings.json`); Remote-SSH installs use the remote user's
+`$VSCODE_AGENT_FOLDER/data/Machine/settings.json` (normally under
+`~/.vscode-server`). Named desktop profiles and Insiders are detected. Use
+`--settings-file /absolute/path/to/settings.json` for a custom VS Code data directory
+or CLI wrapper that hides its location.
+
+Other settings, JSONC comments and trailing commas are preserved, and existing
+settings are backed up beside the original as `settings.json.ctk-backup` when changed.
+Malformed settings are left untouched and reported. Existing project settings
+are kept and can override user settings. Rerunning updates the same deployment;
+it removes the old installer's CTK deployment overrides from its own shortcut
+workspace. Reload an existing VS Code window after an update. No editor window
+opens during deployment.
 
 ```sh
 # Preview without changes (also works before copying the checkout to Linux).
 bash vscode/scripts/deploy-rhel9.sh --dry-run
+
+# Optionally create the demo, or a shortcut for an existing project.
+# Both still use user-level CTK settings.
+bash vscode/scripts/deploy-rhel9.sh --demo
+bash vscode/scripts/deploy-rhel9.sh --workspace /path/to/cpp-project
 
 # Use a prebuilt portable VSIX matching this checkout; skip Node/pnpm entirely.
 bash vscode/scripts/deploy-rhel9.sh --vsix /path/to/clang-toolkit-prototype.vsix
@@ -87,6 +105,9 @@ It never changes or restarts another CTK service. See `--help` for all options.
 Installer regression checks: `pnpm --dir vscode test:deploy` (uses the checkout's
 Python environment, or `CTK_PYTHON`). These simulate package installation and
 systemd; actual machine deployment still needs validation on the destination.
+Settings behavior: [VS Code user and workspace settings](https://code.visualstudio.com/docs/configure/settings),
+[Remote-SSH settings](https://code.visualstudio.com/docs/remote/ssh), and
+[remote settings location](https://github.com/microsoft/vscode/blob/main/src/vs/server/node/serverEnvironmentService.ts).
 Prerequisite sources: [VS Code Linux setup](https://code.visualstudio.com/docs/setup/linux),
 [Node 22 distributions](https://nodejs.org/dist/latest-v22.x/),
 and [uv locked environment sync](https://docs.astral.sh/uv/concepts/projects/sync/).
