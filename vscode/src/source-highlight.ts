@@ -7,6 +7,7 @@ export class SourceHighlight implements vscode.Disposable {
   private editor: vscode.TextEditor | undefined;
   private range: vscode.Range | undefined;
   private expected: { uri: string; range: vscode.Range } | undefined;
+  private collapsed: { uri: string; range: vscode.Range }[] = [];
   private readonly decoration = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor(
       "editor.findMatchHighlightBackground",
@@ -28,10 +29,25 @@ export class SourceHighlight implements vscode.Disposable {
   ownsSelection(
     editor: vscode.TextEditor,
     selection: vscode.Selection,
+    kind?: vscode.TextEditorSelectionChangeKind,
   ): boolean {
+    const uri = editor.document.uri.toString();
+    if (
+      kind === vscode.TextEditorSelectionChangeKind.Keyboard ||
+      kind === vscode.TextEditorSelectionChangeKind.Mouse
+    ) {
+      this.collapsed = this.collapsed.filter((entry) => entry.uri !== uri);
+    } else {
+      const index = this.collapsed.findIndex(
+        (entry) => entry.uri === uri && entry.range.isEqual(selection),
+      );
+      if (index >= 0) {
+        this.collapsed.splice(index, 1);
+        return true;
+      }
+    }
     return Boolean(
-      (this.expected?.uri === editor.document.uri.toString() &&
-        this.expected.range.isEqual(selection)) ||
+      (this.expected?.uri === uri && this.expected.range.isEqual(selection)) ||
         (this.editor === editor && this.range?.isEqual(selection)),
     );
   }
@@ -40,12 +56,21 @@ export class SourceHighlight implements vscode.Disposable {
     if (
       collapseSelection &&
       this.range &&
+      !this.range.isEmpty &&
       this.editor?.selection.isEqual(this.range)
-    )
-      this.editor.selection = new vscode.Selection(
+    ) {
+      const selection = new vscode.Selection(
         this.editor.selection.active,
         this.editor.selection.active,
       );
+      // VS Code reports our collapse asynchronously as a Command event.
+      this.collapsed.push({
+        uri: this.editor.document.uri.toString(),
+        range: selection,
+      });
+      this.collapsed = this.collapsed.slice(-8);
+      this.editor.selection = selection;
+    }
     this.editor?.setDecorations(this.decoration, []);
     this.editor = undefined;
     this.range = undefined;
@@ -93,6 +118,7 @@ export class SourceHighlight implements vscode.Disposable {
   }
   dispose(): void {
     this.clear();
+    this.collapsed = [];
     this.changed.dispose();
     this.decoration.dispose();
   }

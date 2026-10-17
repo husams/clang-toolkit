@@ -119,6 +119,20 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       expect(otherFunction!.node.name).toBe("unrelated");
       const repeated = await select("adjust(quantity)");
       expect(repeated!.node.id).toBe(call!.node.id);
+      const cursor = (offset: number) =>
+        host.selectSource(settings, reference.nodeId, {
+          file,
+          start: offset,
+          end: offset,
+        });
+      const atArgument = await cursor(text.lastIndexOf("quantity") + 2);
+      expect(atArgument!.node.id).toBe(argument!.node.id);
+      const atCallParenthesis = await cursor(text.lastIndexOf("adjust(") + 6);
+      expect(atCallParenthesis!.node.id).toBe(call!.node.id);
+      const atFileStart = await cursor(0);
+      expect(astDisplay(atFileStart!.node).kind).toBe("FunctionDecl");
+      expect(atFileStart!.node.name).toBe("adjust");
+      expect(await cursor(text.length)).toBeUndefined();
       const followed = await host.run(
         action("selected-calls", 'match callExpr().bind("call") in node'),
         {},
@@ -170,6 +184,19 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         value: "42",
       });
       expect(selected!.parseCount).toBe(1);
+      const atLiteral = await host.selectSource(
+        settings,
+        first.results[0]!.nodeId,
+        { file: unicodeFile, start: start + 1, end: start + 1 },
+      );
+      expect(atLiteral!.node.id).toBe(selected!.node.id);
+      const afterLiteral = await host.selectSource(
+        settings,
+        first.results[0]!.nodeId,
+        { file: unicodeFile, start: start + 2, end: start + 2 },
+      );
+      expect(astDisplay(afterLiteral!.node).kind).toBe("CompoundStmt");
+      expect(afterLiteral!.parseCount).toBe(1);
     }, 60000);
     it("inspects actual AST children, reuses native handles and rejects stale navigation", async () => {
       const host = service();

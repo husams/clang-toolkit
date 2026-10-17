@@ -536,3 +536,52 @@ value 2. The editor retained its one-character selection and keyboard focus.
 The trial remains open in that state; isolated host test windows closed normally.
 The VSIX includes the native lookup adapter and passed ZIP verification. SHA256:
 `37d9fc819cb51eb67ef56eb023bbb38f8e5c719c0a101d00e948e03ecd70785c`.
+
+## Cursor movement to AST inspector, version 0.2.12
+
+Clicking or moving the caret in saved C++ source now updates the visible CTK
+Result inspector without selecting text. The existing 180 ms debounce,
+document/context guards and stale-response checks apply to both cursor and
+selection events. The editor keeps keyboard focus and its exact empty selection.
+Inspector-created highlights remain excluded from reverse lookup.
+
+The first VS Code run exposed a previously hidden feedback race: collapsing an
+owned highlight emits an asynchronous Command selection event, which the new
+cursor lookup initially treated as user navigation. It cleared ownership before
+the replacement highlight completed. Source highlighting now records and
+consumes its own pending collapse events, with a bounded eight-entry queue;
+mouse/keyboard input clears pending entries for that editor. Source-less AST
+children still clear the previous selection and remain displayed after debounce.
+
+Zero-length source spans now carry cursor positions through the extension and
+native adapter, including byte offset zero. Native lookup uses half-open ranges
+for points: a token's exclusive end belongs to an enclosing node or the next
+token, never to the token on its left. Nonempty text selections keep their
+existing containment and whitespace/statement-terminator normalization. Nodes
+remain native and support child navigation and actions without reparsing;
+unmatched positions show a notice and disable actions on the previous node.
+
+Validation logs: `vscode/artifacts/validation/cursor-ast-sync-20261017/`.
+TypeScript, Biome, 45 extension tests (14 native opt-ins skipped), 16 console
+adapter tests and seven native integration tests passed. The cursor regression
+first failed on the old empty-selection behavior. Native checks cover file
+start/EOF, identifier interiors, exclusive token boundaries, UTF-8 positions,
+stable handle reuse and unchanged parse counts. The real VS Code host passed
+cursor commands from Symbol Search and Actions, references/calls/literals,
+included headers, exact caret/focus preservation, actions on cursor-selected
+nodes, unmatched positions and source-less/forward-highlight feedback guards.
+The original diagnostic runs are retained in `host.log` and `host-trace.log`;
+the passing run is `host-fixed.log`. The isolated test window and server closed.
+Shared server/SDK/console runtime implementations are unchanged; the previously
+recorded repository-wide Python baseline limitations still apply.
+
+The v0.2.12 VSIX passed ZIP verification and was installed in the normal profile.
+SHA256: `821290da6c76ef09c96a7902999aea6d061b113be535bf912d4a82b822d11b20`.
+
+Reloaded only the existing normal-profile trial window and opened secondCaller
+through Symbol Search. A single mouse click on its argument `2` selected
+IntegerLiteral in the inspector, with Literal value 2 and the editor at line 5,
+column 42 with no text selected. Right moved to column 43 and displayed the
+enclosing CallExpr for secondTarget, including caller secondCaller; Left returned
+to IntegerLiteral at column 42. Keyboard focus stayed in the C++ editor throughout.
+The trial remains open at that cursor position; custom action tabs were preserved.

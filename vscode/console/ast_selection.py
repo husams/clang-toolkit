@@ -52,8 +52,14 @@ class AstSelection:
         _, root_file, _ = host.check_input(request['nodeId'])
         selection = request['selection']
         start, end = selection['start'], selection['end']
-        if type(start) is not int or type(end) is not int or not 0 <= start < end:
-            raise ValueError('Select a nonempty source range.')
+        if type(start) is not int or type(end) is not int or not 0 <= start <= end:
+            raise ValueError('Select a source position or an ordered source range.')
+
+        def covers(span: tuple[int, int]) -> bool:
+            # A caret belongs to the token on its right, never one ending here.
+            return (span[0] <= start < span[1] if start == end
+                    else span[0] <= start and end <= span[1])
+
         file = str(Path(selection['file']).resolve())
         key = (root_file, file)
         if key not in self.declarations:
@@ -77,7 +83,7 @@ class AstSelection:
             self.inspector.collections.append(rows)
             self.declarations[key] = candidates
         covering = [(stop - begin, index, target) for index, (begin, stop, target) in
-                    enumerate(self.declarations[key]) if begin <= start and end <= stop]
+                    enumerate(self.declarations[key]) if covers((begin, stop))]
         if not covering:
             return None
         _, index, target = min(covering, key=lambda item: (item[0], item[1]))
@@ -113,7 +119,7 @@ class AstSelection:
                 native_child, _, _ = host.check_input(child['id'])
                 child_span = self.span(native_child.value, file)
                 if child_span:
-                    if child_span[0] <= start and end <= child_span[1]:
+                    if covers(child_span):
                         pending.append((child['id'], depth + 1))
                 elif not native_child.value.range.expansion_begin.valid:
                     # Type-location visitors can own source-bearing parameters.

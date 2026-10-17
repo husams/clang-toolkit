@@ -121,6 +121,61 @@ export async function run(): Promise<void> {
       `Editor selection did not resolve ${kind}: ${JSON.stringify(astState())}`,
     );
   }
+  async function moveEditorCursor(
+    uri: vscode.Uri,
+    code: string,
+    kind: string,
+    offset = 0,
+    last = false,
+  ) {
+    const document = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(document, {
+      preserveFocus: false,
+    });
+    const text = document.getText();
+    const start = last ? text.lastIndexOf(code) : text.indexOf(code);
+    assert.ok(start >= 0, `Missing cursor fixture: ${code}`);
+    const position = document.positionAt(start + offset);
+    const before = document.positionAt(
+      start + offset + (start + offset ? -1 : 1),
+    );
+    const previousId = astState().node?.id;
+    editor.selection = new vscode.Selection(before, before);
+    await vscode.commands.executeCommand("cursorMove", {
+      to: start + offset ? "right" : "left",
+      by: "character",
+      value: 1,
+      select: false,
+    });
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const state = astState();
+      if (
+        !state.running &&
+        !state.error &&
+        (kind === "unmatched"
+          ? Boolean(state.notice) && !state.canRunAction
+          : !state.notice &&
+            state.node?.kind === kind &&
+            state.node.id !== previousId)
+      ) {
+        assert.equal(vscode.window.activeTextEditor, editor);
+        assert.ok(
+          editor.selection.isEmpty,
+          "cursor lookup must not select code",
+        );
+        assert.ok(
+          editor.selection.active.isEqual(position),
+          "cursor lookup must preserve the caret",
+        );
+        return state;
+      }
+      await new Promise((done) => setTimeout(done, 40));
+    }
+    assert.fail(
+      `Editor cursor did not resolve ${kind}: ${JSON.stringify(astState())}`,
+    );
+  }
   async function renderedAst(kind: string) {
     const end = Date.now() + 10000;
     while (Date.now() < end) {
@@ -171,6 +226,14 @@ export async function run(): Promise<void> {
     "Symbol Search child navigation must select its complete body",
   );
   await selectEditorCode(target, "quantity > 0", "BinaryOperator");
+  await api.details.receive({ type: "back" });
+  await renderedAst("CompoundStmt");
+  await moveEditorCursor(
+    target,
+    "quantity > 0",
+    "IntegerLiteral",
+    "quantity > ".length,
+  );
   await api.details.receive({ type: "back" });
   await renderedAst("CompoundStmt");
   const symbolTarget = await api.details.actionTarget();
@@ -576,6 +639,8 @@ export async function run(): Promise<void> {
   );
   if (sourceLessChild) {
     await api.details.receive({ type: "child", id: sourceLessChild.id });
+    await new Promise((done) => setTimeout(done, 350));
+    assert.equal(astState().node?.id, sourceLessChild.id);
     assert.equal(
       highlightedSource(),
       "",
@@ -643,6 +708,34 @@ export async function run(): Promise<void> {
     "child inspection must not reparse the action file",
   );
   assert.equal(actionState().stale, false, JSON.stringify(actionState()));
+  await moveEditorCursor(
+    actionTarget,
+    "value + 1",
+    "IntegerLiteral",
+    "value + ".length,
+  );
+  await moveEditorCursor(actionTarget, "quantity", "DeclRefExpr", 2, true);
+  await moveEditorCursor(actionTarget, "adjust(quantity)", "DeclRefExpr", 2);
+  await moveEditorCursor(
+    actionTarget,
+    "adjust(quantity)",
+    "CallExpr",
+    "adjust".length,
+  );
+  const cursorSelectedId = astState().node!.id;
+  assert.equal(
+    (await (await api.details.actionTarget()).activate()).id,
+    cursorSelectedId,
+  );
+  assert.equal(actionState().parseCount, 1);
+  await moveEditorCursor(actionTarget, "int adjust", "FunctionDecl");
+  await moveEditorCursor(actionTarget, "\n", "unmatched", 1, true);
+  await assert.rejects(api.details.actionTarget(), /Select a current AST node/);
+  await api.details.receive({ type: "root" });
+  await renderedAst("FunctionDecl");
+  // Inspector-created selections and collapsed carets must not navigate back.
+  await new Promise((done) => setTimeout(done, 350));
+  assert.equal(astState().node?.id, rootAstId);
   await selectEditorCode(actionTarget, "adjust(quantity)", "CallExpr");
   const sourceSelectedId = astState().node!.id;
   assert.equal(
@@ -1106,6 +1199,12 @@ export async function run(): Promise<void> {
     "header child selection must automatically highlight its header range",
   );
   await selectEditorCode(relatedHeader, "value + 1", "BinaryOperator");
+  await moveEditorCursor(
+    relatedHeader,
+    "value + 1",
+    "IntegerLiteral",
+    "value + ".length,
+  );
   assert.equal(
     actionState().parseCount,
     1,

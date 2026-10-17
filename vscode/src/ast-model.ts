@@ -24,9 +24,9 @@ export const sourceSelectionSchema = z
   .object({
     file: z.string().min(1),
     start: z.number().int().nonnegative(),
-    end: z.number().int().positive(),
+    end: z.number().int().nonnegative(),
   })
-  .refine((span) => span.end > span.start, "Select a nonempty source range");
+  .refine((span) => span.end >= span.start, "Source range is reversed");
 export type SourceSelection = z.infer<typeof sourceSelectionSchema>;
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue =>

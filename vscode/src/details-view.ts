@@ -171,8 +171,9 @@ export class DetailsView
       const inspection = await operation;
       if (generation !== this.generation || !selectionCurrent()) return;
       if (!inspection) {
-        this.notice =
-          "No AST node covers this selection in the current analysis; showing the previous node.";
+        const location =
+          selection?.start === selection?.end ? "position" : "selection";
+        this.notice = `No AST node covers this ${location} in the current analysis; showing the previous node.`;
         return;
       }
       if (

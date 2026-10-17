@@ -21,13 +21,12 @@ export class EditorSelectionSync implements vscode.Disposable {
       const editor = event.textEditor,
         selection = event.selections[0];
       if (
-        !event.kind ||
         !selection ||
-        highlight.ownsSelection(editor, selection)
+        highlight.ownsSelection(editor, selection, event.kind) ||
+        !event.kind
       )
         return;
       this.cancel();
-      if (selection.isEmpty) return;
       const document = editor.document;
       if (
         !vscode.workspace.isTrusted ||

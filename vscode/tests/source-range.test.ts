@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sourceSelectionSchema } from "../src/ast-model.js";
 import type { Result } from "../src/model.js";
 import {
   selectedSource,
@@ -45,9 +46,20 @@ describe("AST source ranges", () => {
       end: Buffer.byteLength(text),
     });
   });
-  it("ignores empty and whitespace-only editor selections", () => {
+  it("preserves cursor points at file boundaries and after Unicode", () => {
+    const text = "// café 😀\ncode";
+    for (const offset of [0, text.indexOf("code"), text.length]) {
+      const byte = Buffer.byteLength(text.slice(0, offset));
+      const source = selectedSource(file, text, offset, offset);
+      expect(source).toEqual({ file, start: byte, end: byte });
+      expect(sourceSelectionSchema.parse(source)).toEqual(source);
+    }
+    expect(
+      sourceSelectionSchema.safeParse({ file, start: 2, end: 1 }).success,
+    ).toBe(false);
+  });
+  it("ignores whitespace-only nonempty editor selections", () => {
     expect(selectedSource(file, "   ", 0, 3)).toBeUndefined();
-    expect(selectedSource(file, "code", 2, 2)).toBeUndefined();
   });
   it("includes the final token using the server's exclusive end", () => {
     const text = "return secondTarget(2);";

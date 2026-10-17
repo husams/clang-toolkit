@@ -26,6 +26,10 @@ export function selectedSource(
   from: number,
   to: number,
 ): SourceSelection | undefined {
+  if (from === to) {
+    const offset = Buffer.byteLength(text.slice(0, from));
+    return { file, start: offset, end: offset };
+  }
   let start = Math.min(from, to),
     end = Math.max(from, to);
   const selected = text.slice(start, end);
