@@ -89,6 +89,7 @@ if(CTK_BUILD_NETWORK)
     src/net/outbound_event_queue.cpp
     src/net/query_call_state.cpp
     src/platform/index_worker.cpp
+    src/platform/directory_watch.cpp
     src/net/network_service.cpp)
   target_sources(ctk_network PRIVATE src/net/match_service.cpp src/net/match_status.cpp
     src/net/analysis_service.cpp src/net/index_service.cpp)
@@ -145,6 +146,7 @@ if(CTK_WITH_CLANG)
   set_source_files_properties(src/platform/temporary_directory.cpp
     PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
   add_dependencies(ctk_clang ctk_node_serializer_coverage)
+  target_link_libraries(ctk_clang PRIVATE ctk_index_api)
   target_include_directories(ctk_clang PUBLIC include ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
   target_compile_definitions(ctk_clang PUBLIC ${LLVM_DEFINITIONS})
   execute_process(COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
@@ -161,7 +163,8 @@ if(CTK_WITH_CLANG)
   # Identify extractor behavior, not the linked executable's build UUID or the
   # server Git revision. Unrelated rebuilds must keep valid TU contributions.
   set(_index_identity_inputs
-    src/clang/project_index_extract.cpp include/ctk/clang/project_index_extract.hpp
+    src/clang/project_index_extract.cpp src/clang/project_index_header_reuse.hpp
+    include/ctk/clang/project_index_extract.hpp
     src/index_worker_main.cpp src/clang/snapshot/compilation_environment.cpp
     src/clang/snapshot/compilation_environment.hpp
     include/ctk/cache/include_inventory.hpp

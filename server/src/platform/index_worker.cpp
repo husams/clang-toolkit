@@ -97,6 +97,18 @@ std::optional<int> IndexWorker::poll() {
   return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 }
 
+void IndexWorker::suspend() {
+  if (running() && kill(-pid_, SIGSTOP) && errno != ESRCH)
+    throw std::system_error(errno, std::generic_category(),
+                            "suspend index worker");
+}
+
+void IndexWorker::resume() {
+  if (running() && kill(-pid_, SIGCONT) && errno != ESRCH)
+    throw std::system_error(errno, std::generic_category(),
+                            "resume index worker");
+}
+
 void IndexWorker::stop() {
   if (!running())
     return;

@@ -147,18 +147,20 @@ class FindSymbolsResponse(_message.Message):
     def __init__(self, symbols: _Optional[_Iterable[_Union[Symbol, _Mapping]]] = ..., revision: _Optional[int] = ..., stale: _Optional[bool] = ..., translation_units_indexed: _Optional[int] = ..., translation_units_total: _Optional[int] = ..., truncated: _Optional[bool] = ...) -> None: ...
 
 class IndexWorkerRequest(_message.Message):
-    __slots__ = ("source", "compile_commands_directory", "list_translation_units", "working_directory", "compile_arguments")
+    __slots__ = ("source", "compile_commands_directory", "list_translation_units", "working_directory", "compile_arguments", "header_cache_directory")
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     COMPILE_COMMANDS_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     LIST_TRANSLATION_UNITS_FIELD_NUMBER: _ClassVar[int]
     WORKING_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     COMPILE_ARGUMENTS_FIELD_NUMBER: _ClassVar[int]
+    HEADER_CACHE_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     source: str
     compile_commands_directory: str
     list_translation_units: bool
     working_directory: str
     compile_arguments: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, source: _Optional[str] = ..., compile_commands_directory: _Optional[str] = ..., list_translation_units: _Optional[bool] = ..., working_directory: _Optional[str] = ..., compile_arguments: _Optional[_Iterable[str]] = ...) -> None: ...
+    header_cache_directory: str
+    def __init__(self, source: _Optional[str] = ..., compile_commands_directory: _Optional[str] = ..., list_translation_units: _Optional[bool] = ..., working_directory: _Optional[str] = ..., compile_arguments: _Optional[_Iterable[str]] = ..., header_cache_directory: _Optional[str] = ...) -> None: ...
 
 class IndexWorkerTranslationUnit(_message.Message):
     __slots__ = ("source", "compile_context", "working_directory", "compile_arguments")
@@ -181,17 +183,19 @@ class IndexWorkerDependency(_message.Message):
     def __init__(self, path: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
 
 class IndexWorkerResponse(_message.Message):
-    __slots__ = ("success", "error", "compile_context", "dependencies", "symbols", "translation_units")
+    __slots__ = ("success", "error", "compile_context", "dependencies", "symbols", "translation_units", "reused_header_symbols")
     SUCCESS_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     COMPILE_CONTEXT_FIELD_NUMBER: _ClassVar[int]
     DEPENDENCIES_FIELD_NUMBER: _ClassVar[int]
     SYMBOLS_FIELD_NUMBER: _ClassVar[int]
     TRANSLATION_UNITS_FIELD_NUMBER: _ClassVar[int]
+    REUSED_HEADER_SYMBOLS_FIELD_NUMBER: _ClassVar[int]
     success: bool
     error: str
     compile_context: str
     dependencies: _containers.RepeatedCompositeFieldContainer[IndexWorkerDependency]
     symbols: _containers.RepeatedCompositeFieldContainer[Symbol]
     translation_units: _containers.RepeatedCompositeFieldContainer[IndexWorkerTranslationUnit]
-    def __init__(self, success: _Optional[bool] = ..., error: _Optional[str] = ..., compile_context: _Optional[str] = ..., dependencies: _Optional[_Iterable[_Union[IndexWorkerDependency, _Mapping]]] = ..., symbols: _Optional[_Iterable[_Union[Symbol, _Mapping]]] = ..., translation_units: _Optional[_Iterable[_Union[IndexWorkerTranslationUnit, _Mapping]]] = ...) -> None: ...
+    reused_header_symbols: int
+    def __init__(self, success: _Optional[bool] = ..., error: _Optional[str] = ..., compile_context: _Optional[str] = ..., dependencies: _Optional[_Iterable[_Union[IndexWorkerDependency, _Mapping]]] = ..., symbols: _Optional[_Iterable[_Union[Symbol, _Mapping]]] = ..., translation_units: _Optional[_Iterable[_Union[IndexWorkerTranslationUnit, _Mapping]]] = ..., reused_header_symbols: _Optional[int] = ...) -> None: ...

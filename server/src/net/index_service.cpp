@@ -1,5 +1,6 @@
 #include "ctk/net/index_service.hpp"
 #include "ctk/platform/index_worker.hpp"
+#include "include_inventory_cache.hpp"
 #include "project_index_store.hpp"
 
 #include <algorithm>
@@ -353,13 +354,22 @@ private:
         throw std::runtime_error("cannot stage index request");
     }
     platform::IndexWorker worker(executable_, request_path, result_path);
-    const auto deadline =
+    auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(120);
     for (;;) {
       if (!admitted(job))
         throw Interrupted();
-      if (foreground_busy_ && foreground_busy_())
-        throw Interrupted();
+      if (foreground_busy_ && foreground_busy_()) {
+        // Retain the AST and current reconciliation position while giving
+        // foreground requests the CPU and disk. The process group includes
+        // wrapper children; cancellation still kills and reaps it immediately.
+        const auto yielded_at = std::chrono::steady_clock::now();
+        worker.suspend();
+        await_admission(job);
+        worker.resume();
+        deadline += std::chrono::steady_clock::now() - yielded_at;
+        continue;
+      }
       if (auto bytes = worker.resident_bytes();
           bytes && *bytes > 1536ULL * 1024 * 1024)
         throw std::runtime_error("index worker exceeded 1.5 GiB memory budget");
@@ -391,7 +401,16 @@ private:
     for (const auto &[path, hash] : manifest) {
       await_admission(job);
       auto found = cache.find(path);
-      if (found == cache.end()) {
+      if (path.starts_with("@include-tree:")) {
+        found = cache
+                    .insert_or_assign(
+                        path, inventories_.digest(path.substr(14),
+                                                  [&] {
+                                                    await_admission(job);
+                                                    return true;
+                                                  }))
+                    .first;
+      } else if (found == cache.end()) {
         try {
           found = cache
                       .emplace(path, digest_file(path,
@@ -427,12 +446,16 @@ private:
   void commit(const Job &job, Transaction &transaction) {
     // Only commit needs this gate. Parsing, hashing and inserts never hold the
     // status mutex. A pause acknowledgement precedes any subsequent commit.
-    std::lock_guard lock(mutex_);
-    if (stopping_ || cancelled_ || paused_ || job.epoch != job_.epoch)
-      throw Interrupted();
-    if (foreground_busy_ && foreground_busy_())
-      throw Interrupted();
-    transaction.commit();
+    for (;;) {
+      await_admission(job);
+      std::lock_guard lock(mutex_);
+      if (stopping_ || cancelled_ || paused_ || job.epoch != job_.epoch)
+        throw Interrupted();
+      if (foreground_busy_ && foreground_busy_())
+        continue;
+      transaction.commit();
+      return;
+    }
   }
   void upgrade_symbols(const Job &job, Database &db) {
     bool legacy = false;
@@ -823,6 +846,8 @@ private:
           else {
             IndexWorkerRequest request;
             request.set_source(unit.source());
+            request.set_header_cache_directory(
+                (directory / "header-definitions").string());
             request.set_compile_commands_directory(job.commands);
             request.set_working_directory(unit.working_directory());
             *request.mutable_compile_arguments() = unit.compile_arguments();
@@ -1034,6 +1059,7 @@ private:
   }
   fs::path storage_, executable_;
   std::function<bool()> foreground_busy_;
+  IncludeInventoryCache inventories_;
   std::mutex mutex_;
   std::condition_variable changed_;
   Job job_;

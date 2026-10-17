@@ -1,8 +1,10 @@
 #include "ctk/clang/project_index_extract.hpp"
 #include "ctk/cache/include_inventory.hpp"
+#include "project_index_header_reuse.hpp"
 #include "snapshot/compilation_environment.hpp"
 #include <algorithm>
 #include <clang/AST/ASTConsumer.h>
+#include <clang/AST/DeclTemplate.h>
 #include <clang/AST/RecursiveASTVisitor.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/SourceManager.h>
@@ -80,10 +82,28 @@ std::string json_string(const std::string &value) {
   out += '\"';
   return out;
 }
+bool is_symbol_definition(const clang::NamedDecl *decl) {
+  if (const auto *function = llvm::dyn_cast<clang::FunctionDecl>(decl))
+    return function->isThisDeclarationADefinition();
+  if (llvm::isa<clang::ParmVarDecl>(decl))
+    return false;
+  if (const auto *variable = llvm::dyn_cast<clang::VarDecl>(decl))
+    return variable->isThisDeclarationADefinition() !=
+           clang::VarDecl::DeclarationOnly;
+  if (const auto *tag = llvm::dyn_cast<clang::TagDecl>(decl))
+    return tag->isThisDeclarationADefinition();
+  // These declarations introduce their entity completely. Template wrappers
+  // are omitted: their defining templated declaration is visited separately.
+  return llvm::isa<clang::TypedefNameDecl, clang::FieldDecl,
+                   clang::EnumConstantDecl, clang::ConceptDecl,
+                   clang::NamespaceDecl, clang::NamespaceAliasDecl,
+                   clang::BindingDecl>(decl);
+}
 class Visitor : public clang::RecursiveASTVisitor<Visitor> {
 public:
-  Visitor(clang::ASTContext &c, ProjectIndexExtraction &r)
-      : context(c), output(r) {}
+  Visitor(clang::ASTContext &c, ProjectIndexExtraction &r,
+          HeaderDefinitionReuse &reuse)
+      : context(c), output(r), reuse(reuse) {}
   bool TraverseDecl(clang::Decl *d) {
     // Parse system headers for semantic correctness, but do not enumerate their
     // declarations or repeatedly publish the standard library for every TU.
@@ -93,8 +113,10 @@ public:
     return clang::RecursiveASTVisitor<Visitor>::TraverseDecl(d);
   }
   bool VisitNamedDecl(clang::NamedDecl *d) {
-    if (d->isImplicit() || d->getNameAsString().empty() ||
-        !d->getLocation().isValid())
+    if (reuse.skip(d))
+      return true;
+    if (d->isImplicit() || !is_symbol_definition(d) ||
+        d->getNameAsString().empty() || !d->getLocation().isValid())
       return true;
     auto &sm = context.getSourceManager();
     auto loc = sm.getSpellingLoc(d->getLocation());
@@ -103,11 +125,17 @@ public:
     const auto file_name = sm.getFilename(loc);
     if (file_name.empty())
       return true;
+    const auto file_id = sm.getFileID(loc);
+    auto found = canonical_files.find(file_id);
+    if (found == canonical_files.end())
+      found =
+          canonical_files.emplace(file_id, canonical(file_name.str())).first;
     llvm::SmallString<128> usr;
     if (clang::index::generateUSRForDecl(d, usr))
       return true;
-    const auto key = std::make_tuple(usr.str().str(), file_name.str(),
-                                     sm.getFileOffset(loc), d->getKind());
+    const auto key =
+        std::make_tuple(usr.str().str(), found->second, sm.getFileOffset(loc),
+                        std::string(d->getDeclKindName()));
     if (!seen.insert(key).second)
       return true;
     IndexedSymbol s;
@@ -115,31 +143,40 @@ public:
     s.name = d->getNameAsString();
     s.qualified_name = d->getQualifiedNameAsString();
     s.kind = d->getDeclKindName();
-    s.file_path = canonical(file_name.str());
+    s.file_path = found->second;
     s.line = sm.getSpellingLineNumber(loc);
     s.column = sm.getSpellingColumnNumber(loc);
     s.byte_offset = sm.getFileOffset(loc);
+    s.is_definition = true;
     if (auto *f = llvm::dyn_cast<clang::FunctionDecl>(d)) {
-      s.is_definition = f->isThisDeclarationADefinition();
       s.signature = f->getType().getAsString();
     } else if (auto *v = llvm::dyn_cast<clang::VarDecl>(d)) {
-      s.is_definition = v->isThisDeclarationADefinition();
       s.signature = v->getType().getAsString();
-    } else if (auto *t = llvm::dyn_cast<clang::TagDecl>(d))
-      s.is_definition = t->isThisDeclarationADefinition();
+    } else if (auto *field = llvm::dyn_cast<clang::FieldDecl>(d))
+      s.signature = field->getType().getAsString();
+    reuse.record(d, s);
     output.symbols.push_back(std::move(s));
     return true;
   }
   clang::ASTContext &context;
   ProjectIndexExtraction &output;
-  std::set<std::tuple<std::string, std::string, unsigned, clang::Decl::Kind>>
+  HeaderDefinitionReuse &reuse;
+  std::map<clang::FileID, std::string> canonical_files;
+  std::set<std::tuple<std::string, std::string, std::uint64_t, std::string>>
       seen;
 };
 class Consumer final : public clang::ASTConsumer {
 public:
   explicit Consumer(Visitor &v) : visitor(v) {}
   void HandleTranslationUnit(clang::ASTContext &c) override {
+    visitor.reuse.prepare();
     visitor.TraverseDecl(c.getTranslationUnitDecl());
+    visitor.reuse.finish([&](const IndexedSymbol &symbol) {
+      return visitor.seen
+          .insert(std::make_tuple(symbol.usr, symbol.file_path,
+                                  symbol.byte_offset, symbol.kind))
+          .second;
+    });
   }
 
 private:
@@ -147,11 +184,18 @@ private:
 };
 class Action final : public clang::ASTFrontendAction {
 public:
-  explicit Action(ProjectIndexExtraction &r) : result(r) {}
+  Action(ProjectIndexExtraction &r, std::string cache, bool enabled)
+      : result(r), cache(std::move(cache)), enabled(enabled) {}
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &, llvm::StringRef) override {
+    reuse = std::make_unique<HeaderDefinitionReuse>(getCompilerInstance(),
+                                                    result, cache, enabled);
+    getCompilerInstance().getPreprocessor().addPPCallbacks(
+        std::make_unique<HeaderReuseCallbacks>(*reuse));
+    getCompilerInstance().getPreprocessor().setTokenWatcher(
+        [this](const clang::Token &token) { reuse->token(token); });
     visitor = std::make_unique<Visitor>(getCompilerInstance().getASTContext(),
-                                        result);
+                                        result, *reuse);
     return std::make_unique<Consumer>(*visitor);
   }
   void EndSourceFileAction() override {
@@ -182,17 +226,23 @@ public:
 
 private:
   ProjectIndexExtraction &result;
+  std::string cache;
+  bool enabled;
+  std::unique_ptr<HeaderDefinitionReuse> reuse;
   std::unique_ptr<Visitor> visitor;
 };
 class Factory final : public clang::tooling::FrontendActionFactory {
 public:
-  explicit Factory(ProjectIndexExtraction &r) : result(r) {}
+  Factory(ProjectIndexExtraction &r, std::string cache, bool enabled)
+      : result(r), cache(std::move(cache)), enabled(enabled) {}
   std::unique_ptr<clang::FrontendAction> create() override {
-    return std::make_unique<Action>(result);
+    return std::make_unique<Action>(result, cache, enabled);
   }
 
 private:
   ProjectIndexExtraction &result;
+  std::string cache;
+  bool enabled;
 };
 
 class IndexDiagnosticConsumer final : public clang::DiagnosticConsumer {
@@ -219,7 +269,8 @@ public:
     // Use the configured driver rather than FixedCompilationDatabase's
     // synthetic clang-tool name: driver defaults must match CTK's native parser
     // and the matching compiler that produced a PCH.
-    command_.CommandLine = {CTK_CLANG_TOOL_PATH};
+    command_.CommandLine = {CTK_CLANG_TOOL_PATH,
+                            "-resource-dir=" CTK_CLANG_RESOURCE_DIR};
     if (source.ends_with(".c") &&
         std::none_of(arguments.begin(), arguments.end(), [](const auto &arg) {
           return arg.starts_with("-std=") &&
@@ -271,7 +322,8 @@ bool extract_project_index(const std::string &source,
                            const std::string &directory,
                            const std::string &working_directory,
                            const std::vector<std::string> &arguments,
-                           ProjectIndexExtraction &result, std::string &error) {
+                           ProjectIndexExtraction &result, std::string &error,
+                           const std::string &header_cache_directory) {
   (void)directory;
   result.compile_context =
       serialize_project_index_context(working_directory, arguments);
@@ -331,7 +383,18 @@ bool extract_project_index(const std::string &source,
     }
   }
   SingleCommandDatabase fixed(source, working_directory, arguments);
-  Factory factory(result);
+  const bool reusable =
+      std::none_of(arguments.begin(), arguments.end(), [](const auto &arg) {
+        return arg.starts_with("-include") || arg.starts_with("-imacros") ||
+               arg.find("module") != std::string::npos || arg == "-Xclang" ||
+               arg == "-Xpreprocessor" || arg.starts_with("@") ||
+               arg.starts_with("-Wp,") || arg.starts_with("-ivfsoverlay") ||
+               arg.starts_with("--config") ||
+               arg.find("plugin") != std::string::npos || arg == "-load" ||
+               arg.find("ast-merge") != std::string::npos ||
+               arg == "-fdelayed-template-parsing" || arg.starts_with("-fms-");
+      });
+  Factory factory(result, header_cache_directory, reusable);
   clang::tooling::ClangTool tool(fixed, {source});
   IndexDiagnosticConsumer diagnostics;
   tool.setDiagnosticConsumer(&diagnostics);

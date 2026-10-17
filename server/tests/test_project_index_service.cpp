@@ -75,7 +75,8 @@ protected:
         << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-c\"," << source_two
         << "]}]";
   }
-  fs::path worker_wrapper(const fs::path &counter) {
+  fs::path worker_wrapper(const fs::path &counter,
+                          const std::string &before_exec = {}) {
     const auto shell_word = [](const std::string &value) {
       std::string out = "'";
       for (char c : value)
@@ -84,7 +85,8 @@ protected:
     };
     const auto path = root / "index-worker-wrapper";
     std::ofstream(path) << "#!/bin/sh\nprintf . >> "
-                        << shell_word(counter.string()) << "\nexec "
+                        << shell_word(counter.string()) << '\n'
+                        << before_exec << "exec "
                         << shell_word(CTK_TEST_INDEX_WORKER) << " \"$@\"\n";
     fs::permissions(path, fs::perms::owner_all);
     return path;
@@ -200,7 +202,7 @@ TEST_F(ProjectIndexServiceTest,
        SharedHeaderPayloadIsStoredOnceWithEveryTuProvenance) {
   std::string header;
   for (int i = 0; i < 200; ++i)
-    header += "int SharedSymbol" + std::to_string(i) + "();\n";
+    header += "inline int SharedSymbol" + std::to_string(i) + "(){return 1;}\n";
   write("shared.h", header);
   std::ofstream commands(project / "compile_commands.json");
   commands << '[';
@@ -438,6 +440,32 @@ TEST_F(ProjectIndexServiceTest,
   std::ifstream launches(counter);
   EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(),
             5);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       ForegroundBurstResumesExtractionWithoutRediscovery) {
+  const auto counter = root / "worker-launches";
+  const auto wrapper = worker_wrapper(counter, "sleep 0.3\n");
+  bool yielded = false;
+  std::chrono::steady_clock::time_point busy_until{};
+  IndexServiceAdapter service(
+      storage,
+      [&] {
+        if (!yielded && fs::exists(counter) && fs::file_size(counter) >= 2) {
+          yielded = true;
+          busy_until =
+              std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+        }
+        return std::chrono::steady_clock::now() < busy_until;
+      },
+      wrapper);
+  const auto status = start_and_wait(service);
+  EXPECT_TRUE(yielded);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+  std::ifstream launches(counter);
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(),
+            4);
 }
 
 TEST_F(ProjectIndexServiceTest,

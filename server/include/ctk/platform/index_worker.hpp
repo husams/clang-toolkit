@@ -21,6 +21,9 @@ public:
              const std::filesystem::path &result);
   std::optional<int> poll();
   std::optional<std::uint64_t> resident_bytes() const;
+  // Stop CPU and I/O while foreground work runs, retaining extraction state.
+  void suspend();
+  void resume();
   void stop();
   bool running() const { return pid_ > 0; }
 
