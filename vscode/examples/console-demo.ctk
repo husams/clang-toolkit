@@ -1,0 +1,8 @@
+// @ctk {"title":"Console helpers and functions","description":"Run console helpers and a user-defined function"}
+let scale(value, factor = 2) = { value * factor }
+print scale(21)
+let node = classByName(arg.FILE, "demo::Order")
+let fields = classFields(node)
+let methods = classMethods(node)
+print "fields: {fields.length}; methods: {methods.length}"
+fields

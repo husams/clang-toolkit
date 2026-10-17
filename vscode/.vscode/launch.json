@@ -1,0 +1,1 @@
+{ "version": "0.2.0", "configurations": [{ "name": "Run CTK Prototype", "type": "extensionHost", "request": "launch", "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${workspaceFolder}/examples"], "outFiles": ["${workspaceFolder}/dist/**/*.js"], "preLaunchTask": "Build CTK Prototype" }] }

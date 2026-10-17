@@ -1,0 +1,14 @@
+---
+name: find-function
+description: Find function definitions under the selected node.
+arguments:
+  - name: name
+    description: Exact function name; leave empty to find all.
+    type: string
+    default: ""
+---
+if name == "" then {
+    match functionDecl(isDefinition()).bind("function") in node
+} else {
+    match functionDecl(isDefinition(), hasName(name)).bind("function") in node
+}

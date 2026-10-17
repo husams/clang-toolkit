@@ -1,0 +1,6 @@
+---
+name: find-variables
+description: Find variable declarations under the selected node.
+arguments: []
+---
+match varDecl(unless(isImplicit())).bind("variable") in node

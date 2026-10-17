@@ -1,0 +1,93 @@
+# Node based Actions prototype
+
+## Options autocomplete, 0.2.4
+
+- [x] Infer path/class argument roles with the console parser and support explicit completion hints.
+- [x] Add automatic, accessible suggestions with arrows, Enter/Tab, Escape and folder continuation.
+- [x] Complete literal paths and classes from the current C++ translation unit without executing action code.
+- [x] Verify native class/path candidates, side-effect isolation and editor regressions.
+- [x] Package, install and manually verify both suggestion popups in the trial window.
+
+Validation: 24 extension tests, 16 console adapter tests, TypeScript and the
+complete VS Code host passed. The host requests inferred class/file/folder
+suggestions before the first action run and confirms the action's marker file
+is absent and retained parse count is zero, then runs the action successfully.
+Installed v0.2.4 and reloaded the trial window. Manual typing produced
+`demo::Order` and `actions-demo.cpp` suggestions automatically. Tab accepted the
+class; a direct mouse click and Enter accepted the path. Tab on `.ctk/`
+continued to `actions/`. Run with the completed values returned the field
+`demo::Order::quantity`; the saved example and Options remain open.
+
+## Live action metadata, 0.2.3
+
+- [x] Update the selected action's label, description and Options on unsaved editor changes.
+- [x] Preserve entered values, refresh untouched defaults and remove obsolete arguments.
+- [x] Keep the last valid metadata and disable Run while YAML is incomplete.
+- [x] Verify real webview labels/inputs, catalog discovery and execution without saving/reselecting.
+- [x] Package, install and manually verify unsaved metadata changes in the trial window.
+
+Validation: 22 extension tests, TypeScript/Biome and the complete real VS Code
+host passed. The host edits an unsaved name/argument list, observes the actual
+rendered controls, repairs invalid YAML, retains an entered value while adding
+and removing arguments, and runs the updated action without reparsing C++.
+Installed v0.2.3 and reloaded only the trial window. Manual unsaved edits renamed
+the action twice, added Function to find and Result limit controls, retained the
+entered `demo::adjust` value, and returned that one function on Run. The example
+was saved afterward; Actions remains open with the verified result.
+
+## Custom action creation, 0.2.2
+
+- [x] Exercise Create action with both keyboard and mouse in the installed extension.
+- [x] Open an editable, saved template immediately, using a unique file/name and retaining editor focus.
+- [x] Preserve the selected node when creating a follow-up action.
+- [x] Detect expired/closed native contexts and retain the C++ target across Refresh.
+- [x] Verify the real editor workflow, package and update the installed prototype.
+
+The previous Create flow opened a second naming prompt and returned focus to the
+sidebar after opening the editor. Create now opens a pinned action editor directly,
+with unique `my-action`, `my-action-2`, etc. names and no overwrites. Live UI
+testing also reproduced a cursor-unavailable error when running a custom action
+against an old context; expiry now marks the context stale with a Refresh message.
+
+Validation: 21 extension checks, four native action scenarios with default helpers,
+TypeScript/Biome and the complete isolated VS Code host passed. Installed 0.2.2
+in the normal profile and reloaded only the trial window. Clicking Create action
+opened `my-action-2.ctk-action` immediately with editor focus; Run displayed five
+function matches from `actions-demo.cpp`. Isolated test windows closed normally.
+No C++ or shared Python implementation changed; repository-wide limitations from
+0.2.1 below remain.
+
+## Helper compatibility and installation, 0.2.1
+
+- [x] Reproduce the default helper preload error against the bundled runtime.
+- [x] Bring the merged console pipe/tuple implementation into the prototype.
+- [x] Verify actual default helper calls, node follow-ups and editor regressions.
+- [x] Package, install and open a new trial window with Actions ready to use.
+
+After fresh user confirmation, version 0.2.1 was installed in the normal VS Code
+profile. Actions is open, and Order fields returned `demo::Order::quantity` using
+the unchanged default helper library. Existing user windows were preserved.
+Version 0.2.1 passed 84 pipe/tuple
+regressions, 20 extension regressions, 15 editor-adapter checks, all three native
+Actions scenarios with default helpers, and the complete real VS Code host.
+Python units: 2,169 passed / 22 existing legacy-engine failures; selected console
+end-to-end scenarios: 14 passed / 9 legacy-engine preload failures.
+
+## Original 0.2.0 delivery
+
+- [x] YAML action files, validation, generated CTK callables and bundled actions.
+- [x] Persistent console worker retaining file roots, match bindings and history.
+- [x] Actions tab, collapsible arguments, bindings/files views and selected-node follow-ups.
+- [x] Live native, extension-host and regression verification; package the prototype.
+
+Validation: 20 extension unit/worker checks, 15 Python editor adapter checks,
+9 native extension checks and the full real VS Code host workflow passed.
+All 363 C++ cases passed with isolated test storage. Repository-wide Python
+units: 2,085 passed / 22 failed; end-to-end: 93 passed / 59 failed.
+The repository suites are not green; existing external helper preloads and
+native/console assertions remain. The opt-in action preload check also confirms
+that the current default user library uses unsupported pipe syntax; configuring
+the compatible checkout helper directory passes the action workflows.
+See `docs/vscode-prototype-progress.md` and `vscode/README.md` for details.
+
+Acceptance: parse a C++ file once, find a function, then run Find calls on its retained binding; both views preserve named binding/row associations. Invalid actions, stale input, cancellation and wrong return types preserve previous results or explicitly invalidate the context.
