@@ -22,7 +22,11 @@ From another working directory, resolve the installed skill root and pass absolu
 
 The complete script is [callgraph_match_nodes.ctk](../scripts/callgraph_match_nodes.ctk).
 It creates filename, parsed-file and matched-function graphs and matches directly
-from each returned node. Actual compiled-console output on macOS, 17 October 2026:
+from each returned node. The following actual compiled-console output was verified
+on macOS and on Linux on 17 October 2026. The Linux run used merged main
+`8c6d2c97b8a6`, including PR #50, with the rebuilt client and restarted server at
+`unix:///tmp/ctk.sock`. Linux matching also succeeded after closing the original
+handles and removing all fixture source/header files, as reproduced below:
 
 ```text
 FILENAME: nodes=4, edges=5, sites=2, root_sites=0
@@ -46,6 +50,100 @@ its call to `project::leaf`; the native node references are independent of the
 shallow `{}` expression payload. Both console engines passed this example.
 Separate native and Unix/TCP acceptance tests also matched exact overloads after
 closing source values and deleting both the main file and its project header.
+
+### Linux proof after closing handles and removing source files
+
+The verified Linux client and server both reported revision `8c6d2c97b8a6`.
+This is recorded verification, not a health check of a later endpoint. Use an
+authorized existing server and keep both console stages in one live session.
+The filename graph creates or reuses an AST; the parsed-file and matched-node
+graph requests use retained inputs. The proof then closes those original inputs
+and removes the disposable source and headers before any direct node matching.
+
+From the Linux checkout, prepare the same disposable fixture and open a console:
+
+```sh
+cd /home/husam/clang-toolkit
+proof_dir=/tmp/ctk-node-match-main.8qKQpz
+mkdir -p "$proof_dir/fixture" "$proof_dir/empty-libraries"
+cp -R examples/callgraph_strict_filters/. "$proof_dir/fixture/"
+.venv/bin/ctk --server unix:///tmp/ctk.sock --script-engine compiled --ui prompt --lib-dir "$proof_dir/empty-libraries"
+```
+
+First create filename, parsed-file and matched-function graphs. All three use the
+default shallow semantic payload. `depth all` on the matched seed controls call
+hops, independently of payload expansion:
+
+```ctk
+let source = "/tmp/ctk-node-match-main.8qKQpz/fixture/main.cc"
+let filename = callgraph source exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let tree = parse source
+let entries = match functionDecl(hasName("entry"), isDefinition()).bind("f") in tree
+let parsed = callgraph in tree exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let matched = callgraph in entries[0].f depth all exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+print "GRAPH_READY={1}"
+```
+
+After `GRAPH_READY=1`, enter these commands separately in that console to close
+the original parsed-file and matched-function handles. Keep all three graph
+values alive:
+
+```ctk
+session close $tree
+session close $entries
+print "ORIGINAL_OWNERS_CLOSED={1}"
+```
+
+After `ORIGINAL_OWNERS_CLOSED=1`, leave this console open. In a second terminal,
+remove only this disposable fixture, including the project, vendor and generated
+headers; never delete the user's original source as a verification step:
+
+```sh
+rm -r -- /tmp/ctk-node-match-main.8qKQpz/fixture
+test ! -e /tmp/ctk-node-match-main.8qKQpz/fixture && printf 'SOURCE_AND_HEADERS_REMOVED=true\n'
+```
+
+The recorded run confirmed `SOURCE_AND_HEADERS_REMOVED=true` before the following
+queries. Back in the original console, match both the exact callable through
+`graph.nodes[...]` and the calls inside `graph.function("project::work")`:
+
+```ctk
+foreach row in [{"label": "FILENAME", "graph": filename}, {"label": "PARSED", "graph": parsed}, {"label": "MATCHED", "graph": matched}] do {
+    let graph = row.graph
+    let work = graph.function("project::work")
+    let same = match functionDecl(isDefinition()).bind("f") in graph.nodes[work.node_index] scope self
+    let calls = match callExpr().bind("call") in work
+    let roots = graph.call_sites | filter((site) = site.caller_node == graph.root_node)
+    print "{row.label}: nodes={graph.nodes.length}, edges={graph.edges.length}, sites={graph.call_sites.length}, root_sites={roots.length}"
+    print "{row.label}_MATCH: function={same[0].f.qualified_name}, calls={calls.length}, callee={calls[0].call.call_site.static_callee_name}"
+    print "{row.label}_SAME_SNAPSHOT={graph.snapshot_generation == filename.snapshot_generation}"
+    print "{row.label}_SHALLOW={graph.call_sites[0].call}"
+}
+print "POST_REMOVAL_MATCHES={3}"
+```
+
+This produced the twelve actual output lines above, followed by:
+
+```text
+POST_REMOVAL_MATCHES=3
+```
+
+All three graphs still matched the retained `project::work` definition and its
+call to `project::leaf`, with unchanged snapshots, shallow `{}` call-site AST
+payloads and zero root call-site facts. The post-removal `match` queries use only
+graph nodes, with no filename lookup, `parse` call or original source handle.
+The filename and parsed-file graphs include three virtual-root edges plus two
+project call edges; the matched graph contains the two reachable project edges.
+Graph ownership preserves the native references independently of shallow AST
+fields and of the original parsed/matched owners.
+
+Recorded evidence for this Linux run is under
+`linux-dev:/tmp/ctk-node-match-main.8qKQpz/`: `console-screen.txt`, `console.raw`,
+`actual-output.txt` and the real-TTY verification driver `verify.py`. The same
+examples and output are on the
+[callgraph Page](https://chatgpt.com/space/page_97441a03020481919a9361964dc17ff6).
+
+### Matching scope and ownership
 
 `match ... in node` uses subtree scope by default. Add `scope self` to match
 only the callable, or `scope children` for its direct AST children. For an
@@ -270,7 +368,7 @@ not an absent virtual root. It encodes uint64 graph indices as decimal strings;
 convert them when indexing ordinary JSON arrays. Live CTK graph values already
 support the endpoint indexing shown in the examples.
 
-The Linux verification recorded on 17 October 2026 used merged revision
+The earlier Linux project-filter verification on 17 October 2026 used merged revision
 `628623311b3b` at `unix:///tmp/ctk.sock`; live evidence and the actual console
 output are maintained on the [callgraph Page](https://chatgpt.com/space/page_97441a03020481919a9361964dc17ff6).
 For this fixture the strict results contain 4 nodes including the virtual root,
@@ -280,7 +378,7 @@ Omitting strict mode retains 4 call-site facts. Filename and parsed-file exports
 are identical. Recheck the connected client/server capabilities for new runs;
 historical verification is not a health check of the current endpoint.
 
-For the bundled recipe, the newly verified Linux console output is:
+For the project-only recipe at that revision, the recorded Linux console output is:
 
 ```text
 DEFAULT: sites=4, strict=false
