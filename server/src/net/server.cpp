@@ -116,7 +116,10 @@ GrpcServerHost::GrpcServerHost(config::Settings settings,
       scripts_(cursor_settings(settings_, resources_), native_engine_,
                operations_),
       batches_(scripts_, resources_, storage_root(), batch_limits(settings_)),
-      analysis_service_(traversals_, cfg_, calls_, scripts_, batches_) {}
+      analysis_service_(traversals_, cfg_, calls_, scripts_, batches_),
+      index_service_(storage_root(), [executor = operations_] {
+        return executor->active_count() != 0 || executor->pending_count() != 0;
+      }) {}
 GrpcServerHost::~GrpcServerHost() {
   if (server_)
     shutdown();
@@ -135,6 +138,7 @@ void GrpcServerHost::start() {
   builder.RegisterService(&service_);
   builder.RegisterService(&match_service_);
   builder.RegisterService(&analysis_service_);
+  builder.RegisterService(&index_service_);
   builder.AddListeningPort(settings_.endpoint,
                            grpc::InsecureServerCredentials());
   server_ = builder.BuildAndStart();

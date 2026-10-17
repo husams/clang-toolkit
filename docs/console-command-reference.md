@@ -853,6 +853,34 @@ server status
 server status
 ```
 
+## index
+
+Manage background symbol indexing and locate symbols across TUs.
+
+```text
+index start "PROJECT"
+index status "PROJECT"
+index pause "PROJECT"
+index resume "PROJECT"
+index cancel "PROJECT"
+index find "NAME" in "PROJECT"
+index lookup "USR" in "PROJECT"
+```
+
+- Project paths refer to the server filesystem; relative paths use console cwd.
+- Start discovers compile_commands.json; Python start_project_index accepts an explicit path.
+- Status and controls return immediately; indexing runs independently in the background.
+- Find performs exact name or qualified-name lookup; Python find_symbols supports prefix=True.
+- Status and lookup responses can be assigned to variables.
+
+```text
+index start "."
+let progress = index status "."
+index pause "."
+index resume "."
+index find "demo::Widget" in "."
+```
+
 ## server status
 
 Show live server memory and retained resource usage.
