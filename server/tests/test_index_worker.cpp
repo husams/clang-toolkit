@@ -65,6 +65,32 @@ TEST_F(IndexWorkerProcess, MissingExecutableFailsWithoutLeavingRunningWorker) {
 }
 
 TEST_F(IndexWorkerProcess,
+       IncludeInventoryMatchesCanonicalWalkAcrossSymlinkAliases) {
+  namespace fs = std::filesystem;
+  fs::create_directories(root / "real" / "nested");
+  std::ofstream(root / "real" / "nested" / "header.hpp") << "int header;";
+  fs::create_directory_symlink(root / "real", root / "alias");
+  fs::create_directory_symlink(root, root / "real" / "nested" / "cycle");
+  fs::create_directory_symlink(root / "real" / "nested", root / "other");
+  std::vector<std::string> names;
+  std::set<fs::path> visited{fs::weakly_canonical(root)};
+  for (fs::recursive_directory_iterator
+           it(root, fs::directory_options::follow_directory_symlink),
+       end;
+       it != end; ++it) {
+    names.push_back(it->path().lexically_relative(root).generic_string());
+    if (it->is_directory() &&
+        !visited.insert(fs::weakly_canonical(it->path())).second)
+      it.disable_recursion_pending();
+  }
+  std::sort(names.begin(), names.end());
+  std::string expected;
+  for (const auto &name : names)
+    expected += std::to_string(name.size()) + ':' + name;
+  EXPECT_EQ(cache::include_inventory(root), expected);
+}
+
+TEST_F(IndexWorkerProcess,
        IncludeInventoryDetectsNewHeadersAndStopsSymlinkCycles) {
   const auto before = cache::include_inventory(root);
   {

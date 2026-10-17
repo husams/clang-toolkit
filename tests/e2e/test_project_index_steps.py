@@ -39,7 +39,9 @@ def project(tmp_path, request, monkeypatch):
     server = _launch_server("unix", tmp_path, request)
     root = tmp_path / "project"
     root.mkdir()
-    (root / "shared.hpp").write_text("struct SharedBefore {};\n", encoding="utf-8")
+    (root / "shared.hpp").write_text(
+        "#include <vector>\nstruct SharedBefore { std::vector<int> values; };\n",
+        encoding="utf-8")
     for name in ("one", "two"):
         (root / f"{name}.cc").write_text(
             f'#include "shared.hpp"\nint {name}() {{return 1;}}\n', encoding="utf-8")
@@ -82,6 +84,7 @@ def foreground_works(indexed_project):
         assert {Path(s.translation_unit).name for s in result.symbols} == {"one.cc", "two.cc"}
         assert all(s.usr and s.compile_context for s in result.symbols)
         assert client.lookup_symbol(root, result.symbols[0].usr).symbols
+        assert not client.find_symbols(root, "std::", prefix=True).symbols
         with client.parse(root / "unrelated.cc") as tree:
             assert len(tree.match('functionDecl(hasName("unrelated"))')) == 1
     console = subprocess.run(

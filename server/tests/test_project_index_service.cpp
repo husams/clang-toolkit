@@ -6,6 +6,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <set>
 #include <sqlite3.h>
 #include <thread>
 #include <utility>
@@ -165,6 +166,254 @@ protected:
     return result;
   }
 };
+
+TEST_F(ProjectIndexServiceTest,
+       ExcludesSystemHeadersAndPreservesProjectHeaderVariants) {
+  write("system.hpp", "#pragma GCC system_header\n"
+                      "namespace vendor { struct SystemOnly {}; }\n");
+  write("shared.h", "struct Shared {\n#if FLAVOR == 1\nint value;\n"
+                    "#else\nlong value;\n#endif\n};\n");
+  const std::string includes = "#include <vector>\n#include <string>\n"
+                               "#include \"system.hpp\"\n"
+                               "#include \"shared.h\"\n";
+  write("one.cpp",
+        includes + "struct Own { std::vector<std::string> values; };\n");
+  write("two.cpp", includes + "int entry(){return 1;}\n");
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto status = start_and_wait(service);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(find(service, "Shared", false).symbols_size(), 3);
+  EXPECT_EQ(find(service, "Own", false).symbols_size(), 2);
+  EXPECT_EQ(find(service, "std::", true).symbols_size(), 0);
+  EXPECT_EQ(find(service, "SystemOnly", false).symbols_size(), 0);
+  EXPECT_EQ(find(service, "vendor", false).symbols_size(), 0);
+  const auto members = find(service, "Shared::value", false);
+  ASSERT_EQ(members.symbols_size(), 3);
+  // Macro variants remain separate even though their source location is shared.
+  std::set<std::string> contexts;
+  for (const auto &symbol : members.symbols())
+    contexts.insert(symbol.compile_context());
+  EXPECT_EQ(contexts.size(), 2);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       SharedHeaderPayloadIsStoredOnceWithEveryTuProvenance) {
+  std::string header;
+  for (int i = 0; i < 200; ++i)
+    header += "int SharedSymbol" + std::to_string(i) + "();\n";
+  write("shared.h", header);
+  std::ofstream commands(project / "compile_commands.json");
+  commands << '[';
+  for (int i = 0; i < 20; ++i) {
+    const auto name = "source" + std::to_string(i) + ".cpp";
+    write(name.c_str(), "#include \"shared.h\"\nint entry" + std::to_string(i) +
+                            "(){return 1;}\n");
+    if (i)
+      commands << ',';
+    const auto source = quote((project / name).string());
+    commands << "{\"directory\":" << quote(project.string())
+             << ",\"file\":" << source << ",\"arguments\":["
+             << quote(CTK_TEST_CLANG_TOOL_PATH) << ",\"-std=c++20\",\"-c\","
+             << source << "]}";
+  }
+  commands << ']';
+  commands.close();
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto status = start_and_wait(service);
+  EXPECT_EQ(status.translation_units_indexed(), 20);
+  const auto found = find(service, "SharedSymbol199", false);
+  ASSERT_EQ(found.symbols_size(), 20);
+  std::set<std::string> tus;
+  for (const auto &symbol : found.symbols())
+    tus.insert(symbol.translation_unit());
+  EXPECT_EQ(tus.size(), 20);
+  const auto prefix = find(service, "SharedSymbol", true);
+  EXPECT_EQ(prefix.symbols_size(), 100);
+  EXPECT_TRUE(prefix.truncated());
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  sqlite3_stmt *count = nullptr;
+  ASSERT_EQ(sqlite3_prepare_v2(
+                db,
+                "SELECT count(*) FROM symbol WHERE name LIKE 'SharedSymbol%'",
+                -1, &count, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(count), SQLITE_ROW);
+  EXPECT_EQ(sqlite3_column_int(count, 0), 200);
+  sqlite3_finalize(count);
+  sqlite3_close(db);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       SharedVariantLimitUsesRealTuOrderRatherThanHeaderOwnerOrder) {
+  {
+    IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+    start_and_wait(service);
+  }
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  for (int i = 0; i < 3; ++i) {
+    const auto member = std::string("member-") + char('a' + i);
+    const auto owner = std::string("header:") + char('c' - i);
+    const auto source = std::string("/") + char('a' + i) + ".cpp";
+    const std::string sql =
+        "INSERT INTO translation_unit VALUES('" + member + "','" + source +
+        "','','','hash','hash','{}',1,'ready','');"
+        "INSERT INTO translation_unit VALUES('" +
+        owner + "','/header.hpp','','','hash','hash','[\"" + member +
+        "\"]',0,'ready','');"
+        "INSERT INTO symbol VALUES('" +
+        owner +
+        "','shared-usr','VariantHeader','VariantHeader','Function',"
+        "'/header.hpp',7,0,1,8,'signature" +
+        std::to_string(i) + "');";
+    ASSERT_EQ(sqlite3_exec(db, sql.c_str(), nullptr, nullptr, nullptr),
+              SQLITE_OK);
+  }
+  sqlite3_close(db);
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  FindSymbolsRequest request;
+  request.set_project_root(project.string());
+  request.set_query("VariantHeader");
+  request.set_limit(1);
+  FindSymbolsResponse result;
+  grpc::ServerContext context;
+  ASSERT_TRUE(service.FindSymbols(&context, &request, &result).ok());
+  ASSERT_EQ(result.symbols_size(), 1);
+  EXPECT_EQ(result.symbols(0).translation_unit(), "/a.cpp");
+  EXPECT_TRUE(result.truncated());
+}
+
+TEST_F(ProjectIndexServiceTest,
+       UnchangedFlatContributionsMigrateWithoutReextracting) {
+  write("shared.h", "struct Shared {};\n");
+  const auto counter = root / "worker-launches";
+  const auto wrapper = worker_wrapper(counter);
+  {
+    IndexServiceAdapter service(storage, {}, wrapper);
+    start_and_wait(service);
+  }
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  // Reconstruct the previous per-TU layout without changing its input hashes.
+  ASSERT_EQ(
+      sqlite3_exec(db,
+                   "PRAGMA foreign_keys=ON;BEGIN;"
+                   "INSERT INTO symbol SELECT "
+                   "m.value,s.usr,s.name,s.qualified_name,s.kind,"
+                   "s.file_path,s.byte_offset,s.is_definition,s.line,s.column_"
+                   "no,s.signature "
+                   "FROM symbol s JOIN translation_unit g ON g.id=s.tu_id "
+                   "JOIN json_each(g.dependencies_json) m WHERE g.indexed_at=0;"
+                   "DELETE FROM translation_unit WHERE indexed_at=0;"
+                   "UPDATE translation_unit SET dependencies_json=(SELECT "
+                   "json_group_object(key,value) "
+                   "FROM json_each(dependencies_json) WHERE key NOT LIKE "
+                   "'@symbol-%');COMMIT;",
+                   nullptr, nullptr, nullptr),
+      SQLITE_OK);
+  sqlite3_close(db);
+  IndexServiceAdapter service(storage, {}, wrapper);
+  const auto status = start_and_wait(service);
+  EXPECT_EQ(status.translation_units_indexed(), 3);
+  EXPECT_EQ(find(service, "Shared", false).symbols_size(), 3);
+  std::ifstream launches(counter);
+  // Initial discovery + three extractions, then discovery only for migration.
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(),
+            5);
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  sqlite3_stmt *count = nullptr;
+  ASSERT_EQ(
+      sqlite3_prepare_v2(db, "SELECT count(*) FROM symbol WHERE name='Shared'",
+                         -1, &count, nullptr),
+      SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(count), SQLITE_ROW);
+  EXPECT_EQ(sqlite3_column_int(count, 0), 1);
+  sqlite3_finalize(count);
+  sqlite3_close(db);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       SourceRefreshDoesNotRewriteUnchangedHeaderRows) {
+  write("shared.h", "struct Shared { int value; };\n");
+  write("one.cpp", "#include \"shared.h\"\nint oldEntry(){return 1;}\n");
+  {
+    IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+    start_and_wait(service);
+  }
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  // Fail if a source-only edit physically rewrites an unchanged header row.
+  for (const char *event : {"INSERT", "UPDATE", "DELETE"}) {
+    const std::string query = "CREATE TRIGGER unchanged_header_" +
+                              std::string(event) + " AFTER " + event +
+                              " ON symbol WHEN " +
+                              (std::string(event) == "DELETE" ? "old" : "new") +
+                              ".name='Shared' BEGIN SELECT "
+                              "RAISE(ABORT,'unchanged header rewritten'); "
+                              "END;";
+    ASSERT_EQ(sqlite3_exec(db, query.c_str(), nullptr, nullptr, nullptr),
+              SQLITE_OK);
+  }
+  sqlite3_close(db);
+  write("one.cpp", "#include \"shared.h\"\nint newEntry(){return 2;}\n");
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto status = start_and_wait(service);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(status.translation_units_skipped(), 1);
+  EXPECT_EQ(find(service, "Shared", false).symbols_size(), 3);
+  EXPECT_EQ(find(service, "oldEntry", false).symbols_size(), 0);
+  EXPECT_EQ(find(service, "newEntry", false).symbols_size(), 2);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       LargeRetirementCopiesOnlyRetainedContributionsAtomically) {
+  write("shared.h", "struct Shared {};\n");
+  {
+    IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+    start_and_wait(service);
+  }
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  for (int i = 0; i < 33; ++i) {
+    const auto id = "obsolete-" + std::to_string(i);
+    const std::string row =
+        "INSERT INTO translation_unit SELECT '" + id +
+        "',main_file,working_directory,arguments,command_hash,"
+        "input_fingerprint,dependencies_json,indexed_at,status,last_error "
+        "FROM translation_unit WHERE indexed_at>0 AND id NOT LIKE 'obsolete-%' "
+        "LIMIT 1;"
+        "INSERT INTO symbol SELECT '" +
+        id +
+        "',usr,'RetiredOnly','RetiredOnly',kind,file_path,byte_offset,"
+        "is_definition,line,column_no,signature FROM symbol WHERE tu_id="
+        "(SELECT id FROM translation_unit WHERE indexed_at>0 AND id NOT LIKE "
+        "'obsolete-%' "
+        "LIMIT 1);";
+    ASSERT_EQ(sqlite3_exec(db, row.c_str(), nullptr, nullptr, nullptr),
+              SQLITE_OK);
+  }
+  sqlite3_close(db);
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto status = start_and_wait(service);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(status.translation_units_skipped(), 3);
+  EXPECT_EQ(status.translation_units_indexed(), 3);
+  EXPECT_EQ(find(service, "RetiredOnly", false).symbols_size(), 0);
+  EXPECT_EQ(find(service, "Shared", false).symbols_size(), 3);
+  EXPECT_EQ(find(service, "betaOnly", false).symbols_size(), 3);
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  sqlite3_stmt *schema = nullptr;
+  ASSERT_EQ(sqlite3_prepare_v2(db,
+                               "SELECT count(*) FROM sqlite_master WHERE "
+                               "type='table' AND name NOT LIKE 'sqlite_%'",
+                               -1, &schema, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(schema), SQLITE_ROW);
+  EXPECT_EQ(sqlite3_column_int(schema, 0), 3);
+  sqlite3_finalize(schema);
+  sqlite3_close(db);
+}
 
 TEST_F(ProjectIndexServiceTest,
        WorkerRebuildMetadataDoesNotInvalidateUnchangedTus) {

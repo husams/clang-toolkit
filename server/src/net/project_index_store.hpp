@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <openssl/evp.h>
+#include <set>
 #include <sqlite3.h>
 #include <stdexcept>
 #include <string>
@@ -90,9 +91,21 @@ dependencies(const std::string &json_text) {
     if (hash.kind_case() != google::protobuf::Value::kStringValue ||
         hash.string_value().empty())
       throw std::runtime_error("invalid stored index dependency digest");
+    if (path == "@symbol-layout" || path.starts_with("@symbol-group:"))
+      continue;
     result.emplace(path, hash.string_value());
   }
   return result;
+}
+inline std::set<std::string> symbol_groups(const std::string &encoded) {
+  google::protobuf::Struct value;
+  if (!google::protobuf::util::JsonStringToMessage(encoded, &value).ok())
+    throw std::runtime_error("invalid stored index dependency manifest");
+  std::set<std::string> groups;
+  for (const auto &[key, field] : value.fields())
+    if (key.starts_with("@symbol-group:"))
+      groups.insert(field.string_value());
+  return groups;
 }
 
 inline constexpr auto symbol_schema =
@@ -151,6 +164,10 @@ public:
         // potentially multi-megabyte dependency manifest overflow pages.
         exec("CREATE INDEX IF NOT EXISTS translation_unit_lookup ON "
              "translation_unit(id,main_file,arguments,status);");
+        // Header contribution owners have indexed_at=0 and a JSON array of
+        // referring TU IDs. Actual TUs retain positive publication timestamps.
+        exec("CREATE INDEX IF NOT EXISTS translation_unit_header_members ON "
+             "translation_unit(id,dependencies_json) WHERE indexed_at=0;");
         // Secondary indexes store a compact rowid instead of repeating the
         // long (TU, USR, file, offset, definition) primary key in every entry.
         exec(symbol_schema);

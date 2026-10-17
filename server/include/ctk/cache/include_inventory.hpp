@@ -18,7 +18,9 @@ include_inventory(const std::filesystem::path &root,
   if (!fs::exists(root))
     return "missing";
   std::vector<std::string> names;
-  std::set<fs::path> visited{fs::weakly_canonical(root)};
+  const auto canonical_root = fs::weakly_canonical(root);
+  std::set<fs::path> visited{canonical_root};
+  std::vector<fs::path> parents{canonical_root};
   fs::recursive_directory_iterator iterator(
       root, fs::directory_options::follow_directory_symlink),
       end;
@@ -26,9 +28,21 @@ include_inventory(const std::filesystem::path &root,
     if (allowed && !allowed())
       throw std::runtime_error("include inventory interrupted");
     names.push_back(iterator->path().lexically_relative(root).generic_string());
-    if (iterator->is_directory() &&
-        !visited.insert(fs::weakly_canonical(iterator->path())).second)
-      iterator.disable_recursion_pending();
+    if (iterator->is_directory()) {
+      // Resolve only symlinks. For an ordinary directory its parent's resolved
+      // path plus its filename is already canonical; repeated realpath calls
+      // otherwise re-stat every ancestor for every SDK directory on each TU.
+      const auto depth = static_cast<std::size_t>(iterator.depth());
+      const auto canonical = iterator->is_symlink()
+                                 ? fs::weakly_canonical(iterator->path())
+                                 : parents[depth] / iterator->path().filename();
+      if (!visited.insert(canonical).second)
+        iterator.disable_recursion_pending();
+      else {
+        parents.resize(depth + 2);
+        parents[depth + 1] = canonical;
+      }
+    }
     if (names.size() > 500000)
       throw std::runtime_error("include inventory exceeds 500000 paths");
   }
