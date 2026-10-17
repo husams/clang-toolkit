@@ -15,7 +15,7 @@ from clang_toolkit.cli.runtime.references import (
     property_value,
 )
 from clang_toolkit.match_values import MatchValue
-from clang_toolkit.cli.runtime.values import render
+from clang_toolkit.cli.runtime.values import render, render_inspection
 from clang_toolkit.cli.runtime.semantic import (
     display_value,
     inspect_value as inspect_semantic_value,
@@ -307,6 +307,20 @@ def test_row_render_truncates_huge_binding_keys_and_payloads() -> None:
     assert len(rendered) <= 20_000
     assert "[key 0 truncated]" in rendered
     assert "… <truncated>" in rendered
+
+
+def test_large_row_inspection_preserves_valid_json_and_outer_type() -> None:
+    row = match_result_pb2.MatchResult()
+    for index in range(20):
+        function = row.bindings[f"f{index}"].node.function_decl.function
+        function.declarator.value.named.qualified_name = f"project::f{index}"
+        function.return_type.description.spelling = "int"
+    rows, _owner = _collection(row)
+
+    rendered = render_inspection(rows[0])
+
+    assert len(rendered) <= 20_000
+    assert json.loads(rendered)["type"] == "MatchRow"
 
 
 def test_ordinary_semantic_render_shows_fields_without_inspection_metadata() -> None:

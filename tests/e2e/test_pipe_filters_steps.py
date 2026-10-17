@@ -187,6 +187,18 @@ def verify_typed_pipeline_terminal(typed_pipeline_terminal):
 
 
 def _run_pipe_terminal(pipe_console, tmp_path, *, ui="prompt", newline_sequence=None):
+    script = (_example_source() + '\n'
+              + (Path(__file__).resolve().parents[2] / "examples/list_selection.ctk").read_text()
+              + '\nprint "PIPELINE_PTY_{report[0].count}_{report[1].count}"')
+    visible, _ = _terminal_script(
+        pipe_console, tmp_path, script, "PIPELINE_PTY_{report", "PIPELINE_PTY_5_2",
+        ui=ui, newline_sequence=newline_sequence,
+    )
+    return visible
+
+
+def _terminal_script(pipe_console, tmp_path, script, pasted_marker, result_marker,
+                     *, ui="prompt", newline_sequence=None):
     server, _, library = pipe_console
     master, slave = pty.openpty()
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 120, 0, 0))
@@ -242,16 +254,13 @@ def _run_pipe_terminal(pipe_console, tmp_path, *, ui="prompt", newline_sequence=
             commands = history.read_commands()
             assert commands[0] == "\n".join(stage.lstrip() for stage in stages)
             assert len(commands) == 2
-            return visible
-        script = (_example_source() + '\n'
-                  + (Path(__file__).resolve().parents[2] / "examples/list_selection.ctk").read_text()
-                  + '\nprint "PIPELINE_PTY_{report[0].count}_{report[1].count}"')
+            return visible, transcript.decode("utf-8", errors="replace")
         os.write(master, ("\x1b[200~" + script + "\x1b[201~").encode())
-        wait_for("PIPELINE_PTY_{report")
+        wait_for(pasted_marker)
         os.write(master, b"\x0a")
-        visible = wait_for("PIPELINE_PTY_5_2")
+        visible = wait_for(result_marker)
         (tmp_path / "pipe-terminal.txt").write_bytes(transcript)
-        return visible
+        return visible, transcript.decode("utf-8", errors="replace")
     finally:
         (tmp_path / "pipe-terminal.txt").write_bytes(transcript)
         if process.poll() is None:
@@ -269,3 +278,60 @@ def verify_pipe_terminal(pipe_terminal):
     assert "PIPELINE_PTY_5_2" in pipe_terminal
     assert '"Widget"' in pipe_terminal and '"Other"' in pipe_terminal
     assert "error:" not in pipe_terminal
+
+
+@when("I display, inspect and filter a call graph in the real console terminal",
+      target_fixture="graph_terminal")
+def graph_terminal(pipe_console, tmp_path):
+    source = tmp_path / "calls.cc"
+    source.write_text(
+        "namespace project { int leaf() { return 1; } "
+        "int work() { return leaf(); } }\n", encoding="utf-8",
+    )
+    display = tmp_path / "graph-display.json"
+    pretty = tmp_path / "graph-pretty.txt"
+    exported = tmp_path / "graph-export.json"
+    script = '\n'.join([
+        f'let graph = callgraph {json.dumps(str(source))} main-file true',
+        'print graph',
+        f'print graph to {json.dumps(str(display))}',
+        'print graph | pretty()',
+        'let formatted = graph | pretty()',
+        f'print formatted to {json.dumps(str(pretty))}',
+        'inspect graph',
+        'let functions = graph.nodes | filter((n) = not n.is_virtual_root)',
+        'let selected = functions | filter((n) = n.function.qualified_name == "project::work")',
+        'let work = selected.one("work function")',
+        'inspect work',
+        'inspect graph.nodes',
+        f'save graph to {json.dumps(str(exported))} as json',
+        f'load {json.dumps(str(exported))} into restored',
+        'let calls = match callExpr(callee(functionDecl(hasName("leaf")))).bind("call") in work',
+        'print "GRAPH_PTY_{graph.nodes.length}_{calls.length}_{restored.nodes.length}"',
+    ])
+    visible, transcript = _terminal_script(
+        pipe_console, tmp_path, script, "GRAPH_PTY_{graph", "GRAPH_PTY_3_1_3",
+    )
+    return visible, transcript, display, pretty, exported
+
+
+@then("graph previews expose structured values and the filtered node still matches")
+def verify_graph_terminal(graph_terminal):
+    visible, transcript, display, pretty, exported = graph_terminal
+    assert "GRAPH_PTY_3_1_3" in visible
+    assert "error:" not in transcript.lower()
+    assert "object at 0x" not in transcript
+    assert '"type": "CallGraphNodeValue"' in transcript
+    assert '"retained": true' in transcript
+    assert '"methods":' in transcript and '"fields":' in transcript
+    displayed = json.loads(display.read_text())
+    saved = json.loads(exported.read_text())
+    assert displayed["is_complete"] is True
+    assert len(displayed["nodes"]) == len(saved["nodes"]) == 3
+    assert {n["function"]["qualified_name"] for n in displayed["nodes"] if "function" in n} == {
+        "project::leaf", "project::work",
+    }
+    assert '"qualified_name": "project::work"' in pretty.read_text()
+    assert "\n" in pretty.read_text()
+    assert "retained_nodes" not in saved
+    assert all("native_match_index" not in node for node in saved["nodes"])

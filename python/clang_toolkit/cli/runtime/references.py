@@ -36,6 +36,10 @@ class ReferenceError(ValueError):
 
 
 _FILE_PROPERTIES = frozenset({"size", "modified", "basename", "dirname", "absolute", "parts"})
+_CALL_GRAPH_METHODS = (
+    "function", "callers", "callees", "grouped_calls", "shortest_path",
+    "shortest_route", "recursive_components", "recursion_components",
+)
 _BINDING_SELECTOR_PROPERTIES = frozenset({
     "name", "source_file", "scope", "value", "decl_name", "decl_type",
     "parameter_name", "record_name", "type_name", "location", "range",
@@ -477,9 +481,7 @@ def field_names(value: Any) -> tuple[str, ...]:
     if isinstance(value, CallGraphNodeValue):
         return (*field_names(value.proto), "binding")
     if isinstance(value, CallGraph):
-        return (*semantic_field_names(semantic_view(value.response)),
-                "function", "callers", "callees", "shortest_path",
-                "recursive_components", "recursion_components")
+        return (*semantic_field_names(semantic_view(value.response)), *_CALL_GRAPH_METHODS)
     if isinstance(value, FileSet):
         return ("inputs", "diagnostics", "metadata_bytes", "length", "isEmpty")
     if isinstance(value, FileBatch):
@@ -542,6 +544,14 @@ def field_names(value: Any) -> tuple[str, ...]:
 
 
 def inspect_value(value: Any) -> Any:
+    if isinstance(value, CallGraphNodeValue):
+        return {
+            "type": "CallGraphNodeValue",
+            "retained": (value._owner is not None and not value._owner.closed
+                         and not value.proto.is_virtual_root
+                         and value.proto.HasField("native_match_index")),
+            "value": semantic_inspect_value(semantic_view(value.proto)),
+        }
     if isinstance(value, CallGraph):
         return {
             "type": "CallGraph",
@@ -550,6 +560,9 @@ def inspect_value(value: Any) -> Any:
             "call_site_count": len(value.response.call_sites),
             "is_complete": value.response.is_complete,
             "source_file": value.response.source_file,
+            "retained": value._owner is not None and not value._owner.closed,
+            "methods": list(_CALL_GRAPH_METHODS),
+            "value": semantic_inspect_value(semantic_view(value.response), max_depth=4),
         }
     if isinstance(value, FileSet):
         return {
@@ -639,6 +652,8 @@ def inspect_value(value: Any) -> Any:
 
 
 def _bounded_inspection(value: Any) -> Any:
+    if isinstance(value, CallGraph | CallGraphNodeValue):
+        return inspect_value(value)
     if isinstance(value, str):
         return value[:256] + ("…" if len(value) > 256 else "")
     if value is None or isinstance(value, bool | int | float):

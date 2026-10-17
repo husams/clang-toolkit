@@ -156,6 +156,14 @@ the explicit output option:
 callgraph in tree main-file true format json
 ```
 
+Assigned graphs use the same bounded semantic display as matcher values:
+`print graph` shows structured graph fields, and `print graph | pretty()` adds
+readable indentation. `inspect graph` lists graph operations and schema fields;
+`inspect graph.nodes[i]` exposes that node's fields and availability. Inspection's
+`retained` flag reports local ownership state; it does not check server expiry.
+These previews do not change the graph or its retained matching references.
+Use the existing `save graph to "graph.json" as json` for a detached export.
+
 ## System headers and custom callable boundaries
 
 Use `exclude-system true` to keep your source and user headers while omitting
