@@ -348,3 +348,55 @@ with one caller and its distinct callee. Both groups were expanded for compariso
 selecting the second caller refreshed source navigation and CTK Result to the
 current `secondTarget` call. This fixture-only change was verified with the real
 native parser and installed UI; extension/backend code was not changed.
+
+## Readable AST inspector, version 0.2.8
+
+Replaced the CTK Result JSON dump with the selected node's actual Clang kind,
+name/signature, source link and preview, readable Properties, navigable Children
+and a collapsible Source range. The property model explicitly selects AST facts
+for declarations, records, expressions, casts, literals and calls. It excludes
+protobuf wrappers/enums, cursor/session/USR values, availability flags, supported
+scopes and complete match payloads. Unknown or unrequested properties are omitted;
+an empty direct parameter list does not imply that the function has no parameters.
+Some auxiliary nodes expose their true Clang kind and children without additional
+serialized properties.
+
+Children load through the public native `peek` visitor. Actions reuse their
+retained node handles and parsed file. Symbol Search opens a separate bounded
+inspection context and resolves one exact kind/source location because its search
+worker has already released its native handles; ambiguous selections are rejected.
+Changing source/settings invalidates inspection. Back restores the exact cached
+node and Selected result returns to the original binding. Loading appears in the
+status bar, and failed loads preserve the current properties with a Retry button.
+Limits are explicit: 1,000 direct neighbours, 128 inspected nodes and 10,000
+retained handles per context. Closing/resetting a worker releases its inspection
+collections. Only the sanitized AST model is posted to the webview.
+
+Validation logs: `vscode/artifacts/validation/ast-inspector-20261017/`.
+
+| Check | Result |
+| --- | --- |
+| TypeScript and Biome | Passed |
+| Extension unit suite | 34 passed, 12 native opt-in cases skipped |
+| Console adapter suite | 16 passed |
+| Native action/inspection integration | 5 passed with the default helper library |
+| Complete isolated VS Code host | Passed, including rendered AST properties, child/source navigation, Back, selected-result restoration and unchanged parse count |
+| Repository C++ suite | All 363 distinct tests passed; three snapshot-cache cases failed during the parallel segment and passed on isolated serial retry |
+| Repository Python units | 2,169 passed, 22 failed; existing external helper preload and CLI failures remain, so the full repository suite is not green |
+
+No shared server, SDK, console runtime or API source was changed. The native
+integration follows FunctionDecl → CompoundStmt → ReturnStmt → CallExpr, checks
+readable call properties and confirms the original action parse count remains one.
+The host also covers Symbol Search inspection, safe visible fields, source links,
+and the existing metadata/autocomplete/follow-up/history flows.
+
+Installed v0.2.8 in the normal VS Code profile and reloaded the existing trial
+window. In the actual installed Actions tab, Caller callee returned the two
+distinct caller/callee matches. Selected `secondCaller`, verified its signature,
+return type and definition property, then clicked CompoundStmt → ReturnStmt →
+CallExpr. The inspector displayed `int`, `prvalue`, Direct dispatch, callee
+`secondTarget` and caller `secondCaller`, with native child buttons. Back restored
+ReturnStmt and Selected result restored secondCaller. The trial remains open on
+that function with readable properties and children; isolated host windows closed
+normally. Final VSIX ZIP verification passed; SHA256 is
+`5ccb5f4b629940c663b42430b563b3a1bc0bb242474ec7ffa0e14075376a3fcf`.

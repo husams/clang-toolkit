@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import * as vscode from "vscode";
 import { z } from "zod";
 import { ActionsController } from "./actions-controller.js";
+import { SearchAstAccess } from "./ast-access.js";
 import { findPython } from "./console-service.js";
+import { DetailsView } from "./details-view.js";
 import { registerLanguage } from "./language.js";
 import {
   type Action,
@@ -14,7 +16,7 @@ import {
   scriptAction,
   validateParameters,
 } from "./model.js";
-import { AnalysisView, DetailsView } from "./views.js";
+import { AnalysisView } from "./views.js";
 import {
   startConsoleWorker,
   startWorker,
@@ -66,7 +68,8 @@ export class Prototype {
   readonly view: AnalysisView;
   readonly actions: ActionsController;
   private tab: "symbols" | "actions" = "symbols";
-  private readonly details: DetailsView;
+  readonly details: DetailsView;
+  private readonly searchAst: SearchAstAccess;
   private readonly output = vscode.window.createOutputChannel("CTK Output");
   private readonly taskStatus = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -89,7 +92,10 @@ export class Prototype {
     | { action: string; matches: number; groups: number }
     | undefined;
   constructor(context: vscode.ExtensionContext) {
-    this.details = new DetailsView(context.extensionUri);
+    this.details = new DetailsView(context.extensionUri, (result) =>
+      this.openSource(result),
+    );
+    this.searchAst = new SearchAstAccess(context.extensionUri);
     this.view = new AnalysisView(
       context.extensionUri,
       (message) => {
@@ -113,6 +119,8 @@ export class Prototype {
       this.output,
       this.taskStatus,
       this.actions,
+      this.details,
+      this.searchAst,
       vscode.window.registerWebviewViewProvider("ctk.analysis", this.view, {
         webviewOptions: { retainContextWhenHidden: true },
       }),
@@ -540,6 +548,21 @@ export class Prototype {
     await this.showResult(result);
   }
   private async showResult(result: Result): Promise<void> {
+    const translationUnit = this.target?.fsPath ?? result.file;
+    await this.openSource(result);
+    let searchLoad: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
+    const actionId =
+      "nodeId" in result && typeof result.nodeId === "string"
+        ? result.nodeId
+        : undefined;
+    await this.details.show(result, async (id) => {
+      if (actionId) return this.actions.inspect(id ?? actionId);
+      searchLoad ??= await this.searchAst.open(result, translationUnit);
+      return searchLoad(id);
+    });
+  }
+  private async openSource(result: Result): Promise<void> {
+    if (!result.file) return;
     const document = await vscode.workspace.openTextDocument(
       vscode.Uri.file(result.file),
     );
@@ -553,7 +576,6 @@ export class Prototype {
       selection: new vscode.Range(position, position),
       preserveFocus: true,
     });
-    await this.details.show(result);
   }
 }
 export async function activate(

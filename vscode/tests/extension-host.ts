@@ -66,6 +66,32 @@ export async function run(): Promise<void> {
   );
   assert.equal(rendered?.groups, 1, "webview must group results by file");
   await api.openResult(snapshot.results[0]!.id);
+  const astState = () => api.details.snapshot();
+  async function renderedAst(kind: string) {
+    const end = Date.now() + 10000;
+    while (Date.now() < end) {
+      const state = astState();
+      const rendered = state.rendered;
+      if (
+        !state.running &&
+        rendered?.type === "rendered" &&
+        rendered.kind === kind &&
+        rendered.children.length === (state.children?.length ?? 0)
+      )
+        return rendered;
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    assert.fail(
+      `AST inspector did not render ${kind}: ${JSON.stringify(astState())}`,
+    );
+  }
+  assert.equal(astState().error, "", JSON.stringify(astState()));
+  assert.equal(astState().node?.kind, "CXXRecordDecl");
+  const classInspector = await renderedAst("CXXRecordDecl");
+  assert.doesNotMatch(
+    classInspector.text,
+    /FIELD_STATE|BINDING_MATCH_SCOPE|supportedScopes|symbolIdentity|availability|Semantic fields/,
+  );
   const document = await vscode.workspace.openTextDocument({
     language: "ctk",
     content: 'emit match functionDecl(isDef).bind("symbol");',
@@ -414,6 +440,49 @@ export async function run(): Promise<void> {
   }
   await renderedActions();
   await api.actions.select(binding.nodeId);
+  assert.equal(astState().error, "", JSON.stringify(astState()));
+  const rootAst = await renderedAst("FunctionDecl");
+  assert.ok(rootAst.properties.includes("Return type"));
+  const rootAstId = astState().node?.id;
+  const body = astState().children?.find(
+    (child) => child.kind === "CompoundStmt",
+  );
+  assert.ok(body, JSON.stringify(astState()));
+  await api.details.receive({ type: "child", id: body.id });
+  await renderedAst("CompoundStmt");
+  const returned = astState().children?.find(
+    (child) => child.kind === "ReturnStmt",
+  );
+  assert.ok(returned);
+  await api.details.receive({ type: "child", id: returned.id });
+  await renderedAst("ReturnStmt");
+  const callExpression = astState().children?.find(
+    (child) => child.kind === "CallExpr",
+  );
+  assert.ok(callExpression);
+  await api.details.receive({ type: "child", id: callExpression.id });
+  const callInspector = await renderedAst("CallExpr");
+  assert.ok(callInspector.properties.includes("Callee"));
+  assert.doesNotMatch(
+    callInspector.text,
+    /FIELD_STATE|BINDING_MATCH_SCOPE|supportedScopes|symbolIdentity|availability|Semantic fields/,
+  );
+  await api.details.receive({ type: "source" });
+  assert.equal(vscode.window.activeTextEditor?.selection.start.line, 1);
+  await api.details.receive({ type: "back" });
+  await renderedAst("ReturnStmt");
+  await api.details.receive({ type: "root" });
+  await renderedAst("FunctionDecl");
+  assert.equal(
+    astState().node?.id,
+    rootAstId,
+    "Back must restore the exact retained AST selection",
+  );
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "child inspection must not reparse the action file",
+  );
   assert.equal(actionState().stale, false, JSON.stringify(actionState()));
   assert.equal(
     vscode.window.activeTextEditor?.document.uri.fsPath,

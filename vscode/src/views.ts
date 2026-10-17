@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import type { Result } from "./model.js";
 
 export function escapeHtml(value: string): string {
   return value.replace(
@@ -55,32 +54,5 @@ export class AnalysisView implements vscode.WebviewViewProvider {
   }
   async reveal(): Promise<void> {
     await vscode.commands.executeCommand("ctk.analysis.focus");
-  }
-}
-export class DetailsView implements vscode.WebviewViewProvider {
-  private view?: vscode.WebviewView;
-  private result?: Result;
-  constructor(private readonly uri: vscode.Uri) {}
-  resolveWebviewView(view: vscode.WebviewView): void {
-    this.view = view;
-    view.webview.options = {
-      enableScripts: false,
-      localResourceRoots: [vscode.Uri.joinPath(this.uri, "media")],
-    };
-    this.render();
-  }
-  async show(result: Result): Promise<void> {
-    this.result = result;
-    await vscode.commands.executeCommand("ctk.result.focus");
-    this.render();
-  }
-  private render(): void {
-    if (!this.view) return;
-    const webview = this.view.webview,
-      r = this.result;
-    const css = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.uri, "media", "sidebar.css"),
-    );
-    webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}"><link rel="stylesheet" href="${css}"></head><body><main>${r ? `<dl><dt>Kind</dt><dd>${escapeHtml(r.kind)}</dd><dt>Name</dt><dd>${escapeHtml(r.name)}</dd><dt>Location</dt><dd>${escapeHtml(`${r.file}:${r.line}:${r.column}`)}</dd></dl><pre>${escapeHtml(r.excerpt)}</pre><details><summary>Semantic fields</summary><pre>${escapeHtml(JSON.stringify(r.raw, null, 2))}</pre></details>` : "Select a match to inspect its semantic fields."}</main></body></html>`;
   }
 }

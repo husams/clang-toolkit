@@ -728,6 +728,26 @@ export class ActionsController implements vscode.Disposable {
     this.changed();
     await this.show(selected);
   }
+  async inspect(id: string) {
+    if (this.busy || this.execution)
+      throw new Error("Wait for the current action before inspecting its AST.");
+    if (this.stale)
+      throw new Error(
+        "Source changed; refresh analysis before navigating AST nodes.",
+      );
+    if (!this.service || !this.sessionSettings)
+      throw new Error(
+        "This AST context has closed; refresh analysis and select a new result.",
+      );
+    this.busy = true;
+    this.changed();
+    try {
+      return await this.service.inspect(this.sessionSettings, id);
+    } finally {
+      this.busy = false;
+      this.changed();
+    }
+  }
   private back(): void {
     if (this.busy || this.history.length < 2) return;
     this.history.pop();
