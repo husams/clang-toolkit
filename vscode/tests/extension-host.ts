@@ -2266,6 +2266,64 @@ export async function run(): Promise<void> {
       "CTK",
       "CTK must remain available when clang stops reporting the error",
     );
+    clangProblems.set(locatedErrors[0]!.uri, [duplicate]);
+    await waitForProblemCount(0);
+    const changedError = new vscode.WorkspaceEdit();
+    changedError.replace(
+      savedUri,
+      savedEditor.document.lineAt(0).range,
+      "#error edited saved-file parse failure",
+    );
+    assert.equal(await vscode.workspace.applyEdit(changedError), true);
+    assert.equal(savedEditor.document.isDirty, true);
+    assert.equal(
+      parseErrors().length,
+      0,
+      "editing must invalidate hidden CTK fallbacks immediately",
+    );
+    await new Promise<void>((resolve, reject) => {
+      const listener = vscode.languages.onDidChangeDiagnostics((event) => {
+        if (
+          !event.uris.some(
+            (uri) => uri.toString() === locatedErrors[0]!.uri.toString(),
+          )
+        )
+          return;
+        clearTimeout(timer);
+        listener.dispose();
+        resolve();
+      });
+      const timer = setTimeout(() => {
+        listener.dispose();
+        reject(new Error("clang diagnostic removal was not observed"));
+      }, 10000);
+      clangProblems.delete(locatedErrors[0]!.uri);
+    });
+    assert.equal(
+      parseErrors().length,
+      0,
+      "clang removing a stale error must not resurrect CTK's previous saved-file error",
+    );
+    assert.equal(await savedEditor.document.save(), true);
+    const editedDeadline = Date.now() + 45000;
+    while (
+      Date.now() < editedDeadline &&
+      !parseErrors().some(
+        ({ diagnostic }) =>
+          diagnostic.message === "edited saved-file parse failure",
+      )
+    )
+      await new Promise((done) => setTimeout(done, 40));
+    assert.deepEqual(
+      parseErrors().map(({ diagnostic }) => diagnostic.message),
+      ["edited saved-file parse failure"],
+      "the next save must publish only the new parser result",
+    );
+    assert.equal(
+      astState().contextId,
+      beforeFailure.contextId,
+      "editing and refreshing Problems must keep the last valid AST",
+    );
   } finally {
     clangProblems.dispose();
   }

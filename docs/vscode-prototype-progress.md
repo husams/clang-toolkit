@@ -1427,3 +1427,48 @@ then the successful parse cleared it and Problems reported no workspace issues.
 Closed and removed the disposable fixture, restored match-groups-demo.cpp and
 CTK Inspector, and preserved the three custom action tabs. No extra manual VS
 Code window was opened and the managed server was not restarted.
+
+## Clear stale Problems on source edits, version 0.2.32
+
+Editing a C/C++ source immediately discards its CTK Problems contribution and
+the cached fallback hidden by another diagnostic provider. In-flight diagnostic
+reports for that source are invalidated as well. Removing a clang diagnostic
+while the buffer is dirty therefore cannot restore the preceding saved-file
+error. Only a new parse attempt can publish fresh CTK errors on the next save;
+successful parses keep Problems clear. The last valid AST remains visible.
+
+Unrelated source-file contributions remain intact. Header edits invalidate CTK
+contributions conservatively, matching retained AST session invalidation. Source
+URI aliases are handled both immediately for known document paths and through
+canonical filesystem resolution. Late alias resolution applies only to the
+requests present when the edit occurred, preserving a newer save's diagnostics.
+Empty document-change events and non-C++ buffers do not clear CTK errors.
+
+Validation logs: `vscode/artifacts/validation/edit-problems-20261017/`.
+Unit tests cover visible and suppressed markers, clang removal after an edit,
+pending-report cancellation, unrelated source errors, headers, empty/non-C++
+events, aliases and fresh-save ownership. The native VS Code suite edits a real
+failed source while its CTK error is hidden, removes the clang marker and checks
+that no CTK marker returns, then saves a new #error and verifies only the new
+compiler message is published. Existing valid-save recovery checks verify
+fixed source remains clear while preserving the cached AST.
+
+TypeScript, Biome and all 99 extension unit tests pass (18 optional native cases
+remain opt-in). The complete real VS Code host suite passes with the console
+helper library enabled, including the dirty-buffer/no-resurrection regression
+and fresh-save diagnostics. The harness reports CTK_TEST_PROCESSES_CLOSED, and
+an independent audit confirms zero remaining temporary test processes.
+
+Packaged and installed v0.2.32 in the approved normal VS Code profile. Archive
+integrity and installed-version checks pass. VSIX SHA256:
+`4ca0d2115344f8288b8f5414092b60522e8367003f371bc3a72254ae068cd2da`.
+
+Verified in the existing normal-profile window with the real clang extension.
+Saving an undeclared identifier produced one Problems entry while preserving
+the last valid AST. Correcting the buffer without saving immediately cleared
+Problems; the disposable file on disk still contained the error, confirming
+that the check preceded the next save. Saving the correction refreshed the AST
+and kept Problems clear. Closed and removed the disposable fixture, restored
+match-groups-demo.cpp and CTK Inspector, and preserved all three custom action
+tabs. No extra manual VS Code window was opened and the managed server was not
+restarted.

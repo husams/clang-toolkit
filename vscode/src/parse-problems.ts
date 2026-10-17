@@ -9,6 +9,9 @@ interface Problem {
   uri: vscode.Uri;
   diagnostic: vscode.Diagnostic;
 }
+interface ParseRequest {
+  uri: vscode.Uri;
+}
 function diagnosticKey(file: string, diagnostic: vscode.Diagnostic): string {
   const { line, character } = diagnostic.range.start;
   const message = diagnostic.message
@@ -23,16 +26,27 @@ export class ParseProblems implements vscode.Disposable {
   private readonly collection =
     vscode.languages.createDiagnosticCollection("CTK");
   private readonly owners = new Map<string, Problem[]>();
-  private readonly requests = new Map<string, object>();
+  private readonly requests = new Map<string, ParseRequest>();
   private readonly external = new Map<
     string,
     { file: string; diagnostics: vscode.Diagnostic[]; signature: string }
   >();
   private readonly listener: vscode.Disposable;
+  private readonly edits: vscode.Disposable;
   private published = "";
   private disposed = false;
 
   constructor() {
+    this.edits = vscode.workspace.onDidChangeTextDocument(
+      ({ document, contentChanges }) => {
+        if (
+          contentChanges.length &&
+          document.uri.scheme === "file" &&
+          /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(document.uri.fsPath)
+        )
+          this.edited(document.uri);
+      },
+    );
     this.listener = vscode.languages.onDidChangeDiagnostics(({ uris }) => {
       if (this.disposed) return;
       for (const uri of uris) this.rememberExternal(uri);
@@ -40,6 +54,42 @@ export class ParseProblems implements vscode.Disposable {
     });
     for (const [uri] of vscode.languages.getDiagnostics())
       this.rememberExternal(uri);
+  }
+  private edited(uri: vscode.Uri): void {
+    if (this.disposed) return;
+    const requests = new Map(this.requests);
+    const header = /\.(?:h|hh|hpp|hxx)$/i.test(uri.fsPath);
+    const invalidate = (file: string) => {
+      for (const [owner, request] of requests) {
+        if (this.requests.get(owner) !== request) continue;
+        const problems = this.owners.get(owner) ?? [];
+        if (
+          header ||
+          owner === file ||
+          request.uri.toString() === uri.toString() ||
+          problems.some(
+            (problem) =>
+              problem.file === file ||
+              problem.uri.toString() === uri.toString(),
+          )
+        ) {
+          this.requests.delete(owner);
+          this.owners.delete(owner);
+        }
+      }
+      this.publish();
+    };
+    // Drop visible and suppressed markers synchronously for known paths.
+    // Headers invalidate every retained TU, matching the AST session policy.
+    invalidate(uri.fsPath);
+    if (header || !requests.size) return;
+    void realpath(uri.fsPath)
+      .catch(() => uri.fsPath)
+      .then((file) => {
+        // A later save may already own a fresh request by the time an alias
+        // resolves; invalidate only the attempts present at this edit.
+        if (!this.disposed && file !== uri.fsPath) invalidate(file);
+      });
   }
   private rememberExternal(uri: vscode.Uri): void {
     if (uri.scheme !== "file") return;
@@ -79,7 +129,7 @@ export class ParseProblems implements vscode.Disposable {
     document?: vscode.Uri,
   ): Promise<void> {
     if (this.disposed || !current()) return;
-    const request = {};
+    const request = { uri: document ?? vscode.Uri.file(file) };
     this.requests.set(file, request);
     const sources = new Map<
       string,
@@ -192,6 +242,7 @@ export class ParseProblems implements vscode.Disposable {
   dispose(): void {
     this.disposed = true;
     this.listener.dispose();
+    this.edits.dispose();
     this.requests.clear();
     this.owners.clear();
     this.external.clear();

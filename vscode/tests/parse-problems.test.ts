@@ -10,6 +10,9 @@ const external = vi.hoisted(() => new Map<string, Diagnostic[]>());
 const events = vi.hoisted(() => ({
   writes: 0,
   listeners: new Set<(event: { uris: Uri[] }) => void>(),
+  edits: new Set<
+    (event: { document: { uri: Uri }; contentChanges: unknown[] }) => void
+  >(),
 }));
 vi.mock("vscode", () => {
   const uri = (file: string) =>
@@ -18,6 +21,17 @@ vi.mock("vscode", () => {
     for (const listener of events.listeners) listener({ uris: files.map(uri) });
   };
   return {
+    workspace: {
+      onDidChangeTextDocument: (
+        listener: (event: {
+          document: { uri: Uri };
+          contentChanges: unknown[];
+        }) => void,
+      ) => {
+        events.edits.add(listener);
+        return { dispose: () => events.edits.delete(listener) };
+      },
+    },
     languages: {
       onDidChangeDiagnostics: (listener: (event: { uris: Uri[] }) => void) => {
         events.listeners.add(listener);
@@ -82,6 +96,7 @@ beforeEach(async () => {
   published.clear();
   external.clear();
   events.listeners.clear();
+  events.edits.clear();
   events.writes = 0;
   directory = await mkdtemp(join(tmpdir(), "ctk-problems-unit-"));
   problems = new ParseProblems();
@@ -182,6 +197,126 @@ function externalChanged(file: string, diagnostics: Diagnostic[]) {
   else external.delete(file);
   for (const listener of events.listeners) listener({ uris: [Uri.file(file)] });
 }
+function edit(file: string, contentChanges: unknown[] = [{}]) {
+  for (const listener of events.edits)
+    listener({ document: { uri: Uri.file(file) }, contentChanges });
+}
+it("clears visible CTK errors immediately on edit and publishes fresh errors only for a new attempt", async () => {
+  const file = join(directory, "edit.cpp");
+  await writeFile(file, "#error old\n");
+  await problems.report(file, `${file}:1:2: error: old`, directory, () => true);
+  expect([...published.values()].flat()).toHaveLength(1);
+  edit(file);
+  expect([...published.values()].flat()).toHaveLength(0);
+  externalChanged(file, []);
+  expect([...published.values()].flat()).toHaveLength(0);
+  await problems.report(file, `${file}:1:2: error: new`, directory, () => true);
+  expect([...published.values()].flat().map((item) => item.message)).toEqual([
+    "new",
+  ]);
+});
+it("discards a suppressed CTK fallback so clang removal cannot restore a fixed error", async () => {
+  const file = join(directory, "suppressed.cpp");
+  await writeFile(file, "#error bad header\n");
+  await problems.report(
+    file,
+    `${file}:1:2: error: bad header`,
+    directory,
+    () => true,
+  );
+  externalChanged(file, [otherError()]);
+  await vi.waitFor(() =>
+    expect([...published.values()].flat()).toHaveLength(0),
+  );
+  edit(file);
+  externalChanged(file, []);
+  expect([...published.values()].flat()).toHaveLength(0);
+});
+it("cancels a diagnostic report that was still reading the file when an edit arrives", async () => {
+  const file = join(directory, "pending.cpp");
+  await writeFile(file, "#error old\n");
+  const report = problems.report(
+    file,
+    `${file}:1:2: error: old`,
+    directory,
+    () => true,
+  );
+  edit(file);
+  await report;
+  expect([...published.values()].flat()).toHaveLength(0);
+});
+it("keeps unrelated source errors but clears dependent errors when a header is edited", async () => {
+  const first = join(directory, "first.cpp"),
+    second = join(directory, "second.cpp"),
+    header = join(directory, "shared.hpp");
+  for (const file of [first, second, header])
+    await writeFile(file, "#error issue\n");
+  await problems.report(
+    first,
+    `${header}:1:2: error: header issue`,
+    directory,
+    () => true,
+    Uri.file(first),
+  );
+  await problems.report(
+    second,
+    `${second}:1:2: error: second issue`,
+    directory,
+    () => true,
+  );
+  edit(first);
+  expect([...published.values()].flat().map((item) => item.message)).toEqual([
+    "second issue",
+  ]);
+  edit(header);
+  expect([...published.values()].flat()).toHaveLength(0);
+});
+it("ignores non-source edits and empty document-change events", async () => {
+  const file = join(directory, "unchanged.cpp");
+  await writeFile(file, "#error issue\n");
+  await problems.report(
+    file,
+    `${file}:1:2: error: issue`,
+    directory,
+    () => true,
+  );
+  edit(file, []);
+  edit(join(directory, "notes.md"));
+  expect([...published.values()].flat()).toHaveLength(1);
+});
+it("does not let late alias resolution clear a fresh saved-file report", async () => {
+  const file = join(directory, "physical.cpp"),
+    alias = join(directory, "edit-alias.cpp");
+  await writeFile(file, "#error issue\n");
+  await symlink(file, alias);
+  const canonical = await realpath(file);
+  await problems.report(
+    canonical,
+    `${canonical}:1:2: error: old`,
+    directory,
+    () => true,
+  );
+  edit(alias);
+  await vi.waitFor(() =>
+    expect([...published.values()].flat()).toHaveLength(0),
+  );
+  await problems.report(
+    canonical,
+    `${canonical}:1:2: error: old`,
+    directory,
+    () => true,
+  );
+  edit(alias);
+  await problems.report(
+    canonical,
+    `${canonical}:1:2: error: new`,
+    directory,
+    () => true,
+  );
+  expect([...published.values()].flat().map((item) => item.message)).toEqual([
+    "new",
+  ]);
+});
 it("keeps an already published clang error instead of adding a duplicate CTK error", async () => {
   const file = join(directory, "existing.cpp");
   await writeFile(file, "#error bad header\n");

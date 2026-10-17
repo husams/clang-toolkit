@@ -56,6 +56,8 @@ Compiler errors also appear under **CTK** in VS Code's **Problems** panel (View 
 
 When clang or another provider reports the same error at the same source position, Problems keeps that provider's entry and suppresses the matching CTK entry. Initial capitalization, whitespace and quote-style differences are ignored; C++ identifier spelling and case are preserved. CTK-only errors remain visible, and the CTK entry returns if the other provider removes its diagnostic. This updates automatically as providers publish results, including paths that refer to the same physical file.
 
+Editing a C/C++ file immediately discards its CTK Problems entries, including cached entries hidden by clang and reports still being prepared. Removing a clang diagnostic while you type cannot bring back an old CTK error. Saving parses the new source and publishes only its current errors; a fixed file stays clear. Unrelated source files retain their errors. Header edits invalidate cached CTK errors conservatively, matching AST session invalidation. The last valid AST remains visible while you edit.
+
 ## Node actions
 
 1. Open a C++ file, select **Actions**, and use the single **Select action…** picker. It lists predefined and workspace actions plus **Create action…**. Without an active C++ file, the first run asks for a file.
