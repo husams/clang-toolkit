@@ -1,0 +1,36 @@
+// Tail calls reuse one execution frame; the accumulator is an ordinary list.
+let map_into = {
+    ([], f, out) out
+    (h : t, f, out) {
+        out.push(f(h))
+        map_into(t, f, out)
+    }
+}
+let map_list(xs, f) = map_into(xs, f, [])
+
+let filter_into = {
+    ([], keep, out) out
+    (h : t, keep, out) {
+        if keep(h) then { out.push(h) } else {}
+        filter_into(t, keep, out)
+    }
+}
+let filter_list(xs, keep) = filter_into(xs, keep, [])
+
+// Non-tail recursion keeps pending work in an explicit continuation stack.
+let reverse_list = {
+    ([]) []
+    (h : t) {
+        let result = reverse_list(t)
+        result.push(h)
+        result
+    }
+}
+
+let xs = [1, 2, 3, 4, 5]
+print map_list(xs, (x) x * 10) | json
+print filter_list(xs, (x) x % 2 == 0) | json
+print reverse_list(xs) | json
+print xs | json
+let large = range(1000)
+print "Large counts: {map_list(large, (x) x * 2).length}, {filter_list(large, (x) x % 2 == 0).length}, {reverse_list(large).length}"
