@@ -75,7 +75,10 @@ export class InspectorTree {
   clearSelection(): void {
     this.selected = undefined;
   }
-  rows(): InspectorRow[] {
+  select(id: string): void {
+    if (this.pages.has(id)) this.selected = id;
+  }
+  rows(includeCollapsed = false): InspectorRow[] {
     const rows: InspectorRow[] = [],
       seen = new Set<string>();
     const visit = (id: string, depth: number, parent?: string) => {
@@ -92,7 +95,7 @@ export class InspectorTree {
         expandable: page.children === undefined || page.children.length > 0,
         selected: id === this.selected,
       });
-      if (expanded)
+      if (expanded || includeCollapsed)
         for (const child of page.children ?? []) visit(child.id, depth + 1, id);
     };
     if (this.root) visit(this.root, 0);
