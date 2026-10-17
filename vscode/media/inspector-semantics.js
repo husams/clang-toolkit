@@ -21,6 +21,25 @@ export function renderSemantics(host, node, semantics, post, context) {
     host.append(details);
     return body;
   }
+  if (semantics?.referencedDeclaration) {
+    const reference = semantics.referencedDeclaration,
+      details = group("Base declaration"),
+      link = document.createElement("button");
+    link.textContent = reference.name;
+    link.title = `Inspect base class ${reference.name}`;
+    link.disabled = context.running;
+    link.dataset.vscodeContext = JSON.stringify({
+      webviewSection: "ast-node",
+      ctkAstNodeId: reference.nodeId,
+      ctkAstContext: context.contextId,
+      ctkAstCanRun: !context.running,
+      preventDefaultContextMenuItems: true,
+    });
+    link.addEventListener("click", () =>
+      post("related", { id: reference.nodeId }),
+    );
+    details.append(link);
+  }
   if (semantics?.inheritance) {
     const details = group("Inheritance"),
       root = document.createElement("p");

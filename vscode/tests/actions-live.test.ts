@@ -143,6 +143,24 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       expect(astDisplay(middle.node).name).toBe("Middle");
       const rootBaseId = middle.semantics?.inheritance?.[0]?.nodeId;
       expect(rootBaseId).toBe(find("Root").id);
+      const baseSpecifier = middle.children.find(
+        (child) => astDisplay(child).kind === "CXXBaseSpecifier",
+      );
+      expect(baseSpecifier?.name).toBe("Root");
+      const baseEdge = await host.inspect(settings, baseSpecifier!.id);
+      expect(baseEdge.semantics?.referencedDeclaration).toEqual({
+        name: "Root",
+        nodeId: rootBaseId,
+      });
+      const typeLocation = baseEdge.children.find(
+        (child) => astDisplay(child).kind === "RecordTypeLoc",
+      );
+      expect(typeLocation?.name).toBe("Root");
+      const typePage = await host.inspect(settings, typeLocation!.id);
+      expect(typePage.semantics?.referencedDeclaration).toEqual(
+        baseEdge.semantics?.referencedDeclaration,
+      );
+      expect(typePage.parseCount).toBe(1);
       const rootBase = await host.inspect(settings, rootBaseId!);
       const baseAction = await host.run(
         action("base-fields", 'match fieldDecl().bind("field") in node'),

@@ -16,6 +16,9 @@ export { astBinding, nativeKind } from "./ast-facts.js";
 
 export const astSemanticsSchema = z
   .object({
+    referencedDeclaration: z
+      .object({ name: z.string().min(1), nodeId: z.string().min(1) })
+      .optional(),
     inheritance: z
       .array(
         z.object({

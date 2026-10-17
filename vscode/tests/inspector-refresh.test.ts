@@ -130,6 +130,35 @@ it("discards a late parse failure after switching the inspector to another file"
   });
   details.dispose();
 });
+it("clears a stale parse warning on edit without restoring invalid native handles", async () => {
+  const details = view(),
+    previous = state("valid");
+  await expect(
+    details.refreshFile(
+      previous.current!.node,
+      previous,
+      async () => {
+        throw new Error("Old saved-file failure");
+      },
+      () => true,
+    ),
+  ).rejects.toThrow("Old saved-file failure");
+  details.setRefreshError("/example.cpp", "Old saved-file failure", true);
+  details.setRefreshError("/example.cpp");
+  expect(details.snapshot()).toMatchObject({
+    error: "",
+    node: { id: "valid" },
+    canRunAction: false,
+    inspectionStatus: { text: "", tooltip: undefined },
+  });
+  await expect(details.actionTarget()).rejects.toThrow("current AST node");
+  details.setRefreshError("/other.cpp", "Another file's error", true);
+  details.setRefreshError("/example.cpp");
+  expect(String(details.snapshot().inspectionStatus.tooltip)).toContain(
+    "Another file's error",
+  );
+  details.dispose();
+});
 it("tracks background errors independently and clears each when its file recovers or closes", async () => {
   const details = view();
   await details.restore(state("current"), () => true);

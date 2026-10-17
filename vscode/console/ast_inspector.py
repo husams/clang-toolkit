@@ -24,6 +24,7 @@ class AstInspector:
         self.file_nodes: dict[str, str] = {}
         self.declarations: dict[tuple[Any, ...], str] = {}
         self.related: set[str] = set()
+        self.references: dict[str, str] = {}
         self.selection = AstSelection(self)
 
     def retain(self, target: Any, file: str, label: str) -> str:
@@ -33,6 +34,12 @@ class AstInspector:
         if kind in ('cxx_record_decl', 'class_template_specialization_decl',
                     'class_template_partial_specialization_decl'):
             key = (file, value.symbol_identity, value.node.SerializeToString(deterministic=True),
+                   value.range.SerializeToString(deterministic=True))
+            previous = self.declarations.get(key)
+            if previous in self.host.nodes:
+                return previous
+        elif value.WhichOneof('value') == 'base_specifier':
+            key = (file, 'base', value.base_specifier.SerializeToString(deterministic=True),
                    value.range.SerializeToString(deterministic=True))
             previous = self.declarations.get(key)
             if previous in self.host.nodes:
@@ -57,6 +64,11 @@ class AstInspector:
             name=kind, kind=kind, file='', line=1, column=1, excerpt='', raw=raw)
         if identifier == self.file_nodes.get(file):
             item.update(name=Path(file).name, file=file)
+        elif value.WhichOneof('value') == 'base_specifier':
+            description = value.base_specifier.type.description
+            item['name'] = description.spelling or description.canonical_spelling or '(dependent base)'
+        elif identifier in self.references:
+            item['name'] = self.describe(self.references[identifier])['name']
         return {**item, 'id': identifier, 'locationValid': bool(value.location.valid),
                 'raw': {'binding': raw}}
 
@@ -136,6 +148,9 @@ class AstInspector:
                 child_id = self.retain(child, file, 'AST child')
                 if len(self.host.nodes) > existing:
                     pending[child_id] = self.host.nodes[child_id]
+                if identifier in self.references and child.value.WhichOneof('value') == 'unsupported':
+                    if child.value.unsupported.clang_class.endswith('TypeLoc'):
+                        self.references[child_id] = self.references[identifier]
                 children.append(self.describe(child_id))
             self.host.nodes.update(pending)
             response = dict(node=self.describe(identifier), children=children,
@@ -150,6 +165,10 @@ class AstInspector:
                      for key in ('functionDecl', 'cxxMethodDecl', 'cxxConstructorDecl',
                                  'cxxDestructorDecl', 'cxxConversionDecl', 'cxxDeductionGuideDecl')):
                 response['semantics'] = dict(parameters=parameters(self.host, target))
+            if identifier in self.references:
+                declaration = self.references[identifier]
+                response.setdefault('semantics', {})['referencedDeclaration'] = dict(
+                    nodeId=declaration, name=self.describe(declaration)['name'])
         except BaseException:
             for child_id in pending:
                 self.host.nodes.pop(child_id, None)
@@ -166,6 +185,7 @@ class AstInspector:
         self.file_nodes.clear()
         self.declarations.clear()
         self.related.clear()
+        self.references.clear()
         for rows in self.collections:
             rows.close()
         self.collections.clear()

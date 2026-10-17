@@ -83,6 +83,7 @@ interface FileInspectorSession {
   context?: Promise<SearchAstContext>;
   state?: InspectorState;
   failure?: string;
+  failureEdited?: boolean;
   stale: boolean;
   sources: Set<string>;
   source?: string;
@@ -224,11 +225,35 @@ export class Prototype {
           if (document === this.customDocument) this.publish();
           if (!CXX.test(document.uri.fsPath) || !contentChanges.length) return;
           const sessions = new Map(this.fileSessions);
+          const failures = [...sessions].map(([file, session]) => ({
+            file,
+            session,
+            revision: session.revision,
+          }));
+          const clearFailure = (file: string) => {
+            const header = /\.(?:h|hh|hpp|hxx)$/i.test(file);
+            for (const entry of failures) {
+              const session = entry.session;
+              if (
+                this.fileSessions.get(entry.file) === session &&
+                session.revision === entry.revision &&
+                session.failure &&
+                (header ||
+                  entry.file === file ||
+                  session.document?.uri.toString() === document.uri.toString())
+              ) {
+                session.failureEdited = true;
+                this.details.setRefreshError(entry.file);
+              }
+            }
+          };
+          clearFailure(document.uri.fsPath);
           this.editQueue = this.editQueue
             .then(async () => {
               const file = await realpath(document.uri.fsPath).catch(
                 () => document.uri.fsPath,
               );
+              clearFailure(file);
               const session = sessions.get(file);
               if (!session || this.fileSessions.get(file) !== session) return;
               this.captureBookmark(session, file);
@@ -857,6 +882,7 @@ export class Prototype {
     // while parsing, invalidation must schedule a replacement, not retain the
     // previous failure's "wait for next save" suppression.
     delete selected.failure;
+    delete selected.failureEdited;
     const revision = selected.revision;
     const valid = () =>
       current() &&
@@ -894,7 +920,7 @@ export class Prototype {
     return session.failure
       ? {
           ...state,
-          error: session.failure,
+          error: session.failureEdited ? "" : session.failure,
           notice: "",
           load: undefined,
           prepareAction: undefined,
@@ -939,6 +965,7 @@ export class Prototype {
     session.stale = false;
     delete session.bookmark;
     delete session.failure;
+    delete session.failureEdited;
     this.details.setRefreshError(file);
     this.parseProblems.clear(file);
   }
@@ -949,6 +976,7 @@ export class Prototype {
     current: () => boolean,
   ): Promise<void> {
     session.failure = error instanceof Error ? error.message : String(error);
+    delete session.failureEdited;
     session.stale = true;
     session.access.close();
     delete session.context;
@@ -1045,6 +1073,7 @@ export class Prototype {
     session.stale = true;
     session.document = document;
     delete session.failure;
+    delete session.failureEdited;
     const bookmark = session.bookmark,
       text = document.getText();
     try {

@@ -1472,3 +1472,36 @@ and kept Problems clear. Closed and removed the disposable fixture, restored
 match-groups-demo.cpp and CTK Inspector, and preserved all three custom action
 tabs. No extra manual VS Code window was opened and the managed server was not
 restarted.
+
+## Clear edited parse status and resolve AST base references, version 0.2.33
+
+- Implemented: editing C/C++ clears that file's saved-parse status warning as
+  well as Problems. Header edits clear stale parse warnings conservatively.
+  Failed sessions remain stale, preserve their last valid AST and wait for the
+  next save; clearing the message never restores invalid native handles.
+- Implemented: AST base-specifier rows show written type names. Expanded base
+  and TypeLoc rows offer an explicit Base declaration link to the actual native
+  class, its source and actions, also available in Properties. Real AST child
+  relationships and existing branches remain intact.
+- Verified: TypeScript, Biome and all 100 extension unit tests pass. All 17
+  enabled native integration cases pass (one opt-in case remains skipped).
+  The initial parallel integration run hit a helper-test timeout; the isolated
+  helper retry and complete serial integration rerun pass without code changes.
+  The full real VS Code host suite passes with the default console helper
+  library, including edit-time status clearing, next-save failure replacement,
+  named base edges, TypeLoc declaration references and exact source navigation.
+- Packaged and installed v0.2.33 in the approved normal profile; archive
+  integrity and installed version verified. VSIX SHA256:
+  `93a2cda54e3a54333c55b8ef7b32e36f7428b0f52e0146070a04eb5c7c3ed94d`.
+- Verified in the existing normal window: Sample's Base specifier and
+  RecordTypeLoc show Base declaration links. Clicking the TypeLoc link selects
+  Base's actual declaration, reveals Base::index, highlights the whole class
+  and enables Run Action while keeping Sample expanded. A disposable source
+  confirmed that editing a failed saved file clears both the status warning
+  and Problems before saving; its disk copy still contained the error. Saving
+  the correction refreshes the AST and enables actions with no error. Closed
+  and removed the fixture, preserved all user source/action tabs and returned
+  to match-groups-demo.cpp. The managed server was not restarted. The host
+  harness and independent process audit confirm no test processes remain.
+
+Validation logs: `vscode/artifacts/validation/status-base-20261017/`.

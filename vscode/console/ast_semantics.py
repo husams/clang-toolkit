@@ -52,6 +52,11 @@ def inheritance(inspector: AstInspector, target: Any, file: str) -> dict[str, An
                         created.add(identifier)
                     related.add(identifier)
                     item['nodeId'] = identifier
+                    existing = len(host.nodes)
+                    edge_id = inspector.retain(row.binding('target'), file, 'Base specifier')
+                    if len(host.nodes) > existing:
+                        created.add(edge_id)
+                    inspector.references[edge_id] = identifier
                     visit(base, depth + 1)
                 else:
                     item['unresolved'] = True
@@ -60,6 +65,8 @@ def inheritance(inspector: AstInspector, target: Any, file: str) -> dict[str, An
     except BaseException:
         for identifier in created:
             host.nodes.pop(identifier, None)
+        inspector.references = {key: value for key, value in inspector.references.items()
+                                if key not in created and value not in created}
         for rows in retained:
             rows.close()
         raise

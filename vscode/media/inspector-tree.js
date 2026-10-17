@@ -42,13 +42,26 @@ export function renderTree(host, state, post) {
         line = document.createElement("div"),
         toggle = document.createElement("button"),
         name = document.createElement("span"),
-        kind = document.createElement("span");
-      line.append(toggle, name, kind);
+        kind = document.createElement("span"),
+        declaration = document.createElement("button");
+      line.append(toggle, name, kind, declaration);
       item.append(line);
-      entry = { item, line, toggle, name, kind };
+      entry = { item, line, toggle, name, kind, declaration };
       view.items.set(row.id, entry);
       const current = () =>
         view.state.tree.find((candidate) => candidate.id === row.id);
+      declaration.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const reference = current()?.referencedDeclaration;
+        if (reference && !view.state.running)
+          view.post("related", { id: reference.nodeId });
+      });
+      declaration.addEventListener("dblclick", (event) =>
+        event.stopPropagation(),
+      );
+      declaration.addEventListener("keydown", (event) =>
+        event.stopPropagation(),
+      );
       toggle.addEventListener("click", (event) => {
         event.stopPropagation();
         const row = current();
@@ -108,7 +121,7 @@ export function renderTree(host, state, post) {
         }
       });
     }
-    const { item, line, toggle, name, kind } = entry;
+    const { item, line, toggle, name, kind, declaration } = entry;
     item.setAttribute("role", "treeitem");
     item.setAttribute("aria-level", String(row.depth + 1));
     item.setAttribute("aria-selected", String(row.selected));
@@ -148,6 +161,22 @@ export function renderTree(host, state, post) {
     name.textContent = row.name;
     kind.className = "tree-kind";
     kind.textContent = row.name === row.kind ? "" : row.kind;
+    const reference = row.referencedDeclaration;
+    declaration.hidden = !reference;
+    if (reference) {
+      declaration.className = "tree-declaration";
+      declaration.textContent = "↗ Base declaration";
+      declaration.title = `Inspect base class ${reference.name}`;
+      declaration.setAttribute("aria-label", declaration.title);
+      declaration.disabled = state.running;
+      declaration.dataset.vscodeContext = JSON.stringify({
+        webviewSection: "ast-node",
+        ctkAstNodeId: reference.nodeId,
+        ctkAstContext: state.contextId,
+        ctkAstCanRun: !state.running,
+        preventDefaultContextMenuItems: true,
+      });
+    }
     item.title = row.locationValid
       ? `${row.kind} · ${row.file}:${row.line}:${row.column}`
       : row.kind;

@@ -266,6 +266,8 @@ export class DetailsView
           line: node.line,
           column: node.column,
           locationValid: display.locationValid,
+          referencedDeclaration: this.cache.get(node.id)?.semantics
+            ?.referencedDeclaration,
         };
       }),
       rendered: this.rendered,
@@ -311,7 +313,11 @@ export class DetailsView
   }
   setRefreshError(file: string, error?: string, hasAst = false): void {
     if (error) this.refreshErrors.set(file, { message: error, hasAst });
-    else this.refreshErrors.delete(file);
+    else {
+      const previous = this.refreshErrors.get(file);
+      if (previous && this.error === previous.message) this.error = "";
+      this.refreshErrors.delete(file);
+    }
     this.publish();
   }
   async refreshFile(
@@ -609,9 +615,13 @@ export class DetailsView
   }
   private relatedNode(id: string): boolean {
     return (
-      this.current?.semantics?.inheritance?.some(
+      [...this.cache.values()].some(
+        ({ semantics }) => semantics?.referencedDeclaration?.nodeId === id,
+      ) ||
+      (this.current?.semantics?.inheritance?.some(
         (base) => base.nodeId === id && !base.unresolved,
-      ) ?? false
+      ) ??
+        false)
     );
   }
   save(): InspectorState {

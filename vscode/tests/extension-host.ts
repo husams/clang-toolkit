@@ -1616,6 +1616,34 @@ export async function run(): Promise<void> {
   const widgetTree = astState().tree;
   await inspectorTab("ast");
   assert.deepEqual(astState().tree, widgetTree);
+  const widgetBase = astState().children?.find(
+    (child) => child.kind === "CXXBaseSpecifier" && child.name === "MidAlias",
+  );
+  assert.ok(
+    widgetBase,
+    "the AST must label a base specifier with its type name",
+  );
+  await api.details.receive({ type: "child", id: widgetBase.id });
+  const middleReference = astState().semantics?.referencedDeclaration;
+  assert.equal(middleReference?.name, "Middle");
+  assert.ok(middleReference?.nodeId);
+  assert.match((await inspectorTab("ast")).text, /Base declaration/);
+  const baseTypeLoc = astState().children?.find((child) =>
+    child.kind.endsWith("TypeLoc"),
+  );
+  assert.ok(baseTypeLoc);
+  await api.details.receive({ type: "child", id: baseTypeLoc.id });
+  assert.deepEqual(
+    astState().semantics?.referencedDeclaration,
+    middleReference,
+  );
+  assert.match((await inspectorTab("properties")).text, /Base declaration/);
+  await api.details.receive({ type: "related", id: middleReference.nodeId });
+  assert.equal(astState().node?.name, "Middle");
+  assert.match(highlightedSource(), /^struct Middle : virtual public Root/);
+  assert.ok(astState().canRunAction);
+  await api.details.receive({ type: "child", id: widget.id });
+  await inspectorTab("ast");
   for (const title of [
     "Source",
     "Inheritance",
@@ -2281,6 +2309,13 @@ export async function run(): Promise<void> {
       0,
       "editing must invalidate hidden CTK fallbacks immediately",
     );
+    assert.equal(
+      astState().inspectionStatus.text,
+      "",
+      "editing must immediately clear the stale parsing status as well",
+    );
+    assert.equal(astState().error, "");
+    assert.equal(astState().canRunAction, false);
     await new Promise<void>((resolve, reject) => {
       const listener = vscode.languages.onDidChangeDiagnostics((event) => {
         if (
@@ -2323,6 +2358,11 @@ export async function run(): Promise<void> {
       astState().contextId,
       beforeFailure.contextId,
       "editing and refreshing Problems must keep the last valid AST",
+    );
+    assert.match(astState().inspectionStatus.text, /AST refresh failed/);
+    assert.match(
+      String(astState().inspectionStatus.tooltip),
+      /edited saved-file parse failure/,
     );
   } finally {
     clangProblems.dispose();

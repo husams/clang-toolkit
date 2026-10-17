@@ -287,6 +287,10 @@ dd {
   gap: 6px;
   padding: 3px 8px 3px calc(var(--depth) * 14px + 4px);
 }
+.tree-declaration {
+  margin-left: 10px;
+  flex-shrink: 0;
+}
 .twisty {
   display: inline-block;
   flex: 0 0 16px;
