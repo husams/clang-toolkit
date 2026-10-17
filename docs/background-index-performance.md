@@ -188,3 +188,79 @@ Final managed-server check: PID 28071 remains running, indexing is active at
 revision **195**, **609 current-pass TUs remain pending**, and **zero TUs have
 failed**. Stored contribution counts still include retained older contexts until
 this pass retires them. The full 623-TU project pass is not yet complete.
+
+## Remaining publication bottleneck (17 October 2026)
+
+The pending count was repeatedly reset by rebuilds: the TU key included a hash
+of the complete worker executable, including unrelated link/build metadata.
+The live store contained 211 contributions for 64 distinct source files, with
+147 older contributions sharing the same source and arguments. Older contexts
+remain readable until the existing completed-pass cleanup retires them.
+
+The worker now supplies an extraction-specific source fingerprint, configured
+compiler/resource paths and Clang version alongside the existing command and
+environment context. Unrelated executable-byte changes retain TU identities;
+changes to extraction inputs still invalidate them. An executable timestamp
+guard rejects publication if the worker changes during a pass. This identity
+upgrade requires one initial refresh of legacy contributions.
+
+A live process sample found publication waiting on SQLite index-page reads.
+Extraction of ANTLRFileStream.cpp produced 53,347 symbols in 1.832 seconds, but
+publication into an identical checkpointed copy of the populated store took
+22.999 seconds, with 190,640 cache misses and 171,861 page writes. Removing the
+two redundant BINARY name indexes reduced publication to 16.473 seconds, with
+136,685 misses and 127,336 writes: about 28% less publication time and 26% fewer
+writes in this controlled single-TU comparison. The benchmark used the server's
+bundled SQLite, actual extracted rows, the same insertion order and 32MiB cache.
+Larger caches and sorted insertion did not produce a reliable improvement and
+were not adopted.
+
+Exact name lookups explicitly seek the remaining NOCASE indexes in separate
+UNION arms with an additional BINARY equality filter, preserving case-sensitive
+results and deduplication. The BINARY column uses unary + to keep that equality
+as a residual rather than an access constraint. Validation caught a full scan
+with the initial OR form in the bundled SQLite; the final plan regression
+requires both index seeks. USR and prefix indexes stay
+available; the schema still has three tables. Existing stores drop the redundant
+indexes in the background without rebuilding their symbol rows.
+
+Foreground activity previously discarded a partially staged publication and
+forced the same TU to be extracted again. Publication and dependency hashing now
+yield to foreground work while retaining their progress. WAL readers continue
+to see the last committed snapshot. Dependencies, compilation commands and the
+worker timestamp are checked again before committing, so edits during a yield
+cannot publish stale results. Cancellation, pause, foreground extraction
+preemption, low worker priority, resource limits and the 32MiB cache remain in
+place.
+
+Regression coverage exercises unrelated worker-byte changes, foreground bursts
+during publication, header edits while yielded, exact-case matching and indexed
+query plans. Python unit validation passed 2,500 tests (343.62 seconds).
+The final complete native run passed all 433 checks (78.34 seconds), including
+the query-plan guard. Formatting and whitespace checks passed; independent
+review found no remaining blockers.
+
+The final managed server (PID 7485) resumed the same persisted index and skipped
+five unchanged contributions instead of restarting extraction at the first TU.
+During concurrent foreground work, all 20 populated cross-TU lookups passed at
+25.01ms mean / 122.91ms maximum; eight distinct-file parses passed at 307.33ms
+mean / 369.01ms maximum, after separately recording a 7.70-second cold warmup.
+All 20 server-status calls passed at 120.27ms mean / 220.33ms maximum. A second
+run exercised 40 populated exact, prefix and USR lookups at 92.90ms mean /
+587.79ms maximum, with no errors. Indexing advanced to revision 232 and 617
+pending TUs, with no reported failures. These live runs overlapped the full BDD
+suite and are responsiveness observations, not isolated throughput comparisons.
+The entire 623-TU pass remains incomplete.
+
+All 199 end-to-end scenarios passed in three isolated batches (67/66/66,
+569.20/585.49/562.48 seconds). That run overlapped the query-plan corrections;
+the four index-specific end-to-end scenarios were additionally rerun against the
+final UNION build and all passed (36.04 seconds). Logs:
+`/tmp/ctk-publication-bdd.log`, `/tmp/ctk-publication-bdd-{0,1,2}.log` and
+`/tmp/ctk-publication-index-bdd-final.log`.
+
+Evidence logs: `/tmp/ctk-real-extraction.log`,
+`/tmp/ctk-publication-three-indexes.log`,
+`/tmp/ctk-publication-native-union.log`, `/tmp/ctk-publication-unit.log`,
+`/tmp/ctk-publication-live-union.log` and
+`/tmp/ctk-publication-live-running.log`.

@@ -104,12 +104,13 @@ inline constexpr auto symbol_schema =
     "NULL,column_no INTEGER NOT NULL,signature TEXT NOT NULL,PRIMARY "
     "KEY(tu_id,usr,file_path,byte_offset,is_definition));";
 inline constexpr auto symbol_indexes =
-    "CREATE INDEX IF NOT EXISTS symbol_usr ON symbol(usr); CREATE "
-    "INDEX IF NOT EXISTS symbol_name ON symbol(name); CREATE INDEX IF "
-    "NOT EXISTS symbol_qualified ON symbol(qualified_name);"
+    "CREATE INDEX IF NOT EXISTS symbol_usr ON symbol(usr);"
     "CREATE INDEX IF NOT EXISTS symbol_name_prefix ON symbol(name "
     "COLLATE NOCASE); CREATE INDEX IF NOT EXISTS "
-    "symbol_qualified_prefix ON symbol(qualified_name COLLATE NOCASE);";
+    "symbol_qualified_prefix ON symbol(qualified_name COLLATE NOCASE);"
+    // Exact lookups use the NOCASE search plus an explicit BINARY filter.
+    // Maintaining both collations as separate indexes doubles name-index I/O.
+    "DROP INDEX IF EXISTS symbol_name; DROP INDEX IF EXISTS symbol_qualified;";
 
 class Database {
 public:

@@ -158,6 +158,24 @@ if(CTK_WITH_CLANG)
   target_compile_definitions(ctk_clang PRIVATE
     CTK_CLANG_RESOURCE_DIR="${CTK_CLANG_RESOURCE_DIR}"
     CTK_CLANG_TOOL_PATH="${CMAKE_CXX_COMPILER}")
+  # Identify extractor behavior, not the linked executable's build UUID or the
+  # server Git revision. Unrelated rebuilds must keep valid TU contributions.
+  set(_index_identity_inputs
+    src/clang/project_index_extract.cpp include/ctk/clang/project_index_extract.hpp
+    src/index_worker_main.cpp src/clang/snapshot/compilation_environment.cpp
+    src/clang/snapshot/compilation_environment.hpp
+    include/ctk/cache/include_inventory.hpp
+    ../api/index/v1/index_service.proto)
+  set(_index_identity "ctk-index-extractor-v1\ncompiler:${CMAKE_CXX_COMPILER}\nresource:${CTK_CLANG_RESOURCE_DIR}")
+  foreach(_input IN LISTS _index_identity_inputs)
+    set(_path "${CMAKE_CURRENT_SOURCE_DIR}/${_input}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_path}")
+    file(SHA256 "${_path}" _hash)
+    string(APPEND _index_identity "\n${_input}:${_hash}")
+  endforeach()
+  string(SHA256 CTK_INDEX_EXTRACTOR_FINGERPRINT "${_index_identity}")
+  set_property(SOURCE src/clang/project_index_extract.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS CTK_INDEX_EXTRACTOR_FINGERPRINT="${CTK_INDEX_EXTRACTOR_FINGERPRINT}")
   # RHEL/Fedora ship Clang/LLVM as shared dylibs only; Homebrew ships both.
   if(TARGET clang-cpp AND TARGET LLVM)
     target_link_libraries(ctk_clang PUBLIC clang-cpp LLVM)

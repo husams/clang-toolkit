@@ -15,10 +15,10 @@
 #include <clang/Tooling/Tooling.h>
 #include <filesystem>
 #include <fstream>
-#include <string_view>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/Support/SHA256.h>
 #include <llvm/Support/VirtualFileSystem.h>
+#include <string_view>
 #include <tuple>
 
 namespace ctk::clang_layer {
@@ -232,6 +232,7 @@ serialize_project_index_context(const std::string &directory,
       "{\"directory\":" + json_string(directory) +
       ",\"compiler\":" + json_string(compiler) +
       ",\"toolchain\":" + json_string(clang::getClangFullVersion()) +
+      ",\"extractor\":" + json_string(CTK_INDEX_EXTRACTOR_FINGERPRINT) +
       ",\"arguments\":[";
   for (std::size_t i = 0; i < arguments.size(); ++i) {
     if (i)
@@ -271,8 +272,8 @@ bool extract_project_index(const std::string &source,
     else if (argument.starts_with("-I") && argument.size() > 2)
       path = argument.substr(2);
     else {
-      for (const char *option : {"-iquote", "-isystem", "-idirafter", "-F",
-                                 "-iframework"}) {
+      for (const char *option :
+           {"-iquote", "-isystem", "-idirafter", "-F", "-iframework"}) {
         const std::string_view prefix(option);
         if (argument.starts_with(prefix) && argument.size() > prefix.size()) {
           path = argument.substr(prefix.size());
