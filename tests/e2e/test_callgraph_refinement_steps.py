@@ -6,6 +6,7 @@ import asyncio
 from contextlib import aclosing
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 
 import grpc
@@ -949,3 +950,96 @@ def inspect_node_budgets(node_budget_server):
 @then("node budgets retain complete graphs and snapshot ownership")
 def verify_node_budgets(node_budget_evidence):
     assert node_budget_evidence == [8, 8, 8, 8, 8, 8, 3, 3, 3]
+
+
+@when("I use optional strict directory filters on all retained inputs",
+      target_fixture="strict_graphs")
+def strict_graphs(callgraph_server):
+    server, source = callgraph_server
+    fixture = source.parent / "strict-headers"
+    root = Path(__file__).resolve().parents[2]
+    shutil.copytree(root / "examples/callgraph_strict_filters", fixture)
+    source = fixture / "main.cc"
+    matcher = 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))'
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            options = dict(exclude_system_headers=True, node_filter=matcher)
+            ordinary = await client.callgraph(source, **options)
+            assert not ordinary.strict_node_filter and len(ordinary.call_sites) == 4
+            tree = await client.parse(source)
+            rows = await client.match_in(
+                'functionDecl(hasName("entry"), isDefinition()).bind("f")', tree
+            )
+            binding = rows[0].binding("f")
+            options.update(strict_node_filter=True, max_call_sites=2)
+            filename = await client.callgraph(source, **options)
+            parsed = await client.callgraph(tree, **options)
+            matched = await client.callgraph(binding, max_depth="all", **options)
+            assert filename == parsed
+            assert len(filename.edges) == 5 and len(matched.edges) == 2
+            stub = analysis_service_pb2_grpc.AnalysisServiceStub(client._channel)
+            assert await stub.CallGraph(_call_graph_value_request(client, tree, **options)) == parsed
+            seen = []
+            completed = await client.stream_callgraph(tree, on_event=seen.append, **options)
+            assert completed.call_site_count == 2
+            assert seen[0].graph_started.graph.strict_node_filter
+            streamed = [event async for event in client.callgraph_stream(binding, max_depth="all", **options)]
+            assert streamed[-1].completed.call_site_count == 2
+            for file in fixture.rglob("*"):
+                if file.is_file():
+                    file.unlink()
+            assert await client.callgraph(tree, **options) == parsed
+            assert await client.callgraph(binding, max_depth="all", **options) == matched
+            await rows.aclose()
+            await client.close_file(tree)
+            status = await client.resource_status()
+            assert (status.explicit_file_leases, status.result_cursors,
+                    status.active_work, status.reserved_bytes) == (0, 0, 0, 0)
+            return filename, parsed, matched
+
+    return asyncio.run(run())
+
+
+@then("strict graphs contain only the project calls without reparsing")
+def strict_graphs_are_project_only(strict_graphs):
+    for graph in strict_graphs:
+        assert graph.strict_node_filter and graph.is_complete
+        assert len(graph.nodes) == 4 and len(graph.call_sites) == 2
+        assert {n.function.qualified_name for n in graph.nodes if not n.is_virtual_root} == {
+            "project::leaf", "project::work", "entry"
+        }
+        assert {s.facts.static_callee_name for s in graph.call_sites} == {
+            "project::leaf", "project::work"
+        }
+        assert all(s.HasField("callee_node") and s.caller_node != graph.root_node
+                   for s in graph.call_sites)
+
+
+@when(parsers.parse("I run the strict directory filter console example with {engine}"),
+      target_fixture="strict_console")
+def strict_console(callgraph_server, tmp_path, engine):
+    server, _ = callgraph_server
+    root = Path(__file__).resolve().parents[2]
+    libraries = tmp_path / "empty-strict-libraries"
+    libraries.mkdir()
+    return subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint,
+         "--script-engine", engine, "--lib-dir", str(libraries), "--script",
+         str(root / "examples/callgraph_strict_filters.ctk"),
+         "source=examples/callgraph_strict_filters/main.cc", f"output={tmp_path}"],
+        cwd=root, capture_output=True, text=True, timeout=60,
+    )
+
+
+@then("the strict console prints project-only sites for all three input forms")
+def strict_console_is_project_only(strict_console):
+    run = strict_console
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "DEFAULT: sites=4, strict=false" in run.stdout
+    for label, edges in (("FILENAME", 5), ("PARSED", 5), ("MATCHED", 2)):
+        assert f"{label}: nodes=4, edges={edges}, sites=2, root_sites=0, strict=true, complete=true" in run.stdout
+        assert f"{label}_CALL: project::work -> project::leaf" in run.stdout
+        assert f"{label}_CALL: entry -> project::work" in run.stdout
+    assert "third_party::trace" not in run.stdout
+    assert "project::generated_call" not in run.stdout

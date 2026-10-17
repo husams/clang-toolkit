@@ -64,6 +64,7 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
             "call_graph_implicit": ("visit_implicit_code", None),
             "call_graph_instantiations": ("visit_template_instantiations", None),
             "call_graph_exclude_system": ("exclude_system_headers", None),
+            "call_graph_strict_node_filter": ("strict_node_filter", None),
         }[str(option.data)]
         if key in options:
             raise EvaluationError(f"duplicate callgraph option {key}")

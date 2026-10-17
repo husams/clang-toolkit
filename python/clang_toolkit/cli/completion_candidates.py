@@ -44,6 +44,7 @@ _REGEX_LITERALS = {
     "CALLGRAPH": "callgraph",
     "EXCLUDE_SYSTEM": "exclude-system",
     "NODE_FILTER": "node-filter",
+    "STRICT_NODE_FILTER": "strict-node-filter",
     "CFG": "cfg",
     "EXIT": "exit",
     "HELP": "help",

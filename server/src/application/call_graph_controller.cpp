@@ -61,6 +61,9 @@ CallGraphResult CallGraphController::build(
     return {MatchCode::InvalidArgument,
             "call graph limits must be positive and within server bounds",
             {}};
+  if (request.strict_node_filter() && request.node_filter().empty())
+    return {MatchCode::InvalidArgument,
+            "strict_node_filter requires node_filter", {}};
   if (request.has_binding() && !request.function().empty())
     return {MatchCode::InvalidArgument,
             "function cannot be combined with a binding target", {}};
@@ -156,6 +159,9 @@ CallGraphStreamResult CallGraphController::build_stream(
        (!request.max_edges() || request.max_edges() > impl_->limits.max_edges)))
     return {MatchCode::InvalidArgument,
             "call graph limits must be positive and within server bounds", {}};
+  if (request.strict_node_filter() && request.node_filter().empty())
+    return {MatchCode::InvalidArgument,
+            "strict_node_filter requires node_filter", {}};
   if (request.has_binding() && !request.function().empty())
     return {MatchCode::InvalidArgument,
             "function cannot be combined with a binding target", {}};

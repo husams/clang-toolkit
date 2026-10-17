@@ -419,6 +419,8 @@ class CallGraph:
             options["exclude_system_headers"] = True
         if self.response.node_filter:
             options["node_filter"] = self.response.node_filter
+        if self.response.strict_node_filter:
+            options["strict_node_filter"] = True
         return options
 
     def _function_for_binding(

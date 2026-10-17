@@ -554,6 +554,13 @@ TEST_F(CallGraph, SystemRootCallSitesAreFilteredBeforeTheSiteBudget) {
   const auto limited = controller.build(request, [] { return true; });
   ASSERT_EQ(limited.code, MatchCode::Ok) << limited.message;
   EXPECT_EQ(limited.response.call_sites_size(), 6);
+  request.set_strict_node_filter(true);
+  request.set_max_call_sites(4);
+  const auto strict = controller.build(request, [] { return true; });
+  ASSERT_EQ(strict.code, MatchCode::Ok) << strict.message;
+  EXPECT_EQ(strict.response.call_sites_size(), 4);
+  for (const auto &site : strict.response.call_sites())
+    EXPECT_NE(site.facts().static_callee_name(), "system_leaf");
 }
 TEST_F(CallGraph, CancellationDuringFilteredInventoryPublishesNoEvents) {
   auto source = std::ofstream(directory.path() / "many.cc");
@@ -768,6 +775,71 @@ TEST_F(CallGraph, LimitsCancellationAndQueueStopNeverPublishPartialGraphs) {
   controller.stop_admission();
   EXPECT_EQ(controller.build(request, [] { return true; }).code,
             MatchCode::ResourceExhausted);
+}
+TEST_F(CallGraph, StrictNodeFilterDropsKnownExcludedSitesBeforeTheBudget) {
+  std::ofstream(directory.path() / "strict.cc") << R"cpp(
+namespace project {
+int leaf() { return 1; }
+int work() { return leaf(); }
+}
+namespace vendor { int trace() { return 2; } }
+namespace generated { int api() { return 3; } }
+int user_global = project::leaf();
+int excluded_global = vendor::trace();
+void entry(void (*fn)()) {
+  project::work(); vendor::trace(); generated::api(); fn();
+}
+)cpp";
+  request.mutable_file()->set_file_path("strict.cc");
+  request.set_node_filter(
+      "functionDecl(anyOf(matchesName(\"(^|::)project::\"), hasName(\"entry\")))");
+  const auto ordinary = controller.build(request, [] { return true; });
+  ASSERT_EQ(ordinary.code, MatchCode::Ok) << ordinary.message;
+  EXPECT_FALSE(ordinary.response.strict_node_filter());
+  EXPECT_EQ(ordinary.response.call_sites_size(), 7);
+  request.set_max_call_sites(4);
+  EXPECT_EQ(controller.build(request, [] { return true; }).code,
+            MatchCode::ResourceExhausted);
+  request.set_strict_node_filter(true);
+  const auto strict = controller.build(request, [] { return true; });
+  ASSERT_EQ(strict.code, MatchCode::Ok) << strict.message;
+  EXPECT_TRUE(strict.response.strict_node_filter());
+  EXPECT_TRUE(strict.response.is_complete());
+  EXPECT_EQ(strict.response.call_sites_size(), 4);
+  EXPECT_EQ(strict.response.nodes_size(), ordinary.response.nodes_size());
+  EXPECT_EQ(strict.response.edges_size(), ordinary.response.edges_size());
+  EXPECT_EQ(strict.response.external_edges_omitted(),
+            ordinary.response.external_edges_omitted());
+  int roots = 0, indirect = 0;
+  for (const auto &site : strict.response.call_sites()) {
+    roots += site.caller_node() == strict.response.root_node();
+    indirect += !site.has_callee_node();
+    EXPECT_NE(site.facts().static_callee_name(), "vendor::trace");
+    EXPECT_NE(site.facts().static_callee_name(), "generated::api");
+  }
+  EXPECT_EQ(roots, 1);
+  EXPECT_EQ(indirect, 1) << "retain genuinely unknown indirect targets";
+  request.set_function("entry");
+  request.set_max_depth(1);
+  const auto shallow = controller.build(request, [] { return true; });
+  ASSERT_EQ(shallow.code, MatchCode::Ok) << shallow.message;
+  EXPECT_EQ(shallow.response.call_sites_size(), 2);
+  EXPECT_GT(shallow.response.selection_boundary_call_sites(), 0U)
+      << "depth boundaries are independent of callable admission";
+}
+TEST_F(CallGraph, StrictNodeFilterRequiresMatcherWithoutPublishingEvents) {
+  request.set_strict_node_filter(true);
+  EXPECT_EQ(controller.build(request, [] { return true; }).code,
+            MatchCode::InvalidArgument);
+  std::size_t events = 0;
+  const auto result = controller.build_stream(
+      request, [] { return true; },
+      [&](const ctk::analysis::v1::CallGraphStreamEvent &, std::string &) {
+        ++events;
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(result.code, MatchCode::InvalidArgument);
+  EXPECT_EQ(events, 0U);
 }
 } // namespace
 TEST_F(CallGraph, AnonymousBlocksUseTypedDeclarationsAndNativeCallExpressions) {

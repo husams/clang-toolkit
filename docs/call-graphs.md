@@ -133,7 +133,7 @@ All active scope rules combine with AND. Excluded callables stop paths: if
 reach `leaf`. A whole-TU query can still contain that admitted `leaf` as a
 separate node. The virtual root remains. `external_edges_omitted` counts dropped
 native call records from admitted callers, including root records. Admitted
-callers retain boundary call-site facts without a `callee_node`; the target
+callers retain boundary call-site facts by default without a `callee_node`; the target
 name can therefore still appear in a call-site fact. Excluded callers contribute
 no sites and do not consume the call-site budget. `is_complete` describes the
 requested scope and projection.
@@ -142,7 +142,7 @@ For call-site facts without an enclosing callable (the virtual-root caller),
 `exclude-system true` also checks the call expression's expansion location.
 System-header facts are omitted before consuming the call-site budget. Facts
 from your own headers and main file remain, including system-defined macros
-expanded there. Calls from an admitted function to an excluded callee still
+expanded there. By default, calls from an admitted function to an excluded callee still
 retain their boundary facts. `node-filter` remains a callable matcher; it does
 not apply a declaration matcher to root-level expressions.
 
@@ -154,7 +154,55 @@ forms return `root_sites=0`; filename and parsed-file results contain 4 nodes,
 5 edges and 3 call sites, while the matched `depth all` result has 4 nodes,
 2 edges and 3 call sites. Both user-header functions remain.
 
-The response echoes `exclude_system_headers` and `node_filter`; Python clients
+Optional `strict-node-filter true` (Python: `strict_node_filter=True`) also
+removes call-site facts whose known static callee fails the combined callable
+scope filters. It requires a nonempty `node-filter` and defaults to false.
+Filtering happens before the call-site limit, including calls attached to the
+virtual root. This changes facts, not the admitted node set, graph edges,
+`external_edges_omitted`, or depth traversal. Root expressions are not matched
+as declarations: their known callee is checked. Genuine indirect calls remain
+because their targets are unknown. `is_complete` still describes the requested
+scope, not whole-program runtime resolution.
+
+```ctk
+let source = "examples/callgraph_strict_filters/main.cc"
+let filename = callgraph source node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let tree = parse source
+let parsed = callgraph in tree node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let entries = match functionDecl(hasName("entry"), isDefinition()).bind("f") in tree
+let matched = callgraph in entries[0].f depth all node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+```
+
+The complete runnable `examples/callgraph_strict_filters.ctk` also combines
+`exclude-system true`, prints default versus strict call-site counts for all
+three inputs, and exports the actual shallow responses. The fixture keeps
+`include/myproject/logic.hpp`, excludes `vendor/trace.hpp` even though it uses
+namespace `third_party`, and excludes `generated/api.hpp` even though it uses
+namespace `project`. Run it from the repository root:
+
+```sh
+mkdir -p /tmp/strict-results /tmp/strict-empty-libraries
+ctk --server unix:///tmp/ctk.sock --script-engine compiled \
+  --lib-dir /tmp/strict-empty-libraries --script examples/callgraph_strict_filters.ctk \
+  source=examples/callgraph_strict_filters/main.cc output=/tmp/strict-results
+```
+
+Actual console output from the strict-filter development build on macOS:
+
+```text
+DEFAULT: sites=4, strict=false
+FILENAME: nodes=4, edges=5, sites=2, root_sites=0, strict=true, complete=true
+FILENAME_CALL: project::work -> project::leaf
+FILENAME_CALL: entry -> project::work
+PARSED: nodes=4, edges=5, sites=2, root_sites=0, strict=true, complete=true
+PARSED_CALL: project::work -> project::leaf
+PARSED_CALL: entry -> project::work
+MATCHED: nodes=4, edges=2, sites=2, root_sites=0, strict=true, complete=true
+MATCHED_CALL: project::work -> project::leaf
+MATCHED_CALL: entry -> project::work
+```
+
+The response echoes `strict_node_filter`, `exclude_system_headers` and `node_filter`; Python clients
 reject servers that do not confirm these filters. Retained inputs reuse the
 pinned snapshot, and graph methods that query a retained binding preserve its
 boundary. Shallow results remain the default. Scope filters do not prevent
@@ -229,7 +277,7 @@ graph
   optional selection_unlimited_depth
   selection_boundary_edges, selection_boundary_call_sites
   is_complete, availability, main_file_only, external_edges_omitted
-  exclude_system_headers, node_filter
+  exclude_system_headers, node_filter, strict_node_filter
 ```
 
 ```ctk

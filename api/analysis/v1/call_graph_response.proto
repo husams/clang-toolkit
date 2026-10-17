@@ -34,6 +34,8 @@ message CallGraphResponse {
   // Applied callable boundaries, independent of depth and payload projection.
   bool exclude_system_headers = 19;
   string node_filter = 20;
+  // Echoed so clients reject servers that ignore strict call-site filtering.
+  bool strict_node_filter = 21;
 }
 message CallGraphCallSite {
   uint64 caller_node = 1;
