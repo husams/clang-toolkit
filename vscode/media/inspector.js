@@ -71,7 +71,9 @@ window.addEventListener("message", ({ data }) => {
   }
   if (state.tab === "properties" && treeFocused) el("properties-tab").focus();
   el("name").textContent = node.name;
+  el("name").title = node.name;
   el("kind").textContent = node.kind;
+  el("kind").title = node.kind;
   el("signature").textContent = node.signature;
   el("location").hidden = !node.locationValid;
   el("location").textContent = `${node.file}:${node.line}:${node.column}`;

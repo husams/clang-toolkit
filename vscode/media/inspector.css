@@ -72,26 +72,41 @@ nav {
   margin-bottom: 8px;
 }
 #action {
+  flex-shrink: 0;
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
   padding: 5px 10px;
-  margin: 8px 0;
+  white-space: nowrap;
 }
 #action:hover {
   background: var(--vscode-button-hoverBackground);
   text-decoration: none;
 }
 header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--vscode-panel-background);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 4px 0 8px;
+}
+.node-title {
   display: flex;
   align-items: baseline;
+  min-width: 0;
   gap: 14px;
-  flex-wrap: wrap;
 }
 h2 {
+  min-width: 0;
   font-size: 1.3em;
   font-weight: 500;
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #kind,
 .muted,
@@ -99,7 +114,11 @@ dt {
   color: var(--vscode-descriptionForeground);
 }
 #kind {
-  overflow-wrap: anywhere;
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #kind,
 #signature,

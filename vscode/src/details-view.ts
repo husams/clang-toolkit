@@ -130,10 +130,9 @@ export class DetailsView
 <div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button>
 <section id="ast-panel" class="outline" role="tabpanel" aria-labelledby="ast-tab">
 <ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
-<section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><h2 id="name"></h2><span id="kind"></span></header>
+<section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><div class="node-title"><h2 id="name"></h2><span id="kind"></span></div><button id="action">Run Action</button></header>
 <p id="signature"></p>
 <details id="source-section" data-section="Source" open><summary>Source</summary><div class="section-body"><button id="location"></button><pre id="source"></pre></div></details>
-<button id="action">Run action on this node…</button>
 <div id="semantics"></div>
 <details id="properties-group" data-section="Properties" open><summary>Properties</summary><div class="section-body"><dl id="properties"></dl></div></details>
 <details id="range-group" data-section="Source range" hidden><summary>Source range</summary><div class="section-body"><dl id="range"></dl></div></details>

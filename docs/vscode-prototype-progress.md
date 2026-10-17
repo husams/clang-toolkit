@@ -1038,3 +1038,28 @@ existing trial window to activate it. The VSIX archive verifies successfully;
 SHA256: `747c6cc0b486594b2a3e3b1ca9628be98f1df73c1c22e56c8c1c160e63d66d04`.
 Custom action editor tabs and the managed native server are preserved. No
 additional manual trial window was opened.
+
+## Run Action in the node header, version 0.2.22
+
+Moved the selected-node action into the Properties header beside the node's
+name and Clang kind, renamed it Run Action, and aligned it to the far right.
+The header stays visible while Properties scrolls. Long names/kinds shorten
+visually with their full values available on hover, leaving the action on the
+same row. The existing action target, disabled-state handling and picker flow
+are reused.
+
+TypeScript, Biome and the complete real VS Code extension-host suite pass.
+Logs: `vscode/artifacts/validation/inspector-header-action-20261017/`.
+The temporary host exited successfully with CTK_TEST_PROCESSES_CLOSED; a
+separate process audit found zero remaining temporary test processes.
+
+Packaged and installed v0.2.22 in the approved normal profile, then reloaded
+the existing trial window. Archive verification and installed-version checks
+pass. VSIX SHA256:
+`19899599bcd0f08c0c2c112b3df70fba7854931c5fe9a7656ae20e996b8b8858`.
+The real UI shows Run Action at the right of both the translation-unit and
+Widget::check headers, on the same row as their name and type. Clicking it
+opens the predefined/workspace action picker for the displayed native node;
+cancelling preserves the analysis. The trial is left on Widget::check in
+Properties with the user's existing section-fold choices and custom action
+editor tabs preserved. No additional manual window was opened.

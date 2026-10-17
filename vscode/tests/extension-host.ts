@@ -991,7 +991,7 @@ export async function run(): Promise<void> {
   );
   assert.ok(callInspector.properties.includes("Callee"));
   assert.ok(astState().canRunAction);
-  assert.match(callProperties.text, /Run action on this node/);
+  assert.match(callProperties.text, /Run Action/);
   assert.doesNotMatch(
     callProperties.text,
     /FIELD_STATE|BINDING_MATCH_SCOPE|supportedScopes|symbolIdentity|availability|Semantic fields/,
