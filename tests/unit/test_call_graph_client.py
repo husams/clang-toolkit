@@ -435,3 +435,78 @@ def test_non_ok_stream_status_is_preserved(monkeypatch):
             assert error.value.code == grpc.StatusCode.CANCELLED
 
     asyncio.run(run())
+
+
+def test_collected_live_graph_keeps_descriptor_only_after_terminal_success(monkeypatch):
+    from unittest.mock import AsyncMock
+    from clang_toolkit import CallGraph
+
+    events = graph_events()
+    events[1].node.node.native_match_index = 0
+    descriptor = events[-1].completed.retained_nodes
+    descriptor.session_id = "graph-native"
+    descriptor.result_revision = 1
+    descriptor.row_count = 1
+    setup_stream(monkeypatch, events)
+
+    async def run():
+        async with AsyncClient(address="unix:///tmp/test.sock") as client:
+            client.close_match = AsyncMock()
+            live = await client.callgraph("fixture.cc", retain_nodes=True)
+            assert isinstance(live, CallGraph)
+            assert live.nodes[0].binding._owner.session_id == "graph-native"
+            await live.aclose()
+            client.close_match.assert_awaited_once_with("graph-native")
+
+    asyncio.run(run())
+
+
+def test_failed_retained_completion_releases_provisional_cursor(monkeypatch):
+    from unittest.mock import AsyncMock
+    events = graph_events()
+    events[1].node.node.native_match_index = 0
+    descriptor = events[-1].completed.retained_nodes
+    descriptor.session_id = "unpublished-native"
+    descriptor.result_revision = 1
+    descriptor.row_count = 1
+    setup_stream(monkeypatch, events, status=grpc.StatusCode.CANCELLED)
+
+    async def run():
+        async with AsyncClient(address="unix:///tmp/test.sock") as client:
+            client.close_match = AsyncMock()
+            with pytest.raises(AnalysisError):
+                await client.callgraph("fixture.cc", retain_nodes=True)
+            await client._flush_value_cleanup()
+            client.close_match.assert_awaited_once_with("unpublished-native")
+
+    asyncio.run(run())
+
+
+def test_older_servers_cannot_silently_return_detached_nodes(monkeypatch):
+    setup_stream(monkeypatch, graph_events())
+
+    async def run():
+        async with AsyncClient(address="unix:///tmp/test.sock") as client:
+            with pytest.raises(AnalysisError, match="retained call-graph nodes"):
+                await client.callgraph("fixture.cc", retain_nodes=True)
+
+    asyncio.run(run())
+
+
+def test_unary_fallback_also_requires_live_node_confirmation(monkeypatch):
+    from clang_toolkit._generated.analysis.v1 import call_graph_response_pb2
+    _, stub = setup_stream(monkeypatch, [], status=grpc.StatusCode.UNIMPLEMENTED)
+    response = call_graph_response_pb2.CallGraphResponse(is_complete=True)
+    response.nodes.add(node_index=0, is_virtual_root=True)
+
+    async def unary(request, *, timeout=None):
+        return response
+
+    stub.CallGraph = unary
+
+    async def run():
+        async with AsyncClient(address="unix:///tmp/test.sock") as client:
+            with pytest.raises(AnalysisError, match="retained call-graph nodes"):
+                await client.callgraph("fixture.cc", retain_nodes=True)
+
+    asyncio.run(run())

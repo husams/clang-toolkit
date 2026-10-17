@@ -150,6 +150,14 @@ grpc::Status AnalysisServiceAdapter::CallGraph(
     ctk::analysis::v1::CallGraphResponse *response) {
   auto result = calls_.build(
       *request, [context] { return !context->IsCancelled(); }, owner(*context));
+  if (result.code == ctk::clang_layer::MatchCode::Ok &&
+      context->IsCancelled()) {
+    if (result.response.has_retained_nodes())
+      calls_.close_retained_nodes(
+          owner(*context), result.response.retained_nodes().session_id());
+    result.code = ctk::clang_layer::MatchCode::Cancelled;
+    result.message = "call graph cancelled before publication";
+  }
   if (result.code == ctk::clang_layer::MatchCode::Ok)
     response->Swap(&result.response);
   return match_status(result.code, result.message, *context);
@@ -182,6 +190,10 @@ grpc::Status AnalysisServiceAdapter::StreamCallGraph(
       }
     }
   }
+  if (result.code != ctk::clang_layer::MatchCode::Ok &&
+      result.completed.has_retained_nodes())
+    calls_.close_retained_nodes(owner(*context),
+                                result.completed.retained_nodes().session_id());
   return match_status(result.code, result.message, *context);
 }
 grpc::Status AnalysisServiceAdapter::StreamVariableFlow(

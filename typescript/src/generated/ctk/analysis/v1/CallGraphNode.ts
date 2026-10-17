@@ -19,7 +19,9 @@ export interface CallGraphNode {
   'symbolIdentity'?: (string);
   'location'?: (_ctk_match_v1_MatchSourcePoint | null);
   'range'?: (_ctk_match_v1_MatchSourceRange | null);
+  'nativeMatchIndex'?: (number | string | Long);
   '_isComplete'?: "isComplete";
+  '_nativeMatchIndex'?: "nativeMatchIndex";
 }
 
 export interface CallGraphNode__Output {
@@ -34,5 +36,7 @@ export interface CallGraphNode__Output {
   'symbolIdentity': (string);
   'location': (_ctk_match_v1_MatchSourcePoint__Output | null);
   'range': (_ctk_match_v1_MatchSourceRange__Output | null);
+  'nativeMatchIndex'?: (string);
   '_isComplete'?: "isComplete";
+  '_nativeMatchIndex'?: "nativeMatchIndex";
 }

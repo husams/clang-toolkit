@@ -1,3 +1,4 @@
+from ...match.v1 import match_stream_pb2 as _match_stream_pb2
 from . import call_graph_node_pb2 as _call_graph_node_pb2
 from . import call_graph_edge_pb2 as _call_graph_edge_pb2
 from . import call_graph_response_pb2 as _call_graph_response_pb2
@@ -57,15 +58,17 @@ class CallGraphCallSiteEvent(_message.Message):
     def __init__(self, graph_index: _Optional[int] = ..., call_site: _Optional[_Union[_call_graph_response_pb2.CallGraphCallSite, _Mapping]] = ...) -> None: ...
 
 class CallGraphCompleted(_message.Message):
-    __slots__ = ("graph_count", "node_count", "edge_count", "call_site_count", "is_complete")
+    __slots__ = ("graph_count", "node_count", "edge_count", "call_site_count", "is_complete", "retained_nodes")
     GRAPH_COUNT_FIELD_NUMBER: _ClassVar[int]
     NODE_COUNT_FIELD_NUMBER: _ClassVar[int]
     EDGE_COUNT_FIELD_NUMBER: _ClassVar[int]
     CALL_SITE_COUNT_FIELD_NUMBER: _ClassVar[int]
     IS_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    RETAINED_NODES_FIELD_NUMBER: _ClassVar[int]
     graph_count: int
     node_count: int
     edge_count: int
     call_site_count: int
     is_complete: bool
-    def __init__(self, graph_count: _Optional[int] = ..., node_count: _Optional[int] = ..., edge_count: _Optional[int] = ..., call_site_count: _Optional[int] = ..., is_complete: _Optional[bool] = ...) -> None: ...
+    retained_nodes: _match_stream_pb2.MatchStreamCompleted
+    def __init__(self, graph_count: _Optional[int] = ..., node_count: _Optional[int] = ..., edge_count: _Optional[int] = ..., call_site_count: _Optional[int] = ..., is_complete: _Optional[bool] = ..., retained_nodes: _Optional[_Union[_match_stream_pb2.MatchStreamCompleted, _Mapping]] = ...) -> None: ...

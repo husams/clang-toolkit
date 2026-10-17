@@ -259,6 +259,10 @@ class MatchSet:
 
 def render(value: Any) -> str:
     """Return a stable, human-readable result for the REPL output sink."""
+    from clang_toolkit.call_graph_values import CallGraphNodeValue
+    if isinstance(value, CallGraphNodeValue):
+        from .semantic import view
+        return render(view(value.proto))
     from clang_toolkit.resources import FileBatch, FileHandle, FileSet, InputDescriptor
     from .semantic import EnumValue, is_semantic_view, display_value
 

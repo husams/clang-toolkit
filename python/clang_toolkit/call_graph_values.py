@@ -9,7 +9,8 @@ from clang_toolkit._generated.analysis.v1 import call_graph_response_pb2
 from clang_toolkit._generated.analysis.v1.call_graph_node_pb2 import CallGraphNode
 from clang_toolkit._generated.analysis.v1 import call_graph_request_pb2
 from clang_toolkit._generated.match.v1 import match_result_pb2
-from clang_toolkit.match_values import BindingSelection
+from clang_toolkit._value_lifecycle import CursorOwner
+from clang_toolkit.match_values import BindingSelection, _close_value_sync, _close_value
 
 
 class CallGraphError(ValueError):
@@ -56,12 +57,45 @@ def is_unresolved_call_site(site: Any) -> bool:
     )
 
 
+class CallGraphNodeValue:
+    """A graph record with an optional exact binding into its pinned snapshot."""
+
+    def __init__(self, node: CallGraphNode, owner: CursorOwner | None,
+                 source_file: str) -> None:
+        self.proto = node
+        self._owner = owner
+        self.source_file = source_file
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.proto, name)
+
+    def __repr__(self) -> str:
+        name = (self.proto.function.qualified_name if self.proto.HasField("function")
+                else "virtual root" if self.proto.is_virtual_root else self.proto.declaration_kind)
+        retained = self._owner is not None and not self._owner.closed
+        return f"CallGraphNodeValue(index={self.proto.node_index}, callable={name!r}, retained={retained})"
+
+    @property
+    def binding(self) -> BindingSelection:
+        if self.proto.is_virtual_root:
+            raise CallGraphError("the virtual root has no native callable to match")
+        if self._owner is None or not self.proto.HasField("native_match_index"):
+            raise CallGraphError("call graph node is detached; request retain_nodes=True")
+        return BindingSelection("node", self._owner, self.proto.native_match_index,
+                                source_file=self.source_file)
+
+    def match(self, query: Any, **options: Any) -> Any:
+        return self.binding.match(query, **options)
+
+
 class CallGraph:
     """A convenient query wrapper that keeps the original protobuf available."""
 
     __slots__ = (
         "response",
         "_selector",
+        "_owner",
+        "_node_values",
         "_nodes",
         "_edges",
         "_outgoing",
@@ -74,11 +108,14 @@ class CallGraph:
         response: call_graph_response_pb2.CallGraphResponse,
         *,
         selector: Callable[..., Any] | None = None,
+        owner: CursorOwner | None = None,
     ) -> None:
         if not isinstance(response, call_graph_response_pb2.CallGraphResponse):
             raise TypeError("CallGraph requires a CallGraphResponse")
         self.response = response
         self._selector = selector
+        self._owner = owner
+        self._node_values = tuple(self._wrap(node) for node in response.nodes)
         self._nodes = {
             node.node_index: node
             for node in response.nodes
@@ -110,8 +147,39 @@ class CallGraph:
         # Keep raw response fields such as is_complete and availability easy to inspect.
         return getattr(self.response, name)
 
+    @property
+    def nodes(self) -> tuple[CallGraphNodeValue, ...]:
+        return self._node_values
+
+    def _wrap(self, node: CallGraphNode) -> CallGraphNodeValue:
+        return CallGraphNodeValue(node, self._owner, self.response.source_file)
+
+    def close(self) -> None:
+        if self._owner is not None:
+            self._owner.check_loop()
+            _close_value_sync(self._owner)
+
+    async def aclose(self) -> None:
+        if self._owner is not None:
+            self._owner.check_loop()
+            await _close_value(self._owner)
+
+    def __enter__(self) -> CallGraph:
+        if self._owner is not None:
+            self._owner.check(self._owner.client)
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self.close()
+
+    async def __aenter__(self) -> CallGraph:
+        return self.__enter__()
+
+    async def __aexit__(self, *_: Any) -> None:
+        await self.aclose()
+
     def __iter__(self) -> Iterator[Any]:
-        return iter(self._nodes.values())
+        return iter(self._wrap(node) for node in self._nodes.values())
 
     def function(
         self, qualified_name: str | Any, *, signature: str | None = None,
@@ -139,7 +207,7 @@ class CallGraph:
             raise CallGraphError(
                 f"function {qualified_name!r} is ambiguous; supply its signature"
             )
-        return matches[0]
+        return self._wrap(matches[0])
 
     def callers(
         self, target: int | str | Any, *, depth: int | Literal["all"] = 1
@@ -180,7 +248,7 @@ class CallGraph:
             path.append(cursor)
             cursor = parents[cursor]
         path.reverse()
-        return tuple(self._nodes[index] for index in path)
+        return tuple(self._wrap(self._nodes[index]) for index in path)
 
     def shortest_route(
         self, source: int | str | Any, target: int | str | Any
@@ -209,8 +277,8 @@ class CallGraph:
             grouped.setdefault((site.caller_node, callee), []).append(site)
         return tuple(
             GroupedCall(
-                self._nodes[caller],
-                self._nodes.get(callee),
+                self._wrap(self._nodes[caller]),
+                self._wrap(self._nodes[callee]) if callee in self._nodes else None,
                 tuple(sites),
                 len(sites),
                 sum(is_unresolved_call_site(site) for site in sites),
@@ -259,7 +327,7 @@ class CallGraph:
                         stack.append(neighbor)
             if len(component) > 1 or start in self._outgoing[start]:
                 components.append(
-                    tuple(self._nodes[item] for item in sorted(component))
+                    tuple(self._wrap(self._nodes[item]) for item in sorted(component))
                 )
         return tuple(sorted(components, key=lambda part: part[0].node_index))
 
@@ -389,7 +457,7 @@ class CallGraph:
             response.is_complete = is_complete
         else:
             response.ClearField("is_complete")
-        return CallGraph(response, selector=self._selector)
+        return CallGraph(response, selector=self._selector, owner=self._owner)
 
     def _adjacency(self, *, reverse: bool) -> dict[int, list[int]]:
         return self._incoming if reverse else self._outgoing
@@ -407,9 +475,11 @@ class CallGraph:
         ):
             raise ValueError("depth must be 0..32 or 'all'")
         response = self._selector(
-            target, direction=direction, max_depth=depth, **self._boundary_options()
+            target, direction=direction, max_depth=depth,
+            **({"retain_nodes": True} if self._owner is not None else {}),
+            **self._boundary_options()
         )
-        return CallGraph(response, selector=self._selector)
+        return response if isinstance(response, CallGraph) else CallGraph(response, selector=self._selector)
 
     def _boundary_options(self) -> dict[str, Any]:
         options: dict[str, Any] = {}
@@ -437,7 +507,7 @@ class CallGraph:
                 if node.symbol_identity == identity
             ]
             if len(matches) == 1:
-                return matches[0]
+                return self._wrap(matches[0])
             if len(matches) > 1:
                 raise CallGraphError(
                     "call-graph symbol identity is duplicated; select the call-graph overload"
@@ -470,7 +540,7 @@ class CallGraph:
         ]
         if len(matches) != 1:
             raise CallGraphError("binding is not a unique function in this call graph")
-        return matches[0]
+        return self._wrap(matches[0])
 
     def _node_index(self, target: int | str | Any) -> int:
         if isinstance(target, str):
@@ -479,6 +549,8 @@ class CallGraph:
             if target in self._nodes:
                 return target
             raise CallGraphError(f"call graph has no node {target}")
+        if isinstance(target, CallGraphNodeValue):
+            target = target.proto
         if isinstance(target, CallGraphNode):
             index = target.node_index
             local = self._nodes.get(index)

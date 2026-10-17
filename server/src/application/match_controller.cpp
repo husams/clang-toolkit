@@ -763,7 +763,7 @@ std::shared_ptr<ResourceManager> MatchController::resource_manager() const {
 MatchReply MatchController::native_state(
     const std::string &owner, const MatchRequest &target,
     std::shared_ptr<const ctk::clang_layer::NativeBindingState> &state,
-    const std::string &work_token) {
+    const std::string &work_token, ctk::match::v1::InputDescriptor *input) {
   state.reset();
   const auto invalid = invalid_request(target);
   if (!invalid.empty())
@@ -776,6 +776,8 @@ MatchReply MatchController::native_state(
         found->second->owner != owner || found->second->closed.load())
       return failure(MatchCode::NotFound, "file lease unavailable");
     state = found->second->state;
+    if (input)
+      *input = found->second->input;
     if (!target.resource_scope_id().empty())
       impl_->resources->claim_snapshot(
           owner, target.resource_scope_id(), found->second->identity,
@@ -804,6 +806,8 @@ MatchReply MatchController::native_state(
   if (guarded && revision != cursor->response.result_revision())
     return failure(MatchCode::Aborted, "cursor result revision changed");
   state = cursor->state;
+  if (input)
+    *input = cursor->input;
   if (!target.resource_scope_id().empty())
     impl_->resources->claim_snapshot(owner, target.resource_scope_id(),
                                      cursor->input_identity, state->snapshot(),
@@ -814,6 +818,37 @@ MatchReply MatchController::native_state(
   cursor->deadline =
       std::chrono::steady_clock::now() + impl_->settings.idle_ttl;
   return {};
+}
+MatchReply MatchController::retain_native(
+    const std::string &owner, ctk::clang_layer::MatchExecution execution,
+    const ctk::match::v1::InputDescriptor &input, const std::string &scope_id,
+    const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint) {
+  auto cursor = std::make_shared<detail::ResultCursor>();
+  cursor->owner = owner;
+  cursor->input = input;
+  cursor->file_path = input.file_path();
+  cursor->input_identity = descriptor_identity(input);
+  cursor->scope_id = scope_id;
+  std::unique_lock operation(cursor->operation);
+  auto reply = impl_->registry->commit(cursor, std::move(execution), checkpoint,
+                                       true, true);
+  if (reply.code != MatchCode::Ok)
+    return reply;
+  try {
+    const auto id = cursor->id;
+    impl_->resources->register_cursor(
+        owner, scope_id, id, cursor->input_identity, cursor->state->snapshot(),
+        [registry = impl_->registry, owner, id] {
+          const auto code = registry->close(owner, id).code;
+          return code == MatchCode::Ok || code == MatchCode::NotFound;
+        },
+        cursor->state->retained_bytes() + cursor->response.ByteSizeLong());
+  } catch (const std::exception &error) {
+    operation.unlock();
+    (void)impl_->registry->close(owner, cursor->id);
+    return failure(MatchCode::ResourceExhausted, error.what());
+  }
+  return reply;
 }
 MatchReply MatchController::close(const std::string &owner,
                                   const std::string &id) {

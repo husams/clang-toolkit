@@ -28,7 +28,7 @@ from clang_toolkit.match_values import (
     BindingSelection, MatchRow, MatchValue, MatchValueError, NativeBindingCollection,
     NativeMatchCollection, ParsedTree,
 )
-from clang_toolkit.call_graph_values import CallGraph
+from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
 
 
 class ReferenceError(ValueError):
@@ -75,7 +75,13 @@ def _binding_keys(value: BindingSelection) -> list[str]:
 
 
 def property_value(value: Any, name: str) -> Any:
+    if isinstance(value, CallGraphNodeValue):
+        if name == "binding":
+            return value.binding
+        return property_value(value.proto, name)
     if isinstance(value, CallGraph):
+        if name == "nodes":
+            return value.nodes
         try:
             return semantic_property_value(semantic_view(value.response), name)
         except SemanticError as error:
@@ -468,6 +474,8 @@ def index_value(value: Any, key: Any) -> Any:
 
 
 def field_names(value: Any) -> tuple[str, ...]:
+    if isinstance(value, CallGraphNodeValue):
+        return (*field_names(value.proto), "binding")
     if isinstance(value, CallGraph):
         return (*semantic_field_names(semantic_view(value.response)),
                 "function", "callers", "callees", "shortest_path",

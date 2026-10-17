@@ -216,7 +216,7 @@ public:
                  const CallGraphLimits &limits) override {
     CallGraphResult collected;
     std::size_t bytes = 0;
-    const auto result = produce(
+    auto result = produce(
         request, std::move(previous), checkpoint, limits,
         [&](const ctk::analysis::v1::CallGraphStreamEvent &event,
             std::string &message) {
@@ -249,6 +249,8 @@ public:
       return {MatchCode::ResourceExhausted,
               "call graph response byte limit exceeded",
               {}};
+    collected.native_nodes = std::move(result.native_nodes);
+    collected.input = std::move(result.input);
     return collected;
   }
   CallGraphStreamResult
@@ -288,8 +290,9 @@ private:
         profile->set_frozen(file.frozen_profile());
         profile->set_profile_id(file.expected_profile_id());
         *profile->mutable_compile_arguments() = file.compile_arguments();
-        snapshot =
-            engine_->acquire_snapshot(resolve_file_descriptor(descriptor).file);
+        const auto resolved = resolve_file_descriptor(descriptor);
+        result.input = resolved.descriptor;
+        snapshot = engine_->acquire_snapshot(resolved.file);
       } else if (previous)
         snapshot = previous->snapshot();
       if (!snapshot)
@@ -303,7 +306,8 @@ private:
       auto &ast = owner->unit->getASTContext();
       if (request.strict_node_filter() && request.node_filter().empty())
         return {MatchCode::InvalidArgument,
-                "strict_node_filter requires node_filter", {}};
+                "strict_node_filter requires node_filter",
+                {}};
       std::unique_ptr<CallableMatcher> node_matcher;
       if (!request.node_filter().empty())
         node_matcher = std::make_unique<CallableMatcher>(request.node_filter());
@@ -703,6 +707,9 @@ private:
       }
       if (!emit(event))
         return result;
+      auto retained = request.retain_nodes()
+                          ? std::make_shared<CapturedBindingState>(snapshot)
+                          : nullptr;
       bool complete = true;
       for (std::size_t i = 0; i < nodes.size(); ++i) {
         if (!selected[i])
@@ -714,6 +721,21 @@ private:
         serialization::SerializationContext context{ast};
         serialization::apply_projection(request.projection(), context);
         calls::write_node(*nodes[i], *value, context);
+        if (retained && nodes[i]->getDecl()) {
+          value->set_native_match_index(retained->rows.size());
+          retained->append(
+              {{"node", clang::DynTypedNode::create(*filter_decl(*nodes[i]))}});
+          // Native state owns the exact declaration; no semantic AST is needed
+          // in the cursor inventory to support normal binding continuation.
+          auto &binding = (*result.native_nodes.rows.emplace_back()
+                                .mutable_bindings())["node"];
+          binding.add_supported_scopes(
+              ctk::match::v1::BINDING_MATCH_SCOPE_SUBTREE);
+          binding.add_supported_scopes(
+              ctk::match::v1::BINDING_MATCH_SCOPE_ROOT_ONLY);
+          binding.add_supported_scopes(
+              ctk::match::v1::BINDING_MATCH_SCOPE_CHILDREN);
+        }
         complete = complete && context.complete;
         if (!emit(event))
           return result;
@@ -780,6 +802,7 @@ private:
       result.completed.set_edge_count(emitted_edges.size());
       result.completed.set_call_site_count(emitted_sites.size());
       result.completed.set_is_complete(complete);
+      result.native_nodes.state = std::move(retained);
       return result;
     } catch (const calls::CallGraphFailure &error) {
       return {error.code, error.what(), {}};

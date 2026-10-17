@@ -1,5 +1,6 @@
 syntax = "proto3";
 package ctk.analysis.v1;
+import "match/v1/match_stream.proto";
 import "analysis/v1/call_graph_node.proto";
 import "analysis/v1/call_graph_edge.proto";
 import "analysis/v1/call_graph_request.proto";
@@ -31,6 +32,13 @@ message CallGraphResponse {
   // Present for callable selections; lets clients detect servers that ignore
   // the corresponding unlimited_depth request field.
   optional bool selection_unlimited_depth = 18;
+  // Applied callable boundaries, independent of depth and payload projection.
+  bool exclude_system_headers = 19;
+  string node_filter = 20;
+  // Echoed so clients reject servers that ignore strict call-site filtering.
+  bool strict_node_filter = 21;
+  // Published only on successful completion; close through MatchService.
+  ctk.match.v1.MatchStreamCompleted retained_nodes = 22;
 }
 message CallGraphCallSite {
   uint64 caller_node = 1;

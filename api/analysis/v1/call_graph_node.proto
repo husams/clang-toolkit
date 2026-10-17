@@ -16,4 +16,7 @@ message CallGraphNode {
   string symbol_identity = 9;
   ctk.match.v1.MatchSourcePoint location = 10;
   ctk.match.v1.MatchSourceRange range = 11;
+  // Index in retained_nodes, independent of graph-local node_index.
+  // Absent for the virtual root and detached graph responses.
+  optional uint64 native_match_index = 12;
 }

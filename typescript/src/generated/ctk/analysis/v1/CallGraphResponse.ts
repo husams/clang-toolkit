@@ -5,6 +5,7 @@ import type { CallGraphEdge as _ctk_analysis_v1_CallGraphEdge, CallGraphEdge__Ou
 import type { FieldAvailability as _ctk_ast_v1_FieldAvailability, FieldAvailability__Output as _ctk_ast_v1_FieldAvailability__Output } from '../../../ctk/ast/v1/FieldAvailability.js';
 import type { CallGraphCallSite as _ctk_analysis_v1_CallGraphCallSite, CallGraphCallSite__Output as _ctk_analysis_v1_CallGraphCallSite__Output } from '../../../ctk/analysis/v1/CallGraphCallSite.js';
 import type { CallGraphDirection as _ctk_analysis_v1_CallGraphDirection, CallGraphDirection__Output as _ctk_analysis_v1_CallGraphDirection__Output } from '../../../ctk/analysis/v1/CallGraphDirection.js';
+import type { MatchStreamCompleted as _ctk_match_v1_MatchStreamCompleted, MatchStreamCompleted__Output as _ctk_match_v1_MatchStreamCompleted__Output } from '../../../ctk/match/v1/MatchStreamCompleted.js';
 import type { Long } from '@grpc/proto-loader';
 
 export interface CallGraphResponse {
@@ -26,6 +27,10 @@ export interface CallGraphResponse {
   'selectionBoundaryEdges'?: (number | string | Long);
   'selectionBoundaryCallSites'?: (number | string | Long);
   'selectionUnlimitedDepth'?: (boolean);
+  'excludeSystemHeaders'?: (boolean);
+  'nodeFilter'?: (string);
+  'strictNodeFilter'?: (boolean);
+  'retainedNodes'?: (_ctk_match_v1_MatchStreamCompleted | null);
   '_isComplete'?: "isComplete";
   '_focusNode'?: "focusNode";
   '_selectionMaxDepth'?: "selectionMaxDepth";
@@ -51,6 +56,10 @@ export interface CallGraphResponse__Output {
   'selectionBoundaryEdges': (string);
   'selectionBoundaryCallSites': (string);
   'selectionUnlimitedDepth'?: (boolean);
+  'excludeSystemHeaders': (boolean);
+  'nodeFilter': (string);
+  'strictNodeFilter': (boolean);
+  'retainedNodes': (_ctk_match_v1_MatchStreamCompleted__Output | null);
   '_isComplete'?: "isComplete";
   '_focusNode'?: "focusNode";
   '_selectionMaxDepth'?: "selectionMaxDepth";

@@ -21,6 +21,7 @@ public:
                const ctk::clang_layer::ICallGraphBackend::EventSink &,
                const std::string &owner = "local-user");
   void stop_admission();
+  void close_retained_nodes(const std::string &owner, const std::string &id);
 
 private:
   struct Impl;

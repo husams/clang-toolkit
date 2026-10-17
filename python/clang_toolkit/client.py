@@ -35,6 +35,7 @@ from clang_toolkit._generated.analysis.v1 import traverse_stream_pb2, traverse_r
 from clang_toolkit._generated.analysis.v1 import cfg_stream_pb2, cfg_request_pb2
 from clang_toolkit.cfg_stream import CfgStreamState
 from clang_toolkit.call_graph_stream import CallGraphStreamState
+from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
 from clang_toolkit.variable_flow import VariableFlowState
 from clang_toolkit._generated.analysis.v1 import variable_flow_pb2
 from clang_toolkit._generated.analysis.v1 import batch_pb2
@@ -822,6 +823,8 @@ class AsyncClient:
         on_row: AsyncMatchRowCallback | None = None,
         lease: OperationLease | None, scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> MatchValue[AsyncClient]:
+        if isinstance(target, CallGraphNodeValue):
+            target = target.binding
         self._begin_value_operation(lease)
         try:
             request = _value_request(self, query, target,
@@ -1289,9 +1292,10 @@ class AsyncClient:
                         main_file_only: bool = False,
                         exclude_system_headers: bool = False,
                         node_filter: str | None = None,
-                        strict_node_filter: bool = False, payload_depth: int = 24,
+                        strict_node_filter: bool = False, retain_nodes: bool = False,
+                        payload_depth: int = 24,
                         payload_nodes: int = 10000,
-                        scope: ResourceScope[AsyncClient] | str | None = None) -> call_graph_response_pb2.CallGraphResponse:
+                        scope: ResourceScope[AsyncClient] | str | None = None) -> call_graph_response_pb2.CallGraphResponse | CallGraph:
         request = _call_graph_value_request(self, target, function,
             working_directory=working_directory, compile_arguments=compile_arguments,
             visit_implicit_code=visit_implicit_code,
@@ -1300,10 +1304,13 @@ class AsyncClient:
             direction=direction, max_depth=max_depth, projection=projection,
             main_file_only=main_file_only,
             exclude_system_headers=exclude_system_headers, node_filter=node_filter,
-            strict_node_filter=strict_node_filter,
+            strict_node_filter=strict_node_filter, retain_nodes=retain_nodes,
             payload_depth=payload_depth,
             payload_nodes=payload_nodes, scope=scope)
-        return await self._collect_call_graph_request(request)
+        response = await self._collect_call_graph_request(request)
+        if retain_nodes:
+            return CallGraph(response, owner=self._own_value(response.retained_nodes))
+        return response
 
     async def callgraph_stream(
         self, target: MatchTarget | Path, function: str | None = None, **kwargs: Any,
@@ -1345,6 +1352,7 @@ class AsyncClient:
         self._begin_value_operation()
         call = None
         consumed = False
+        retained_id = ""
         state = CallGraphStreamState(
             expect_unlimited_depth=request.unlimited_depth,
             expect_exclude_system_headers=request.exclude_system_headers,
@@ -1355,6 +1363,8 @@ class AsyncClient:
             call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamCallGraph(
                 self._compilation_request(request), timeout=self.config.rpc_timeout)
             async for event in call:
+                if event.HasField("completed") and event.completed.HasField("retained_nodes"):
+                    retained_id = event.completed.retained_nodes.session_id
                 state.consume(event)
                 yield event
             status = call.code()
@@ -1369,6 +1379,8 @@ class AsyncClient:
         finally:
             if call is not None and not consumed and not call.done():
                 call.cancel()
+            if retained_id and not consumed:
+                self._release_value(retained_id)
             self._end_value_operation()
 
     async def _collect_call_graph_request(
@@ -1396,6 +1408,8 @@ class AsyncClient:
                 _append_call_graph_availability(response, record)
             elif event.HasField("completed"):
                 response.is_complete = event.completed.is_complete
+                if event.completed.HasField("retained_nodes"):
+                    response.retained_nodes.CopyFrom(event.completed.retained_nodes)
         try:
             await self._stream_call_graph_request(request, on_event=collect)
         except AnalysisError as error:
@@ -1424,7 +1438,19 @@ class AsyncClient:
                     grpc.StatusCode.FAILED_PRECONDITION,
                     "server did not confirm call-graph boundary filters",
                 )
-            return response
+        if request.retain_nodes:
+            retained = response.retained_nodes
+            indices = [node.native_match_index for node in response.nodes
+                       if not node.is_virtual_root and node.HasField("native_match_index")]
+            expected = sum(not node.is_virtual_root for node in response.nodes)
+            if (not retained.session_id or not retained.result_revision
+                    or len(indices) != expected or len(set(indices)) != expected
+                    or retained.row_count != expected
+                    or any(index >= expected for index in indices)):
+                if retained.session_id:
+                    self._release_value(retained.session_id)
+                raise AnalysisError(grpc.StatusCode.FAILED_PRECONDITION,
+                                    "server did not return valid retained call-graph nodes")
         return response
 
     async def match_file(
@@ -1934,6 +1960,8 @@ class Client:
         on_row: MatchRowCallback | None = None,
         scope: ResourceScope[Client] | str | None = None,
     ) -> MatchValue[Client]:
+        if isinstance(target, CallGraphNodeValue):
+            target = target.binding
         callback: AsyncMatchRowCallback | None = None
         if on_row is not None:
             async def checked_callback(row: match_result_pb2.MatchResult) -> None:
@@ -2425,9 +2453,13 @@ class Client:
 
     def callgraph(
                   self, target: MatchTarget | Path, function: str | None = None,
-                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse:
+                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse | CallGraph:
         request = _call_graph_value_request(self, target, function, **kwargs)
-        return self._cursor_call("_collect_call_graph_request", request)
+        response = self._cursor_call("_collect_call_graph_request", request)
+        if request.retain_nodes:
+            return CallGraph(response, selector=self.callgraph,
+                             owner=self._own_value(response.retained_nodes))
+        return response
 
     def stream_callgraph(self, target: MatchTarget | Path, function: str | None = None,
                          *, on_event: Callable[..., Any], **kwargs: Any
@@ -2586,8 +2618,11 @@ class _AsyncExpressionAdapter:
                           None if path is None else function, on_event=callback, **kwargs)
 
     def callgraph(self, target: MatchTarget | Path, function: str | None = None,
-                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse:
-        return self._call("callgraph", target, function, **kwargs)
+                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse | CallGraph:
+        value = self._call("callgraph", target, function, **kwargs)
+        if isinstance(value, CallGraph):
+            value._selector = self.callgraph
+        return value
 
     def stream_callgraph(self, target: MatchTarget | Path, function: str | None = None,
                          *, on_event: Callable[..., Any], **kwargs: Any
@@ -2690,10 +2725,15 @@ def _call_graph_value_request(
     exclude_system_headers: bool = False,
     node_filter: str | None = None,
     strict_node_filter: bool = False,
+    retain_nodes: bool = False,
     payload_depth: int = 24,
     payload_nodes: int = 10000,
     scope: ResourceScope[Any] | str | None = None,
 ) -> call_graph_request_pb2.CallGraphRequest:
+    if isinstance(target, CallGraphNodeValue):
+        target = target.binding
+    if type(retain_nodes) is not bool:
+        raise ValueError("retain_nodes must be boolean")
     if function is not None and (not isinstance(function, str) or not function):
         raise ValueError("function must be a non-empty string")
     if isinstance(target, BindingSelection) and function is not None:
@@ -2780,6 +2820,7 @@ def _call_graph_value_request(
             request.max_depth = max_depth
     if scope is not None:
         request.resource_scope_id = _scope_id(scope)
+    request.retain_nodes = retain_nodes
     return request
 
 
@@ -2841,6 +2882,8 @@ def _value_request(
     traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
     scope: ResourceScope[Any] | str | None = None,
 ) -> match_service_pb2.MatchRequest:
+    if isinstance(target, CallGraphNodeValue):
+        target = target.binding
     if isinstance(target, str | Path | InputDescriptor):
         target_path = target.path if isinstance(target, InputDescriptor) else target
         request = file_request(target_path, query, working_directory=working_directory,

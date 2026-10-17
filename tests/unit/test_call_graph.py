@@ -188,7 +188,7 @@ def test_console_exact_target_and_composable_local_graph_methods(tmp_path):
     runtime.bindings["target"] = target
 
     runtime.execute("let g = callgraph in $target")
-    client.callgraph.assert_called_once_with(target, working_directory=tmp_path,
+    client.callgraph.assert_called_once_with(target, retain_nodes=True, working_directory=tmp_path,
         compile_arguments=[])
     assert runtime.execute("$g.function(\"pkg::A\").function.qualified_name") == "pkg::A"
     runtime.execute("let out = $g.callees($target, 0)")
@@ -263,7 +263,7 @@ def test_graph_binding_lookup_composes_with_local_callees(tmp_path, engine):
     assert runtime.bindings["submit"].node_index == 1
     assert isinstance(runtime.bindings["outgoing"], CallGraph)
     client.callgraph.assert_called_once_with(
-        runtime.bindings["tree"], working_directory=tmp_path,
+        runtime.bindings["tree"], retain_nodes=True, working_directory=tmp_path,
         compile_arguments=[])
     runtime.close()
 

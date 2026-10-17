@@ -382,12 +382,24 @@ def _encode(value: Any) -> dict[str, Any]:
 
 
 def _call_graph_response(value: Any) -> Message | None:
-    """Return a CallGraph wrapper's known protobuf response without importing it."""
+    """Export graph records as data, without native cursor capabilities."""
     response = getattr(value, "response", None)
+    if response is None:
+        response = getattr(value, "proto", None)
     descriptor = getattr(response, "DESCRIPTOR", None)
-    if descriptor is not None and descriptor.full_name == "ctk.analysis.v1.CallGraphResponse":
-        return response
-    return None
+    if descriptor is None or descriptor.full_name not in {
+        "ctk.analysis.v1.CallGraphResponse", "ctk.analysis.v1.CallGraphNode"
+    }:
+        return None
+    snapshot = type(response)()
+    snapshot.CopyFrom(response)
+    if descriptor.full_name == "ctk.analysis.v1.CallGraphResponse":
+        snapshot.ClearField("retained_nodes")
+        for node in snapshot.nodes:
+            node.ClearField("native_match_index")
+    else:
+        snapshot.ClearField("native_match_index")
+    return snapshot
 
 
 def _semantic_snapshot(value: MessageView | RepeatedView | MapView) -> dict[str, Any]:
