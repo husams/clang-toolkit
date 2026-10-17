@@ -14,6 +14,10 @@ import type { Result } from "./model.js";
 
 export { astBinding, nativeKind } from "./ast-facts.js";
 
+// Keep these aligned with console/ast_limits.py.
+export const MAX_AST_CHILDREN = 100000;
+export const MAX_RETAINED_NODES = 2 * MAX_AST_CHILDREN;
+
 export const astReferenceSchema = z.object({
   name: z.string().min(1),
   symbol: z.string().min(1),
@@ -77,7 +81,7 @@ export const astEntrySchema = z.object({
 });
 export const astPageSchema = z.object({
   node: astEntrySchema,
-  children: z.array(astEntrySchema).max(1000),
+  children: z.array(astEntrySchema).max(MAX_AST_CHILDREN),
   semantics: astSemanticsSchema.optional(),
 });
 export const astInspectionSchema = astPageSchema

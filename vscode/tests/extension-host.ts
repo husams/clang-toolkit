@@ -36,13 +36,18 @@ export async function run(): Promise<void> {
   );
   const api = extension.exports;
   const astState = () => api.details.snapshot();
-  async function automaticFile(file: string, child?: string, visible = true) {
+  async function automaticFile(
+    file: string,
+    child?: string,
+    visible = true,
+    timeoutMs = 45000,
+  ) {
     if (visible)
       await vscode.commands.executeCommand("ctk.result.focus", {
         preserveFocus: true,
       });
     // Allow the worker's 30-second RPC plus startup/error-reporting overhead.
-    const end = Date.now() + 45000;
+    const end = Date.now() + timeoutMs;
     while (Date.now() < end) {
       const state = astState();
       if (
@@ -62,6 +67,42 @@ export async function run(): Promise<void> {
     assert.fail(
       `File AST did not load automatically: ${JSON.stringify(astState())}`,
     );
+  }
+  if (process.env.CTK_TEST_LARGE_AST_ONLY === "1") {
+    const largeFile = vscode.Uri.joinPath(folder.uri, "large-ast.cpp");
+    await vscode.workspace.fs.writeFile(
+      largeFile,
+      Buffer.from(
+        Array.from(
+          { length: 10001 },
+          (_, i) => `int ast_limit_variable_${i};`,
+        ).join("\n"),
+      ),
+    );
+    await vscode.window.showTextDocument(
+      await vscode.workspace.openTextDocument(largeFile),
+    );
+    const state = await automaticFile(
+      "large-ast.cpp",
+      "ast_limit_variable_10000",
+      true,
+      150000,
+    );
+    assert.equal(state.children?.length, 10001);
+    const rendered = await inspectorTab("ast");
+    assert.equal(rendered.children.length, 10001);
+    assert.equal(rendered.tree.length, 10002);
+    assert.ok(
+      rendered.children.includes(
+        state.children!.find(
+          (node) => node.name === "ast_limit_variable_10000",
+        )!.id,
+      ),
+    );
+    console.log(
+      "CTK_LARGE_AST_HOST_PASS: 10001 declarations load and render automatically",
+    );
+    return;
   }
   const automatic = await automaticFile("demo.cpp");
   async function inspectorTab(tab: "ast" | "properties") {
@@ -2754,6 +2795,40 @@ export async function run(): Promise<void> {
   );
   await vscode.commands.executeCommand(
     "workbench.action.revertAndCloseActiveEditor",
+  );
+  const largeHeader = vscode.Uri.joinPath(folder.uri, "large-ast.h");
+  const largeFile = vscode.Uri.joinPath(folder.uri, "large-ast.cpp");
+  await vscode.workspace.fs.writeFile(
+    largeHeader,
+    Buffer.from(
+      Array.from({ length: 2000 }, (_, i) => `int header_${i};`).join("\n"),
+    ),
+  );
+  await vscode.workspace.fs.writeFile(
+    largeFile,
+    Buffer.from(
+      `#include "large-ast.h"\n${Array.from({ length: 1001 }, (_, i) => `int ast_limit_variable_${i};`).join("\n")}\n`,
+    ),
+  );
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(largeFile),
+  );
+  const largeAst = await automaticFile(
+    "large-ast.cpp",
+    "ast_limit_variable_1000",
+  );
+  assert.equal(largeAst.children?.length, 1001);
+  const largeRendered = await inspectorTab("ast");
+  assert.equal(largeRendered.children.length, 1001);
+  assert.ok(
+    largeRendered.children.includes(
+      largeAst.children!.find(
+        (node) => node.name === "ast_limit_variable_1000",
+      )!.id,
+    ),
+  );
+  console.log(
+    "CTK_LARGE_AST_HOST_PASS: 1001 source declarations and 2000 header declarations load and render automatically",
   );
   console.log(
     "CTK_EXTENSION_HOST_PASS: real Clang save failures preserve the last valid AST, selection, expansion and Properties; status-bar errors, blocked stale actions, no tab-triggered retry, next-save recovery and background failure/recovery; save refresh preserving shifted/changed nodes, exact overloads, expanded branches and Properties; deleted-node parent fallback; inactive-save refresh without stealing the inspector; independent per-file sessions without reparsing, shared action ownership, last-tab release/reopen, CTK Inspector, live renewal, split-tab ownership, symbols, console, YAML actions, grouped matches, retained-node follow-up, stale edits, completion, semantic sections, base/source navigation and actions",

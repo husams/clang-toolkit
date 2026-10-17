@@ -193,7 +193,9 @@ export class ActionService {
     const response = await this.request(
       { type: "inspect", settings, ...input },
       settings.directory,
-      settings.timeoutMs + 10000,
+      // Initial inspection parses the file, locates its root, then fetches
+      // children. Each RPC already enforces settings.timeoutMs separately.
+      settings.timeoutMs * (typeof target === "string" ? 1 : 3) + 10000,
       () => {},
     );
     if (!response.inspection) throw new Error("AST inspector returned no node");
