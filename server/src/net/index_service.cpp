@@ -129,9 +129,12 @@ public:
     if (query.size() > 4096)
       throw std::invalid_argument("symbol query exceeds 4096 bytes");
     Database db(database_path(key), false);
+    // Cold index pages may require disk I/O while the background writer is
+    // active. Keep a bounded budget without rejecting otherwise cheap queries
+    // at the former 250ms cutoff; client deadlines/cancellation still win.
     const auto deadline =
-        std::min(context.deadline(), std::chrono::system_clock::now() +
-                                         std::chrono::milliseconds(250));
+        std::min(context.deadline(),
+                 std::chrono::system_clock::now() + std::chrono::seconds(1));
     struct QueryBudget {
       grpc::ServerContext &context;
       std::chrono::system_clock::time_point deadline;
@@ -168,20 +171,53 @@ public:
       if (key != job_.root || status_.state() != INDEX_STATE_COMPLETE)
         response.set_stale(true);
     }
-    std::string sql =
+    // Sort narrow candidates before loading symbol payloads and TU metadata.
+    // Joining first reads the large TU overflow records once per match, even
+    // when nearly all those matches will be discarded by LIMIT.
+    const std::string columns =
+        "SELECT tu_id,usr,file_path,byte_offset,is_definition,qualified_name "
+        "FROM symbol WHERE ";
+    // Prefix matching and ordering share NOCASE, allowing the qualified-name
+    // index to stop early. Bound each OR arm before merging and deduplicating.
+    const std::string order =
+        prefix ? "qualified_name COLLATE NOCASE,file_path,byte_offset,tu_id"
+               : "qualified_name,file_path,byte_offset,tu_id";
+    std::string sql;
+    if (prefix) {
+      sql = "WITH name_matches AS MATERIALIZED (" + columns +
+            "name LIKE ?1 ESCAPE '\\' ORDER BY " + order +
+            " LIMIT ?3), qualified_matches AS MATERIALIZED (" + columns +
+            "qualified_name LIKE ?2 ESCAPE '\\' ORDER BY " + order +
+            " LIMIT ?3), candidates AS MATERIALIZED ("
+            "SELECT * FROM name_matches UNION SELECT * FROM qualified_matches "
+            "ORDER BY " +
+            order + " LIMIT ?3), ";
+    } else {
+      sql = "WITH candidates AS MATERIALIZED (" + columns +
+            (by_usr ? "usr=?1" : "(name=?1 OR qualified_name=?2)") +
+            " ORDER BY " + order + (by_usr ? " LIMIT ?2), " : " LIMIT ?3), ");
+    }
+    // Older stores remain readable before their background schema upgrade.
+    // Once available, force the covering index: SQLite otherwise sometimes
+    // prefers the TU primary key without accounting for manifest overflow I/O.
+    Statement lookup_index(db, "SELECT 1 FROM sqlite_master WHERE type='index' "
+                               "AND name='translation_unit_lookup'");
+    const std::string metadata_source =
+        lookup_index.step()
+            ? "translation_unit INDEXED BY translation_unit_lookup"
+            : "translation_unit";
+    sql +=
+        "units AS MATERIALIZED (SELECT id,main_file,arguments,status FROM " +
+        metadata_source +
+        " WHERE id IN (SELECT tu_id FROM candidates)) "
         "SELECT "
         "s.usr,s.name,s.qualified_name,s.kind,s.file_path,s.line,s.column_no,s."
         "signature,t.main_file,t.arguments,s.byte_offset,s.is_definition,t."
-        "status FROM symbol s JOIN translation_unit t ON t.id=s.tu_id WHERE ";
-    if (by_usr)
-      sql += "s.usr=?";
-    else if (prefix)
-      sql +=
-          "(s.name LIKE ? ESCAPE '\\' OR s.qualified_name LIKE ? ESCAPE '\\')";
-    else
-      sql += "(s.name=? OR s.qualified_name=?)";
-    sql +=
-        " ORDER BY s.qualified_name,s.file_path,s.byte_offset,s.tu_id LIMIT ?";
+        "status FROM candidates c JOIN symbol s "
+        "USING(tu_id,usr,file_path,byte_offset,is_definition) "
+        "JOIN units t ON t.id=s.tu_id ORDER BY s.qualified_name" +
+        std::string(prefix ? " COLLATE NOCASE" : "") +
+        ",s.file_path,s.byte_offset,s.tu_id";
     Statement symbols(db, sql.c_str());
     const auto pattern = prefix ? escaped_prefix(query) : query;
     symbols.bind(1, pattern);

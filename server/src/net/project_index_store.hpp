@@ -146,6 +146,10 @@ public:
         // manifest, which precedes these fields in the row's overflow payload.
         exec("CREATE INDEX IF NOT EXISTS translation_unit_coverage ON "
              "translation_unit(status,indexed_at);");
+        // Symbol responses need these fields without visiting the TU record's
+        // potentially multi-megabyte dependency manifest overflow pages.
+        exec("CREATE INDEX IF NOT EXISTS translation_unit_lookup ON "
+             "translation_unit(id,main_file,arguments,status);");
         // Secondary indexes store a compact rowid instead of repeating the
         // long (TU, USR, file, offset, definition) primary key in every entry.
         exec(symbol_schema);
