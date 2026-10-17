@@ -6,10 +6,42 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import weakref
+from unittest.mock import Mock
 
 spec = importlib.util.spec_from_file_location('editor_service', Path(__file__).parents[1] / 'console/editor_service.py')
 service = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(service)
+
+from action_service import ActionError, ActionHost
+
+
+class SessionLifetimeTests(unittest.TestCase):
+    def test_renews_each_owned_cursor_without_parsing(self):
+        host = ActionHost.__new__(ActionHost)
+        host.roots = {'demo.cpp': ('root', 'digest')}
+        host.client = Mock()
+        class Owner:
+            def __init__(self, session_id):
+                self.session_id = session_id
+                self.closed = False
+        root, children, closed = Owner('root'), Owner('children'), Owner('closed')
+        closed.closed = True
+        host.client._values = {node.session_id: weakref.ref(node)
+                               for node in (root, children, closed)}
+        self.assertEqual(host.keep_alive(), 2)
+        self.assertEqual([call.args for call in host.client.attach_session.call_args_list],
+                         [('root',), ('children',)])
+        host.client.parse.assert_not_called()
+        host.client.list_sessions.assert_not_called()
+
+    def test_missing_native_sessions_are_reported_for_an_existing_file(self):
+        host = ActionHost.__new__(ActionHost)
+        host.roots = {'demo.cpp': ('root', 'digest')}
+        host.client = Mock()
+        host.client._values = {}
+        with self.assertRaisesRegex(ActionError, 'Analysis session expired'):
+            host.keep_alive()
 
 
 class CompletionTests(unittest.TestCase):

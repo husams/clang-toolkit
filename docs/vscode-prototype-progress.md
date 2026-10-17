@@ -1133,3 +1133,51 @@ the inspector begins directly with the tabs and node content. The redundant
 title, Back/File AST, raw cursor error and Retry rows are absent. Custom
 action editor tabs and saved Properties-fold choices are preserved; no
 additional manual trial window was opened.
+
+## Inspector session lifetime, version 0.2.26
+
+Renamed the bottom panel CTK Inspector while preserving its contribution IDs
+and saved placement. Activating a saved C/C++ editor automatically parses it
+and follows the cursor. Switching C/C++ files replaces the automatic context;
+non-C++ tabs and hiding the inspector retain the last context. This is one
+active automatic context, not a per-file AST cache.
+
+Retained native cursors are renewed every minute without reparsing or changing
+node identities. Renewal pins only this Python client's live CursorOwners;
+server-wide session listings must not be used because they can include another
+client's sessions. Foreground operations wait for in-flight renewal, busy work
+skips overlapping heartbeats, and disposal stops renewal. A genuinely expired
+automatic context is refreshed; an initial failed parse does not restart in a
+loop. Action-owned workers renew their retained cursors too.
+
+Closing the last related source/header tab releases its inspector and action
+contexts. Split copies and inspected headers keep their translation unit alive;
+inspector navigation pins source tabs instead of replacing their previews.
+Closing a stale tab cannot clear a newer context. Reopening the same source
+loads a new context even when VS Code retains its TextDocument internally.
+
+TypeScript and Biome pass; 63 extension unit tests and 19 console-adapter tests
+pass (17 optional native unit cases were not enabled). The complete real VS
+Code extension-host suite passes with the console helper library enabled,
+including live-session renewal, file switching, related-header navigation,
+split ownership, source-tab release, stale targets and same-file reopening.
+Earlier host runs exposed preview replacement, related-header ownership and
+delayed-close/reopen races; these were repaired before the passing final run.
+
+A native managed-server probe confirms eight owned session deadlines extend,
+the selected node identity remains unchanged and parse_count stays one. A
+separate client's sentinel session remains unchanged and usable; closing the
+probe releases all eight owned sessions without closing that sentinel.
+
+Logs: `vscode/artifacts/validation/inspector-lifetime-20261017/`.
+The test harness reports CTK_TEST_PROCESSES_CLOSED and an independent process
+audit finds zero temporary test processes. Packaged and installed v0.2.26 in
+the approved normal profile; archive and installed-version checks pass.
+VSIX SHA256:
+`58916e500025345e53127c4ec16482b97c6337b723e5da963a05e77c216fc07f`.
+
+Reloaded the existing normal-profile trial without opening another window.
+The renamed CTK Inspector panel is visible; selecting actions-demo.cpp and
+semantic-inspector.cpp automatically changes the file root. Selecting Root
+opens its readable Properties with actions available after background renewal.
+Custom action tabs remain open and the managed server was not restarted.

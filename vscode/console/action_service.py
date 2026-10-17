@@ -155,6 +155,18 @@ class ActionHost:
         self.runtime.close()
         self.client.close()
 
+    def keep_alive(self) -> int:
+        """Renew this host's retained cursors without changing AST identities."""
+        # Server listings can include other clients of the same local user.
+        # Pin only this client's retained owners while renewing them.
+        owners = [owner for reference in tuple(self.client._values.values())
+                  if (owner := reference()) is not None and not owner.closed]
+        if self.roots and not owners:
+            raise ActionError('Analysis session expired; reload the file AST.')
+        for owner in owners:
+            self.client.attach_session(owner.session_id)
+        return len(owners)
+
 
 def main() -> None:
     protocol = sys.stdout
@@ -177,6 +189,9 @@ def main() -> None:
                             host.close()
                         host = None
                         send(identity, {'reset': True})
+                        continue
+                    if request['type'] == 'keepAlive':
+                        send(identity, {'keptAlive': host.keep_alive() if host else 0})
                         continue
                     if host is None:
                         host = ActionHost(request['settings'])

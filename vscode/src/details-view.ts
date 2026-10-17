@@ -483,6 +483,23 @@ export class DetailsView
       ) ?? false
     );
   }
+  clear(): void {
+    this.generation++;
+    this.current = undefined;
+    this.history = [];
+    this.cache.clear();
+    this.tree.reset();
+    this.load = undefined;
+    this.prepareAction = undefined;
+    this.retry = undefined;
+    this.operation = undefined;
+    this.contextId = randomBytes(12).toString("hex");
+    this.running = false;
+    this.error = "";
+    this.notice = "";
+    this.rendered = undefined;
+    this.publish();
+  }
   dispose(): void {
     this.generation++;
     this.status.dispose();

@@ -17,6 +17,7 @@ export class FileInspectionSync implements vscode.Disposable {
       current: () => boolean,
     ) => Promise<void>,
     private readonly failed: (error: unknown) => void,
+    private readonly hasContext: () => boolean = () => true,
   ) {
     this.listeners = [
       vscode.window.onDidChangeActiveTextEditor((editor) =>
@@ -25,6 +26,13 @@ export class FileInspectionSync implements vscode.Disposable {
       vscode.workspace.onDidSaveTextDocument((document) => {
         const editor = vscode.window.activeTextEditor;
         if (editor?.document === document) this.observe(editor, true);
+      }),
+      vscode.workspace.onDidCloseTextDocument((document) => {
+        if (this.document === document) {
+          this.cancel();
+          this.document = undefined;
+          this.file = undefined;
+        }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("ctk"))
@@ -46,7 +54,7 @@ export class FileInspectionSync implements vscode.Disposable {
       return;
     }
     const document = editor.document;
-    if (!force && this.document === document) return;
+    if (!force && this.document === document && this.hasContext()) return;
     this.cancel();
     if (!vscode.workspace.isTrusted || document.isDirty) return;
     this.document = document;
@@ -69,7 +77,7 @@ export class FileInspectionSync implements vscode.Disposable {
         const file = await realpath(document.uri.fsPath);
         if (!current()) return;
         // VS Code may hold /var and /private/var editors for the same file.
-        if (!force && this.file === file) return;
+        if (!force && this.file === file && this.hasContext()) return;
         this.file = file;
         await this.load(editor, current);
       })()
@@ -94,6 +102,8 @@ export class FileInspectionSync implements vscode.Disposable {
     this.cancel();
   }
   refresh(): void {
+    this.document = undefined;
+    this.file = undefined;
     this.observe(vscode.window.activeTextEditor, true);
   }
   resume(): void {

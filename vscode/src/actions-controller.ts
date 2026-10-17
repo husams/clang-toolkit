@@ -870,6 +870,32 @@ export class ActionsController implements vscode.Disposable {
     await this.refresh();
     this.target = undefined;
   }
+  get sourceFile(): string | undefined {
+    return this.root?.file;
+  }
+  get sourceContext(): string | undefined {
+    return this.root?.id;
+  }
+  async closeFile(
+    file: string,
+    expectedContext = this.root?.id,
+  ): Promise<void> {
+    const root = this.root;
+    if (!root || root.id !== expectedContext) return;
+    if (
+      (await realpath(root.file).catch(() => root.file)) !== file ||
+      this.root !== root
+    )
+      return;
+    const service = this.service;
+    this.cancel();
+    service?.dispose();
+    await this.execution?.catch(() => undefined);
+    const deadline = Date.now() + 5000;
+    while (this.busy && Date.now() < deadline)
+      await new Promise((done) => setTimeout(done, 20));
+    if (this.service === service) await this.close();
+  }
   dispose(): void {
     this.definitionGeneration++;
     this.service?.dispose();

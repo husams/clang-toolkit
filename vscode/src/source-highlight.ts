@@ -100,6 +100,7 @@ export class SourceHighlight implements vscode.Disposable {
       viewColumn: visible?.viewColumn ?? vscode.ViewColumn.One,
       selection: range,
       preserveFocus: true,
+      preview: false,
     });
     if (
       generation !== this.generation ||

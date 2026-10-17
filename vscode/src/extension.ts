@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as vscode from "vscode";
@@ -77,6 +77,8 @@ export class Prototype {
   private readonly editorSelection: EditorSelectionSync;
   private readonly fileInspection: FileInspectionSync;
   private automaticInspection = false;
+  private inspectionFile: string | undefined;
+  private inspectionSources = new Set<string>();
   private readonly output = vscode.window.createOutputChannel("CTK Output");
   private readonly taskStatus = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -159,9 +161,23 @@ export class Prototype {
     this.fileInspection = new FileInspectionSync(
       (editor, current) => this.inspectFile(editor, current),
       (error) => this.output.appendLine(`File AST: ${String(error)}`),
+      () => Boolean(this.details.snapshot().node),
     );
     context.subscriptions.push(
       this.fileInspection,
+      vscode.window.tabGroups.onDidChangeTabs((event) => {
+        for (const tab of event.closed) {
+          if (
+            !(tab.input instanceof vscode.TabInputText) ||
+            !CXX.test(tab.input.uri.fsPath)
+          )
+            continue;
+          void this.releaseClosedFile(tab.input.uri.fsPath).catch(
+            (error: unknown) =>
+              this.output.appendLine(`Closing file AST: ${String(error)}`),
+          );
+        }
+      }),
       vscode.window.onDidChangeActiveTextEditor(remember),
       vscode.workspace.onDidChangeTextDocument(({ document }) => {
         if (document === this.customDocument) this.publish();
@@ -581,15 +597,59 @@ export class Prototype {
     this.automaticInspection = true;
     this.fileInspection.refresh();
   }
+  private async releaseClosedFile(file: string): Promise<void> {
+    const contextId = this.details.snapshot().contextId;
+    const inspected = this.inspectionFile;
+    const sources = [...this.inspectionSources];
+    const actionContext = this.actions.sourceContext;
+    // Preview-tab replacement and split changes can publish several tab events.
+    await new Promise((done) => setTimeout(done, 0));
+    const canonical = await realpath(file).catch(() => file);
+    const associated = await Promise.all(
+      sources.map((path) => realpath(path).catch(() => path)),
+    );
+    const opened = await Promise.all(
+      vscode.window.tabGroups.all.flatMap((group) =>
+        group.tabs.flatMap((tab) => {
+          if (!(tab.input instanceof vscode.TabInputText)) return [];
+          const path = tab.input.uri.fsPath;
+          return [realpath(path).catch(() => path)];
+        }),
+      ),
+    );
+    if (opened.includes(canonical)) return;
+    const inspectedCanonical = inspected
+      ? await realpath(inspected).catch(() => inspected)
+      : undefined;
+    if (
+      this.inspectionFile === inspected &&
+      this.details.snapshot().contextId === contextId &&
+      associated.includes(canonical)
+    ) {
+      if (opened.some((path) => associated.includes(path))) return;
+      this.inspectionFile = undefined;
+      this.inspectionSources.clear();
+      this.searchAst.close();
+      this.details.clear();
+      if (inspectedCanonical)
+        await this.actions.closeFile(inspectedCanonical, actionContext);
+      return;
+    }
+    await this.actions.closeFile(canonical, actionContext);
+  }
   private async showResult(result: Result): Promise<void> {
     this.automaticInspection = false;
     const translationUnit = this.target?.fsPath ?? result.file;
-    await this.openSource(result);
     let searchLoad: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
     const actionId =
       "nodeId" in result && typeof result.nodeId === "string"
         ? result.nodeId
         : undefined;
+    this.inspectionFile = actionId
+      ? (this.actions.sourceFile ?? translationUnit)
+      : translationUnit;
+    this.inspectionSources = new Set([this.inspectionFile]);
+    await this.openSource(result);
     await this.details.show(
       result,
       async (id, selection) => {
@@ -607,6 +667,7 @@ export class Prototype {
     );
   }
   private async openSource(result: Result): Promise<void> {
+    if (this.inspectionFile) this.inspectionSources.add(result.file);
     this.editorSelection.cancel();
     this.fileInspection.pause();
     try {
@@ -621,6 +682,8 @@ export class Prototype {
   ): Promise<void> {
     this.automaticInspection = true;
     const file = editor.document.uri.fsPath;
+    this.inspectionFile = file;
+    this.inspectionSources = new Set([file]);
     let context: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
     await this.details.show(
       {

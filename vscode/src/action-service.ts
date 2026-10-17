@@ -36,6 +36,7 @@ const responseSchema = z.object({
   reset: z.boolean().optional(),
   inspection: astInspectionSchema.optional(),
   notFound: z.boolean().optional(),
+  keptAlive: z.number().int().nonnegative().optional(),
 });
 type Response = z.infer<typeof responseSchema>;
 interface Pending {
@@ -51,6 +52,9 @@ export class ActionService {
   private stderr = "";
   private killTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
+  private heartbeat: ReturnType<typeof setInterval> | undefined;
+  private renewing: Promise<Response> | undefined;
+  private directory: string | undefined;
   constructor(
     private readonly script: string,
     private readonly python: string,
@@ -94,8 +98,45 @@ export class ActionService {
     return response.report;
   }
   async reset(): Promise<void> {
+    this.stopHeartbeat();
     if (this.child)
       await this.request({ type: "reset" }, process.cwd(), 15000, () => {});
+  }
+  async keepAlive(): Promise<number> {
+    if (this.disposed) throw new Error("Action session closed");
+    if (!this.child || !this.directory) return 0;
+    if (this.renewing) return (await this.renewing).keptAlive ?? 0;
+    if (this.pending.size) return 0;
+    const renewal = this.request(
+      { type: "keepAlive" },
+      this.directory,
+      15000,
+      () => {},
+    );
+    this.renewing = renewal;
+    try {
+      return (await renewal).keptAlive ?? 0;
+    } finally {
+      if (this.renewing === renewal) this.renewing = undefined;
+    }
+  }
+  private startHeartbeat(): void {
+    if (this.heartbeat || this.disposed) return;
+    this.heartbeat = setInterval(() => {
+      void this.keepAlive().catch((error: unknown) => {
+        if (this.disposed) return;
+        this.stopHeartbeat();
+        this.log(`AST session renewal: ${String(error)}`);
+        this.invalidated(
+          "Analysis session renewal failed; reload the file AST.",
+        );
+      });
+    }, 60000);
+    this.heartbeat.unref();
+  }
+  private stopHeartbeat(): void {
+    clearInterval(this.heartbeat);
+    this.heartbeat = undefined;
   }
   async inspect(
     settings: ActionSettings,
@@ -158,6 +199,7 @@ export class ActionService {
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
     });
     this.child = child;
+    this.directory = directory;
     this.stderr = "";
     const lines = createInterface({ input: child.stdout });
     lines.on("line", (line) => {
@@ -175,7 +217,7 @@ export class ActionService {
         for (const text of response.output ?? []) if (text) this.log(text);
         if (response.error) {
           if (
-            /cursor unavailable|cursor expired or closed|retained value has been closed|node has expired/i.test(
+            /cursor unavailable|cursor expired or closed|retained value has been closed|node has expired|analysis session expired/i.test(
               response.error,
             )
           )
@@ -183,7 +225,10 @@ export class ActionService {
               "Analysis context expired or closed; click Refresh, then Run to parse the same C++ file again.",
             );
           pending.reject(new Error(response.error));
-        } else pending.resolve(response);
+        } else {
+          if (response.inspection || response.report) this.startHeartbeat();
+          pending.resolve(response);
+        }
       } catch (error) {
         this.fail(error instanceof Error ? error : new Error(String(error)));
         child.kill();
@@ -224,6 +269,10 @@ export class ActionService {
   ): Promise<Response> {
     if (this.disposed)
       return Promise.reject(new Error("Action session closed"));
+    if (value.type !== "keepAlive" && this.renewing)
+      return this.renewing
+        .catch(() => undefined)
+        .then(() => this.request(value, directory, timeout, progress));
     if (this.pending.size)
       return Promise.reject(new Error("An action is already running"));
     const child = this.start(directory),
@@ -246,6 +295,7 @@ export class ActionService {
     this.killTimer.unref();
   }
   private fail(error: Error): void {
+    this.stopHeartbeat();
     clearTimeout(this.killTimer);
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
@@ -254,6 +304,7 @@ export class ActionService {
     this.pending.clear();
   }
   dispose(): void {
+    this.stopHeartbeat();
     this.disposed = true;
     const child = this.child;
     this.child = undefined;

@@ -27,7 +27,7 @@ export class SearchAstAccess implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   constructor(
     private readonly uri: vscode.Uri,
-    invalidated: () => void = () => {},
+    private readonly invalidated: () => void = () => {},
   ) {
     const watcher = vscode.workspace.createFileSystemWatcher(
       "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
@@ -54,6 +54,9 @@ export class SearchAstAccess implements vscode.Disposable {
     this.generation++;
     this.service?.dispose();
     this.service = undefined;
+  }
+  close(): void {
+    this.reset();
   }
   async open(
     result: Result | undefined,
@@ -107,6 +110,12 @@ export class SearchAstAccess implements vscode.Disposable {
     const service = new ActionService(
       vscode.Uri.joinPath(this.uri, "console", "action_service.py").fsPath,
       python,
+      () => {
+        if (this.service === service && root) {
+          root = undefined;
+          this.invalidated();
+        }
+      },
     );
     this.service = service;
     return {

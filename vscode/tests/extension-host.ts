@@ -19,7 +19,7 @@ export async function run(): Promise<void> {
     { type: "webview", id: "ctk.result", name: "AST Inspector" },
   ]);
   assert.deepEqual(extension.packageJSON.contributes.viewsContainers.panel, [
-    { id: "ctkResults", title: "CTK Result", icon: "media/semantic.svg" },
+    { id: "ctkResults", title: "CTK Inspector", icon: "media/semantic.svg" },
   ]);
   const folder = vscode.workspace.workspaceFolders?.[0];
   assert.ok(folder);
@@ -875,6 +875,7 @@ export async function run(): Promise<void> {
   await assert.rejects(api.actions.run(), /already running/);
   await actionRun;
   type ActionSnapshot = {
+    completed: boolean;
     action: NodeAction;
     values: Record<string, string>;
     invalidAction: boolean;
@@ -1734,7 +1735,69 @@ export async function run(): Promise<void> {
   assert.equal(astState().error, "");
   assert.equal(astState().node?.name, "Root::Root");
   assert.equal(astState().canRunAction, true);
+  const owningContext = astState().contextId;
+  const owningNode = astState().node!.id;
+  const closingTarget = await api.details.actionTarget();
+  await api.actions.setAction(
+    parseNodeAction(baseActionUri.fsPath, baseActionSource),
+    true,
+    closingTarget,
+  );
+  await api.actions.run();
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+    { viewColumn: vscode.ViewColumn.Two },
+  );
+  const duplicateTab = vscode.window.tabGroups.activeTabGroup.activeTab;
+  assert.ok(duplicateTab);
+  await vscode.window.tabGroups.close(duplicateTab);
+  await new Promise((done) => setTimeout(done, 350));
+  assert.equal(
+    astState().contextId,
+    owningContext,
+    "closing one split must keep the other tab's session",
+  );
+  assert.equal(astState().node?.id, owningNode);
+  assert.equal(actionState().completed, true);
+  const cxxTabs = vscode.window.tabGroups.all.flatMap((group) =>
+    group.tabs.filter(
+      (tab) =>
+        tab.input instanceof vscode.TabInputText &&
+        /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(tab.input.uri.fsPath),
+    ),
+  );
+  await vscode.window.tabGroups.close(cxxTabs);
+  const closedDeadline = Date.now() + 15000;
+  while (
+    (astState().node || actionState().completed) &&
+    Date.now() < closedDeadline
+  )
+    await new Promise((done) => setTimeout(done, 40));
+  assert.equal(
+    astState().node,
+    undefined,
+    "closing the owning source tab must clear its inspector",
+  );
+  assert.equal(
+    actionState().completed,
+    false,
+    "closing the owning tab must release transferred action resources",
+  );
+  await assert.rejects(
+    closingTarget.activate(),
+    /Source or settings changed|no longer current|closed/,
+  );
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+  );
+  const reopened = await automaticFile("semantic-inspector.cpp", "Root");
+  assert.notEqual(
+    reopened.contextId,
+    owningContext,
+    "reopening the same path must create a fresh live session",
+  );
+  assert.equal(reopened.canRunAction, true);
   console.log(
-    "CTK_EXTENSION_HOST_PASS: compact inspector, status-bar expiry/reload recovery, injected class nodes, hidden-file/cursor updates, preserved tabs/tree, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
+    "CTK_EXTENSION_HOST_PASS: CTK Inspector, live renewal, tab switching, split-tab ownership, source-tab release/reopen, compact inspector, status-bar recovery, injected class nodes, hidden-file/cursor updates, preserved tabs/tree, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
   );
 }
