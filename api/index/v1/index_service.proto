@@ -1,0 +1,104 @@
+syntax = "proto3";
+package ctk.index.v1;
+
+service IndexService {
+  rpc StartProjectIndex(StartProjectIndexRequest) returns (ProjectIndexStatus);
+  rpc GetProjectIndexStatus(ProjectIndexRequest) returns (ProjectIndexStatus);
+  rpc PauseProjectIndex(ProjectIndexRequest) returns (ProjectIndexStatus);
+  rpc ResumeProjectIndex(ProjectIndexRequest) returns (ProjectIndexStatus);
+  rpc CancelProjectIndex(ProjectIndexRequest) returns (ProjectIndexStatus);
+  rpc FindSymbols(FindSymbolsRequest) returns (FindSymbolsResponse);
+  rpc LookupSymbol(LookupSymbolRequest) returns (FindSymbolsResponse);
+}
+
+enum IndexState {
+  INDEX_STATE_UNSPECIFIED = 0;
+  INDEX_STATE_IDLE = 1;
+  INDEX_STATE_QUEUED = 2;
+  INDEX_STATE_INDEXING = 3;
+  INDEX_STATE_PAUSED = 4;
+  INDEX_STATE_COMPLETE = 5;
+  INDEX_STATE_CANCELLED = 6;
+  INDEX_STATE_FAILED = 7;
+}
+
+message StartProjectIndexRequest {
+  string project_root = 1;
+  string compile_commands = 2;
+  uint32 poll_interval_seconds = 3;
+}
+message ProjectIndexRequest { string project_root = 1; }
+message ProjectIndexStatus {
+  string project_root = 1;
+  IndexState state = 2;
+  uint64 translation_units_total = 3;
+  uint64 translation_units_completed = 4;
+  uint64 translation_units_skipped = 5;
+  uint64 translation_units_failed = 6;
+  string current_translation_unit = 7;
+  string error = 8;
+  uint64 last_reconciled_unix_seconds = 9;
+  uint64 revision = 10;
+  uint64 translation_units_pending = 11;
+  string paused_reason = 12;
+  uint64 translation_units_indexed = 13;
+}
+message FindSymbolsRequest {
+  string project_root = 1;
+  string query = 2;
+  uint32 limit = 3;
+  enum MatchMode {
+    MATCH_MODE_EXACT = 0;
+    MATCH_MODE_PREFIX = 1;
+  }
+  MatchMode match_mode = 4;
+}
+message LookupSymbolRequest { string project_root = 1; string usr = 2; }
+message Symbol {
+  string usr = 1;
+  string name = 2;
+  string qualified_name = 3;
+  string kind = 4;
+  string file_path = 5;
+  uint32 line = 6;
+  uint32 column = 7;
+  string signature = 8;
+  string translation_unit = 9;
+  string compile_context = 10;
+  uint64 byte_offset = 11;
+  bool is_definition = 12;
+  uint64 index_revision = 13;
+  bool stale = 14;
+}
+message FindSymbolsResponse {
+  repeated Symbol symbols = 1;
+  uint64 revision = 2;
+  bool stale = 3;
+  uint64 translation_units_indexed = 4;
+  uint64 translation_units_total = 5;
+  bool truncated = 6;
+}
+
+// Internal request/result files used by ctk-index-worker. They are not RPCs.
+message IndexWorkerRequest {
+  string source = 1;
+  string compile_commands_directory = 2;
+  bool list_translation_units = 3;
+  string working_directory = 4;
+  repeated string compile_arguments = 5;
+}
+message IndexWorkerTranslationUnit {
+  string source = 1;
+  string compile_context = 2;
+  string working_directory = 3;
+  repeated string compile_arguments = 4;
+}
+message IndexWorkerDependency { string path = 1; string sha256 = 2; }
+message IndexWorkerResponse {
+  bool success = 1;
+  string error = 2;
+  string compile_context = 3;
+  repeated IndexWorkerDependency dependencies = 4;
+  repeated Symbol symbols = 5;
+  repeated IndexWorkerTranslationUnit translation_units = 6;
+}

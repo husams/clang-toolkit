@@ -91,6 +91,7 @@ _REGEX_LITERALS = {
     "SESSION": "session",
     "LIST": "list", "ATTACH": "attach", "SERVER": "server", "STATUS": "status",
     "CACHE": "cache", "PRUNE": "prune", "BINDINGS": "bindings", "BINDING": "binding",
+    "INDEX": "index", "FIND": "find", "LOOKUP": "lookup",
     "DROP": "drop", "RENAME": "rename", "APPEND": "append",
     "START": "start",
     "PAUSE": "pause",

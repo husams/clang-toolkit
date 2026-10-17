@@ -96,6 +96,8 @@ _COMMAND_VALUE_KINDS = frozenset(
         "session_label", "session_start", "session_add", "session_match", "session_pause",
         "session_resume", "session_close", "session_list", "session_attach",
         "session_close_retained", "server_status", "cache_status", "cache_prune",
+        "index_start", "index_status", "index_pause", "index_resume", "index_cancel",
+        "index_find", "index_lookup",
         "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file", "cfg_binding", "variable_flow",
         "callgraph", "callgraph_file", "callgraph_binding", "help", "help_shortcut", "traverse", "script",
         "peek", "step",
@@ -478,6 +480,11 @@ class Runtime:
                 scope = self._scopes[-1] if self._scopes else self.bindings
                 scope[name] = value
             return value, None
+        if kind.startswith("index_"):
+            from .project_index import execute_project_index
+
+            value, text = execute_project_index(self, statement)
+            return value, None if value_context else self._emit_output(text)
         if kind in {"server_status", "cache_status", "session_list", "cache_prune"}:
             from .management import execute_management_value
 

@@ -3,6 +3,7 @@
 #include "ctk/config/config.hpp"
 #include "ctk/net/analysis_service.hpp"
 #include "ctk/net/match_service.hpp"
+#include "ctk/net/index_service.hpp"
 #include "ctk/net/network_service.hpp"
 #include "ctk/platform/endpoint_lease.hpp"
 #include <grpcpp/server.h>
@@ -36,6 +37,7 @@ private:
   application::ScriptController scripts_;
   application::BatchRegistry batches_;
   AnalysisServiceAdapter analysis_service_;
+  IndexServiceAdapter index_service_;
   std::unique_ptr<platform::EndpointLease> lease_;
   std::unique_ptr<grpc::Server> server_;
 };

@@ -21,6 +21,8 @@ import grpc
 from google.protobuf.message import DecodeError
 
 from clang_toolkit._generated.query.v1 import query_pb2, query_pb2_grpc
+from clang_toolkit._generated.index.v1 import index_service_pb2 as index_pb
+from clang_toolkit._generated.index.v1 import index_service_pb2_grpc as index_grpc
 from clang_toolkit.configuration import NetworkConfig, load_network_config
 from clang_toolkit.version import VersionInfo
 from clang_toolkit.cursors import CursorError, file_request, retained_request
@@ -1484,6 +1486,53 @@ class AsyncClient:
         except grpc.aio.AioRpcError as error:
             raise CursorError(error.code(), error.details()) from error
 
+    async def _index_call(self, method: str, request: Any) -> Any:
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        stub = index_grpc.IndexServiceStub(self._channel)
+        try:
+            return await getattr(stub, method)(request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise CursorError(error.code(), error.details()) from error
+
+    async def start_project_index(
+        self, project_root: str | Path, *, compile_commands: str | Path = "",
+        poll_interval_seconds: int = 2,
+    ) -> index_pb.ProjectIndexStatus:
+        """Enqueue background indexing; paths refer to the server filesystem."""
+        if not 1 <= poll_interval_seconds <= 3600:
+            raise ValueError("poll_interval_seconds must be between 1 and 3600")
+        return await self._index_call("StartProjectIndex", index_pb.StartProjectIndexRequest(
+            project_root=str(project_root), compile_commands=str(compile_commands),
+            poll_interval_seconds=poll_interval_seconds))
+
+    async def project_index_status(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        """Probe progress without waiting for background work."""
+        return await self._index_call("GetProjectIndexStatus", index_pb.ProjectIndexRequest(project_root=str(project_root)))
+
+    async def pause_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return await self._index_call("PauseProjectIndex", index_pb.ProjectIndexRequest(project_root=str(project_root)))
+
+    async def resume_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return await self._index_call("ResumeProjectIndex", index_pb.ProjectIndexRequest(project_root=str(project_root)))
+
+    async def cancel_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return await self._index_call("CancelProjectIndex", index_pb.ProjectIndexRequest(project_root=str(project_root)))
+
+    async def find_symbols(self, project_root: str | Path, query: str, *,
+                           limit: int = 100, prefix: bool = False) -> index_pb.FindSymbolsResponse:
+        """Find declarations/definitions without loading native ASTs."""
+        if not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        return await self._index_call("FindSymbols", index_pb.FindSymbolsRequest(
+            project_root=str(project_root), query=query, limit=limit,
+            match_mode=(index_pb.FindSymbolsRequest.MATCH_MODE_PREFIX if prefix
+                        else index_pb.FindSymbolsRequest.MATCH_MODE_EXACT)))
+
+    async def lookup_symbol(self, project_root: str | Path, usr: str) -> index_pb.FindSymbolsResponse:
+        return await self._index_call("LookupSymbol", index_pb.LookupSymbolRequest(
+            project_root=str(project_root), usr=usr))
+
     async def server_status(self) -> match_service_pb2.ServerStatusResponse:
         """Read live process, retained cursor, memory cache and disk artifact usage."""
         return await self._management_call("ServerStatus", match_service_pb2.ServerStatusRequest())
@@ -2097,6 +2146,32 @@ class Client:
 
     def resource_status(self) -> Any:
         return self._cursor_call("resource_status")
+
+    def start_project_index(self, project_root: str | Path, *,
+                            compile_commands: str | Path = "",
+                            poll_interval_seconds: int = 2) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("start_project_index", project_root,
+                                 compile_commands=compile_commands,
+                                 poll_interval_seconds=poll_interval_seconds)
+
+    def project_index_status(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("project_index_status", project_root)
+
+    def pause_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("pause_project_index", project_root)
+
+    def resume_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("resume_project_index", project_root)
+
+    def cancel_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("cancel_project_index", project_root)
+
+    def find_symbols(self, project_root: str | Path, query: str, *,
+                     limit: int = 100, prefix: bool = False) -> index_pb.FindSymbolsResponse:
+        return self._cursor_call("find_symbols", project_root, query, limit=limit, prefix=prefix)
+
+    def lookup_symbol(self, project_root: str | Path, usr: str) -> index_pb.FindSymbolsResponse:
+        return self._cursor_call("lookup_symbol", project_root, usr)
 
     def server_status(self) -> match_service_pb2.ServerStatusResponse:
         return self._cursor_call("server_status")

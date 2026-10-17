@@ -38,6 +38,13 @@ parameters: NAME (COMMA NAME)*
         | SESSION LIST                   -> session_list
         | SESSION ATTACH (STRING | reference) INTO reference -> session_attach
         | SERVER STATUS                  -> server_status
+        | INDEX START STRING             -> index_start
+        | INDEX STATUS STRING            -> index_status
+        | INDEX PAUSE STRING             -> index_pause
+        | INDEX RESUME STRING            -> index_resume
+        | INDEX CANCEL STRING            -> index_cancel
+        | INDEX FIND STRING IN STRING    -> index_find
+        | INDEX LOOKUP STRING IN STRING  -> index_lookup
         | CACHE STATUS                   -> cache_status
         | CACHE PRUNE NAME?              -> cache_prune
         | BINDINGS                       -> bindings_list
@@ -336,6 +343,9 @@ editor_start: editor_token*
              | LIST
              | ATTACH
              | SERVER
+             | INDEX
+             | FIND
+             | LOOKUP
              | STATUS
              | CACHE
              | PRUNE
@@ -466,6 +476,9 @@ LIST.2: /list(?![a-zA-Z0-9_])/
 ATTACH.2: /attach(?![a-zA-Z0-9_])/
 SERVER.2: /server(?![a-zA-Z0-9_])/
 STATUS.2: /status(?![a-zA-Z0-9_])/
+INDEX.2: /index(?![a-zA-Z0-9_])/
+FIND.2: /find(?![a-zA-Z0-9_])/
+LOOKUP.2: /lookup(?![a-zA-Z0-9_])/
 CACHE.2: /cache(?![a-zA-Z0-9_])/
 PRUNE.2: /prune(?![a-zA-Z0-9_])/
 BINDINGS.2: /bindings(?![a-zA-Z0-9_])/

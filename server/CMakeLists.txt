@@ -1,6 +1,7 @@
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+include(GNUInstallDirs)
 
 add_library(ctk_cache
   src/cache/cache_state.cpp
@@ -87,12 +88,13 @@ if(CTK_BUILD_NETWORK)
     src/net/protocol_adapter.cpp
     src/net/outbound_event_queue.cpp
     src/net/query_call_state.cpp
+    src/platform/index_worker.cpp
     src/net/network_service.cpp)
   target_sources(ctk_network PRIVATE src/net/match_service.cpp src/net/match_status.cpp
-    src/net/analysis_service.cpp)
+    src/net/analysis_service.cpp src/net/index_service.cpp)
   target_include_directories(ctk_network PUBLIC include)
   target_link_libraries(ctk_core PUBLIC ctk_query_api ctk_analysis_api)
-  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc Threads::Threads)
+  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto)
 endif()
 
 if(CTK_WITH_CLANG)
@@ -111,6 +113,7 @@ if(CTK_WITH_CLANG)
     src/clang/match_project.cpp
     src/clang/cfg_project.cpp
     src/clang/call_graph_project.cpp
+    src/clang/project_index_extract.cpp
     src/clang/cached_query_engine.cpp
     src/clang/compilation_database.cpp
     src/clang/file_discovery.cpp
@@ -172,6 +175,12 @@ endif()
 if(CTK_BUILD_NETWORK)
   add_executable(ctk-server src/main.cpp)
   target_link_libraries(ctk-server PRIVATE ctk_network)
-  include(GNUInstallDirs)
+  if(CTK_WITH_CLANG)
+    add_executable(ctk-index-worker src/index_worker_main.cpp)
+    target_sources(ctk-index-worker PRIVATE src/platform/index_worker.cpp)
+    target_link_libraries(ctk-index-worker PRIVATE ctk_clang ctk_index_api)
+    add_dependencies(ctk-server ctk-index-worker)
+    install(TARGETS ctk-index-worker RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT ctk-server)
+  endif()
   install(TARGETS ctk-server RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT ctk-server)
 endif()
