@@ -1,5 +1,6 @@
 #include "ctk/net/index_service.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -72,6 +73,20 @@ protected:
         << ",\"arguments\":[" << compiler
         << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-c\"," << source_two
         << "]}]";
+  }
+  fs::path worker_wrapper(const fs::path &counter) {
+    const auto shell_word = [](const std::string &value) {
+      std::string out = "'";
+      for (char c : value)
+        out += c == '\'' ? "'\"'\"'" : std::string(1, c);
+      return out + "'";
+    };
+    const auto path = root / "index-worker-wrapper";
+    std::ofstream(path) << "#!/bin/sh\nprintf . >> "
+                        << shell_word(counter.string()) << "\nexec "
+                        << shell_word(CTK_TEST_INDEX_WORKER) << " \"$@\"\n";
+    fs::permissions(path, fs::perms::owner_all);
+    return path;
   }
   void replace_argument(const std::string &original,
                         const std::string &replacement) {
@@ -152,6 +167,83 @@ protected:
 };
 
 TEST_F(ProjectIndexServiceTest,
+       WorkerRebuildMetadataDoesNotInvalidateUnchangedTus) {
+  const auto counter = root / "worker-launches";
+  const auto wrapper = worker_wrapper(counter);
+  ProjectIndexStatus initial;
+  {
+    IndexServiceAdapter service(storage, {}, wrapper);
+    initial = start_and_wait(service);
+  }
+  // Same extractor behavior, different executable bytes (e.g. relink/build
+  // UUID).
+  std::ofstream(wrapper, std::ios::app) << "# unrelated rebuild metadata\n";
+  {
+    IndexServiceAdapter service(storage, {}, wrapper);
+    const auto restarted = start_and_wait(service);
+    EXPECT_EQ(restarted.revision(), initial.revision());
+    EXPECT_EQ(restarted.translation_units_skipped(), 3);
+    EXPECT_EQ(restarted.translation_units_indexed(), 3);
+    EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+  }
+  std::ifstream launches(counter);
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(),
+            5);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       ForegroundBurstYieldsStagedPublicationWithoutReextracting) {
+  std::string source = "#include \"shared.h\"\n";
+  for (int i = 0; i != 3000; ++i)
+    source += "int burst" + std::to_string(i) + "(){return 1;}\n";
+  write("one.cpp", source);
+  const auto counter = root / "worker-launches";
+  const auto wrapper = worker_wrapper(counter);
+  std::atomic<unsigned> calls{0};
+  std::chrono::steady_clock::time_point busy_until{};
+  IndexServiceAdapter service(
+      storage,
+      [&] {
+        if (++calls == 1000)
+          busy_until =
+              std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+        return std::chrono::steady_clock::now() < busy_until;
+      },
+      wrapper);
+  start_and_wait(service);
+  EXPECT_GE(calls.load(), 1000u);
+  EXPECT_EQ(find(service, "burst2999", false).symbols_size(), 2);
+  std::ifstream launches(counter);
+  // One discovery and three successful extractions, despite the burst.
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(),
+            4);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       InputEditWhilePublicationYieldsIsReextractedBeforeCommit) {
+  std::string source = "#include \"shared.h\"\n";
+  for (int i = 0; i != 3000; ++i)
+    source += "int burst" + std::to_string(i) + "(){return 1;}\n";
+  write("one.cpp", source);
+  std::atomic<unsigned> calls{0};
+  std::chrono::steady_clock::time_point busy_until{};
+  IndexServiceAdapter service(
+      storage,
+      [&] {
+        if (++calls == 1000) {
+          write("shared.h", "struct AddedDuringForeground {};\n");
+          busy_until =
+              std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+        }
+        return std::chrono::steady_clock::now() < busy_until;
+      },
+      CTK_TEST_INDEX_WORKER);
+  start_and_wait(service);
+  EXPECT_GE(calls.load(), 1000u);
+  EXPECT_EQ(find(service, "AddedDuringForeground", false).symbols_size(), 3);
+}
+
+TEST_F(ProjectIndexServiceTest,
        PopulatedLookupsBoundMetadataReadsBeforeJoining) {
   IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
   start_and_wait(service);
@@ -206,6 +298,9 @@ TEST_F(ProjectIndexServiceTest,
   ASSERT_TRUE(service.LookupSymbol(&context, &request, &result).ok());
   EXPECT_EQ(result.symbols_size(), 1000);
   EXPECT_TRUE(result.truncated());
+  // Index sharing must not turn exact searches into case-insensitive searches.
+  EXPECT_EQ(find(service, "lookupprobe", false).symbols_size(), 0);
+  EXPECT_EQ(find(service, "NS::LOOKUPPROBE", false).symbols_size(), 0);
   ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
   ASSERT_EQ(sqlite3_exec(db,
                          "INSERT INTO symbol SELECT id,'c:@literal',"
@@ -251,6 +346,39 @@ TEST_F(ProjectIndexServiceTest,
   ASSERT_EQ(sqlite3_step(tables), SQLITE_ROW);
   EXPECT_EQ(sqlite3_column_int(tables, 0), 3);
   sqlite3_finalize(tables);
+  ASSERT_EQ(sqlite3_prepare_v2(db,
+                               "SELECT count(*) FROM sqlite_master WHERE "
+                               "type='index' AND tbl_name='symbol' "
+                               "AND name NOT LIKE 'sqlite_%'",
+                               -1, &tables, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(tables), SQLITE_ROW);
+  EXPECT_EQ(sqlite3_column_int(tables, 0), 3);
+  sqlite3_finalize(tables);
+  sqlite3_stmt *exact_plan = nullptr;
+  ASSERT_EQ(
+      sqlite3_prepare_v2(db,
+                         "EXPLAIN QUERY PLAN SELECT name FROM symbol "
+                         "INDEXED BY symbol_name_prefix WHERE "
+                         "name='alphaOnly' COLLATE NOCASE AND "
+                         "+name='alphaOnly' COLLATE BINARY UNION SELECT name "
+                         "FROM symbol INDEXED BY symbol_qualified_prefix WHERE "
+                         "qualified_name='alphaOnly' COLLATE NOCASE AND "
+                         "+qualified_name='alphaOnly' COLLATE BINARY",
+                         -1, &exact_plan, nullptr),
+      SQLITE_OK);
+  bool name_seek = false, qualified_seek = false;
+  while (sqlite3_step(exact_plan) == SQLITE_ROW) {
+    const auto *detail =
+        reinterpret_cast<const char *>(sqlite3_column_text(exact_plan, 3));
+    const std::string plan = detail ? detail : "";
+    name_seek |= plan.find("symbol_name_prefix") != std::string::npos;
+    qualified_seek |= plan.find("symbol_qualified_prefix") != std::string::npos;
+    EXPECT_EQ(plan.find("SCAN symbol"), std::string::npos);
+  }
+  EXPECT_TRUE(name_seek);
+  EXPECT_TRUE(qualified_seek);
+  sqlite3_finalize(exact_plan);
   // These hot-path counts must remain independent of manifest payload size.
   for (const char *query :
        {"EXPLAIN QUERY PLAN SELECT count(*) FROM "

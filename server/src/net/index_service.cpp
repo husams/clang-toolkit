@@ -174,9 +174,10 @@ public:
     // Sort narrow candidates before loading symbol payloads and TU metadata.
     // Joining first reads the large TU overflow records once per match, even
     // when nearly all those matches will be discarded by LIMIT.
-    const std::string columns =
+    const std::string projection =
         "SELECT tu_id,usr,file_path,byte_offset,is_definition,qualified_name "
-        "FROM symbol WHERE ";
+        "FROM symbol";
+    const std::string columns = projection + " WHERE ";
     // Prefix matching and ordering share NOCASE, allowing the qualified-name
     // index to stop early. Bound each OR arm before merging and deduplicating.
     const std::string order =
@@ -192,10 +193,20 @@ public:
             "SELECT * FROM name_matches UNION SELECT * FROM qualified_matches "
             "ORDER BY " +
             order + " LIMIT ?3), ";
+    } else if (!by_usr) {
+      // Unary + keeps BINARY equality as a residual filter: otherwise SQLite
+      // can choose that equality for access and scan instead of the NOCASE
+      // index.
+      sql = "WITH candidates AS MATERIALIZED (" + projection +
+            " INDEXED BY symbol_name_prefix WHERE name=?1 COLLATE NOCASE "
+            "AND +name=?1 COLLATE BINARY UNION " +
+            projection +
+            " INDEXED BY symbol_qualified_prefix WHERE qualified_name=?2 "
+            "COLLATE NOCASE AND +qualified_name=?2 COLLATE BINARY ORDER BY " +
+            order + " LIMIT ?3), ";
     } else {
-      sql = "WITH candidates AS MATERIALIZED (" + columns +
-            (by_usr ? "usr=?1" : "(name=?1 OR qualified_name=?2)") +
-            " ORDER BY " + order + (by_usr ? " LIMIT ?2), " : " LIMIT ?3), ");
+      sql = "WITH candidates AS MATERIALIZED (" + columns + "usr=?1 ORDER BY " +
+            order + " LIMIT ?2), ";
     }
     // Older stores remain readable before their background schema upgrade.
     // Once available, force the covering index: SQLite otherwise sometimes
@@ -342,9 +353,8 @@ private:
           found = cache
                       .emplace(path, digest_file(path,
                                                  [&] {
-                                                   return admitted(job) &&
-                                                          (!foreground_busy_ ||
-                                                           !foreground_busy_());
+                                                   await_admission(job);
+                                                   return true;
                                                  }))
                       .first;
         } catch (...) {
@@ -455,7 +465,9 @@ private:
   void replace(const Job &job, Database &db,
                const IndexWorkerTranslationUnit &unit, const std::string &id,
                const std::string &command_hash,
-               const IndexWorkerResponse &response) {
+               const IndexWorkerResponse &response,
+               const std::string &commands_digest,
+               fs::file_time_type worker_time) {
     google::protobuf::Struct manifest;
     for (const auto &dependency : response.dependencies())
       (*manifest.mutable_fields())[dependency.path()].set_string_value(
@@ -494,8 +506,9 @@ private:
         "symbol(tu_id,usr,name,qualified_name,kind,file_path,byte_offset,is_"
         "definition,line,column_no,signature) VALUES(?,?,?,?,?,?,?,?,?,?,?)");
     for (const auto &value : response.symbols()) {
-      if (!admitted(job) || (foreground_busy_ && foreground_busy_()))
-        throw Interrupted();
+      // WAL readers do not need our writer lock. Yield to foreground work
+      // without discarding all already-staged rows and re-extracting the TU.
+      await_admission(job);
       symbol.bind(1, id);
       symbol.bind(2, value.usr());
       symbol.bind(3, value.name());
@@ -510,6 +523,16 @@ private:
       symbol.step();
       symbol.reset();
     }
+    // Files or build commands may have changed while publication yielded.
+    // Publish only if the extracted inputs still match the current inputs.
+    fresh.clear();
+    if (!manifest_current(job, dependencies(encoded), fresh) ||
+        commands_digest !=
+            digest_file(
+                (fs::path(job.commands) / "compile_commands.json").string()) ||
+        worker_time != fs::last_write_time(executable_))
+      throw Interrupted();
+    progress(job, [](auto &s) { s.set_state(INDEX_STATE_INDEXING); });
     bump(db);
     commit(job, transaction);
   }
@@ -549,8 +572,10 @@ private:
     listing.set_compile_commands_directory(job.commands);
     const auto commands_digest = digest_file(
         (fs::path(job.commands) / "compile_commands.json").string());
+    const auto worker_time = fs::last_write_time(executable_);
     auto listing_result = execute(job, listing, directory);
-    if (commands_digest.empty() ||
+    if (worker_time != fs::last_write_time(executable_) ||
+        commands_digest.empty() ||
         commands_digest !=
             digest_file(
                 (fs::path(job.commands) / "compile_commands.json").string()))
@@ -561,17 +586,9 @@ private:
     std::uint64_t completed = 0, skipped = 0, failed = 0;
     std::set<std::string> failed_sources;
     std::map<std::string, std::string> digest_cache;
-    // Version/toolchain identity is part of each command key. Replacing the
-    // extractor invalidates its saved contributions without a fourth table.
-    const auto executable_time = fs::last_write_time(executable_);
-    if (extractor_stamp_.empty() || executable_time != extractor_time_) {
-      extractor_stamp_ =
-          digest_file(executable_.string(), [&] { return admitted(job); });
-      if (extractor_stamp_.empty())
-        throw Interrupted();
-      extractor_time_ = executable_time;
-    }
-    const auto &extractor_stamp = extractor_stamp_;
+    // The worker context includes its extraction-source fingerprint, Clang
+    // version, compiler, arguments and environment. Executable bytes also
+    // contain unrelated build metadata and must not invalidate every TU.
     auto saved_revision = revision(db), saved_count = count_units(db);
     progress(job, [&](auto &s) {
       s.set_state(INDEX_STATE_INDEXING);
@@ -585,14 +602,12 @@ private:
       s.clear_error();
     });
     for (const auto &unit : listing_result.translation_units()) {
-      const auto command_hash =
-          digest_text(unit.compile_context() + extractor_stamp);
+      const auto command_hash = digest_text(unit.compile_context());
       active.insert(digest_text(unit.source() + '\n' + command_hash));
     }
     for (const auto &unit : listing_result.translation_units()) {
       await_admission(job);
-      const auto command_hash =
-          digest_text(unit.compile_context() + extractor_stamp);
+      const auto command_hash = digest_text(unit.compile_context());
       const auto id = digest_text(unit.source() + '\n' + command_hash);
       progress(job,
                [&](auto &s) { s.set_current_translation_unit(unit.source()); });
@@ -627,7 +642,8 @@ private:
               digest_file(
                   (fs::path(job.commands) / "compile_commands.json").string()))
             throw Interrupted();
-          replace(job, db, unit, id, command_hash, response);
+          replace(job, db, unit, id, command_hash, response, commands_digest,
+                  worker_time);
           ++completed;
         } catch (const Interrupted &) {
           throw;
@@ -755,8 +771,6 @@ private:
   }
   fs::path storage_, executable_;
   std::function<bool()> foreground_busy_;
-  std::string extractor_stamp_;
-  fs::file_time_type extractor_time_{};
   std::mutex mutex_;
   std::condition_variable changed_;
   Job job_;
