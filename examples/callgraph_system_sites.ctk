@@ -1,0 +1,20 @@
+// Run from the repository root against the updated server.
+// The fixture includes <stdexcept> and our own header implementations.
+let filename = callgraph "examples/callgraph_boundaries.cc" exclude-system true node-filter 'functionDecl(anyOf(matchesName("(^|::)project::"), hasName("entry")))'
+let tree = parse "examples/callgraph_boundaries.cc"
+let parsed = callgraph in tree exclude-system true node-filter 'functionDecl(anyOf(matchesName("(^|::)project::"), hasName("entry")))'
+let entries = match functionDecl(hasName("entry"), isDefinition()).bind("f") in tree
+let matched = callgraph in entries[0].f depth all exclude-system true node-filter 'functionDecl(anyOf(matchesName("(^|::)project::"), hasName("entry")))'
+foreach row in [{"label": "FILENAME", "graph": filename}, {"label": "PARSED", "graph": parsed}, {"label": "MATCHED", "graph": matched}] do {
+    let graph = row.graph
+    let roots = graph.call_sites | filter((site) = site.caller_node == graph.root_node)
+    print "{row.label}: nodes={graph.nodes.length}, edges={graph.edges.length}, sites={graph.call_sites.length}, root_sites={roots.length}, complete={graph.is_complete}"
+}
+foreach node in matched.nodes do {
+    if not node.is_virtual_root then { print node.function.qualified_name }
+}
+foreach edge in matched.edges do {
+    if not edge.is_virtual_root_edge then {
+        print "{matched.nodes[edge.caller_node].function.qualified_name} -> {matched.nodes[edge.callee_node].function.qualified_name}"
+    }
+}

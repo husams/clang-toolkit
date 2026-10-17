@@ -8,6 +8,7 @@ from lark import Token, Tree
 
 from clang_toolkit._generated.match.v1 import match_service_pb2 as pb
 from clang_toolkit.match_values import BindingSelection, MatchValue, ParsedTree
+from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
 
 if TYPE_CHECKING:
     from .evaluator import Runtime
@@ -24,7 +25,7 @@ def variable_name(node: Any) -> str:
 def _session_id(runtime: Runtime, node: Any) -> str:
     from .evaluator import EvaluationError
     value = runtime._evaluate(node)
-    if isinstance(value, (ParsedTree, MatchValue, BindingSelection)):
+    if isinstance(value, (ParsedTree, MatchValue, BindingSelection, CallGraph, CallGraphNodeValue)) and value._owner is not None:
         return value._owner.session_id
     if isinstance(value, str):
         return value
@@ -121,7 +122,7 @@ def execute_management(runtime: Runtime, statement: Tree) -> str:
         rows: list[tuple[str, str]] = []
         for name, value in sorted(runtime.bindings.items()):
             details = type(value).__name__
-            if isinstance(value, (ParsedTree, MatchValue, BindingSelection)):
+            if isinstance(value, (ParsedTree, MatchValue, BindingSelection, CallGraph, CallGraphNodeValue)) and value._owner is not None:
                 details += f" | session {value._owner.session_id} | " + ("closed" if value._owner.closed else "open")
             rows.append((f"${name}", details))
         return "No bindings." if not rows else "Bindings\n" + _table(rows)
@@ -143,7 +144,7 @@ def execute_management(runtime: Runtime, statement: Tree) -> str:
         runtime.client.close_match(identity)
         # Mark aliases closed after RPC success; independent derived cursors survive.
         for value in runtime.bindings.values():
-            if isinstance(value, (ParsedTree, MatchValue, BindingSelection)) and value._owner.session_id == identity:
+            if isinstance(value, (ParsedTree, MatchValue, BindingSelection, CallGraph, CallGraphNodeValue)) and value._owner is not None and value._owner.session_id == identity:
                 value._owner.closed = True
         return ""
     if kind == "session_attach":

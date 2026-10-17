@@ -12,6 +12,7 @@ namespace ctk::application {
 struct CursorSettings {
   std::size_t workers{3}, pending_requests{100}, max_cursors{100};
   std::uint64_t max_memory_bytes{2147483648ULL};
+  std::uint64_t call_graph_default_max_nodes{10000};
   std::chrono::milliseconds idle_ttl{300000};
   ctk::clang_layer::MatchLimits results;
   std::shared_ptr<ResourceManager> resources;
@@ -74,7 +75,14 @@ public:
   MatchReply native_state(
       const std::string &owner, const ctk::match::v1::MatchRequest &target,
       std::shared_ptr<const ctk::clang_layer::NativeBindingState> &state,
-      const std::string &work_token);
+      const std::string &work_token,
+      ctk::match::v1::InputDescriptor *input = nullptr);
+  // Publish already captured exact bindings, without executing a matcher.
+  MatchReply retain_native(
+      const std::string &owner, ctk::clang_layer::MatchExecution execution,
+      const ctk::match::v1::InputDescriptor &input, const std::string &scope_id,
+      const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint);
+
   MatchReply close(const std::string &owner, const std::string &id);
   ctk::match::v1::ListSessionsResponse list_sessions(const std::string &owner);
   MatchReply attach_session(const std::string &owner, const std::string &id,

@@ -1,0 +1,49 @@
+// Run from the repository root with the compiled console engine.
+let file_graph = callgraph "examples/callgraph_reuse.cc" main-file true
+print "FILE_NODES={file_graph.nodes.length}"
+print "CALL_SITES={file_graph.call_sites.length}"
+
+let tree = parse "examples/callgraph_reuse.cc"
+let payments = match functionDecl(isDefinition(), hasName("demo::chargeCard")).bind("f") in tree
+let checkouts = match functionDecl(isDefinition(), hasName("demo::checkout")).bind("f") in tree
+let api_requests = match functionDecl(isDefinition(), hasName("demo::apiRequest")).bind("f") in tree
+let all = callgraph in tree
+print "TREE_NODES={all.nodes.length}"
+print "COMPLETE={all.is_complete}"
+let reachable = callgraph in api_requests[0].f depth all
+print "REACHABLE_FUNCTIONS={reachable.nodes.length - 1}"
+print "REACHABLE_CALLS={reachable.edges.length}"
+
+let incoming = callgraph in payments[0].f direction in depth 2
+save incoming to "/tmp/ctk-callgraph-incoming.json" as json
+foreach edge in incoming.edges do {
+    if not edge.is_virtual_root_edge then {
+        print "{incoming.nodes[edge.caller_node].function.qualified_name} -> {incoming.nodes[edge.callee_node].function.qualified_name}"
+    }
+}
+
+// Repeated questions use the collected graph's indexes without another query.
+let payment = all.function(payments[0].f)
+let local = all.callers(payment, depth=2)
+print "LOCAL_EDGES={local.edges.length}"
+let route = all.shortest_route("demo::apiRequest", payment)
+print "ROUTE_STEPS={route.length}"
+let groups = all.grouped_calls()
+print "CALL_GROUPS={groups.length}"
+
+let calls = match callExpr().bind("c") in checkouts[0].f
+let selected = callgraph in calls[0].c
+print "SELECTED_SITES={selected.call_sites.length}"
+
+let indirects = match functionDecl(isDefinition(), hasName("demo::indirect")).bind("f") in tree
+let unresolved = match callExpr().bind("c") in indirects[0].f
+let unknown = callgraph in unresolved[0].c
+print "UNRESOLVED_SITES={unknown.call_sites.length}"
+print unknown.call_sites[0].facts.dispatch
+
+// A graph query leaves the original matched function available for CFG.
+let flow = cfg in checkouts[0].f
+print "CFG_GRAPHS={flow.graphs.length}"
+
+// A standalone query uses the compact streamed report by default.
+callgraph in payments[0].f direction in depth 2

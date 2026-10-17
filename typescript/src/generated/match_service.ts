@@ -353,6 +353,7 @@ import type { AttachSessionRequest as _ctk_match_v1_AttachSessionRequest, Attach
 import type { BindingMatchTarget as _ctk_match_v1_BindingMatchTarget, BindingMatchTarget__Output as _ctk_match_v1_BindingMatchTarget__Output } from './ctk/match/v1/BindingMatchTarget.js';
 import type { CacheResources as _ctk_match_v1_CacheResources, CacheResources__Output as _ctk_match_v1_CacheResources__Output } from './ctk/match/v1/CacheResources.js';
 import type { CallSiteFacts as _ctk_match_v1_CallSiteFacts, CallSiteFacts__Output as _ctk_match_v1_CallSiteFacts__Output } from './ctk/match/v1/CallSiteFacts.js';
+import type { ClassTemplateFacts as _ctk_match_v1_ClassTemplateFacts, ClassTemplateFacts__Output as _ctk_match_v1_ClassTemplateFacts__Output } from './ctk/match/v1/ClassTemplateFacts.js';
 import type { CloseAllFilesRequest as _ctk_match_v1_CloseAllFilesRequest, CloseAllFilesRequest__Output as _ctk_match_v1_CloseAllFilesRequest__Output } from './ctk/match/v1/CloseAllFilesRequest.js';
 import type { CloseFileRequest as _ctk_match_v1_CloseFileRequest, CloseFileRequest__Output as _ctk_match_v1_CloseFileRequest__Output } from './ctk/match/v1/CloseFileRequest.js';
 import type { CloseFileResponse as _ctk_match_v1_CloseFileResponse, CloseFileResponse__Output as _ctk_match_v1_CloseFileResponse__Output } from './ctk/match/v1/CloseFileResponse.js';
@@ -810,6 +811,7 @@ export interface ProtoGrpcType {
         CacheResources: MessageTypeDefinition<_ctk_match_v1_CacheResources, _ctk_match_v1_CacheResources__Output>
         CallDispatch: EnumTypeDefinition
         CallSiteFacts: MessageTypeDefinition<_ctk_match_v1_CallSiteFacts, _ctk_match_v1_CallSiteFacts__Output>
+        ClassTemplateFacts: MessageTypeDefinition<_ctk_match_v1_ClassTemplateFacts, _ctk_match_v1_ClassTemplateFacts__Output>
         CloseAllFilesRequest: MessageTypeDefinition<_ctk_match_v1_CloseAllFilesRequest, _ctk_match_v1_CloseAllFilesRequest__Output>
         CloseFileRequest: MessageTypeDefinition<_ctk_match_v1_CloseFileRequest, _ctk_match_v1_CloseFileRequest__Output>
         CloseFileResponse: MessageTypeDefinition<_ctk_match_v1_CloseFileResponse, _ctk_match_v1_CloseFileResponse__Output>
@@ -838,6 +840,7 @@ export interface ProtoGrpcType {
         MatchStreamCompleted: MessageTypeDefinition<_ctk_match_v1_MatchStreamCompleted, _ctk_match_v1_MatchStreamCompleted__Output>
         MatchStreamEvent: MessageTypeDefinition<_ctk_match_v1_MatchStreamEvent, _ctk_match_v1_MatchStreamEvent__Output>
         MatchTraversalMode: EnumTypeDefinition
+        NavigationAxis: EnumTypeDefinition
         OpenFileRequest: MessageTypeDefinition<_ctk_match_v1_OpenFileRequest, _ctk_match_v1_OpenFileRequest__Output>
         OpenResourceScopeRequest: MessageTypeDefinition<_ctk_match_v1_OpenResourceScopeRequest, _ctk_match_v1_OpenResourceScopeRequest__Output>
         ParseRequest: MessageTypeDefinition<_ctk_match_v1_ParseRequest, _ctk_match_v1_ParseRequest__Output>

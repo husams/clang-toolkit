@@ -12,6 +12,16 @@ Feature: Pipe filters and tuple callbacks in the console
       | compiled |
       | tree     |
 
+  Scenario Outline: List selection preserves native row handles
+    Given an isolated pipe-filter console and class fixture
+    When I execute list selection using the "<engine>" engine
+    Then selection prints the expected lists and retained field
+
+    Examples:
+      | engine   |
+      | compiled |
+      | tree     |
+
   Scenario: The interactive prompt executes the complete tuple pipeline
     Given an isolated pipe-filter console and class fixture
     When I paste the tuple pipeline into the real console terminal

@@ -55,6 +55,7 @@ class ResultTree:
     expanded: set[str] = field(default_factory=set)
     pages: dict[str, int] = field(default_factory=dict)
     refreshing: bool = False
+    result_key: str | None = None
 
     def render(self) -> str:
         # Preserve all rows and pagers while keeping a fully expanded preview
@@ -107,12 +108,12 @@ class ResultTrees:
             if tree.start >= end:
                 tree.start += length - (end - start)
 
-    async def show(self, kind: str, value: Any) -> bool:
+    async def show(self, kind: str, value: Any, *, result_key: str | None = None) -> bool:
         entries = await self.reader(kind, value, frozenset(), {})
         if entries is None:
             return False
         entries = entries or [PanelEntry(":empty", "No bindings")]
-        self.add(kind, value, entries)
+        self.add(kind, value, entries, result_key=result_key)
         return True
 
     def progress(self, value: BatchProgress) -> None:
@@ -136,7 +137,21 @@ class ResultTrees:
             tree.value, tree.entries = value, entries
             self.replace(tree)
 
-    def add(self, kind: str, value: Any, entries: list[PanelEntry]) -> None:
+    def add(self, kind: str, value: Any, entries: list[PanelEntry], *, result_key: str | None = None) -> None:
+        if result_key is not None:
+            # A successful rerun replaces its old rows, including expanded
+            # children, then appears below the newly submitted command.
+            for block in list(self.lexer.blocks):
+                if block.result_key != result_key:
+                    continue
+                previous = next((tree for tree in self.trees if tree.start == block.start), None)
+                if previous is None:
+                    # Static previews no longer own native values, but their
+                    # text must also disappear when this matcher runs again.
+                    previous = ResultTree(kind, None, block.start, [], text=block.text)
+                previous.entries = []
+                self.replace(previous)
+                self.trees = [tree for tree in self.trees if tree is not previous]
         # Older previews remain searchable, without retaining unbounded values.
         if len(self.trees) >= MAX_RESULT_TREES:
             oldest = self.trees[0]
@@ -150,9 +165,10 @@ class ResultTrees:
             self.replace(oldest)
             self.trees = [tree for tree in self.trees if tree is not oldest]
         tree = ResultTree(kind, value, len(self.results.text), entries)
+        tree.result_key = result_key
         tree.text = tree.render()
         self.trees.append(tree)
-        self.append(tree.text, tree.styled())
+        self.append(tree.text, tree.styled(), result_key=result_key)
 
     def at(self, line: int) -> tuple[ResultTree, int] | None:
         document = self.results.buffer.document
@@ -229,13 +245,15 @@ class ResultTrees:
         start, end = tree.start, tree.start + len(tree.text)
         tree.text = tree.render()
         self.lexer.replace(start, end, len(tree.text))
-        self.lexer.blocks.append(
-            StyledBlock(
-                start,
-                tree.text,
-                tree.styled(),
+        if tree.text:
+            self.lexer.blocks.append(
+                StyledBlock(
+                    start,
+                    tree.text,
+                    tree.styled(),
+                    tree.result_key,
+                )
             )
-        )
         for other in self.trees:
             if other is not tree and other.start >= end:
                 other.start += len(tree.text) - (end - start)

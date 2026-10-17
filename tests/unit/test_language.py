@@ -11,6 +11,8 @@ def test_parser_has_positions_and_command_aliases():
     assert parser().parse("cfg ns::Thing").children[0].data == "cfg"
     assert parser().parse("cfg Thing").children[0].data == "cfg"
     assert parser().parse("callgraph").children[0].data == "callgraph"
+    parsed = parser().parse('callgraph in "file.cc" depth all')
+    assert parsed.children[0].children[-1].data == "call_graph_depth"
     assert parser().parse("help").children[0].data == "help"
     tree = parser().parse("match callExpr()")
     assert tree.meta.start_pos == 0

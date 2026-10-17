@@ -1,0 +1,21 @@
+let tree = parse "examples/local_usage.cc"
+let functions = match functionDecl(isDefinition(), hasName("example")).bind("f") in tree
+let variables = match varDecl(hasLocalStorage(), hasName("x")).bind("v") in functions[0].f
+let report = variableflow variables[0].v in functions[0].f
+print "Variable: {report.analysis.variable}"
+let usages = foreach usage in report.usages do usage
+foreach usage in usages.sort("location.line") do {
+    foreach fact in report.facts do {
+        if fact.usage_id == usage.id {
+            print "Line {usage.location.line} {usage.kind}: before={fact.initialization}, reaching={fact.reaching_assignments}, dead_store={fact.dead_store}"
+        }
+    }
+}
+foreach finding in report.findings do {
+    foreach usage in usages do {
+        if usage.id == finding.usage_id {
+            print "Line {usage.location.line}: {finding.kind}"
+        }
+    }
+}
+print "Complete: {report.completed.is_complete}"

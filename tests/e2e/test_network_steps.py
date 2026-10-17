@@ -546,7 +546,8 @@ class RunningServer:
 
 
 def _launch_server(transport: str, tmp_path: Path, request, *, max_files: int = 100,
-                   max_send_bytes: int | None = None) -> RunningServer:
+                   max_send_bytes: int | None = None,
+                   call_graph_nodes: int | None = None) -> RunningServer:
     root = Path(__file__).parents[2]
     executable = Path(os.environ.get("CTK_SERVER", root / "build/dev/server/ctk-server"))
     if not executable.is_file():
@@ -588,8 +589,12 @@ def _launch_server(transport: str, tmp_path: Path, request, *, max_files: int = 
         endpoint = f"127.0.0.1:{port}"
         content = f"network:\n  transport: tcp\n  tcp:\n    host: 127.0.0.1\n    port: {port}\n"
     content += f"session:\n  max_files: {max_files}\n"
-    if max_send_bytes is not None:
-        content += f"server:\n  grpc:\n    max_send_message_bytes: {max_send_bytes}\n"
+    if max_send_bytes is not None or call_graph_nodes is not None:
+        content += "server:\n"
+        if max_send_bytes is not None:
+            content += f"  grpc:\n    max_send_message_bytes: {max_send_bytes}\n"
+        if call_graph_nodes is not None:
+            content += f"  call_graph:\n    default_max_nodes: {call_graph_nodes}\n"
     config.write_text(content, encoding="utf-8")
     env = dict(os.environ, HOME=str(home))
     env.pop("CLANG_TOOLKIT_HOME", None)

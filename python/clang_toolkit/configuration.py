@@ -41,7 +41,8 @@ _DEFAULTS: dict[str, Any] = {
     "network": {"transport": "unix", "unix": {"socket_path": None}, "tcp": {}},
     "pool": {"size": 3},
     "queue": {"size": 100},
-    "server": {"grpc": {"max_send_message_bytes": -1}, "shutdown_grace_ms": None},
+    "server": {"grpc": {"max_send_message_bytes": -1}, "shutdown_grace_ms": None,
+               "call_graph": {"default_max_nodes": 10000}},
     "session": {"max_files": 100, "max_memory_bytes": 2_147_483_648},
     "client": {"grpc": {"max_receive_message_bytes": -1}, "rpc_timeout_ms": None},
 }
@@ -52,7 +53,8 @@ _ALLOWED = {
     "network.tcp": {"host", "port"},
     "pool": {"size"},
     "queue": {"size"},
-    "server": {"grpc", "shutdown_grace_ms"},
+    "server": {"grpc", "shutdown_grace_ms", "call_graph"},
+    "server.call_graph": {"default_max_nodes"},
     "client": {"grpc", "rpc_timeout_ms"},
     "server.grpc": {"max_receive_message_bytes", "max_send_message_bytes"},
     "client.grpc": {"max_receive_message_bytes", "max_send_message_bytes"},
@@ -216,6 +218,8 @@ def _validate_supplied_values(value: dict[str, Any]) -> None:
                 raise ConfigurationError(f"{side}.grpc.{option} must be null, -1, or a positive integer")
     integer(value.get("client", {}), "rpc_timeout_ms", "client.rpc_timeout_ms", minimum=1, nullable=True)
     integer(value.get("server", {}), "shutdown_grace_ms", "server.shutdown_grace_ms", minimum=0, nullable=True)
+    integer(value.get("server", {}).get("call_graph", {}), "default_max_nodes",
+            "server.call_graph.default_max_nodes", minimum=0, maximum=(1 << 63) - 1)
 
 
 def _discovered_files(cwd: Path, home: Path, system_dir: Path) -> list[Path]:

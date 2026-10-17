@@ -20,6 +20,7 @@ trap 'rm -rf "$schema_directory"' EXIT
   --pyi_out="$output" \
   "$schema_directory/match/v1/"*.proto \
   "$schema_directory/analysis/v1"/*.proto \
+  "$schema_directory/index/v1"/*.proto \
   "$schema_directory/ast/v1"/*.proto \
   "$schema_directory/query/v1/commands.proto" \
   "$schema_directory/query/v1/errors.proto" \
@@ -30,10 +31,17 @@ trap 'rm -rf "$schema_directory"' EXIT
   --grpc_python_out="$output" \
   "$schema_directory/match/v1/match_service.proto" \
   "$schema_directory/analysis/v1/analysis_service.proto" \
+  "$schema_directory/index/v1/index_service.proto" \
   "$schema_directory/query/v1/query.proto"
-for package in ast ast/v1 match match/v1 query query/v1 analysis analysis/v1; do
+for package in ast ast/v1 match match/v1 query query/v1 analysis analysis/v1 index index/v1; do
   mkdir -p "$output/$package"
   touch "$output/$package/__init__.py"
+done
+
+for module in "$output/index/v1/"*_pb2*.py "$output/index/v1/"*_pb2.pyi; do
+  sed -i.bak -e 's/^from index\.v1 import /from . import /' \
+    -e '/^import warnings$/d' "$module"
+  rm -f "$module.bak"
 done
 # Imported AST and match modules need paths relative to their generated package.
 for module in "$output/ast/v1/"*_pb2.py "$output/ast/v1/"*_pb2.pyi; do

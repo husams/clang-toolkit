@@ -1,8 +1,12 @@
 syntax = "proto3";
 package ctk.analysis.v1;
+import "match/v1/match_stream.proto";
 import "analysis/v1/call_graph_node.proto";
 import "analysis/v1/call_graph_edge.proto";
+import "analysis/v1/call_graph_request.proto";
 import "ast/v1/common.proto";
+import "ast/v1/semantic_types.proto";
+import "match/v1/match_result.proto";
 message CallGraphResponse {
   uint64 root_node = 1;
   repeated CallGraphNode nodes = 2;
@@ -12,4 +16,37 @@ message CallGraphResponse {
   // Static native call graph; indirect calls do not establish target edges.
   bool main_file_only = 6;
   uint64 external_edges_omitted = 7;
+  repeated CallGraphCallSite call_sites = 8;
+  // Provenance for the exact pinned snapshot used to build this graph.
+  uint64 snapshot_generation = 9;
+  string source_file = 10;
+  string source_revision = 11;
+  string compilation_profile_id = 12;
+  // Selection metadata is separate from static graph coverage. Index 0 is
+  // the virtual root and is never the focus of depth/direction algorithms.
+  optional uint64 focus_node = 13;
+  CallGraphDirection selection_direction = 14;
+  optional uint64 selection_max_depth = 15;
+  uint64 selection_boundary_edges = 16;
+  uint64 selection_boundary_call_sites = 17;
+  // Present for callable selections; lets clients detect servers that ignore
+  // the corresponding unlimited_depth request field.
+  optional bool selection_unlimited_depth = 18;
+  // Applied callable boundaries, independent of depth and payload projection.
+  bool exclude_system_headers = 19;
+  string node_filter = 20;
+  // Echoed so clients reject servers that ignore strict call-site filtering.
+  bool strict_node_filter = 21;
+  // Published only on successful completion; close through MatchService.
+  ctk.match.v1.MatchStreamCompleted retained_nodes = 22;
+}
+message CallGraphCallSite {
+  uint64 caller_node = 1;
+  optional uint64 callee_node = 2;
+  ctk.ast.v1.ExpressionValue call = 3;
+  ctk.match.v1.MatchSourcePoint location = 4;
+  ctk.match.v1.MatchSourceRange range = 5;
+  ctk.match.v1.CallSiteFacts facts = 6;
+  optional bool is_complete = 7;
+  repeated ctk.ast.v1.FieldAvailability availability = 8;
 }

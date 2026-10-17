@@ -2,6 +2,7 @@ syntax = "proto3";
 package ctk.analysis.v1;
 import "ast/v1/semantic_types.proto";
 import "ast/v1/common.proto";
+import "match/v1/match_result.proto";
 message CallGraphNode {
   uint64 node_index = 1;
   bool is_virtual_root = 2;
@@ -11,4 +12,11 @@ message CallGraphNode {
   string declaration_kind = 6;
   optional bool is_complete = 7;
   repeated ctk.ast.v1.FieldAvailability availability = 8;
+  // Compact matcher-style facts avoid repeating the full declaration tree.
+  string symbol_identity = 9;
+  ctk.match.v1.MatchSourcePoint location = 10;
+  ctk.match.v1.MatchSourceRange range = 11;
+  // Index in retained_nodes, independent of graph-local node_index.
+  // Absent for the virtual root and detached graph responses.
+  optional uint64 native_match_index = 12;
 }

@@ -9,6 +9,7 @@ public:
   virtual ~OperationExecutor() = default;
   virtual bool enqueue(std::function<void()> task) = 0;
   virtual std::size_t pending_count() { return 0; }
+  virtual std::size_t active_count() { return 0; }
   virtual void stop_admission() = 0;
 };
 std::shared_ptr<OperationExecutor> make_operation_executor(std::size_t workers,

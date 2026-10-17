@@ -4,10 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 from .semantic import MessageView, view
-from .graph_options import graph_option
+from .graph_options import graph_option, render_graph
 from lark import Token, Tree
 from clang_toolkit.control_flow import CfgOptions
 from .filesystem import File
+from clang_toolkit.match_values import ParsedTree, BindingSelection
+from clang_toolkit.resources import FileHandle, InputDescriptor
 
 if TYPE_CHECKING:
     from .evaluator import Runtime
@@ -16,8 +18,11 @@ if TYPE_CHECKING:
 def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> MessageView:
     from .evaluator import EvaluationError
 
+    binding_target = str(statement.data) in {"cfg_binding", "cfg_binding_expression"}
     function_node = statement.children[1]
-    if isinstance(function_node, Token) and function_node.type == "STRING":
+    if binding_target:
+        function = None
+    elif isinstance(function_node, Token) and function_node.type == "STRING":
         function = runtime._evaluate(function_node)
     elif isinstance(function_node, Token) and function_node.type == "NAME":
         function = str(function_node)
@@ -31,15 +36,17 @@ def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> MessageView:
             raise EvaluationError("cfg function reference must be a string")
     else:
         raise EvaluationError("cfg requires an exact qualified function name")
-    selected = runtime._evaluate(statement.children[3])
+    selected = runtime._evaluate(statement.children[2 if binding_target else 3])
     if isinstance(selected, File):
         selected = selected.path
-    if not isinstance(selected, (str, Path)):
-        raise EvaluationError("cfg requires a file path")
+    if not isinstance(selected, (str, Path, ParsedTree, BindingSelection, FileHandle, InputDescriptor)):
+        raise EvaluationError("cfg requires a path, parsed tree or native function binding")
+    if binding_target and not isinstance(selected, BindingSelection):
+        raise EvaluationError("cfg in requires a retained function binding")
     options = CfgOptions()
     limits: dict[str, int] = {}
     seen: set[str] = set()
-    for option in statement.children[4:]:
+    for option in statement.children[3 if binding_target else 4:]:
         if graph_option(option, limits):
             continue
         if option.data == "cfg_build_option":
@@ -61,11 +68,7 @@ def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> MessageView:
                 raise EvaluationError(f"{name} must occur once and be 1..{maximum}")
             seen.add(name)
             limits[name] = int(raw)
-    response = runtime._scoped_file_call(
-        selected,
-        lambda: runtime.client.cfg(
-            function,
-            path=selected,
+    kwargs = dict(
             working_directory=runtime.cwd,
             compile_arguments=runtime.config_store.effective["extra_args"],
             options=options,
@@ -75,10 +78,30 @@ def execute_cfg(runtime: Runtime, statement: Tree, source: str) -> MessageView:
                 else {}
             ),
             **limits,
-        ),
     )
-    if runtime._active_resource_scope is not None:
+    def run():
+        args = (selected,) if binding_target else (function,)
+        target = {} if binding_target else {"path": selected}
+        if runtime._value_context_depth:
+            return runtime.client.cfg(*args, **target, **kwargs)
+        def emit(event):
+            if runtime._active_resource_scope is not None:
+                from clang_toolkit.resources import ResourceError, require_complete
+                if event.HasField("graph_completed"):
+                    if not event.graph_completed.is_complete:
+                        raise ResourceError("CFG result is incomplete")
+                else:
+                    require_complete(event)
+            text = runtime._emit_output(render_graph(view(event)))
+            if text:
+                print(text, flush=True)
+        return runtime.client.stream_cfg(*args, **target, on_event=emit, **kwargs)
+    response = runtime._scoped_file_call(selected, run)
+    if runtime._active_resource_scope is not None and runtime._value_context_depth:
         from clang_toolkit.resources import require_complete
 
         require_complete(response)
+    if not runtime._value_context_depth:
+        from clang_toolkit._generated.analysis.v1.cfg_stream_pb2 import CfgStreamEvent
+        return view(CfgStreamEvent(completed=response))
     return view(response)

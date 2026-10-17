@@ -6,6 +6,7 @@ from clang_toolkit.cursors import CursorError
 from clang_toolkit.analysis_error import AnalysisError
 from clang_toolkit.batches import BatchRun, DetachedMatchRow, DetachedScriptValue
 from clang_toolkit.control_flow import CfgOptions
+from clang_toolkit.call_graph_values import CallGraph, CallGraphError, CallGraphNodeValue
 from clang_toolkit.matchers import (
     Matcher, MatcherArg, MatcherInput, MatcherLiteral, allOf, anyOf, binaryOperator, callExpr, cxxBoolLiteral, cxxConstructExpr,
     cxxConstructorDecl, cxxMemberCallExpr, cxxMethodDecl, cxxRecordDecl,
@@ -33,6 +34,9 @@ __all__ = [
     "AsyncClient",
     "Client",
     "CfgOptions",
+    "CallGraph",
+    "CallGraphError",
+    "CallGraphNodeValue",
     "BindingSelection",
     "MatchRow",
     "MatchValue",

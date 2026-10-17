@@ -71,7 +71,12 @@ See the [design Page](https://chatgpt.com/space/page_4b91284d97d88191a4fe1463e73
 Native CFG: `analysis/v1/AnalysisService.Cfg`, with dedicated graph/block/element
 and construction-context messages; see [control-flow](../docs/control-flow.md).
 
-Native call graphs: `analysis/v1/AnalysisService.CallGraph`; see
+Native call graphs: `analysis/v1/AnalysisService.CallGraph` remains the bounded
+unary operation; `StreamCallGraph` delivers metadata and individual node, edge
+and call-site records followed by completion counts. Both accept filenames,
+retained parsed sessions, opened file handles and exact matched callable or
+call-expression bindings. Retained targets reuse their pinned AST generation.
+Console and Python builders default to shallow results. See
 [call graph semantics and limits](../docs/call-graphs.md).
 
 Server query composition: see [server scripting](../docs/server-scripting.md).

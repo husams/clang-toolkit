@@ -159,6 +159,8 @@ arguments: separators? argument ("," separators? argument)* ","? separators?
          | expression
 
 index_expression: "[" separators? expression separators? "]"
+                | "[" separators? slice_bound ":" slice_bound (":" slice_bound)? "]" -> slice_expression
+slice_bound: separators? expression? separators?
 
 grouped_expression: "(" inner_expression ")"
 inner_expression: separators? multiline_expression separators?

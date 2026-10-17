@@ -1,4 +1,5 @@
 from ...match.v1 import match_service_pb2 as _match_service_pb2
+from ...match.v1 import resources_pb2 as _resources_pb2
 from . import cfg_options_pb2 as _cfg_options_pb2
 from . import value_projection_pb2 as _value_projection_pb2
 from google.protobuf import descriptor as _descriptor
@@ -9,8 +10,11 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class CfgRequest(_message.Message):
-    __slots__ = ("file", "function", "options", "max_functions", "max_blocks", "max_elements", "projection", "main_file_only", "resource_scope_id")
+    __slots__ = ("file", "session", "binding", "file_handle", "function", "options", "max_functions", "max_blocks", "max_elements", "projection", "main_file_only", "resource_scope_id")
     FILE_FIELD_NUMBER: _ClassVar[int]
+    SESSION_FIELD_NUMBER: _ClassVar[int]
+    BINDING_FIELD_NUMBER: _ClassVar[int]
+    FILE_HANDLE_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     OPTIONS_FIELD_NUMBER: _ClassVar[int]
     MAX_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
@@ -20,6 +24,9 @@ class CfgRequest(_message.Message):
     MAIN_FILE_ONLY_FIELD_NUMBER: _ClassVar[int]
     RESOURCE_SCOPE_ID_FIELD_NUMBER: _ClassVar[int]
     file: _match_service_pb2.FileMatchTarget
+    session: _match_service_pb2.SessionMatchTarget
+    binding: _match_service_pb2.BindingMatchTarget
+    file_handle: _resources_pb2.FileHandleTarget
     function: str
     options: _cfg_options_pb2.CfgOptions
     max_functions: int
@@ -28,4 +35,4 @@ class CfgRequest(_message.Message):
     projection: _value_projection_pb2.ValueProjection
     main_file_only: bool
     resource_scope_id: str
-    def __init__(self, file: _Optional[_Union[_match_service_pb2.FileMatchTarget, _Mapping]] = ..., function: _Optional[str] = ..., options: _Optional[_Union[_cfg_options_pb2.CfgOptions, _Mapping]] = ..., max_functions: _Optional[int] = ..., max_blocks: _Optional[int] = ..., max_elements: _Optional[int] = ..., projection: _Optional[_Union[_value_projection_pb2.ValueProjection, _Mapping]] = ..., main_file_only: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, file: _Optional[_Union[_match_service_pb2.FileMatchTarget, _Mapping]] = ..., session: _Optional[_Union[_match_service_pb2.SessionMatchTarget, _Mapping]] = ..., binding: _Optional[_Union[_match_service_pb2.BindingMatchTarget, _Mapping]] = ..., file_handle: _Optional[_Union[_resources_pb2.FileHandleTarget, _Mapping]] = ..., function: _Optional[str] = ..., options: _Optional[_Union[_cfg_options_pb2.CfgOptions, _Mapping]] = ..., max_functions: _Optional[int] = ..., max_blocks: _Optional[int] = ..., max_elements: _Optional[int] = ..., projection: _Optional[_Union[_value_projection_pb2.ValueProjection, _Mapping]] = ..., main_file_only: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ...) -> None: ...

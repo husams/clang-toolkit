@@ -30,21 +30,29 @@ def helper_fixture(tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: 
     return server, skill, source, tmp_path
 
 
-def _run(fixture: HelperFixture, source: str, engine: str = "compiled") -> dict[str, Any]:
+def _run(
+    fixture: HelperFixture,
+    source: str,
+    engine: str = "compiled",
+    expected_stdout: str = "HELPERS_VERIFIED",
+) -> dict[str, Any]:
     server, skill, target, directory = fixture
     script = directory / "verify.ctk"
     output = directory / "output.json"
+    library = directory / "empty-lib"
+    library.mkdir(exist_ok=True)
     script.write_text(f'import {json.dumps(str(skill / "scripts" / "ctk_helpers.ctk"))}\n' + source, encoding="utf-8")
     result = subprocess.run(
         [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint,
-         "-c", str(server.config), "--script-engine", engine, "--ui", "prompt",
+         "-c", str(server.config), "--lib-dir", str(library),
+         "--script-engine", engine, "--ui", "prompt",
          "--script", str(script), f"path={target}", f"output={output}"],
         cwd=directory,
         env=dict(os.environ, XDG_STATE_HOME=str(directory / "state")),
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90, check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.splitlines() == ["HELPERS_VERIFIED"]
+    assert result.stdout.splitlines() == expected_stdout.splitlines()
     assert result.stderr == ""
     assert server.process.poll() is None
     return json.loads(output.read_text(encoding="utf-8"))
@@ -179,6 +187,46 @@ def verify_callbacks(callback_evidence: dict[str, Any]) -> None:
     assert v["calls"][0]["caller"] == "demo::work"
     assert v["calls"][0]["callee"] == "demo::sink"
     assert v["calls"][0]["dispatch"] == "CALL_DISPATCH_DIRECT"
+
+
+@when("I run the bundled pipe report and tuple callbacks in both engines", target_fixture="pipe_evidence")
+def pipe_evidence(helper_fixture: HelperFixture) -> list[dict[str, Any]]:
+    _, skill, _, _ = helper_fixture
+    report = (skill / "scripts" / "pipe_report.ctk").read_text(encoding="utf-8")
+    source = report + '''
+let my_filter(input, arg) = input + arg
+let parameterized = 10 | my_filter(1)
+let pairs = ["Widget", "Other"] | zip([5, 2])
+let labels = foreach (index, (name, count)) in (pairs | enumerate) do "{index}: {name}: {count}"
+let describe((name, count), prefix = "") = "{prefix}{name}: {count}"
+let tupleLabels = pairs | map(describe)
+let whole = mapValues(pairs, (pair, suffix = "!") = pair[0] + suffix)
+let selected = filterValues(pairs, (pair) = pair[1] > 2)
+let selectedLists = selected | map(to_list)
+let noMapSpread() = { on error "whole_item"; mapValues(pairs, (name, count) = count) }
+let noFilterSpread() = { on error "whole_item"; filterValues(pairs, (name, count) = count > 0) }
+save {report: report, parameterized: parameterized, labels: labels, tuple_labels: tupleLabels, whole: whole, selected: selectedLists, map_spread: noMapSpread(), filter_spread: noFilterSpread()} to arg.output as json
+'''
+    expected = [{"name": "class_widget", "count": 5}, {"name": "class_other", "count": 2}]
+    return [
+        _run(helper_fixture, source, engine, json.dumps(expected, indent=2))
+        for engine in ("compiled", "tree")
+    ]
+
+
+@then("the report output and whole-item compatibility match the skill examples")
+def verify_pipes(pipe_evidence: list[dict[str, Any]]) -> None:
+    assert pipe_evidence[0] == pipe_evidence[1]
+    evidence = pipe_evidence[0]
+    assert evidence["report"] == [
+        {"name": "class_widget", "count": 5}, {"name": "class_other", "count": 2}
+    ]
+    assert evidence["parameterized"] == 11
+    assert evidence["labels"] == ["0: Widget: 5", "1: Other: 2"]
+    assert evidence["tuple_labels"] == ["Widget: 5", "Other: 2"]
+    assert evidence["whole"] == ["Widget!", "Other!"]
+    assert evidence["selected"] == [["Widget", 5]]
+    assert evidence["map_spread"] == evidence["filter_spread"] == "whole_item"
 
 
 @given("an isolated server and the bundled CTK template fixture", target_fixture="template_fixture")

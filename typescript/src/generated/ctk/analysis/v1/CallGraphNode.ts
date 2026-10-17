@@ -3,6 +3,8 @@
 import type { DeclarationSymbol as _ctk_ast_v1_DeclarationSymbol, DeclarationSymbol__Output as _ctk_ast_v1_DeclarationSymbol__Output } from '../../../ctk/ast/v1/DeclarationSymbol.js';
 import type { DeclarationValue as _ctk_ast_v1_DeclarationValue, DeclarationValue__Output as _ctk_ast_v1_DeclarationValue__Output } from '../../../ctk/ast/v1/DeclarationValue.js';
 import type { FieldAvailability as _ctk_ast_v1_FieldAvailability, FieldAvailability__Output as _ctk_ast_v1_FieldAvailability__Output } from '../../../ctk/ast/v1/FieldAvailability.js';
+import type { MatchSourcePoint as _ctk_match_v1_MatchSourcePoint, MatchSourcePoint__Output as _ctk_match_v1_MatchSourcePoint__Output } from '../../../ctk/match/v1/MatchSourcePoint.js';
+import type { MatchSourceRange as _ctk_match_v1_MatchSourceRange, MatchSourceRange__Output as _ctk_match_v1_MatchSourceRange__Output } from '../../../ctk/match/v1/MatchSourceRange.js';
 import type { Long } from '@grpc/proto-loader';
 
 export interface CallGraphNode {
@@ -14,7 +16,12 @@ export interface CallGraphNode {
   'declarationKind'?: (string);
   'isComplete'?: (boolean);
   'availability'?: (_ctk_ast_v1_FieldAvailability)[];
+  'symbolIdentity'?: (string);
+  'location'?: (_ctk_match_v1_MatchSourcePoint | null);
+  'range'?: (_ctk_match_v1_MatchSourceRange | null);
+  'nativeMatchIndex'?: (number | string | Long);
   '_isComplete'?: "isComplete";
+  '_nativeMatchIndex'?: "nativeMatchIndex";
 }
 
 export interface CallGraphNode__Output {
@@ -26,5 +33,10 @@ export interface CallGraphNode__Output {
   'declarationKind': (string);
   'isComplete'?: (boolean);
   'availability': (_ctk_ast_v1_FieldAvailability__Output)[];
+  'symbolIdentity': (string);
+  'location': (_ctk_match_v1_MatchSourcePoint__Output | null);
+  'range': (_ctk_match_v1_MatchSourceRange__Output | null);
+  'nativeMatchIndex'?: (string);
   '_isComplete'?: "isComplete";
+  '_nativeMatchIndex'?: "nativeMatchIndex";
 }

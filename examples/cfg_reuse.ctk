@@ -1,0 +1,18 @@
+// Run from the repository root with the compiled console engine.
+let tree = parse "examples/cfg_reuse.cc"
+let functions = match functionDecl(isDefinition(), hasName("demo::work")).bind("f") in tree
+
+// Stream from the existing parsed tree; no parse is repeated.
+cfg "demo::work" in tree
+
+// Stream from this exact matched function; no translation-unit name scan.
+cfg in functions[0].f
+
+// Assignment explicitly collects an inspectable graph value.
+let flow = cfg in functions[0].f
+print flow.graphs.length
+print flow.graphs[0].blocks.length
+
+// The matcher result remains reusable after CFG construction.
+let returns = match returnStmt() in functions[0].f
+print returns.length

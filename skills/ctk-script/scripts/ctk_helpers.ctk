@@ -13,11 +13,11 @@ let _ctkParameterMatcher(name) = parmVarDecl(hasDeclContext(functionDecl(hasName
 let _ctkBaseMatcher() = cxxBaseSpecifier(optionally(hasType(qualType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl().bind("base"))))))))
 
 let _ctkSymbol(node) = {name: node.decl_name, id: node.symbol_identity, file: node.location.file, line: node.location.line}
-let _ctkTemplateParameter(parameter) = {kind: parameter.kind.name, name: parameter.fieldOr("name", ""), type: if parameter.hasField("type") then parameter.type.spelling else null, pack: parameter.is_parameter_pack, parameters: foreach nested in parameter.template_parameters do _ctkTemplateParameter(nested)}
-let _ctkTemplateArgument(argument) = {kind: argument.kind.name, spelling: argument.fieldOr("semantic_spelling", ""), type: if argument.hasField("type") then argument.type.spelling else null, elements: foreach element in argument.pack_elements do _ctkTemplateArgument(element)}
+let _ctkTemplateParameter(parameter) = {kind: parameter.kind.name, name: parameter.fieldOr("name", ""), type: if parameter.hasField("type") then parameter.type.spelling else null, pack: parameter.is_parameter_pack, parameters: parameter.template_parameters | map(_ctkTemplateParameter)}
+let _ctkTemplateArgument(argument) = {kind: argument.kind.name, spelling: argument.fieldOr("semantic_spelling", ""), type: if argument.hasField("type") then argument.type.spelling else null, elements: argument.pack_elements | map(_ctkTemplateArgument)}
 let _ctkTemplate(node) = {
     let facts = node.class_template
-    if facts.kind.number == 1 then null else {kind: if facts.kind.number == 2 then "primary" else if facts.kind.number == 4 then "partial_specialization" else "specialization", primary: facts.primary_template.qualified_name, parameters: foreach parameter in facts.parameters do _ctkTemplateParameter(parameter), arguments: foreach argument in facts.arguments do _ctkTemplateArgument(argument), specialization_kind: if facts.hasField("specialization_kind") then facts.specialization_kind.name else null}
+    if facts.kind.number == 1 then null else {kind: if facts.kind.number == 2 then "primary" else if facts.kind.number == 4 then "partial_specialization" else "specialization", primary: facts.primary_template.qualified_name, parameters: facts.parameters | map(_ctkTemplateParameter), arguments: facts.arguments | map(_ctkTemplateArgument), specialization_kind: if facts.hasField("specialization_kind") then facts.specialization_kind.name else null}
 }
 let _ctkClass(node) = {
     let info = _ctkSymbol(node)
@@ -36,8 +36,7 @@ let _ctkLookupClasses(target, name) = {
         let all = match cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("cls") in target
         all.filter("cls.class_template.display_name", name).unique("cls.symbol_identity")
     } else {
-        let ordinary = foreach row in rows do { if row.cls is CXXRecordDecl then row else null }
-        let preferred = filterValues(ordinary, (row) = row != null)
+        let preferred = rows | filter((row) = row.cls is CXXRecordDecl)
         if preferred.isEmpty then rows else preferred
     }
 }
@@ -48,12 +47,12 @@ let classByName(target, className) = {
 }
 let classTemplateInfo(target, className) = {
     let rows = _ctkLookupClasses(target, className)
-    if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: foreach row in rows do _ctkClass(row.cls)} else {
+    if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: rows | map((row) = _ctkClass(row.cls))} else {
         let node = rows[0].cls
         let info = _ctkClass(node)
         if info.template == null then {status: "not_template", class: info} else {
             let variants = match classTemplateSpecializationDecl(hasName(node.decl_name), isDefinition(), unless(isImplicit())).bind("cls") in target
-            {status: "ok", class: info, template: info.template, specializations: foreach row in variants.unique("cls.symbol_identity") do _ctkClass(row.cls)}
+            {status: "ok", class: info, template: info.template, specializations: variants.unique("cls.symbol_identity") | map((row) = _ctkClass(row.cls))}
         }
     }
 }
@@ -66,14 +65,14 @@ let _ctkAccess(node) = {
 let _ctkParameters(node) = {
     let parameters = match _ctkParameterMatcher(node.decl_name).bind("p") in node
     let defaults = match parmVarDecl(hasDefaultArgument()).bind("p") in node
-    let defaultIds = foreach parameter in defaults do parameter.p.symbol_identity
-    foreach parameter in parameters do {
+    let defaultIds = defaults | map((parameter) = parameter.p.symbol_identity)
+    parameters | map((parameter) = {
         let info = _ctkSymbol(parameter.p)
         info["type"] = parameter.p.variable.declarator.declared_type.description.spelling
         info["index"] = parameter.p.function_scope_index
         info["has_default"] = parameter.p.symbol_identity in defaultIds
         info
-    }
+    })
 }
 let _ctkBase(edge) = {
     let resolved = edge.bindings has base
@@ -81,11 +80,11 @@ let _ctkBase(edge) = {
 }
 let directBases(node) = {
     let edges = peek children _ctkBaseMatcher().bind("edge") in node
-    foreach edge in edges do _ctkBase(edge)
+    edges | map(_ctkBase)
 }
 let classFields(node) = {
     let rows = match fieldsOfClass(node.decl_name).bind("f") in node
-    foreach row in rows do {
+    rows | map((row) = {
         let field = _ctkSymbol(row.f)
         field["type"] = row.f.declarator.declared_type.description.spelling
         field["access"] = _ctkAccess(row.f)
@@ -93,21 +92,21 @@ let classFields(node) = {
         field["bit_field"] = row.f.is_bit_field
         field["anonymous_record"] = row.f.is_anonymous_struct_or_union
         field
-    }
+    })
 }
 let classStaticFields(node) = {
     let rows = match _ctkStaticFields(node.decl_name).bind("v") in node
-    foreach row in rows do {
+    rows | map((row) = {
         let field = _ctkSymbol(row.v)
         field["type"] = row.v.variable.declarator.declared_type.description.spelling
         field["access"] = _ctkAccess(row.v)
         field["constexpr"] = row.v.variable.is_constexpr
         field
-    }
+    })
 }
 let classMethods(node, includeImplicit = false) = {
     let rows = if includeImplicit then { match _ctkAllMethods(node.decl_name).bind("m") in node } else { match methodsOfClass(node.decl_name).bind("m") in node }
-    foreach row in rows do {
+    rows | map((row) = {
         let method = _ctkSymbol(row.m)
         let pure = match cxxMethodDecl(isPure()) in row.m scope self
         let overrides = match cxxMethodDecl(isOverride()) in row.m scope self
@@ -127,20 +126,20 @@ let classMethods(node, includeImplicit = false) = {
         method["variadic"] = row.m.is_variadic
         method["parameters"] = _ctkParameters(row.m)
         method
-    }
+    })
 }
 let classInfo(target, className, includeImplicit = false) = {
     let rows = _ctkLookupClasses(target, className)
-    let candidates = foreach row in rows do _ctkClass(row.cls)
+    let candidates = rows | map((row) = _ctkClass(row.cls))
     if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: candidates} else {
         let node = rows[0].cls
         let nested = match _ctkNestedClasses(node.decl_name).bind("cls") in node
-        {status: "ok", class: _ctkClass(node), fields: classFields(node), static_fields: classStaticFields(node), methods: classMethods(node, includeImplicit), bases: directBases(node), nested_classes: foreach row in nested do _ctkClass(row.cls)}
+        {status: "ok", class: _ctkClass(node), fields: classFields(node), static_fields: classStaticFields(node), methods: classMethods(node, includeImplicit), bases: directBases(node), nested_classes: nested | map((row) = _ctkClass(row.cls))}
     }
 }
 let ancestors(target, className, maxDepth = 32) = {
     let rows = _ctkLookupClasses(target, className)
-    let candidates = foreach row in rows do _ctkClass(row.cls)
+    let candidates = rows | map((row) = _ctkClass(row.cls))
     if maxDepth < 0 then {status: "invalid_depth"} else if rows.length != 1 then {status: if rows.isEmpty then "not_found" else "ambiguous", candidates: candidates} else {
         let root = _ctkClass(rows[0].cls)
         root["edge"] = null
@@ -172,7 +171,7 @@ let ancestors(target, className, maxDepth = 32) = {
                         let definitions = _ctkClasses(target, child.name)
                         let same = definitions.filter("cls.symbol_identity", child.id)
                         if same.length != 1 then { child["unresolved"] = true; result["complete"] = false } else {
-                            let path = foreach id in frame.path do id
+                            let path = frame.path | to_list
                             push path, child.id
                             push queue, {node: same[0].cls, output: child, depth: depth, path: path}
                         }
@@ -184,16 +183,13 @@ let ancestors(target, className, maxDepth = 32) = {
     }
 }
 
-// Plain-value helpers accept named or inline execution blocks.
-let mapValues(items, operation) = foreach item in items do operation(item)
-let filterValues(items, predicate) = {
-    let selected = []
-    foreach item in items do { if predicate(item) then { push selected, item } }
-    selected
-}
+// Compatibility helpers pass the complete item, including tuples, to callbacks.
+// Use built-in map/filter directly for automatic tuple spreading.
+let mapValues(items, operation) = items | map((item) = operation(item))
+let filterValues(items, predicate) = items | filter((item) = predicate(item))
 let functionInfo(target, name) = {
     let rows = match definedFunction(name).bind("f") in target
-    foreach row in rows do {
+    rows | map((row) = {
         let info = _ctkSymbol(row.f)
         info["type"] = row.f.declared_type.description.spelling
         info["return_type"] = row.f.return_type.description.spelling
@@ -201,13 +197,13 @@ let functionInfo(target, name) = {
         info["variadic"] = row.f.is_variadic
         info["parameters"] = _ctkParameters(row.f)
         info
-    }
+    })
 }
 let callSites(target, calleeName) = {
     let rows = match callsTo(calleeName).bind("call") in target
-    foreach row in rows do {
+    rows | map((row) = {
         let caller = row.call.call_site.fieldOr("caller_name", "")
         let callerId = row.call.call_site.fieldOr("caller_symbol_identity", "")
         {file: row.call.location.file, line: row.call.location.line, caller: if caller == "" then null else caller, caller_id: if callerId == "" then null else callerId, callee: row.call.call_site.static_callee_name, callee_id: row.call.call_site.static_callee_symbol_identity, dispatch: row.call.call_site.dispatch.name}
-    }
+    })
 }

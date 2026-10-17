@@ -67,7 +67,7 @@ finished
 
 ## Binding metadata
 
-Keep one item name in the header: `foreach item in items do BODY`. `item.index`
+For a single binding, write `foreach item in items do BODY`. `item.index`
 is a read-only, zero-based visit ordinal on that binding; it advances even on
 `continue`. The item still behaves as its original string, number, dictionary or
 native value. `item.value` bypasses metadata: `item.value.index` and
@@ -80,6 +80,13 @@ and exports contain raw items without loop metadata. Nested loops retain their
 own indices. The source is evaluated once using the existing live iterator;
 list growth can be visited, while rebinding the source does not replace that
 iterator. Dictionary iteration yields keys with traversal ordinals.
+
+Tuples can be unpacked directly: `foreach (name, count) in pairs do BODY`.
+Use `foreach (index, (name, _)) in (pairs | enumerate) do BODY` for an explicit
+ordinal and nested tuple pattern; `_` discards a slot. Tuple patterns require
+matching shapes before the body runs. For collection transformations, prefer
+`pairs | map((name, count) = {name: name, count: count})`; see
+[pipes.md](pipes.md) for callback spreading, `zip` and complete examples.
 
 For native match results, the loop ordinal does not change node ownership or
 server provenance. `source_match_index` still identifies the immediate parent

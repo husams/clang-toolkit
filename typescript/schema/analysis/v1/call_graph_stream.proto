@@ -1,0 +1,50 @@
+syntax = "proto3";
+package ctk.analysis.v1;
+import "match/v1/match_stream.proto";
+
+import "analysis/v1/call_graph_node.proto";
+import "analysis/v1/call_graph_edge.proto";
+import "analysis/v1/call_graph_response.proto";
+
+// Events are provisional until exactly one request completion and terminal OK.
+// The header contains graph metadata only; records are sent as separate events.
+message CallGraphStreamEvent {
+  oneof event {
+    CallGraphStarted graph_started = 1;
+    CallGraphNodeEvent node = 2;
+    CallGraphEdgeEvent edge = 3;
+    CallGraphCallSiteEvent call_site = 4;
+    CallGraphCompleted completed = 5;
+  }
+}
+
+message CallGraphStarted {
+  uint64 graph_index = 1;
+  uint64 snapshot_generation = 2;
+  CallGraphResponse graph = 3;
+}
+
+message CallGraphNodeEvent {
+  uint64 graph_index = 1;
+  CallGraphNode node = 2;
+}
+
+message CallGraphEdgeEvent {
+  uint64 graph_index = 1;
+  CallGraphEdge edge = 2;
+}
+
+message CallGraphCallSiteEvent {
+  uint64 graph_index = 1;
+  CallGraphCallSite call_site = 2;
+}
+
+message CallGraphCompleted {
+  uint64 graph_count = 1;
+  uint64 node_count = 2;
+  uint64 edge_count = 3;
+  uint64 call_site_count = 4;
+  bool is_complete = 5;
+  // Published only on successful completion; close through MatchService.
+  ctk.match.v1.MatchStreamCompleted retained_nodes = 6;
+}

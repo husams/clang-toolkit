@@ -5,13 +5,16 @@ import grpc
 from . import batch_pb2 as analysis_dot_v1_dot_batch__pb2
 from . import call_graph_request_pb2 as analysis_dot_v1_dot_call__graph__request__pb2
 from . import call_graph_response_pb2 as analysis_dot_v1_dot_call__graph__response__pb2
+from . import call_graph_stream_pb2 as analysis_dot_v1_dot_call__graph__stream__pb2
 from . import cfg_request_pb2 as analysis_dot_v1_dot_cfg__request__pb2
 from . import cfg_response_pb2 as analysis_dot_v1_dot_cfg__response__pb2
+from . import cfg_stream_pb2 as analysis_dot_v1_dot_cfg__stream__pb2
 from . import script_request_pb2 as analysis_dot_v1_dot_script__request__pb2
 from . import script_response_pb2 as analysis_dot_v1_dot_script__response__pb2
 from . import traverse_request_pb2 as analysis_dot_v1_dot_traverse__request__pb2
 from . import traverse_response_pb2 as analysis_dot_v1_dot_traverse__response__pb2
 from . import traverse_stream_pb2 as analysis_dot_v1_dot_traverse__stream__pb2
+from . import variable_flow_pb2 as analysis_dot_v1_dot_variable__flow__pb2
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -87,10 +90,25 @@ class AnalysisServiceStub:
                 request_serializer=analysis_dot_v1_dot_call__graph__request__pb2.CallGraphRequest.SerializeToString,
                 response_deserializer=analysis_dot_v1_dot_call__graph__response__pb2.CallGraphResponse.FromString,
                 _registered_method=True)
+        self.StreamCallGraph = channel.unary_stream(
+                '/ctk.analysis.v1.AnalysisService/StreamCallGraph',
+                request_serializer=analysis_dot_v1_dot_call__graph__request__pb2.CallGraphRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_call__graph__stream__pb2.CallGraphStreamEvent.FromString,
+                _registered_method=True)
         self.Cfg = channel.unary_unary(
                 '/ctk.analysis.v1.AnalysisService/Cfg',
                 request_serializer=analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.SerializeToString,
                 response_deserializer=analysis_dot_v1_dot_cfg__response__pb2.CfgResponse.FromString,
+                _registered_method=True)
+        self.StreamCfg = channel.unary_stream(
+                '/ctk.analysis.v1.AnalysisService/StreamCfg',
+                request_serializer=analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_cfg__stream__pb2.CfgStreamEvent.FromString,
+                _registered_method=True)
+        self.StreamVariableFlow = channel.unary_stream(
+                '/ctk.analysis.v1.AnalysisService/StreamVariableFlow',
+                request_serializer=analysis_dot_v1_dot_variable__flow__pb2.VariableFlowRequest.SerializeToString,
+                response_deserializer=analysis_dot_v1_dot_variable__flow__pb2.VariableFlowEvent.FromString,
                 _registered_method=True)
 
 
@@ -157,8 +175,33 @@ class AnalysisServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamCallGraph(self, request, context):
+        """Bounded static call graph records are emitted independently with backpressure.
+        A successful stream has one completion and terminal OK.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Cfg(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamCfg(self, request, context):
+        """Native CFGs are built per function, then serialized one block at a time.
+        Each event is byte bounded; count limits apply across the whole request.
+        An oversized block or cancellation fails without request completion.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamVariableFlow(self, request, context):
+        """Provisional usage sites precede converged facts. Require completion and
+        terminal OK; incomplete completion explicitly signals unsupported effects.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -211,10 +254,25 @@ def add_AnalysisServiceServicer_to_server(servicer, server):
                     request_deserializer=analysis_dot_v1_dot_call__graph__request__pb2.CallGraphRequest.FromString,
                     response_serializer=analysis_dot_v1_dot_call__graph__response__pb2.CallGraphResponse.SerializeToString,
             ),
+            'StreamCallGraph': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamCallGraph,
+                    request_deserializer=analysis_dot_v1_dot_call__graph__request__pb2.CallGraphRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_call__graph__stream__pb2.CallGraphStreamEvent.SerializeToString,
+            ),
             'Cfg': grpc.unary_unary_rpc_method_handler(
                     servicer.Cfg,
                     request_deserializer=analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.FromString,
                     response_serializer=analysis_dot_v1_dot_cfg__response__pb2.CfgResponse.SerializeToString,
+            ),
+            'StreamCfg': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamCfg,
+                    request_deserializer=analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_cfg__stream__pb2.CfgStreamEvent.SerializeToString,
+            ),
+            'StreamVariableFlow': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamVariableFlow,
+                    request_deserializer=analysis_dot_v1_dot_variable__flow__pb2.VariableFlowRequest.FromString,
+                    response_serializer=analysis_dot_v1_dot_variable__flow__pb2.VariableFlowEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -471,6 +529,33 @@ class AnalysisService:
             _registered_method=True)
 
     @staticmethod
+    def StreamCallGraph(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/StreamCallGraph',
+            analysis_dot_v1_dot_call__graph__request__pb2.CallGraphRequest.SerializeToString,
+            analysis_dot_v1_dot_call__graph__stream__pb2.CallGraphStreamEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def Cfg(request,
             target,
             options=(),
@@ -487,6 +572,60 @@ class AnalysisService:
             '/ctk.analysis.v1.AnalysisService/Cfg',
             analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.SerializeToString,
             analysis_dot_v1_dot_cfg__response__pb2.CfgResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamCfg(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/StreamCfg',
+            analysis_dot_v1_dot_cfg__request__pb2.CfgRequest.SerializeToString,
+            analysis_dot_v1_dot_cfg__stream__pb2.CfgStreamEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamVariableFlow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/ctk.analysis.v1.AnalysisService/StreamVariableFlow',
+            analysis_dot_v1_dot_variable__flow__pb2.VariableFlowRequest.SerializeToString,
+            analysis_dot_v1_dot_variable__flow__pb2.VariableFlowEvent.FromString,
             options,
             channel_credentials,
             insecure,

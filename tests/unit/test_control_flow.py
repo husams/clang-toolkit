@@ -4,6 +4,7 @@ import json
 from unittest.mock import Mock
 import pytest
 from clang_toolkit._generated.analysis.v1 import cfg_response_pb2 as pb
+from clang_toolkit._generated.analysis.v1 import cfg_stream_pb2 as stream_pb
 from clang_toolkit.control_flow import CfgOptions, cfg_request
 from clang_toolkit.client import Client
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
@@ -27,8 +28,8 @@ def test_cfg_cli_returns_typed_graph_and_selected_options(tmp_path):
     result.graphs.add(entry_block=1).blocks.add(block_index=1)
     client.cfg.return_value = result
     runtime = Runtime(client, cwd=tmp_path)
-    output = runtime.execute('cfg ns::f in "fixture.cc" option prune_trivially_false_edges false option add_rich_cxx_constructors true blocks 9')
-    assert json.loads(output)["graphs"][0]["entry_block"] == "1"
+    runtime.execute('let flow = cfg ns::f in "fixture.cc" option prune_trivially_false_edges false option add_rich_cxx_constructors true blocks 9')
+    assert runtime.evaluate('$flow.graphs[0].entry_block') == 1
     args, kwargs = client.cfg.call_args
     assert args == ("ns::f",)
     assert kwargs["path"] == "fixture.cc" and kwargs["max_blocks"] == 9
@@ -43,3 +44,26 @@ def test_cfg_invalid_cli_limits_do_not_reach_server(tmp_path, options):
     with pytest.raises(EvaluationError):
         Runtime(client, cwd=tmp_path).execute(f'cfg f in "fixture.cc" {options}')
     client.cfg.assert_not_called()
+
+
+def test_standalone_completion_is_emitted_before_the_next_command(tmp_path, capsys):
+    client = Mock(spec=Client)
+    def stream(*args, on_event, **kwargs):
+        started = stream_pb.CfgStreamEvent()
+        started.graph_started.graph.entry_block = 1
+        done = stream_pb.CfgStreamEvent(completed=stream_pb.CfgCompleted(graph_count=1))
+        on_event(started)
+        on_event(done)
+        return done.completed
+    client.stream_cfg.side_effect = stream
+    runtime = Runtime(client, cwd=tmp_path)
+    for _ in range(2):
+        assert runtime.execute('cfg "f" in "fixture.cc"') == ""
+    text = capsys.readouterr().out
+    decoder = json.JSONDecoder()
+    kinds = []
+    while text.strip():
+        value, offset = decoder.raw_decode(text.lstrip())
+        kinds.extend(value)
+        text = text.lstrip()[offset:]
+    assert kinds == ["graph_started", "completed", "graph_started", "completed"]

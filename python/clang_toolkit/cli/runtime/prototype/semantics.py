@@ -525,6 +525,36 @@ def index_value(value: Any, key: Any, ctx: Context, node: Any) -> Any:
     if type(key) is bool:
         raise _error(ctx, node, "boolean is not a valid index")
     try:
+        from .selection import normalized_index, selection_sequence
+
+        if isinstance(key, slice):
+            sequence = selection_sequence(value)
+            positions = range(*key.indices(len(sequence)))
+            if len(positions) > ctx.max_items:
+                raise _error(ctx, node, "slice exceeds item limit", ExecutionLimitError)
+            result = []
+            # These views decode or scan on each indexed access. Visit them
+            # once instead of repeating that work for every selected item.
+            from clang_toolkit.match_values import NativeBindingCollection
+            from ..semantic import RepeatedView
+
+            if isinstance(sequence, (NativeBindingCollection, RepeatedView)):
+                if not positions:
+                    return result
+                end = max(positions[0], positions[-1])
+                for position, item in enumerate(sequence):
+                    ctx.tick(node)
+                    if position in positions:
+                        result.append(item)
+                    if position == end:
+                        break
+                if positions.step < 0:
+                    result.reverse()
+                return result
+            for position in positions:
+                ctx.tick(node)
+                result.append(index_value(sequence, position, ctx, node))
+            return result
         if isinstance(value, Mapping):
             return value[key]
         if isinstance(value, tuple):
@@ -536,12 +566,22 @@ def index_value(value: Any, key: Any, ctx: Context, node: Any) -> Any:
         if isinstance(value, (list, str)):
             if type(key) is not int:
                 raise TypeError("sequence index must be an integer")
-            return value[key]
+            return value[normalized_index(key, len(value))]
         from ..references import index_value as semantic_index_value
 
+        if type(key) is int:
+            try:
+                sequence = selection_sequence(value)
+            except TypeError:
+                pass
+            else:
+                key = normalized_index(key, len(sequence))
+                value = sequence
         return semantic_index_value(value, key)
+    except PrototypeError:
+        raise
     except Exception as error:
-        detail = "tuple index out of range" if isinstance(value, tuple) and isinstance(error, IndexError) else f"invalid index {key!r} for {type(value).__name__}"
+        detail = "tuple index out of range" if isinstance(value, tuple) and isinstance(error, IndexError) else str(error)
         raise _error(ctx, node, detail) from error
 
 
@@ -683,6 +723,17 @@ def eval_expr(ctx: Context, node: Any) -> Any:
             raise _error(ctx, node, f"property {name!r} is unavailable on {type(value).__name__}: {error}") from error
     if kind == "index":
         return index_value(eval_expr(ctx, _expr(node, 0, "base")), eval_expr(ctx, _expr(node, 1, "key")), ctx, node)
+    if kind == "omitted":
+        from .selection import OMITTED
+
+        return OMITTED
+    if kind == "slice":
+        from .selection import make_slice
+
+        try:
+            return make_slice(*(eval_expr(ctx, bound) for bound in child_values(node)))
+        except (TypeError, ValueError) as error:
+            raise _error(ctx, node, str(error)) from error
     if kind == "consume":
         return consumed_value(ctx, lambda: eval_expr(ctx, child_values(node)[0]))
     if kind == "host":

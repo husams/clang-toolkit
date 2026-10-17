@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
+
 import os
 import threading
 from glob import has_magic, iglob
@@ -96,8 +98,10 @@ _COMMAND_VALUE_KINDS = frozenset(
         "session_label", "session_start", "session_add", "session_match", "session_pause",
         "session_resume", "session_close", "session_list", "session_attach",
         "session_close_retained", "server_status", "cache_status", "cache_prune",
-        "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file",
-        "callgraph", "callgraph_file", "help", "help_shortcut", "traverse", "script",
+        "index_start", "index_status", "index_pause", "index_resume", "index_cancel",
+        "index_find", "index_lookup",
+        "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file", "cfg_binding", "variable_flow",
+        "callgraph", "callgraph_file", "callgraph_binding", "help", "help_shortcut", "traverse", "script",
         "peek", "step",
         "cursor_open", "cursor_continue", "cursor_restart", "cursor_close",
         "import_command", "file_open", "file_list", "file_info", "file_close",
@@ -393,19 +397,21 @@ class Runtime:
             display = (f"{len(value)} neighbours" if kind == "peek"
                        else self._render_display_value(value))
             return value, self._emit_output(display)
-        if kind == "cfg_file":
+        if kind in {"cfg_file", "cfg_binding"}:
             from .control_flow import execute_cfg
-            from .graph_options import render_graph
 
             value = execute_cfg(self, statement, source)
-            display = None if value_context else self._emit_output(render_graph(value))
-            return value, display
-        if kind == "callgraph_file":
+            return value, None
+        if kind == "variable_flow":
+            from .variable_flow import execute_variable_flow
+            return execute_variable_flow(self, statement), None
+        if kind in {"callgraph_file", "callgraph_binding"}:
             from .call_graph import execute_call_graph
             from .graph_options import render_graph
 
             value = execute_call_graph(self, statement)
-            display = None if value_context else self._emit_output(render_graph(value))
+            rendered = value if isinstance(value, str) else render_graph(value)
+            display = None if value_context else self._emit_output(rendered)
             return value, display
         if kind == "script":
             from .scripting import execute_script, render_script_response
@@ -476,6 +482,11 @@ class Runtime:
                 scope = self._scopes[-1] if self._scopes else self.bindings
                 scope[name] = value
             return value, None
+        if kind.startswith("index_"):
+            from .project_index import execute_project_index
+
+            value, text = execute_project_index(self, statement)
+            return value, None if value_context else self._emit_output(text)
         if kind in {"server_status", "cache_status", "session_list", "cache_prune"}:
             from .management import execute_management_value
 
@@ -729,11 +740,15 @@ class Runtime:
             ):
                 return self._foreach(expression, source=source)
             return self._emit_output(render(self._evaluate(expression)))
-        if kind == "cfg_file":
+        if kind in {"cfg_file", "cfg_binding"}:
             from .control_flow import execute_cfg
-            from .graph_options import render_graph
 
-            return self._emit_output(render_graph(execute_cfg(self, statement, source)))
+            execute_cfg(self, statement, source)
+            return ""
+        if kind == "variable_flow":
+            from .variable_flow import execute_variable_flow
+            execute_variable_flow(self, statement)
+            return ""
         if kind == "cfg":
             message = (
                 'cfg requires a file: cfg FUNCTION in "file.cc"; see help cfg'
@@ -745,11 +760,12 @@ class Runtime:
             from .scripting import execute_script
 
             return self._emit_output(execute_script(self, statement))
-        if kind == "callgraph_file":
+        if kind in {"callgraph_file", "callgraph_binding"}:
             from .call_graph import execute_call_graph
             from .graph_options import render_graph
 
-            return self._emit_output(render_graph(execute_call_graph(self, statement)))
+            value = execute_call_graph(self, statement)
+            return self._emit_output(value if isinstance(value, str) else render_graph(value))
         if kind == "callgraph":
             message = (
                 'callgraph requires a file: callgraph "file.cc"; see help callgraph'
@@ -1062,13 +1078,16 @@ class Runtime:
                 raise EvaluationError("invalid collection reference")
         return name, suffixes
 
+    def _index_value(self, value: Any, key: Any) -> Any:
+        return index_value(value, key)
+
     def _resolve_bare(self, node: Tree) -> Any:
         name, suffixes = self._bare_parts(node)
         value = self._resolve_name(name)
         for operation, key in suffixes:
             try:
                 value = (
-                    index_value(value, key)
+                    self._index_value(value, key)
                     if operation == "index"
                     else property_value(value, key)
                 )
@@ -1093,7 +1112,7 @@ class Runtime:
         for operation, key in suffixes[:-1]:
             try:
                 value = (
-                    index_value(value, key)
+                    self._index_value(value, key)
                     if operation == "index"
                     else property_value(value, key)
                 )
@@ -1484,7 +1503,7 @@ class Runtime:
             from .call_graph import execute_call_graph
 
             return execute_call_graph(self, node)
-        if kind == "cfg_file_expression":
+        if kind in {"cfg_file_expression", "cfg_binding_expression"}:
             from .control_flow import execute_cfg
 
             return execute_cfg(self, node, "")
@@ -1502,7 +1521,7 @@ class Runtime:
                     value = property_value(value, str(suffix.children[1]))
                 elif suffix.data == "grouped_index":
                     key = self._evaluate(suffix.children[1])
-                    value = index_value(value, key)
+                    value = self._index_value(value, key)
                 elif suffix.data == "grouped_method":
                     call = suffix.children[1]
                     name, arguments = self._method_call_parts(call)
@@ -1511,9 +1530,7 @@ class Runtime:
                             self._reject_live_batch_collection_value(
                                 self._evaluate(argument)
                             )
-                    value = call_method(
-                        value, name, [self._evaluate(arg) for arg in arguments]
-                    )
+                    value = self._evaluate_method_call(value, name, arguments)
             except (ReferenceError, MatchValueError, IndexError, KeyError) as error:
                 raise EvaluationError(f"{error} in grouped expression") from error
         return value
@@ -1547,6 +1564,19 @@ class Runtime:
             else:
                 arguments = [call.children[2]]
         return str(method_token), arguments
+
+    def _evaluate_method_call(self, value: Any, name: str, arguments: list[Any]) -> Any:
+        positional: list[Any] = []
+        keywords: dict[str, Any] = {}
+        for argument in arguments:
+            if isinstance(argument, Tree) and argument.data == "named_method_argument":
+                key = str(argument.children[0])
+                if key in keywords:
+                    raise EvaluationError(f"duplicate named argument: {key}")
+                keywords[key] = self._evaluate(argument.children[2])
+            else:
+                positional.append(self._evaluate(argument))
+        return call_method(value, name, positional, keyword_arguments=keywords)
 
     def _analysis_block(self, node: Tree) -> Any:
         target = self._evaluate(node.children[1])
@@ -1595,15 +1625,16 @@ class Runtime:
             for match in value.matches:
                 for owners in self._block_owners:
                     owners.add(match._owner)
-        elif isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
-            for owners in self._block_owners:
-                owners.add(value._owner)
+        elif isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection | CallGraph | CallGraphNodeValue):
+            if value._owner is not None:
+                for owners in self._block_owners:
+                    owners.add(value._owner)
         return value
 
     @staticmethod
     def _native_owners(value: Any) -> set[Any]:
-        if isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
-            return {value._owner}
+        if isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection | CallGraph | CallGraphNodeValue):
+            return {value._owner} if value._owner is not None else set()
         if isinstance(value, NativeMatchCollection):
             return set().union(
                 *(Runtime._native_owners(item) for item in value.matches)
@@ -1756,13 +1787,9 @@ class Runtime:
             previous = value
             try:
                 if operation == "method":
-                    value = call_method(
-                        value,
-                        field,
-                        [self._evaluate(argument) for argument in argument],
-                    )
+                    value = self._evaluate_method_call(value, field, argument)
                 elif operation == "index":
-                    value = index_value(value, field)
+                    value = self._index_value(value, field)
                 else:
                     value = self._reference_property(name, value, field, root=step == 0)
                 if (
@@ -1828,6 +1855,8 @@ class Runtime:
         target: Any = self._default_targets[-1] if self._default_targets else None
         if len(node.children) > 3 and node.children[3] is not None:
             selected = self._evaluate(node.children[3])
+            if isinstance(selected, CallGraphNodeValue):
+                selected = selected.binding
             if isinstance(selected, str | Directory):
                 path = (
                     selected.absolute if isinstance(selected, Directory) else selected

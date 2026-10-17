@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, Union, cast, overload
 
 from google.protobuf.json_format import MessageToDict
 
@@ -21,6 +21,7 @@ from clang_toolkit.resources import FileHandle, InputDescriptor
 
 if TYPE_CHECKING:
     from clang_toolkit.client import AsyncClient, Client
+    from clang_toolkit.call_graph_values import CallGraphNodeValue
 
 ClientT = TypeVar("ClientT")
 
@@ -484,7 +485,7 @@ def _binding_decl_type(binding: results.MatchBinding) -> str | None:
     return None
 
 
-MatchTarget = str | Path | ParsedTree[Any] | MatchValue[Any] | BindingSelection[Any] | FileHandle[Any] | InputDescriptor
+MatchTarget = Union[str, Path, ParsedTree[Any], MatchValue[Any], BindingSelection[Any], FileHandle[Any], InputDescriptor, "CallGraphNodeValue"]
 
 
 async def _close_value(owner: CursorOwner[Any]) -> None:

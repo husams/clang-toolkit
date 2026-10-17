@@ -8,8 +8,8 @@ import "/Users/husam/.codex/skills/ctk-script/scripts/ctk_helpers.ctk"
 let tree = parse "/project/src/widget.cpp"
 let info = classInfo(tree, "demo::Leaf")
 let hierarchy = ancestors(tree, "demo::Leaf")
-print info
-print hierarchy
+print info | pretty
+print hierarchy | pretty
 ```
 
 These are imported executable functions and matcher definitions, not built-in
@@ -195,18 +195,22 @@ AST containment and is distinct from this inheritance walk.
 ```ctk
 print functionInfo(tree, "demo::work")
 print callSites(tree, "demo::sink")
-let doubled = mapValues([1, 2, 3], (value) = value * 2)
-let selected = filterValues(doubled, (value) = value > 2)
-print selected
-let safe = mapValues([2, 0, 5], (value) = {
+let doubled = [1, 2, 3] | map((value) = value * 2)
+let selected = doubled | filter((value) = value > 2)
+print selected | json
+let safe = [2, 0, 5] | map((value) = {
     on error 0
     10 / value
 })
-print safe
+print safe | json
 ```
 
-`selected` holds `[4, 6]` and `safe` holds `[5.0, 0, 2.0]`; `print` renders
-list items on separate lines. Named runnable callbacks work too.
+`selected` holds `[4, 6]` and `safe` holds `[5.0, 0, 2.0]`; `json` prints
+complete arrays. Named runnable callbacks work too. New scripts can use these
+built-in filters without importing the library. `mapValues` and `filterValues`
+remain compatibility helpers implemented with pipes: they always pass one whole
+item to callbacks, including tuples. Use built-in `map`/`filter` for automatic
+tuple spreading. Read [pipes.md](pipes.md) for a complete zip report and formatters.
 `callSites` does not resolve indirect calls or dynamic virtual dispatch to runtime
 targets. Keep live native operations within the lifetime of their input handles;
 plain-value callback helpers need no native target.
@@ -252,7 +256,8 @@ alias bases, a diamond, virtual/public/
 protected/private inheritance, overloads, static/mutable/bit fields, member
 visibility, constructors/destructors, a member template, nested classes/lambda
 parameters, a default argument, unresolved template bases, ambiguous names and
-plain callbacks. The BDD acceptance scenarios run the actual CLI against
+plain callbacks, tuple callback compatibility, and the bundled pipe report.
+The BDD acceptance scenarios run the actual CLI against
 an isolated native server: `uv run python -m pytest tests/e2e/test_ctk_skill_helpers_steps.py -m e2e -q`.
 
 Maintain this library against `api/ast/v1/semantic_types.proto`, declaration

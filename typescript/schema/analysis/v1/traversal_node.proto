@@ -3,10 +3,15 @@ package ctk.analysis.v1;
 
 import "match/v1/match_result.proto";
 
-// One declaration or statement encountered in native visitor preorder.
+// One native AST node encountered in visitor preorder.
 // Indices describe this response's traversal structure, not AST lookup handles.
 message TraversalNode {
   optional uint64 parent_index = 1;
   uint32 depth = 2;
   ctk.match.v1.MatchBinding value = 3;
+  // Ordinal in this stream; each selected binding starts a depth-zero tree.
+  uint64 index = 4;
+  string native_kind = 5;
+  // Explicit for native leaf roots without RecursiveASTVisitor children.
+  bool leaf = 6;
 }

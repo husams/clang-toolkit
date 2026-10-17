@@ -9,6 +9,7 @@ import type { MatchSourcePoint as _ctk_match_v1_MatchSourcePoint, MatchSourcePoi
 import type { MatchSourceRange as _ctk_match_v1_MatchSourceRange, MatchSourceRange__Output as _ctk_match_v1_MatchSourceRange__Output } from '../../../ctk/match/v1/MatchSourceRange.js';
 import type { CallSiteFacts as _ctk_match_v1_CallSiteFacts, CallSiteFacts__Output as _ctk_match_v1_CallSiteFacts__Output } from '../../../ctk/match/v1/CallSiteFacts.js';
 import type { CXXBaseSpecifier as _ctk_ast_v1_CXXBaseSpecifier, CXXBaseSpecifier__Output as _ctk_ast_v1_CXXBaseSpecifier__Output } from '../../../ctk/ast/v1/CXXBaseSpecifier.js';
+import type { ClassTemplateFacts as _ctk_match_v1_ClassTemplateFacts, ClassTemplateFacts__Output as _ctk_match_v1_ClassTemplateFacts__Output } from '../../../ctk/match/v1/ClassTemplateFacts.js';
 
 export interface MatchBinding {
   'node'?: (_ctk_ast_v1_AstNode | null);
@@ -23,6 +24,7 @@ export interface MatchBinding {
   'documentation'?: (string);
   'callSite'?: (_ctk_match_v1_CallSiteFacts | null);
   'baseSpecifier'?: (_ctk_ast_v1_CXXBaseSpecifier | null);
+  'classTemplate'?: (_ctk_match_v1_ClassTemplateFacts | null);
   'value'?: "node"|"qualifiedType"|"unsupported"|"baseSpecifier";
   '_isComplete'?: "isComplete";
 }
@@ -40,6 +42,7 @@ export interface MatchBinding__Output {
   'documentation': (string);
   'callSite': (_ctk_match_v1_CallSiteFacts__Output | null);
   'baseSpecifier'?: (_ctk_ast_v1_CXXBaseSpecifier__Output | null);
+  'classTemplate': (_ctk_match_v1_ClassTemplateFacts__Output | null);
   'value'?: "node"|"qualifiedType"|"unsupported"|"baseSpecifier";
   '_isComplete'?: "isComplete";
 }

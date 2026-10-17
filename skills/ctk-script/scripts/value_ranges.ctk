@@ -1,0 +1,32 @@
+// Required named arguments: path, function, variable, output.
+let output_path = arg.output
+let variable_name = arg.variable
+let function_name = arg.function
+let tree = parse arg.path
+let functions = match functionDecl(isDefinition(), unless(isImplicit()), hasName(function_name)).bind("f") in tree
+let function_row = functions.one("function definition: {function_name}")
+let function_node = function_row.f
+let variables = match varDecl(hasLocalStorage(), unless(parmVarDecl()), hasName(variable_name)).bind("v") in function_node
+let variable_row = variables.one("local declaration: {variable_name}")
+let report = variableflow variable_row.v in function_node values interval
+save report to output_path as json
+
+let format_range(bounds) = if bounds.kind.name == "INTERVAL" then "[{bounds.lower}, {bounds.upper}]" else bounds.kind.name
+
+print "Variable: {report.analysis.variable}"
+print "Domain: {report.analysis.value_domain}"
+let usages = foreach usage in report.usages do usage
+foreach usage in usages.sort("location.line") do {
+    foreach fact in report.facts do {
+        if fact.usage_id == usage.id {
+            let before = format_range(fact.value_before)
+            let after = format_range(fact.value_after)
+            print "Line {usage.location.line} {usage.kind}: before={before}, after={after}"
+        }
+    }
+}
+foreach finding in report.findings do {
+    print "Finding {finding.usage_id}: {finding.kind}: {finding.message}"
+}
+print "Findings: {report.findings.length}"
+print "Complete: {report.completed.is_complete}"

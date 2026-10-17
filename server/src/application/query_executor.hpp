@@ -44,6 +44,11 @@ public:
     return tasks_.size();
   }
 
+  std::size_t active_count() override {
+    std::lock_guard lock(mutex_);
+    return active_;
+  }
+
   void stop_admission() override {
     std::lock_guard lock(mutex_);
     accepting_ = false;
@@ -75,16 +80,22 @@ private:
           return;
         task = std::move(tasks_.front());
         tasks_.pop();
+        ++active_;
       }
       try {
         task();
       } catch (...) {
         // One failed request must not stop the worker pool.
       }
+      {
+        std::lock_guard lock(mutex_);
+        --active_;
+      }
     }
   }
 
   std::size_t pending_limit_;
+  std::size_t active_ = 0;
   std::mutex mutex_;
   std::condition_variable condition_;
   std::queue<std::function<void()>> tasks_;

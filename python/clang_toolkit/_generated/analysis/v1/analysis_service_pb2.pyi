@@ -3,8 +3,11 @@ from . import traverse_response_pb2 as _traverse_response_pb2
 from . import traverse_stream_pb2 as _traverse_stream_pb2
 from . import cfg_request_pb2 as _cfg_request_pb2
 from . import cfg_response_pb2 as _cfg_response_pb2
+from . import cfg_stream_pb2 as _cfg_stream_pb2
+from . import variable_flow_pb2 as _variable_flow_pb2
 from . import call_graph_request_pb2 as _call_graph_request_pb2
 from . import call_graph_response_pb2 as _call_graph_response_pb2
+from . import call_graph_stream_pb2 as _call_graph_stream_pb2
 from . import script_request_pb2 as _script_request_pb2
 from . import script_response_pb2 as _script_response_pb2
 from . import batch_pb2 as _batch_pb2

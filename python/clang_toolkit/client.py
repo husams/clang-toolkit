@@ -15,12 +15,14 @@ from threading import Lock
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, cast, overload
+from typing import Any, Literal, Protocol, cast, overload
 
 import grpc
 from google.protobuf.message import DecodeError
 
 from clang_toolkit._generated.query.v1 import query_pb2, query_pb2_grpc
+from clang_toolkit._generated.index.v1 import index_service_pb2 as index_pb
+from clang_toolkit._generated.index.v1 import index_service_pb2_grpc as index_grpc
 from clang_toolkit.configuration import NetworkConfig, load_network_config
 from clang_toolkit.version import VersionInfo
 from clang_toolkit.cursors import CursorError, file_request, retained_request
@@ -28,8 +30,14 @@ from clang_toolkit._generated.match.v1 import match_service_pb2, match_service_p
 from clang_toolkit._generated.match.v1 import match_result_pb2
 from clang_toolkit._generated.match.v1 import match_stream_pb2
 from clang_toolkit._generated.match.v1 import resources_pb2
-from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2
+from clang_toolkit._generated.analysis.v1 import analysis_service_pb2_grpc, traverse_response_pb2, cfg_response_pb2, call_graph_response_pb2, call_graph_request_pb2, call_graph_stream_pb2
 from clang_toolkit._generated.analysis.v1 import traverse_stream_pb2, traverse_request_pb2
+from clang_toolkit._generated.analysis.v1 import cfg_stream_pb2, cfg_request_pb2
+from clang_toolkit.cfg_stream import CfgStreamState
+from clang_toolkit.call_graph_stream import CallGraphStreamState
+from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
+from clang_toolkit.variable_flow import VariableFlowState
+from clang_toolkit._generated.analysis.v1 import variable_flow_pb2
 from clang_toolkit._generated.analysis.v1 import batch_pb2
 from clang_toolkit.batches import BatchRun, batch_run, start_batch_request
 from clang_toolkit.analysis_error import AnalysisError
@@ -815,6 +823,8 @@ class AsyncClient:
         on_row: AsyncMatchRowCallback | None = None,
         lease: OperationLease | None, scope: ResourceScope[AsyncClient] | str | None = None,
     ) -> MatchValue[AsyncClient]:
+        if isinstance(target, CallGraphNodeValue):
+            target = target.binding
         self._begin_value_operation(lease)
         try:
             request = _value_request(self, query, target,
@@ -1013,29 +1023,154 @@ class AsyncClient:
         response.depth_limited = completed.depth_limited
         return response
 
-    async def cfg(self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, function: str, *,
-                  working_directory: str | Path | None = None,
-                  compile_arguments: Sequence[str] = (), options: CfgOptions | None = None,
-                  max_functions: int | None = None, max_blocks: int | None = None,
-                  max_elements: int | None = None, projection: str = "shallow",
-                  main_file_only: bool = False, payload_depth: int = 24,
-                  payload_nodes: int = 10000,
-                  scope: ResourceScope[AsyncClient] | str | None = None) -> cfg_response_pb2.CfgResponse:
-        path, input_descriptor = _analysis_input(path)
-        request = cfg_request(path, function, working_directory=working_directory,
-            compile_arguments=compile_arguments, options=options, max_functions=max_functions,
-            max_blocks=max_blocks, max_elements=max_elements, projection=projection,
-            main_file_only=main_file_only, payload_depth=payload_depth,
-            payload_nodes=payload_nodes)
-        _apply_input_descriptor(request.file, input_descriptor)
-        request.resource_scope_id = _scope_id(scope)
+    async def cfg_stream(self, target: MatchTarget | Path, function: str | None = None,
+                         **kwargs: Any) -> AsyncIterator[cfg_stream_pb2.CfgStreamEvent]:
+        """Yield provisional CFG events; exhaust for completion and terminal OK.
+
+        Use aclosing when stopping early. Retained trees and bindings reuse the
+        pinned AST; function must be omitted for an exact function binding.
+        """
+        request = _cfg_value_request(self, target, function, **kwargs)
+        async with aclosing(self._cfg_events(request)) as events:
+            async for event in events:
+                yield event
+
+    async def _cfg_events(self, request: cfg_request_pb2.CfgRequest
+                          ) -> AsyncIterator[cfg_stream_pb2.CfgStreamEvent]:
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
+        self._begin_value_operation()
+        call = None
+        consumed = False
+        state = CfgStreamState()
         try:
-            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).Cfg(
+            call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamCfg(
                 self._compilation_request(request), timeout=self.config.rpc_timeout)
+            async for event in call:
+                state.consume(event)
+                yield event
+            state.finish()
+            status = call.code()
+            if inspect.isawaitable(status):
+                status = await status
+            if status != grpc.StatusCode.OK:
+                raise AnalysisError(status, "CFG stream did not finish successfully")
+            consumed = True
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
+        finally:
+            if call is not None and not consumed and not call.done():
+                call.cancel()
+            self._end_value_operation()
+
+    async def _stream_cfg_request(self, request: cfg_request_pb2.CfgRequest, *,
+                                  on_event: Callable[..., Any]) -> cfg_stream_pb2.CfgCompleted:
+        completed = None
+        async with aclosing(self._cfg_events(request)) as events:
+            async for event in events:
+                result = on_event(event)
+                if inspect.isawaitable(result):
+                    await result
+                if event.HasField("completed"):
+                    completed = event.completed
+        assert completed is not None
+        return completed
+
+    async def stream_cfg(self, target: MatchTarget | Path, function: str | None = None, *,
+                         on_event: Callable[..., Any], **kwargs: Any) -> cfg_stream_pb2.CfgCompleted:
+        """Consume events with backpressure and return completion counts."""
+        request = _cfg_value_request(self, target, function, **kwargs)
+        return await self._stream_cfg_request(request, on_event=on_event)
+
+    async def cfg(self, path: MatchTarget | Path, function: str | None = None,
+                  **kwargs: Any) -> cfg_response_pb2.CfgResponse:
+        """Explicit collector; use cfg_stream or stream_cfg for bounded memory."""
+        return await self._collect_cfg_request(_cfg_value_request(self, path, function, **kwargs))
+
+    async def _collect_cfg_request(self, request: cfg_request_pb2.CfgRequest) -> cfg_response_pb2.CfgResponse:
+        response = cfg_response_pb2.CfgResponse()
+        def collect(event: cfg_stream_pb2.CfgStreamEvent) -> None:
+            if event.HasField("graph_started"):
+                response.graphs.add().CopyFrom(event.graph_started.graph)
+            elif event.HasField("block"):
+                graph = response.graphs[event.block.graph_index]
+                graph.blocks.add().CopyFrom(event.block.block)
+                graph.availability.extend(event.block.block.availability)
+            elif event.HasField("graph_completed"):
+                response.graphs[event.graph_completed.graph_index].is_complete = event.graph_completed.is_complete
+        await self._stream_cfg_request(request, on_event=collect)
+        return response
+
+    async def variable_flow_stream(self, variable: BindingSelection, function: BindingSelection,
+                                   **kwargs: Any) -> AsyncIterator[variable_flow_pb2.VariableFlowEvent]:
+        """Yield usage sites and converged facts; exhaust for completion and terminal OK."""
+        request = _variable_flow_request(self, variable, function, **kwargs)
+        async with aclosing(self._variable_flow_events(request)) as events:
+            async for event in events:
+                yield event
+
+    async def _variable_flow_events(self, request: variable_flow_pb2.VariableFlowRequest
+                                    ) -> AsyncIterator[variable_flow_pb2.VariableFlowEvent]:
+        self._ensure_stub()
+        self._begin_value_operation()
+        call = None
+        consumed = False
+        state = VariableFlowState(request.value_domain)
+        try:
+            call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamVariableFlow(
+                request, timeout=self.config.rpc_timeout)
+            async for event in call:
+                state.consume(event)
+                yield event
+            state.finish()
+            status = call.code()
+            if inspect.isawaitable(status):
+                status = await status
+            if status != grpc.StatusCode.OK:
+                raise AnalysisError(status, "variable flow stream did not finish successfully")
+            consumed = True
+        except grpc.aio.AioRpcError as error:
+            raise AnalysisError(error.code(), error.details()) from error
+        finally:
+            if call is not None and not consumed and not call.done():
+                call.cancel()
+            self._end_value_operation()
+
+    async def _stream_variable_flow_request(self, request: variable_flow_pb2.VariableFlowRequest, *,
+                                             on_event: Callable[..., Any]) -> variable_flow_pb2.VariableFlowCompleted:
+        completed = None
+        async with aclosing(self._variable_flow_events(request)) as events:
+            async for event in events:
+                result = on_event(event)
+                if inspect.isawaitable(result):
+                    await result
+                if event.HasField("completed"):
+                    completed = event.completed
+        if completed is None:
+            raise AnalysisError(grpc.StatusCode.DATA_LOSS, "missing variable flow completion")
+        return completed
+
+    async def stream_variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                                   *, on_event: Callable[..., Any], **kwargs: Any) -> variable_flow_pb2.VariableFlowCompleted:
+        return await self._stream_variable_flow_request(
+            _variable_flow_request(self, variable, function, **kwargs), on_event=on_event)
+
+    async def variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                            **kwargs: Any) -> variable_flow_pb2.VariableFlowReport:
+        return await self._collect_variable_flow_request(_variable_flow_request(self, variable, function, **kwargs))
+
+    async def _collect_variable_flow_request(self, request: variable_flow_pb2.VariableFlowRequest
+                                             ) -> variable_flow_pb2.VariableFlowReport:
+        report = variable_flow_pb2.VariableFlowReport()
+        def collect(event: variable_flow_pb2.VariableFlowEvent) -> None:
+            kind = event.WhichOneof("event")
+            if kind == "started": report.analysis.CopyFrom(event.started)
+            elif kind == "usage": report.usages.add().CopyFrom(event.usage)
+            elif kind == "fact": report.facts.add().CopyFrom(event.fact)
+            elif kind == "finding": report.findings.add().CopyFrom(event.finding)
+            elif kind == "completed": report.completed.CopyFrom(event.completed)
+        await self._stream_variable_flow_request(request, on_event=collect)
+        return report
 
     async def run_script(
                          self, source: str, *,
@@ -1145,29 +1280,178 @@ class AsyncClient:
     ) -> BatchRun:
         return await self._control_batch("RetryBatch", run, expected_revision)
 
-    async def callgraph(self, path: str | Path | FileHandle[AsyncClient] | InputDescriptor, *,
+    async def callgraph(self, target: MatchTarget | Path, function: str | None = None, *,
                         working_directory: str | Path | None = None,
                         compile_arguments: Sequence[str] = (), visit_implicit_code: bool | None = None,
-                        visit_template_instantiations: bool | None = None, max_nodes: int | None = None,
-                        max_edges: int | None = None, projection: str = "shallow",
-                        main_file_only: bool = False, payload_depth: int = 24,
+                        visit_template_instantiations: bool | None = None,
+                        max_nodes: int | Literal["all"] | None = None,
+                        max_edges: int | None = None, max_call_sites: int | None = None,
+                        direction: str | int | None = None,
+                        max_depth: int | Literal["all"] | None = None,
+                        projection: str = "shallow",
+                        main_file_only: bool = False,
+                        exclude_system_headers: bool = False,
+                        node_filter: str | None = None,
+                        strict_node_filter: bool = False, retain_nodes: bool = False,
+                        payload_depth: int = 24,
                         payload_nodes: int = 10000,
-                        scope: ResourceScope[AsyncClient] | str | None = None) -> call_graph_response_pb2.CallGraphResponse:
-        path, input_descriptor = _analysis_input(path)
-        request = call_graph_request(path, working_directory=working_directory,
-            compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
-            visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
-            max_edges=max_edges, projection=projection, main_file_only=main_file_only,
-            payload_depth=payload_depth, payload_nodes=payload_nodes)
-        _apply_input_descriptor(request.file, input_descriptor)
-        request.resource_scope_id = _scope_id(scope)
+                        scope: ResourceScope[AsyncClient] | str | None = None) -> call_graph_response_pb2.CallGraphResponse | CallGraph:
+        request = _call_graph_value_request(self, target, function,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            visit_implicit_code=visit_implicit_code,
+            visit_template_instantiations=visit_template_instantiations,
+            max_nodes=max_nodes, max_edges=max_edges, max_call_sites=max_call_sites,
+            direction=direction, max_depth=max_depth, projection=projection,
+            main_file_only=main_file_only,
+            exclude_system_headers=exclude_system_headers, node_filter=node_filter,
+            strict_node_filter=strict_node_filter, retain_nodes=retain_nodes,
+            payload_depth=payload_depth,
+            payload_nodes=payload_nodes, scope=scope)
+        response = await self._collect_call_graph_request(request)
+        if retain_nodes:
+            return CallGraph(response, owner=self._own_value(response.retained_nodes))
+        return response
+
+    async def callgraph_stream(
+        self, target: MatchTarget | Path, function: str | None = None, **kwargs: Any,
+    ) -> AsyncIterator[call_graph_stream_pb2.CallGraphStreamEvent]:
+        """Yield graph events; exhaust the iterator to verify completion and status."""
+        request = _call_graph_value_request(self, target, function, **kwargs)
+        async with aclosing(self._call_graph_events(request)) as events:
+            async for event in events:
+                yield event
+
+    async def stream_callgraph(
+        self, target: MatchTarget | Path, function: str | None = None, *,
+        on_event: Callable[..., Any], **kwargs: Any,
+    ) -> call_graph_stream_pb2.CallGraphCompleted:
+        """Consume call-graph events with backpressure and return terminal counts."""
+        request = _call_graph_value_request(self, target, function, **kwargs)
+        return await self._stream_call_graph_request(request, on_event=on_event)
+
+    async def _stream_call_graph_request(
+        self, request: call_graph_request_pb2.CallGraphRequest, *,
+        on_event: Callable[..., Any],
+    ) -> call_graph_stream_pb2.CallGraphCompleted:
+        completed = None
+        async with aclosing(self._call_graph_events(request)) as events:
+            async for event in events:
+                outcome = on_event(event)
+                if inspect.isawaitable(outcome):
+                    await outcome
+                if event.HasField("completed"):
+                    completed = event.completed
+        assert completed is not None
+        return completed
+
+    async def _call_graph_events(
+        self, request: call_graph_request_pb2.CallGraphRequest,
+    ) -> AsyncIterator[call_graph_stream_pb2.CallGraphStreamEvent]:
         self._ensure_stub()
         assert self._channel is not None and self.config is not None
+        self._begin_value_operation()
+        call = None
+        consumed = False
+        retained_id = ""
+        state = CallGraphStreamState(
+            expect_unlimited_depth=request.unlimited_depth,
+            expect_exclude_system_headers=request.exclude_system_headers,
+            expect_node_filter=request.node_filter,
+            expect_strict_node_filter=request.strict_node_filter,
+        )
         try:
-            return await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).CallGraph(
+            call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamCallGraph(
                 self._compilation_request(request), timeout=self.config.rpc_timeout)
+            async for event in call:
+                if event.HasField("completed") and event.completed.HasField("retained_nodes"):
+                    retained_id = event.completed.retained_nodes.session_id
+                state.consume(event)
+                yield event
+            status = call.code()
+            if inspect.isawaitable(status):
+                status = await status
+            if status != grpc.StatusCode.OK:
+                raise AnalysisError(status, "call-graph stream did not finish successfully")
+            state.finish()
+            consumed = True
         except grpc.aio.AioRpcError as error:
             raise AnalysisError(error.code(), error.details()) from error
+        finally:
+            if call is not None and not consumed and not call.done():
+                call.cancel()
+            if retained_id and not consumed:
+                self._release_value(retained_id)
+            self._end_value_operation()
+
+    async def _collect_call_graph_request(
+        self, request: call_graph_request_pb2.CallGraphRequest,
+    ) -> call_graph_response_pb2.CallGraphResponse:
+        response = call_graph_response_pb2.CallGraphResponse()
+        received_event = False
+        async def collect(event: call_graph_stream_pb2.CallGraphStreamEvent) -> None:
+            nonlocal received_event
+            received_event = True
+            if event.HasField("graph_started"):
+                response.CopyFrom(event.graph_started.graph)
+                response.ClearField("availability")
+            elif event.HasField("node"):
+                record = event.node.node
+                response.nodes.add().CopyFrom(record)
+                _append_call_graph_availability(response, record)
+            elif event.HasField("edge"):
+                record = event.edge.edge
+                response.edges.add().CopyFrom(record)
+                _append_call_graph_availability(response, record)
+            elif event.HasField("call_site"):
+                record = event.call_site.call_site
+                response.call_sites.add().CopyFrom(record)
+                _append_call_graph_availability(response, record)
+            elif event.HasField("completed"):
+                response.is_complete = event.completed.is_complete
+                if event.completed.HasField("retained_nodes"):
+                    response.retained_nodes.CopyFrom(event.completed.retained_nodes)
+        try:
+            await self._stream_call_graph_request(request, on_event=collect)
+        except AnalysisError as error:
+            if (received_event or error.code != grpc.StatusCode.UNIMPLEMENTED
+                    or request.WhichOneof("target") != "file"):
+                raise
+            self._ensure_stub()
+            assert self._channel is not None and self.config is not None
+            try:
+                response = await analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).CallGraph(
+                    self._compilation_request(request), timeout=self.config.rpc_timeout)
+            except grpc.aio.AioRpcError as unary_error:
+                raise AnalysisError(unary_error.code(), unary_error.details()) from unary_error
+            if request.unlimited_depth and not (
+                response.HasField("selection_unlimited_depth")
+                and response.selection_unlimited_depth
+            ):
+                raise AnalysisError(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "server did not confirm unlimited call-graph depth support",
+                )
+            if (response.exclude_system_headers != request.exclude_system_headers
+                    or response.node_filter != request.node_filter
+                    or response.strict_node_filter != request.strict_node_filter):
+                raise AnalysisError(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "server did not confirm call-graph boundary filters",
+                )
+        if request.retain_nodes:
+            retained = response.retained_nodes
+            indices = [node.native_match_index for node in response.nodes
+                       if not node.is_virtual_root and node.HasField("native_match_index")]
+            expected = sum(not node.is_virtual_root for node in response.nodes)
+            if (not retained.session_id or not retained.result_revision
+                    or len(indices) != expected or len(set(indices)) != expected
+                    or retained.row_count != expected
+                    or any(index >= expected for index in indices)):
+                if retained.session_id:
+                    self._release_value(retained.session_id)
+                raise AnalysisError(grpc.StatusCode.FAILED_PRECONDITION,
+                                    "server did not return valid retained call-graph nodes")
+        return response
 
     async def match_file(
         self, path: str | Path, query: MatcherInput, *,
@@ -1227,6 +1511,53 @@ class AsyncClient:
             return await getattr(stub, method)(request, timeout=self.config.rpc_timeout)
         except grpc.aio.AioRpcError as error:
             raise CursorError(error.code(), error.details()) from error
+
+    async def _index_call(self, method: str, request: Any) -> Any:
+        self._ensure_stub()
+        assert self._channel is not None and self.config is not None
+        stub = index_grpc.IndexServiceStub(self._channel)
+        try:
+            return await getattr(stub, method)(request, timeout=self.config.rpc_timeout)
+        except grpc.aio.AioRpcError as error:
+            raise CursorError(error.code(), error.details()) from error
+
+    async def start_project_index(
+        self, project_root: str | Path, *, compile_commands: str | Path = "",
+        poll_interval_seconds: int = 2,
+    ) -> index_pb.ProjectIndexStatus:
+        """Enqueue background indexing; paths refer to the server filesystem."""
+        if not 1 <= poll_interval_seconds <= 3600:
+            raise ValueError("poll_interval_seconds must be between 1 and 3600")
+        return await self._index_call("StartProjectIndex", index_pb.StartProjectIndexRequest(
+            project_root=str(project_root), compile_commands=str(compile_commands),
+            poll_interval_seconds=poll_interval_seconds))
+
+    async def project_index_status(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        """Probe progress without waiting for background work."""
+        return await self._index_call("GetProjectIndexStatus", index_pb.ProjectIndexRequest(project_root=str(project_root)))
+
+    async def pause_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return await self._index_call("PauseProjectIndex", index_pb.ProjectIndexRequest(project_root=str(project_root)))
+
+    async def resume_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return await self._index_call("ResumeProjectIndex", index_pb.ProjectIndexRequest(project_root=str(project_root)))
+
+    async def cancel_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return await self._index_call("CancelProjectIndex", index_pb.ProjectIndexRequest(project_root=str(project_root)))
+
+    async def find_symbols(self, project_root: str | Path, query: str, *,
+                           limit: int = 100, prefix: bool = False) -> index_pb.FindSymbolsResponse:
+        """Find declarations/definitions without loading native ASTs."""
+        if not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        return await self._index_call("FindSymbols", index_pb.FindSymbolsRequest(
+            project_root=str(project_root), query=query, limit=limit,
+            match_mode=(index_pb.FindSymbolsRequest.MATCH_MODE_PREFIX if prefix
+                        else index_pb.FindSymbolsRequest.MATCH_MODE_EXACT)))
+
+    async def lookup_symbol(self, project_root: str | Path, usr: str) -> index_pb.FindSymbolsResponse:
+        return await self._index_call("LookupSymbol", index_pb.LookupSymbolRequest(
+            project_root=str(project_root), usr=usr))
 
     async def server_status(self) -> match_service_pb2.ServerStatusResponse:
         """Read live process, retained cursor, memory cache and disk artifact usage."""
@@ -1629,6 +1960,8 @@ class Client:
         on_row: MatchRowCallback | None = None,
         scope: ResourceScope[Client] | str | None = None,
     ) -> MatchValue[Client]:
+        if isinstance(target, CallGraphNodeValue):
+            target = target.binding
         callback: AsyncMatchRowCallback | None = None
         if on_row is not None:
             async def checked_callback(row: match_result_pb2.MatchResult) -> None:
@@ -1842,6 +2175,32 @@ class Client:
     def resource_status(self) -> Any:
         return self._cursor_call("resource_status")
 
+    def start_project_index(self, project_root: str | Path, *,
+                            compile_commands: str | Path = "",
+                            poll_interval_seconds: int = 2) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("start_project_index", project_root,
+                                 compile_commands=compile_commands,
+                                 poll_interval_seconds=poll_interval_seconds)
+
+    def project_index_status(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("project_index_status", project_root)
+
+    def pause_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("pause_project_index", project_root)
+
+    def resume_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("resume_project_index", project_root)
+
+    def cancel_project_index(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("cancel_project_index", project_root)
+
+    def find_symbols(self, project_root: str | Path, query: str, *,
+                     limit: int = 100, prefix: bool = False) -> index_pb.FindSymbolsResponse:
+        return self._cursor_call("find_symbols", project_root, query, limit=limit, prefix=prefix)
+
+    def lookup_symbol(self, project_root: str | Path, usr: str) -> index_pb.FindSymbolsResponse:
+        return self._cursor_call("lookup_symbol", project_root, usr)
+
     def server_status(self) -> match_service_pb2.ServerStatusResponse:
         return self._cursor_call("server_status")
 
@@ -2022,12 +2381,30 @@ class Client:
         return asyncio.run(run())
 
     def cfg(
-            self, function: str, *,
-            path: str | Path | FileHandle[Client] | InputDescriptor | None = None,
+            self, function: str | BindingSelection, *,
+            path: MatchTarget | Path | None = None,
             **kwargs: Any) -> cfg_response_pb2.CfgResponse:
-        if path is None:
-            raise ValueError("CFG requires a file path; pass path=...")
-        return self._cursor_call("cfg", path, function, **kwargs)
+        request = _cfg_value_request(self, function if path is None else path,
+                                     None if path is None else function, **kwargs)
+        return self._cursor_call("_collect_cfg_request", request)
+
+    def stream_cfg(self, function: str | BindingSelection, *, path: MatchTarget | Path | None = None,
+                   on_event: Callable[..., Any], **kwargs: Any) -> cfg_stream_pb2.CfgCompleted:
+        request = _cfg_value_request(self, function if path is None else path,
+                                     None if path is None else function, **kwargs)
+        async def callback(event: Any) -> None:
+            await _invoke_sync_callback(on_event, event)
+        return self._cursor_call("_stream_cfg_request", request, on_event=callback)
+
+    def variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                      **kwargs: Any) -> variable_flow_pb2.VariableFlowReport:
+        return self._cursor_call("_collect_variable_flow_request", _variable_flow_request(self, variable, function, **kwargs))
+
+    def stream_variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                            *, on_event: Callable[..., Any], **kwargs: Any) -> variable_flow_pb2.VariableFlowCompleted:
+        async def callback(event: variable_flow_pb2.VariableFlowEvent) -> None:
+            await _invoke_sync_callback(on_event, event)
+        return self._cursor_call("_stream_variable_flow_request", _variable_flow_request(self, variable, function, **kwargs), on_event=callback)
 
     def run_script(
                    self, source: str, *,
@@ -2075,12 +2452,22 @@ class Client:
         )
 
     def callgraph(
-                  self,
-                  path: str | Path | FileHandle[Client] | InputDescriptor | None = None,
-                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse:
-        if path is None:
-            raise ValueError("callgraph requires a file path")
-        return self._cursor_call("callgraph", path, **kwargs)
+                  self, target: MatchTarget | Path, function: str | None = None,
+                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse | CallGraph:
+        request = _call_graph_value_request(self, target, function, **kwargs)
+        response = self._cursor_call("_collect_call_graph_request", request)
+        if request.retain_nodes:
+            return CallGraph(response, selector=self.callgraph,
+                             owner=self._own_value(response.retained_nodes))
+        return response
+
+    def stream_callgraph(self, target: MatchTarget | Path, function: str | None = None,
+                         *, on_event: Callable[..., Any], **kwargs: Any
+                         ) -> call_graph_stream_pb2.CallGraphCompleted:
+        request = _call_graph_value_request(self, target, function, **kwargs)
+        async def callback(event: Any) -> None:
+            await _invoke_sync_callback(on_event, event)
+        return self._cursor_call("_stream_call_graph_request", request, on_event=callback)
 
 
 def _raise_cleanup_errors(errors: Sequence[BaseException]) -> None:
@@ -2198,6 +2585,57 @@ class _AsyncExpressionAdapter:
     def traverse(self, target: MatchTarget | Path, **kwargs: Any) -> traverse_response_pb2.TraverseResponse:
         return self._call("traverse", target, **kwargs)
 
+    def cfg(self, function: str | BindingSelection, *, path: MatchTarget | Path | None = None,
+            **kwargs: Any) -> cfg_response_pb2.CfgResponse:
+        return self._call("cfg", function if path is None else path,
+                          None if path is None else function, **kwargs)
+
+    def variable_flow(self, variable: BindingSelection, function: BindingSelection, **kwargs: Any
+                      ) -> variable_flow_pb2.VariableFlowReport:
+        return self._call("variable_flow", variable, function, **kwargs)
+
+    def stream_variable_flow(self, variable: BindingSelection, function: BindingSelection,
+                             *, on_event: Callable[..., Any], **kwargs: Any) -> variable_flow_pb2.VariableFlowCompleted:
+        async def callback(event: variable_flow_pb2.VariableFlowEvent) -> None:
+            task = asyncio.current_task()
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_event, event)
+            finally:
+                self._row_callbacks.discard(task)
+        return self._call("stream_variable_flow", variable, function, on_event=callback, **kwargs)
+
+    def stream_cfg(self, function: str | BindingSelection, *, path: MatchTarget | Path | None = None,
+                   on_event: Callable[..., Any], **kwargs: Any) -> cfg_stream_pb2.CfgCompleted:
+        async def callback(event: Any) -> None:
+            task = asyncio.current_task()
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_event, event)
+            finally:
+                self._row_callbacks.discard(task)
+        return self._call("stream_cfg", function if path is None else path,
+                          None if path is None else function, on_event=callback, **kwargs)
+
+    def callgraph(self, target: MatchTarget | Path, function: str | None = None,
+                  **kwargs: Any) -> call_graph_response_pb2.CallGraphResponse | CallGraph:
+        value = self._call("callgraph", target, function, **kwargs)
+        if isinstance(value, CallGraph):
+            value._selector = self.callgraph
+        return value
+
+    def stream_callgraph(self, target: MatchTarget | Path, function: str | None = None,
+                         *, on_event: Callable[..., Any], **kwargs: Any
+                         ) -> call_graph_stream_pb2.CallGraphCompleted:
+        async def callback(event: Any) -> None:
+            task = asyncio.current_task()
+            self._row_callbacks.add(task)
+            try:
+                await _invoke_sync_callback(on_event, event)
+            finally:
+                self._row_callbacks.discard(task)
+        return self._call("stream_callgraph", target, function, on_event=callback, **kwargs)
+
     def match(self, query: MatcherInput, *, files: Sequence[str] | None = None,
               **kwargs: Any) -> list[Any]:
         return self._call("match", query, files or (), **kwargs)
@@ -2216,6 +2654,174 @@ def _expression_runtime(owner: Client | AsyncClient, adapter: Any,
     if compile_arguments is not None:
         runtime.config_store.effective["extra_args"] = list(compile_arguments)
     return runtime
+
+
+def _variable_flow_request(client: Client | AsyncClient, variable: BindingSelection,
+                           function: BindingSelection, *, scope: ResourceScope[Any] | str | None = None,
+                           max_blocks: int = 10000, max_events: int = 10000,
+                           max_iterations: int = 100000,
+                           value_domain: str | None = None) -> variable_flow_pb2.VariableFlowRequest:
+    if not isinstance(variable, BindingSelection) or not isinstance(function, BindingSelection):
+        raise MatchValueError("variable flow requires retained variable and function bindings")
+    if value_domain not in (None, "interval"):
+        raise ValueError("value_domain must be 'interval' or None")
+    values = {}
+    for name, value, limit in [("max_blocks", max_blocks, 100000), ("max_events", max_events, 100000),
+                               ("max_iterations", max_iterations, 1000000)]:
+        if type(value) is not int or not 1 <= value <= limit:
+            raise ValueError(f"{name} must be 1..{limit}")
+        values[name] = value
+    var = _value_request(client, "decl()", variable, scope=scope)
+    func = _value_request(client, "decl()", function, scope=scope)
+    return variable_flow_pb2.VariableFlowRequest(variable=var.binding, function=func.binding,
+                                                 resource_scope_id=var.resource_scope_id,
+                                                 value_domain=variable_flow_pb2.INTERVAL if value_domain else 0,
+                                                 **values)
+
+
+def _cfg_value_request(client: Client | AsyncClient, target: MatchTarget | Path,
+                       function: str | None = None, *,
+                       scope: ResourceScope[Any] | str | None = None,
+                       working_directory: str | Path | None = None,
+                       compile_arguments: Sequence[str] = (), **kwargs: Any
+                       ) -> cfg_request_pb2.CfgRequest:
+    selected = _value_request(client, "decl()", target,
+        working_directory=working_directory, compile_arguments=compile_arguments, scope=scope)
+    if selected.HasField("binding"):
+        if function is not None:
+            raise ValueError("omit function name for an exact CFG binding")
+    elif not isinstance(function, str) or not function:
+        raise ValueError("CFG requires a function name and path=... or a retained tree")
+    request = cfg_request("unused", function or "unused", **kwargs)
+    if function is None:
+        request.ClearField("function")
+    request.ClearField("file")
+    kind = selected.WhichOneof("target")
+    getattr(request, kind).CopyFrom(getattr(selected, kind))
+    request.resource_scope_id = selected.resource_scope_id
+    return request
+
+
+def _append_call_graph_availability(response: Any, record: Any) -> None:
+    """Aggregate per-record coverage in the same order as the unary response."""
+    for availability in getattr(record, "availability", ()):
+        response.availability.add().CopyFrom(availability)
+
+
+def _call_graph_value_request(
+    client: Client | AsyncClient, target: MatchTarget | Path,
+    function: str | None = None, *,
+    working_directory: str | Path | None = None,
+    compile_arguments: Sequence[str] = (),
+    visit_implicit_code: bool | None = None,
+    visit_template_instantiations: bool | None = None,
+    max_nodes: int | Literal["all"] | None = None,
+    max_edges: int | None = None,
+    max_call_sites: int | None = None,
+    direction: str | int | None = None,
+    max_depth: int | Literal["all"] | None = None,
+    projection: str = "shallow",
+    main_file_only: bool = False,
+    exclude_system_headers: bool = False,
+    node_filter: str | None = None,
+    strict_node_filter: bool = False,
+    retain_nodes: bool = False,
+    payload_depth: int = 24,
+    payload_nodes: int = 10000,
+    scope: ResourceScope[Any] | str | None = None,
+) -> call_graph_request_pb2.CallGraphRequest:
+    if isinstance(target, CallGraphNodeValue):
+        target = target.binding
+    if type(retain_nodes) is not bool:
+        raise ValueError("retain_nodes must be boolean")
+    if function is not None and (not isinstance(function, str) or not function):
+        raise ValueError("function must be a non-empty string")
+    if isinstance(target, BindingSelection) and function is not None:
+        raise ValueError("omit function when using an exact retained binding")
+    exact_call_site = (
+        isinstance(target, BindingSelection)
+        and target._binding_data is not None
+        and target.value.HasField("call_site")
+    )
+    if exact_call_site and direction is not None:
+        raise ValueError("direction and depth apply to callable targets, not call expressions")
+    if exact_call_site and max_depth is not None:
+        raise ValueError("depth applies to callable targets, not call expressions")
+    if max_call_sites is not None and (type(max_call_sites) is not int or not 1 <= max_call_sites <= 1000000):
+        raise ValueError("max_call_sites must be 1..1000000")
+    unlimited_depth = max_depth == "all"
+    if max_depth is not None and not unlimited_depth and (
+        type(max_depth) is not int or not 0 <= max_depth <= 32
+    ):
+        raise ValueError("max_depth must be 0..32")
+    directions = {
+        "out": call_graph_request_pb2.CALL_GRAPH_DIRECTION_OUT,
+        "in": call_graph_request_pb2.CALL_GRAPH_DIRECTION_IN,
+        "both": call_graph_request_pb2.CALL_GRAPH_DIRECTION_BOTH,
+    }
+    if isinstance(direction, str):
+        if direction not in directions:
+            raise ValueError("direction must be in, out or both")
+        direction_value = directions[direction]
+    elif direction is None:
+        direction_value = None
+    elif type(direction) is int and direction in directions.values():
+        direction_value = direction
+    else:
+        raise ValueError("direction must be in, out or both")
+
+    if isinstance(target, str | Path | InputDescriptor):
+        path, descriptor = _analysis_input(target)
+        request = call_graph_request(path, working_directory=working_directory,
+            compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
+            visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
+            max_edges=max_edges, projection=projection, main_file_only=main_file_only,
+            exclude_system_headers=exclude_system_headers, node_filter=node_filter,
+            strict_node_filter=strict_node_filter,
+            payload_depth=payload_depth, payload_nodes=payload_nodes)
+        if descriptor is not None:
+            _apply_input_descriptor(request.file, descriptor)
+    else:
+        selected = _value_request(client, "decl()", target,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            scope=scope)
+        request = call_graph_request("unused", visit_implicit_code=visit_implicit_code,
+            visit_template_instantiations=visit_template_instantiations,
+            max_nodes=max_nodes, max_edges=max_edges, projection=projection,
+            main_file_only=main_file_only,
+            exclude_system_headers=exclude_system_headers, node_filter=node_filter,
+            strict_node_filter=strict_node_filter,
+            payload_depth=payload_depth,
+            payload_nodes=payload_nodes)
+        request.ClearField("file")
+        kind = selected.WhichOneof("target")
+        if kind is None:
+            raise MatchValueError("callgraph target has no retained selector")
+        getattr(request, kind).CopyFrom(getattr(selected, kind))
+        request.resource_scope_id = selected.resource_scope_id
+
+    if function is not None:
+        request.function = function
+    if max_call_sites is not None:
+        request.max_call_sites = max_call_sites
+    if direction_value is not None:
+        request.direction = direction_value
+    if function is not None:
+        if direction_value is None:
+            request.direction = call_graph_request_pb2.CALL_GRAPH_DIRECTION_OUT
+        if unlimited_depth:
+            request.unlimited_depth = True
+        else:
+            request.max_depth = 1 if max_depth is None else max_depth
+    elif max_depth is not None:
+        if unlimited_depth:
+            request.unlimited_depth = True
+        else:
+            request.max_depth = max_depth
+    if scope is not None:
+        request.resource_scope_id = _scope_id(scope)
+    request.retain_nodes = retain_nodes
+    return request
 
 
 def _traversal_value_request(client: Client | AsyncClient, target: MatchTarget | Path,
@@ -2276,6 +2882,8 @@ def _value_request(
     traversal_mode: int = match_service_pb2.MATCH_TRAVERSAL_MODE_AS_IS,
     scope: ResourceScope[Any] | str | None = None,
 ) -> match_service_pb2.MatchRequest:
+    if isinstance(target, CallGraphNodeValue):
+        target = target.binding
     if isinstance(target, str | Path | InputDescriptor):
         target_path = target.path if isinstance(target, InputDescriptor) else target
         request = file_request(target_path, query, working_directory=working_directory,

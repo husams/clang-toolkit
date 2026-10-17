@@ -7,13 +7,18 @@ import type { BatchRun as _ctk_analysis_v1_BatchRun, BatchRun__Output as _ctk_an
 import type { BatchRunRequest as _ctk_analysis_v1_BatchRunRequest, BatchRunRequest__Output as _ctk_analysis_v1_BatchRunRequest__Output } from '../../../ctk/analysis/v1/BatchRunRequest.js';
 import type { CallGraphRequest as _ctk_analysis_v1_CallGraphRequest, CallGraphRequest__Output as _ctk_analysis_v1_CallGraphRequest__Output } from '../../../ctk/analysis/v1/CallGraphRequest.js';
 import type { CallGraphResponse as _ctk_analysis_v1_CallGraphResponse, CallGraphResponse__Output as _ctk_analysis_v1_CallGraphResponse__Output } from '../../../ctk/analysis/v1/CallGraphResponse.js';
+import type { CallGraphStreamEvent as _ctk_analysis_v1_CallGraphStreamEvent, CallGraphStreamEvent__Output as _ctk_analysis_v1_CallGraphStreamEvent__Output } from '../../../ctk/analysis/v1/CallGraphStreamEvent.js';
 import type { CfgRequest as _ctk_analysis_v1_CfgRequest, CfgRequest__Output as _ctk_analysis_v1_CfgRequest__Output } from '../../../ctk/analysis/v1/CfgRequest.js';
 import type { CfgResponse as _ctk_analysis_v1_CfgResponse, CfgResponse__Output as _ctk_analysis_v1_CfgResponse__Output } from '../../../ctk/analysis/v1/CfgResponse.js';
+import type { CfgStreamEvent as _ctk_analysis_v1_CfgStreamEvent, CfgStreamEvent__Output as _ctk_analysis_v1_CfgStreamEvent__Output } from '../../../ctk/analysis/v1/CfgStreamEvent.js';
 import type { ScriptRequest as _ctk_analysis_v1_ScriptRequest, ScriptRequest__Output as _ctk_analysis_v1_ScriptRequest__Output } from '../../../ctk/analysis/v1/ScriptRequest.js';
 import type { ScriptResponse as _ctk_analysis_v1_ScriptResponse, ScriptResponse__Output as _ctk_analysis_v1_ScriptResponse__Output } from '../../../ctk/analysis/v1/ScriptResponse.js';
 import type { StartBatchRequest as _ctk_analysis_v1_StartBatchRequest, StartBatchRequest__Output as _ctk_analysis_v1_StartBatchRequest__Output } from '../../../ctk/analysis/v1/StartBatchRequest.js';
 import type { TraverseRequest as _ctk_analysis_v1_TraverseRequest, TraverseRequest__Output as _ctk_analysis_v1_TraverseRequest__Output } from '../../../ctk/analysis/v1/TraverseRequest.js';
 import type { TraverseResponse as _ctk_analysis_v1_TraverseResponse, TraverseResponse__Output as _ctk_analysis_v1_TraverseResponse__Output } from '../../../ctk/analysis/v1/TraverseResponse.js';
+import type { TraverseStreamEvent as _ctk_analysis_v1_TraverseStreamEvent, TraverseStreamEvent__Output as _ctk_analysis_v1_TraverseStreamEvent__Output } from '../../../ctk/analysis/v1/TraverseStreamEvent.js';
+import type { VariableFlowEvent as _ctk_analysis_v1_VariableFlowEvent, VariableFlowEvent__Output as _ctk_analysis_v1_VariableFlowEvent__Output } from '../../../ctk/analysis/v1/VariableFlowEvent.js';
+import type { VariableFlowRequest as _ctk_analysis_v1_VariableFlowRequest, VariableFlowRequest__Output as _ctk_analysis_v1_VariableFlowRequest__Output } from '../../../ctk/analysis/v1/VariableFlowRequest.js';
 
 export interface AnalysisServiceClient extends grpc.Client {
   BatchStatus(argument: _ctk_analysis_v1_BatchRunRequest, metadata: grpc.Metadata, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_BatchRun__Output>): grpc.ClientUnaryCall;
@@ -88,6 +93,26 @@ export interface AnalysisServiceClient extends grpc.Client {
   startBatch(argument: _ctk_analysis_v1_StartBatchRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_BatchRun__Output>): grpc.ClientUnaryCall;
   startBatch(argument: _ctk_analysis_v1_StartBatchRequest, callback: grpc.requestCallback<_ctk_analysis_v1_BatchRun__Output>): grpc.ClientUnaryCall;
 
+  StreamCallGraph(argument: _ctk_analysis_v1_CallGraphRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_CallGraphStreamEvent__Output>;
+  StreamCallGraph(argument: _ctk_analysis_v1_CallGraphRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_CallGraphStreamEvent__Output>;
+  streamCallGraph(argument: _ctk_analysis_v1_CallGraphRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_CallGraphStreamEvent__Output>;
+  streamCallGraph(argument: _ctk_analysis_v1_CallGraphRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_CallGraphStreamEvent__Output>;
+
+  StreamCfg(argument: _ctk_analysis_v1_CfgRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_CfgStreamEvent__Output>;
+  StreamCfg(argument: _ctk_analysis_v1_CfgRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_CfgStreamEvent__Output>;
+  streamCfg(argument: _ctk_analysis_v1_CfgRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_CfgStreamEvent__Output>;
+  streamCfg(argument: _ctk_analysis_v1_CfgRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_CfgStreamEvent__Output>;
+
+  StreamTraverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_TraverseStreamEvent__Output>;
+  StreamTraverse(argument: _ctk_analysis_v1_TraverseRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_TraverseStreamEvent__Output>;
+  streamTraverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_TraverseStreamEvent__Output>;
+  streamTraverse(argument: _ctk_analysis_v1_TraverseRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_TraverseStreamEvent__Output>;
+
+  StreamVariableFlow(argument: _ctk_analysis_v1_VariableFlowRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_VariableFlowEvent__Output>;
+  StreamVariableFlow(argument: _ctk_analysis_v1_VariableFlowRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_VariableFlowEvent__Output>;
+  streamVariableFlow(argument: _ctk_analysis_v1_VariableFlowRequest, metadata: grpc.Metadata, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_VariableFlowEvent__Output>;
+  streamVariableFlow(argument: _ctk_analysis_v1_VariableFlowRequest, options?: grpc.CallOptions): grpc.ClientReadableStream<_ctk_analysis_v1_VariableFlowEvent__Output>;
+
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
   Traverse(argument: _ctk_analysis_v1_TraverseRequest, options: grpc.CallOptions, callback: grpc.requestCallback<_ctk_analysis_v1_TraverseResponse__Output>): grpc.ClientUnaryCall;
@@ -116,6 +141,14 @@ export interface AnalysisServiceHandlers extends grpc.UntypedServiceImplementati
 
   StartBatch: grpc.handleUnaryCall<_ctk_analysis_v1_StartBatchRequest__Output, _ctk_analysis_v1_BatchRun>;
 
+  StreamCallGraph: grpc.handleServerStreamingCall<_ctk_analysis_v1_CallGraphRequest__Output, _ctk_analysis_v1_CallGraphStreamEvent>;
+
+  StreamCfg: grpc.handleServerStreamingCall<_ctk_analysis_v1_CfgRequest__Output, _ctk_analysis_v1_CfgStreamEvent>;
+
+  StreamTraverse: grpc.handleServerStreamingCall<_ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseStreamEvent>;
+
+  StreamVariableFlow: grpc.handleServerStreamingCall<_ctk_analysis_v1_VariableFlowRequest__Output, _ctk_analysis_v1_VariableFlowEvent>;
+
   Traverse: grpc.handleUnaryCall<_ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseResponse>;
 
 }
@@ -129,5 +162,9 @@ export interface AnalysisServiceDefinition extends grpc.ServiceDefinition {
   RetryBatch: MethodDefinition<_ctk_analysis_v1_BatchControlRequest, _ctk_analysis_v1_BatchRun, _ctk_analysis_v1_BatchControlRequest__Output, _ctk_analysis_v1_BatchRun__Output>
   RunScript: MethodDefinition<_ctk_analysis_v1_ScriptRequest, _ctk_analysis_v1_ScriptResponse, _ctk_analysis_v1_ScriptRequest__Output, _ctk_analysis_v1_ScriptResponse__Output>
   StartBatch: MethodDefinition<_ctk_analysis_v1_StartBatchRequest, _ctk_analysis_v1_BatchRun, _ctk_analysis_v1_StartBatchRequest__Output, _ctk_analysis_v1_BatchRun__Output>
+  StreamCallGraph: MethodDefinition<_ctk_analysis_v1_CallGraphRequest, _ctk_analysis_v1_CallGraphStreamEvent, _ctk_analysis_v1_CallGraphRequest__Output, _ctk_analysis_v1_CallGraphStreamEvent__Output>
+  StreamCfg: MethodDefinition<_ctk_analysis_v1_CfgRequest, _ctk_analysis_v1_CfgStreamEvent, _ctk_analysis_v1_CfgRequest__Output, _ctk_analysis_v1_CfgStreamEvent__Output>
+  StreamTraverse: MethodDefinition<_ctk_analysis_v1_TraverseRequest, _ctk_analysis_v1_TraverseStreamEvent, _ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseStreamEvent__Output>
+  StreamVariableFlow: MethodDefinition<_ctk_analysis_v1_VariableFlowRequest, _ctk_analysis_v1_VariableFlowEvent, _ctk_analysis_v1_VariableFlowRequest__Output, _ctk_analysis_v1_VariableFlowEvent__Output>
   Traverse: MethodDefinition<_ctk_analysis_v1_TraverseRequest, _ctk_analysis_v1_TraverseResponse, _ctk_analysis_v1_TraverseRequest__Output, _ctk_analysis_v1_TraverseResponse__Output>
 }

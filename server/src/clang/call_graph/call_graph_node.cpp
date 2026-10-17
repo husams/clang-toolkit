@@ -1,4 +1,5 @@
 #include "call_graph_node.hpp"
+#include "../serialization/match_metadata_helpers.hpp"
 namespace ctk::clang_layer::calls {
 void write_node(const clang::CallGraphNode &native,
                 ctk::analysis::v1::CallGraphNode &output,
@@ -13,6 +14,14 @@ void write_node(const clang::CallGraphNode &native,
     else
       serialization::helpers::write_decl(
           declaration, *output.mutable_anonymous_declaration(), context);
+    ctk::match::v1::MatchBinding metadata;
+    serialization::helpers::write_match_metadata(
+        clang::DynTypedNode::create(*declaration), metadata, context);
+    output.set_symbol_identity(metadata.symbol_identity());
+    if (metadata.has_location())
+      output.mutable_location()->CopyFrom(metadata.location());
+    if (metadata.has_range())
+      output.mutable_range()->CopyFrom(metadata.range());
     if (const auto *function = llvm::dyn_cast<clang::FunctionDecl>(declaration))
       output.set_has_definition(function->getDefinition() != nullptr);
     else if (const auto *block = llvm::dyn_cast<clang::BlockDecl>(declaration))

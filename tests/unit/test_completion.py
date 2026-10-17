@@ -95,8 +95,19 @@ def test_nested_matcher_arguments_use_nested_catalog_without_commands():
 
 
 def test_cfg_and_callgraph_targets_do_not_offer_matcher_catalog(tmp_path):
-    assert complete("cfg ", cwd=tmp_path) == []
-    assert complete("callgraph ", cwd=tmp_path) == []
+    assert complete("cfg ", cwd=tmp_path) == ["in"]
+    assert complete("callgraph ", cwd=tmp_path) == ["in"]
+
+
+def test_callgraph_node_limit_completes_unlimited_option():
+    assert "all" in complete('callgraph "fixture.cc" nodes ')
+    assert "all" in complete('callgraph in $tree nodes ')
+
+
+def test_callgraph_boundaries_complete_from_grammar():
+    assert {"exclude-system", "node-filter", "strict-node-filter"} <= set(complete('callgraph "fixture.cc" '))
+    assert {"true", "false"} <= set(complete('callgraph in $tree exclude-system '))
+    assert {"true", "false"} <= set(complete('callgraph in $tree strict-node-filter '))
 
 
 def test_references_are_injected_and_fields_follow_dot():

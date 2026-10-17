@@ -1,6 +1,7 @@
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+include(GNUInstallDirs)
 
 add_library(ctk_cache
   src/cache/cache_state.cpp
@@ -87,12 +88,13 @@ if(CTK_BUILD_NETWORK)
     src/net/protocol_adapter.cpp
     src/net/outbound_event_queue.cpp
     src/net/query_call_state.cpp
+    src/platform/index_worker.cpp
     src/net/network_service.cpp)
   target_sources(ctk_network PRIVATE src/net/match_service.cpp src/net/match_status.cpp
-    src/net/analysis_service.cpp)
+    src/net/analysis_service.cpp src/net/index_service.cpp)
   target_include_directories(ctk_network PUBLIC include)
   target_link_libraries(ctk_core PUBLIC ctk_query_api ctk_analysis_api)
-  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc Threads::Threads)
+  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto)
 endif()
 
 if(CTK_WITH_CLANG)
@@ -104,12 +106,14 @@ if(CTK_WITH_CLANG)
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     VERBATIM)
   add_library(ctk_clang
+    src/application/cfg_backend_compat.cpp
     src/platform/temporary_directory.cpp
     src/clang/tooling.cpp
     src/clang/project_inputs.cpp
     src/clang/match_project.cpp
     src/clang/cfg_project.cpp
     src/clang/call_graph_project.cpp
+    src/clang/project_index_extract.cpp
     src/clang/cached_query_engine.cpp
     src/clang/compilation_database.cpp
     src/clang/file_discovery.cpp
@@ -154,6 +158,24 @@ if(CTK_WITH_CLANG)
   target_compile_definitions(ctk_clang PRIVATE
     CTK_CLANG_RESOURCE_DIR="${CTK_CLANG_RESOURCE_DIR}"
     CTK_CLANG_TOOL_PATH="${CMAKE_CXX_COMPILER}")
+  # Identify extractor behavior, not the linked executable's build UUID or the
+  # server Git revision. Unrelated rebuilds must keep valid TU contributions.
+  set(_index_identity_inputs
+    src/clang/project_index_extract.cpp include/ctk/clang/project_index_extract.hpp
+    src/index_worker_main.cpp src/clang/snapshot/compilation_environment.cpp
+    src/clang/snapshot/compilation_environment.hpp
+    include/ctk/cache/include_inventory.hpp
+    ../api/index/v1/index_service.proto)
+  set(_index_identity "ctk-index-extractor-v1\ncompiler:${CMAKE_CXX_COMPILER}\nresource:${CTK_CLANG_RESOURCE_DIR}")
+  foreach(_input IN LISTS _index_identity_inputs)
+    set(_path "${CMAKE_CURRENT_SOURCE_DIR}/${_input}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_path}")
+    file(SHA256 "${_path}" _hash)
+    string(APPEND _index_identity "\n${_input}:${_hash}")
+  endforeach()
+  string(SHA256 CTK_INDEX_EXTRACTOR_FINGERPRINT "${_index_identity}")
+  set_property(SOURCE src/clang/project_index_extract.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS CTK_INDEX_EXTRACTOR_FINGERPRINT="${CTK_INDEX_EXTRACTOR_FINGERPRINT}")
   # RHEL/Fedora ship Clang/LLVM as shared dylibs only; Homebrew ships both.
   if(TARGET clang-cpp AND TARGET LLVM)
     target_link_libraries(ctk_clang PUBLIC clang-cpp LLVM)
@@ -164,11 +186,19 @@ if(CTK_WITH_CLANG)
   target_link_libraries(ctk_clang PUBLIC ctk_match_api ctk_analysis_api ctk_cache ctk_storage)
   target_link_libraries(ctk_clang PRIVATE ctk::sqlite)
   target_compile_definitions(ctk_core PUBLIC CTK_WITH_CLANG=1)
+elseif(CTK_BUILD_NETWORK)
+  target_sources(ctk_core PRIVATE src/application/cfg_backend_compat.cpp)
 endif()
 
 if(CTK_BUILD_NETWORK)
   add_executable(ctk-server src/main.cpp)
   target_link_libraries(ctk-server PRIVATE ctk_network)
-  include(GNUInstallDirs)
+  if(CTK_WITH_CLANG)
+    add_executable(ctk-index-worker src/index_worker_main.cpp)
+    target_sources(ctk-index-worker PRIVATE src/platform/index_worker.cpp)
+    target_link_libraries(ctk-index-worker PRIVATE ctk_clang ctk_index_api)
+    add_dependencies(ctk-server ctk-index-worker)
+    install(TARGETS ctk-index-worker RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT ctk-server)
+  endif()
   install(TARGETS ctk-server RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT ctk-server)
 endif()

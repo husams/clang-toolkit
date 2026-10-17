@@ -1116,6 +1116,54 @@ TEST_F(MatchCursors, PinnedGenerationSurvivesSourceChangeAndAnotherFileQuery) {
             "99");
 }
 
+TEST_F(MatchCursors, TraversalCanSwitchOnOneParsedTreeWithoutReparsing) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "struct Node { int value; };\n"
+         "Node node{1};\n"
+         "int readValue() { return node.value; }\n"
+         "void copyNode() { Node local(node); }\n";
+  const auto parsed = controller->parse("owner", parse_request(),
+                                         [] { return true; });
+  ASSERT_EQ(parsed.code, MatchCode::Ok) << parsed.message;
+  const auto tree = tree_response(parsed.response);
+  const std::string query =
+      "memberExpr(hasDeclaration(fieldDecl(hasName(\"value\"))))";
+  // Keep the same parse cursor/revision for every request, including switching
+  // back and repeating an identical query after its previous result is retained.
+  for (const bool streaming : {false, true}) {
+    for (const auto mode :
+         {MATCH_TRAVERSAL_MODE_AS_IS,
+          MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE,
+          MATCH_TRAVERSAL_MODE_AS_IS,
+          MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE}) {
+      auto request = session(tree, query);
+      request.set_preserve_source(true);
+      request.set_traversal_mode(mode);
+      std::size_t rows = 0;
+      std::vector<unsigned> lines;
+      const auto result = streaming
+          ? stream(request, [&](const MatchStreamEvent &event, std::string &) {
+              rows += event.has_row();
+              if (event.has_row())
+                lines.push_back(event.row().bindings().at("root").location().line());
+              return MatchCode::Ok;
+            })
+          : run(request);
+      ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+      const auto expected = mode == MATCH_TRAVERSAL_MODE_AS_IS ? 2 : 1;
+      EXPECT_EQ(result.response.results_size(), expected);
+      if (streaming)
+        EXPECT_EQ(rows, expected);
+      if (expected == 1) {
+        if (streaming)
+          EXPECT_EQ(lines, std::vector<unsigned>{3});
+        else
+          EXPECT_EQ(result.response.results(0).bindings().at("root").location().line(), 3);
+      }
+    }
+  }
+}
+
 TEST_F(MatchCursors, NativeSubtreeTraversalMatchesWholeTreePolicy) {
   std::ofstream(directory.path() / "fixture.cc")
       << "template<class T> T id(T x) { return x; }\n"

@@ -88,6 +88,14 @@ class _ReplContext(Context):
 class PrototypeRuntime(Runtime):
     """Use the prototype compiler for script flow and Runtime for CTK operations."""
 
+    def _index_value(self, value: Any, key: Any) -> Any:
+        from .semantics import index_value
+
+        context = self._prototype_context
+        if context is None:
+            return super()._index_value(value, key)
+        return index_value(value, key, context, None)
+
     def __init__(self, client: Any = None, *, script_engine: str = "compiled", **kwargs: Any) -> None:
         super().__init__(client, **kwargs)
         self._prototype_context: Context | None = None
@@ -389,7 +397,7 @@ class ReplSession:
             line, column = context.current_location
             raise ExecutionLimitError(f"output exceeds item limit at line {line}, column {column}")
 
-    def record(self, kind: str, value: Any, *, text: str | None = None, routed: bool = False, markdown: str | None = None) -> None:
+    def record(self, kind: str, value: Any, *, text: str | None = None, routed: bool = False, markdown: str | None = None, result_key: str | None = None) -> None:
         from clang_toolkit.cli.app import DispatchResult
 
         self.check_output_capacity()
@@ -403,7 +411,10 @@ class ReplSession:
             text = render(value)
         if not routed and markdown is None:
             text = self.runtime.output.emit(text)
-        self.parts.append(DispatchResult(text, True, markdown=markdown, outline_value=outline))
+        self.parts.append(DispatchResult(
+            text, True, markdown=markdown, outline_value=outline,
+            result_key=result_key,
+        ))
 
     def host(self, context: Context, node: Node) -> Any:
         tree, mode = node.value
@@ -436,6 +447,8 @@ class ReplSession:
         return value
 
     def observe(self, context: Context, node: Node, value: Any) -> None:
+        from clang_toolkit.cli.app import _match_result_key
+
         if node.kind == "loop_iteration":
             if not context.consume_depth and value is not None and self.last_tail not in {"let", "runnable", "assign", "print", "host_display"}:
                 self.record("display", value)
@@ -447,7 +460,8 @@ class ReplSession:
             if node.kind == "host" and id(node) in self.host_displays:
                 display = self.host_displays.pop(id(node))
                 if display is not None:
-                    self.record(str(node.value[0].data), value, text=display, routed=True)
+                    self.record(str(node.value[0].data), value, text=display, routed=True,
+                                result_key=_match_result_key(node.value[0], context.source))
                     self.emitted = True
                     self.last_tail = "host_display"
             return
@@ -466,7 +480,8 @@ class ReplSession:
             elif mode == "statement":
                 display = self.host_displays.pop(id(node), None)
                 if display is not None:
-                    self.record(kind, value, text=display, routed=True)
+                    self.record(kind, value, text=display, routed=True,
+                                result_key=_match_result_key(tree, context.source))
             elif value is not None and not emitted:
                 self.record("display", value)
             return

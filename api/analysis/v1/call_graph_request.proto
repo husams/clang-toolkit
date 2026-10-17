@@ -1,15 +1,52 @@
 syntax = "proto3";
 package ctk.analysis.v1;
 import "match/v1/match_service.proto";
+import "match/v1/resources.proto";
 import "analysis/v1/value_projection.proto";
+enum CallGraphDirection {
+  CALL_GRAPH_DIRECTION_UNSPECIFIED = 0;
+  CALL_GRAPH_DIRECTION_OUT = 1;
+  CALL_GRAPH_DIRECTION_IN = 2;
+  CALL_GRAPH_DIRECTION_BOTH = 3;
+}
 message CallGraphRequest {
-  ctk.match.v1.FileMatchTarget file = 1;
+  oneof target {
+    ctk.match.v1.FileMatchTarget file = 1;
+    ctk.match.v1.SessionMatchTarget session = 10;
+    ctk.match.v1.BindingMatchTarget binding = 11;
+    ctk.match.v1.FileHandleTarget file_handle = 12;
+  }
   optional bool visit_implicit_code = 2; // Native default: true.
   optional bool visit_template_instantiations = 3; // Native default: true.
-  optional uint64 max_nodes = 4; // Default 10000; hard maximum 100000, including root.
+  // Omit to use server.call_graph.default_max_nodes (default 10000).
+  // Zero disables the node-count limit; positive values include the root.
+  // There is no fixed node ceiling. Other resource budgets still apply.
+  optional uint64 max_nodes = 4;
   optional uint64 max_edges = 5; // Default 100000; hard maximum 1000000, including root edges.
   ValueProjection projection = 6;
   // Only emit main-file callable declarations and edges between them.
   bool main_file_only = 7;
   string resource_scope_id = 8;
+  CallGraphDirection direction = 13;
+  optional uint64 max_depth = 14;
+  optional uint64 max_call_sites = 15;
+  // Optional exact qualified callable name for file/session/file_handle.
+  // Omit to analyze the complete translation unit or select through binding.
+  string function = 16;
+  // Select every callable reachable from the focused callable. Mutually
+  // exclusive with max_depth; finite depths remain bounded to 0..32.
+  optional bool unlimited_depth = 17;
+  // Exclude callable definitions in Clang system headers, retaining user headers.
+  // Uses the definition when available, otherwise the declaration, at expansion location.
+  bool exclude_system_headers = 18;
+  // Optional Clang declaration matcher evaluated on each callable (definition
+  // when available). Combined with the other scope filters using AND. Excluded
+  // callables are boundaries: traversal never passes through them.
+  string node_filter = 19;
+  // Opt in to dropping call-site facts whose known static callee is excluded
+  // by the callable scope filters. Requires node_filter. Unknown indirect
+  // targets remain; this does not change depth selection or root-site scoping.
+  bool strict_node_filter = 20;
+  // Opt in to a separately owned cursor of exact callable declarations.
+  bool retain_nodes = 21;
 }

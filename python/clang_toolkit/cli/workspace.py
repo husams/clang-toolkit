@@ -981,11 +981,12 @@ class WorkspaceConsole:
             self.write_markdown(markdown)
 
     def _append(
-        self, text: str, styled: list[StyleAndTextTuples] | None = None
+        self, text: str, styled: list[StyleAndTextTuples] | None = None,
+        *, result_key: str | None = None,
     ) -> None:
         old = self.results.text
         if styled is not None:
-            self.transcript_lexer.blocks.append(StyledBlock(len(old), text, styled))
+            self.transcript_lexer.blocks.append(StyledBlock(len(old), text, styled, result_key))
         combined = old + text + "\n"
         removed = max(0, len(combined) - MAX_TRANSCRIPT_CHARS)
         if removed:
@@ -1072,7 +1073,10 @@ class WorkspaceConsole:
             if (
                 outcome.success
                 and outline_value is not None
-                and await self.result_trees.show(*outline_value)
+                and await self.result_trees.show(
+                    *outline_value,
+                    result_key=getattr(outcome, "result_key", None),
+                )
             ):
                 return
             if outcome.success and outcome.markdown is not None:

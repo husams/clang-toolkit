@@ -52,9 +52,9 @@ calls_backend(std::shared_ptr<ctk::clang_layer::IQueryEngine> engine) {
   return {};
 #endif
 }
-application::CursorSettings cursor_settings(
-    const config::Settings &settings,
-    std::shared_ptr<application::ResourceManager> resources) {
+application::CursorSettings
+cursor_settings(const config::Settings &settings,
+                std::shared_ptr<application::ResourceManager> resources) {
   application::CursorSettings result;
   result.workers = static_cast<std::size_t>(settings.pool_size);
   result.pending_requests = static_cast<std::size_t>(settings.queue_size);
@@ -62,6 +62,7 @@ application::CursorSettings cursor_settings(
   result.max_memory_bytes =
       static_cast<std::uint64_t>(settings.max_memory_bytes);
   result.resources = std::move(resources);
+  result.call_graph_default_max_nodes = settings.call_graph_default_max_nodes;
   result.results.max_bytes = static_cast<std::size_t>(std::min<std::uint64_t>(
       result.max_memory_bytes, std::numeric_limits<int>::max()));
   // Reject oversized responses before publishing a new cursor revision.
@@ -71,7 +72,8 @@ application::CursorSettings cursor_settings(
                                         static_cast<std::size_t>(*configured));
   return result;
 }
-application::BatchRegistryLimits batch_limits(const config::Settings &settings) {
+application::BatchRegistryLimits
+batch_limits(const config::Settings &settings) {
   application::BatchRegistryLimits result;
   result.max_jobs = static_cast<std::uint32_t>(settings.pool_size);
   return result;
@@ -108,13 +110,16 @@ GrpcServerHost::GrpcServerHost(config::Settings settings,
       traversals_(cursor_settings(settings_, resources_),
                   visitor(native_engine_), operations_, &matches_),
       cfg_(cursor_settings(settings_, resources_), cfg_backend(native_engine_),
-           operations_),
+           operations_, &matches_),
       calls_(cursor_settings(settings_, resources_),
-             calls_backend(native_engine_), operations_),
+             calls_backend(native_engine_), operations_, &matches_),
       scripts_(cursor_settings(settings_, resources_), native_engine_,
                operations_),
       batches_(scripts_, resources_, storage_root(), batch_limits(settings_)),
-      analysis_service_(traversals_, cfg_, calls_, scripts_, batches_) {}
+      analysis_service_(traversals_, cfg_, calls_, scripts_, batches_),
+      index_service_(storage_root(), [executor = operations_] {
+        return executor->active_count() != 0 || executor->pending_count() != 0;
+      }) {}
 GrpcServerHost::~GrpcServerHost() {
   if (server_)
     shutdown();
@@ -133,6 +138,7 @@ void GrpcServerHost::start() {
   builder.RegisterService(&service_);
   builder.RegisterService(&match_service_);
   builder.RegisterService(&analysis_service_);
+  builder.RegisterService(&index_service_);
   builder.AddListeningPort(settings_.endpoint,
                            grpc::InsecureServerCredentials());
   server_ = builder.BuildAndStart();

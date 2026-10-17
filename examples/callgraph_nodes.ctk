@@ -1,0 +1,13 @@
+// Independent node-count and call-depth controls, with shallow payloads.
+let source = "examples/callgraph_reuse.cc"
+let filename = callgraph source nodes 250000
+let tree = parse source
+let parsed = callgraph in tree nodes all
+let functions = match functionDecl(isDefinition(), hasName("demo::apiRequest")).bind("f") in tree
+let matched = callgraph in functions[0].f nodes all
+let reachable = callgraph in functions[0].f depth all nodes all
+print "FILENAME_NODES={filename.nodes.length}"
+print "PARSED_NODES={parsed.nodes.length}"
+print "MATCHED_SHALLOW_NODES={matched.nodes.length}"
+print "MATCHED_ALL_DEPTH_NODES={reachable.nodes.length}"
+print "COMPLETE={filename.is_complete and parsed.is_complete and matched.is_complete and reachable.is_complete}"
