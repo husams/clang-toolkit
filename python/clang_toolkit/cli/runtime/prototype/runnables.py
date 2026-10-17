@@ -26,6 +26,7 @@ class RunnableBlock:
     defaults: tuple[Callable[[Context], Any], ...] = ()
     default_nodes: tuple[Any, ...] = ()
     definition: str = ""
+    recursion: Any = None
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(_format_pattern(item) for item in self.parameters)})"
@@ -49,6 +50,11 @@ class RunnableBlock:
             if names[key] in supplied:
                 raise _error(context, node, f"{self.name} got multiple values for {key!r}")
             supplied[names[key]] = value
+        from .list_recursion import observer_allows_optimization
+
+        if self.recursion is not None and _executable is None and observer_allows_optimization(context):
+            _bound = {}
+            _executable = lambda ctx: self.recursion.run(ctx, arguments, self, node)
         local: dict[str, Any] = {self.name: self}
         if _bound is not None:
             local.update(_bound)
@@ -97,9 +103,15 @@ class MultiClauseBlock(RunnableBlock):
     def invoke(self, context: Context, node: Any, arguments: list[Any], keywords: Mapping[str, Any] | None = None) -> Any:
         if keywords:
             raise _error(context, node, "multi-clause functions accept positional arguments only")
-        if self.optimized is not None:
+        from .list_recursion import observer_allows_optimization
+
+        allowed = observer_allows_optimization(context)
+        if self.optimized is not None and allowed:
             return super().invoke(context, node, arguments, _bound={},
                                   _executable=lambda ctx: self.optimized(ctx, arguments, node))
+        if self.recursion is not None and allowed:
+            return super().invoke(context, node, arguments, _bound={},
+                                  _executable=lambda ctx: self.recursion.run(ctx, arguments, self, node))
         for matcher, executable in zip(self.matchers, self.executables):
             context.tick(self.body)
             bindings = matcher(arguments)
@@ -111,6 +123,7 @@ class MultiClauseBlock(RunnableBlock):
 def create_clause_runnable(context: Context, node: Any,
                            executables: tuple[Callable[[Context], Any], ...]) -> MultiClauseBlock:
     from .folds import compile_right_fold
+    from .list_recursion import compile_list_recursion
 
     parameters = node.children[0].value[1]
     return MultiClauseBlock(
@@ -119,7 +132,7 @@ def create_clause_runnable(context: Context, node: Any,
         definition_location=(node.line, node.column), source_name=context.source_name,
         definition=context.source[slice(*node.source_span)] if node.source_span else "",
         matchers=tuple(compile_matcher(clause.value[1]) for clause in node.children),
-        executables=executables, optimized=compile_right_fold(node),
+        executables=executables, optimized=compile_right_fold(node), recursion=compile_list_recursion(node, context),
     )
 
 
@@ -143,10 +156,13 @@ def create_runnable(context: Context, node: Any, executable: Callable[[Context],
     names = [item for pattern in parameters for item in _pattern_names(pattern)]
     if len(set(names)) != len(names):
         raise _error(context, node, f"{name} has duplicate parameter names")
+    from .list_recursion import compile_list_recursion
+
     value = RunnableBlock(name, parameters, node.children[0], executable,
                           context.scopes, context.source, context.string_templates,
                           (node.line, node.column), context.source_name, defaults, node.children[1:],
-                          context.source[slice(*node.source_span)] if node.source_span else "")
+                          context.source[slice(*node.source_span)] if node.source_span else "",
+                          compile_list_recursion(node, context))
     return value
 
 
@@ -191,6 +207,11 @@ def invoke_value(context: Context, node: Any, value: Any,
             named[str(item.value)] = value_arg
         else:
             positional.append(value_arg)
+    return invoke_prepared(context, node, value, positional, named)
+
+
+def invoke_prepared(context: Context, node: Any, value: Any, positional: list[Any], named: Mapping[str, Any]) -> Any:
+    """Dispatch an already validated callee without repeating observable checks."""
     if isinstance(value, RunnableBlock):
         return value.invoke(context, node, positional, named)
     try:
@@ -200,13 +221,13 @@ def invoke_value(context: Context, node: Any, value: Any,
     if isinstance(value, MatcherFunction):
         runtime = getattr(getattr(context, "session", None), "runtime", None)
         if runtime is None:
-            raise _error(context, node, f"{name!r} is not callable")
+            raise _error(context, node, f"{getattr(node, 'value', '<expression>')!r} is not callable")
         if named:
-            raise _error(context, node, f"{name} does not accept named arguments")
+            raise _error(context, node, f"{getattr(node, 'value', '<expression>')} does not accept named arguments")
         return value.call(runtime, positional)
     if callable(value):
         return value(*positional, **named)
-    raise _error(context, node, f"{name!r} is not callable")
+    raise _error(context, node, f"{getattr(node, 'value', '<expression>')!r} is not callable")
 
 
 def _preflight(context: Context, node: Any, name: str, value: Any, positional_count: int,
