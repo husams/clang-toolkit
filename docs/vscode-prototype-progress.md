@@ -1730,3 +1730,41 @@ active local syntax-composition checkout was preserved throughout.
 
 Logs and tested-source manifest:
 `vscode/artifacts/validation/rhel-deploy-20261017/`.
+
+## User-level RHEL installation, 2026-10-17
+
+The installer now configures the extension for the current user, so opening a
+different C++ project uses the same server, private Python runtime and helper
+library. It updates only the four CTK deployment settings in desktop user settings
+or Remote-SSH machine settings. Existing JSONC comments, trailing commas, unrelated
+preferences and settings symlinks survive; changed files have an adjacent backup.
+Named desktop profiles, inherited default settings and a custom settings-file
+override are supported. Invalid settings are reported without replacing the file.
+
+Default installation creates neither a demo nor a workspace file. `--demo` is an
+explicit opt-in; `--workspace` remains an optional shortcut. Both use user settings.
+Rerunning also removes the old installer's four deployment overrides from its own
+generated shortcut, preserving unrelated workspace settings.
+
+Verification:
+
+- All **13 deployment regressions pass on macOS and linux-dev**. They cover user
+  scope, Remote-SSH detection, named/inherited profiles, repeat installation,
+  optional demo, migration, malformed JSONC and preservation of existing settings.
+- A real install and repeat install of the VSIX pass on Rocky Linux 9.8 using
+  isolated VS Code user-data/extension directories and the existing local CTK
+  server. Automatic Remote-SSH settings detection also passes with no explicit
+  settings-file option. The packaged worker verifies unsaved parsing, base
+  navigation and a retained-node action each time.
+- Two unrelated C++ projects load their ASTs through the installed runtime using
+  the shared user settings, with no `.vscode` or `.code-workspace` configuration.
+  Existing editor preferences and comments remain intact.
+- All **115 extension unit tests**, TypeScript, Biome, Ruff, mypy, Bash syntax and
+  ShellCheck 0.11.0 pass. The unchanged native and console suites were not rerun
+  for this installer-only change; their preceding results are recorded above.
+- The three executable/test source files have identical SHA-256 hashes locally
+  and on Linux. No VS Code window was opened; temporary profiles, deployments and
+  checkout were removed. The existing backend PID and clean Linux checkout were
+  preserved.
+
+Logs: `vscode/artifacts/validation/user-level-deploy-20261017/`.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -37,12 +38,17 @@ function fixture(t) {
   };
   for (const folder of [
     "vscode/examples",
+    "vscode/scripts",
     "skills/ctk-script/scripts",
     "scripts",
   ])
     mkdirSync(join(repo, folder), { recursive: true });
   writeFileSync(join(repo, "vscode/package.json"), JSON.stringify(packageJson));
   writeFileSync(join(repo, "uv.lock"), "");
+  copyFileSync(
+    join(dirname(script), "user-settings.py"),
+    join(repo, "vscode/scripts/user-settings.py"),
+  );
   writeFileSync(
     join(repo, "skills/ctk-script/scripts/ctk_helpers.ctk"),
     "bundled",
@@ -85,6 +91,8 @@ esac
     CTK_DEPLOY_PYTHON: python,
     XDG_CONFIG_HOME: config,
     XDG_RUNTIME_DIR: root,
+    VSCODE_AGENT_FOLDER: "",
+    VSCODE_PORTABLE: "",
   };
   const args = [
     "--repo",
@@ -153,6 +161,8 @@ test("rejects incomplete options and invalid server addresses before writing", (
   const f = fixture(t);
   for (const extra of [
     ["--workspace", "--dry-run"],
+    ["--settings-file", "--dry-run"],
+    ["--demo", "--workspace", f.root],
     ["--unknown"],
     ["--server", "remote.example:5000"],
     ["--server", "localhost:0"],
@@ -174,6 +184,21 @@ test("deploys an existing server, preserves helpers/settings, and reruns from it
   mkdirSync(join(workspace, ".vscode"), { recursive: true });
   const settings = join(workspace, ".vscode/settings.json");
   writeFileSync(settings, '{"editor.fontSize":17}');
+  const userSettings = join(
+    f.config,
+    "Code/User/profiles/testing/settings.json",
+  );
+  mkdirSync(dirname(userSettings), { recursive: true });
+  mkdirSync(join(f.config, "Code/User/globalStorage"), { recursive: true });
+  writeFileSync(
+    join(f.config, "Code/User/globalStorage/storage.json"),
+    JSON.stringify({
+      userDataProfiles: [{ name: "Testing Profile", location: "testing" }],
+    }),
+  );
+  const original =
+    '{\n  // Keep my editor settings\n  "editor.fontSize": 17,\n  "ctk.server": "old",\n  "nested": {"ctk.server": "keep nested",},\n}\n';
+  writeFileSync(userSettings, original);
   const extra = [
     "--server",
     "127.0.0.1:12345",
@@ -203,12 +228,17 @@ test("deploys an existing server, preserves helpers/settings, and reruns from it
     readFileSync(join(f.prefix, "ctk.code-workspace")),
   );
   assert.equal(generated.folders[0].path, workspace);
-  assert.equal(
-    generated.settings["ctk.pythonPath"],
-    join(f.prefix, "runtime/bin/python"),
+  assert.equal(generated.settings, undefined);
+  const user = readFileSync(userSettings, "utf8");
+  assert.match(user, /\/\/ Keep my editor settings/);
+  assert.match(user, /"editor.fontSize": 17/);
+  assert.match(user, /"nested": \{"ctk.server": "keep nested",\}/);
+  assert.ok(
+    user.includes(JSON.stringify(join(f.prefix, "runtime/bin/python"))),
   );
-  assert.equal(generated.settings["ctk.libraryDirectory"], f.library);
-  assert.equal(generated.settings["ctk.server"], "127.0.0.1:12345");
+  assert.ok(user.includes(JSON.stringify(f.library)));
+  assert.match(user, /"ctk.server": "127.0.0.1:12345"/);
+  assert.equal(readFileSync(`${userSettings}.ctk-backup`, "utf8"), original);
   assert.equal(
     readFileSync(join(f.prefix, "console/worker.py"), "utf8"),
     "probe",
@@ -216,7 +246,7 @@ test("deploys an existing server, preserves helpers/settings, and reruns from it
   assert.equal(existsSync(join(f.prefix, "vsix.sha256")), true);
 });
 
-test("creates only its own user service with escaped paths and a usable demo", (t) => {
+test("installs for the user without requiring or creating a workspace", (t) => {
   const f = fixture(t);
   const result = f.run(["--full-tests"]);
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -235,11 +265,15 @@ test("creates only its own user service with escaped paths and a usable demo", (
     readFileSync(join(f.library, "ctk_helpers.ctk"), "utf8"),
     "bundled",
   );
-  assert.equal(existsSync(join(f.prefix, "demo/actions-demo.cpp")), true);
-  assert.equal(
-    existsSync(join(f.prefix, "demo/.ctk/actions/order-fields.ctk-action")),
-    true,
+  const user = JSON.parse(
+    readFileSync(join(f.config, "Code/User/settings.json"), "utf8"),
   );
+  assert.equal(user["ctk.server"], `unix://${f.root}/ctk-vscode/ctk.sock`);
+  assert.equal(user["ctk.pythonPath"], join(f.prefix, "runtime/bin/python"));
+  assert.equal(user["ctk.libraryDirectory"], f.library);
+  assert.equal(existsSync(join(f.prefix, "ctk.code-workspace")), false);
+  assert.equal(existsSync(join(f.prefix, "demo")), false);
+  assert.match(result.stdout, /Open any trusted C\+\+ project/);
   // A previous local deployment must not make --server restart that service.
   const reuse = f.run(["--server", `unix://${f.root}/ctk-vscode/ctk.sock`]);
   assert.equal(reuse.status, 0, reuse.stderr);
@@ -248,6 +282,142 @@ test("creates only its own user service with escaped paths and a usable demo", (
       .length,
     1,
   );
+});
+
+test("creates a demo only when requested and migrates old shortcut settings", (t) => {
+  const f = fixture(t);
+  const result = f.run(["--demo", "--server", "localhost:12345"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(join(f.prefix, "demo/actions-demo.cpp")), true);
+  assert.equal(
+    existsSync(join(f.prefix, "demo/.ctk/actions/order-fields.ctk-action")),
+    true,
+  );
+  const shortcut = join(f.prefix, "ctk.code-workspace");
+  writeFileSync(
+    shortcut,
+    JSON.stringify({
+      folders: [{ path: "old project" }],
+      settings: {
+        "ctk.server": "old",
+        "ctk.pythonPath": "old",
+        "editor.fontSize": 17,
+      },
+    }),
+  );
+  const reuse = f.run(["--server", "localhost:12345"]);
+  assert.equal(reuse.status, 0, reuse.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(shortcut, "utf8")), {
+    folders: [{ path: "old project" }],
+    settings: { "editor.fontSize": 17 },
+  });
+});
+
+test("Remote-SSH installs configure host user settings across projects", (t) => {
+  const f = fixture(t);
+  const agent = join(f.root, "remote-agent");
+  const settings = join(agent, "data/Machine/settings.json");
+  mkdirSync(dirname(settings), { recursive: true });
+  writeFileSync(settings, '{"files.autoSave":"afterDelay"}');
+  const result = f.run(["--server", "localhost:12345"], {
+    VSCODE_AGENT_FOLDER: agent,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const user = JSON.parse(readFileSync(settings, "utf8"));
+  assert.equal(user["ctk.server"], "localhost:12345");
+  assert.equal(user["files.autoSave"], "afterDelay");
+  assert.equal(existsSync(join(f.config, "Code/User/settings.json")), false);
+  assert.equal(existsSync(join(f.prefix, "ctk.code-workspace")), false);
+});
+
+test("profiles inheriting default settings keep comment-only user settings", (t) => {
+  const f = fixture(t);
+  const user = join(f.config, "Code/User");
+  mkdirSync(join(user, "globalStorage"), { recursive: true });
+  writeFileSync(join(user, "settings.json"), "// Personal preferences");
+  writeFileSync(
+    join(user, "globalStorage/storage.json"),
+    JSON.stringify({
+      userDataProfiles: [
+        {
+          name: "Inherited",
+          location: "inherited",
+          useDefaultFlags: { settings: true },
+        },
+      ],
+    }),
+  );
+  const result = f.run([
+    "--server",
+    "localhost:12345",
+    "--profile",
+    "Inherited",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const settings = readFileSync(join(user, "settings.json"), "utf8");
+  assert.match(settings, /\/\/ Personal preferences\n/);
+  assert.match(settings, /"ctk.server": "localhost:12345"/);
+  assert.equal(
+    existsSync(join(user, "profiles/inherited/settings.json")),
+    false,
+  );
+});
+
+test("detects remote CLI settings without a Remote-SSH environment variable", (t) => {
+  const f = fixture(t);
+  const remote = join(
+    f.root,
+    ".vscode-server/cli/servers/Stable-test/server/bin/code-server",
+  );
+  mkdirSync(dirname(remote), { recursive: true });
+  copyFileSync(f.code, remote);
+  const result = f.run(["--server", "localhost:12345", "--code", remote]);
+  assert.equal(result.status, 0, result.stderr);
+  const user = JSON.parse(
+    readFileSync(
+      join(f.root, ".vscode-server/data/Machine/settings.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(user["ctk.server"], "localhost:12345");
+});
+
+test("custom user settings preserve JSONC, CRLF, symlinks and reject malformed files", (t) => {
+  const f = fixture(t);
+  const target = join(f.root, "custom-settings.json");
+  const link = join(f.root, "linked-settings.json");
+  const original =
+    '{\r\n/* my settings */\r\n"ctk.server": ["incorrect type", {"nested":true}],\r\n"editor.rulers": [80, 120,], // keep trailing comment\r\n}\r\n';
+  writeFileSync(target, original);
+  symlinkSync(target, link);
+  const result = f.run([
+    "--server",
+    "localhost:12345",
+    "--settings-file",
+    link,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const updated = readFileSync(target, "utf8");
+  assert.match(updated, /\/\* my settings \*\//);
+  assert.match(updated, /"ctk.server": "localhost:12345"/);
+  assert.match(
+    updated,
+    /"editor.rulers": \[80, 120,\], \/\/ keep trailing comment\r\n/,
+  );
+  assert.equal(updated.replaceAll("\r\n", "").includes("\n"), false);
+  assert.equal(readFileSync(`${target}.ctk-backup`, "utf8"), original);
+  const invalid = '{"editor.fontSize": 18, incomplete';
+  writeFileSync(target, invalid);
+  const failed = f.run([
+    "--server",
+    "localhost:12345",
+    "--settings-file",
+    link,
+  ]);
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /Cannot configure CTK user settings/);
+  assert.equal(readFileSync(target, "utf8"), invalid);
+  assert.equal(readFileSync(`${target}.ctk-backup`, "utf8"), original);
 });
 
 test("reuses its installed Node runtime when system Node is absent", (t) => {

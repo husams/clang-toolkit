@@ -6,6 +6,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 deploy_dir="${XDG_DATA_HOME:-$HOME/.local/share}/ctk-vscode"
 workspace=""
+demo=0
+settings_file=""
 library_dir="$HOME/.ctk/lib"
 endpoint=""
 manage_server=0
@@ -25,7 +27,9 @@ usage() {
   cat <<'USAGE'
 Usage: bash vscode/scripts/deploy-rhel9.sh [options]
 
-  --workspace DIR   C++ project to open (default: a private demo workspace)
+  --workspace DIR   Optional shortcut workspace for a C++ project
+  --demo            Also create a private demo project and shortcut workspace
+  --settings-file FILE  Override the detected VS Code user/remote settings file
   --repo DIR        Prototype checkout (default: this script's checkout)
   --prefix DIR      User-owned deployment directory (default: ~/.local/share/ctk-vscode)
   --code FILE       VS Code CLI, including the CLI in a Remote-SSH terminal
@@ -42,18 +46,22 @@ Usage: bash vscode/scripts/deploy-rhel9.sh [options]
 Default deployment installs missing prerequisites, builds CTK and the VSIX,
 checks the extension, installs a private Python 3.14 environment and helper
 library, starts a dedicated user service, verifies live unsaved AST navigation,
-installs the extension, and writes a ready-to-open .code-workspace file.
-Existing project settings and helper files are kept. No VS Code window opens.
+installs the extension and configures CTK in your VS Code user settings.
+Open any trusted C++ project afterward; no special workspace is required.
+Only CTK deployment settings are updated; other settings/comments and helper
+files are kept. Existing settings are backed up as settings.json.ctk-backup.
+Remote-SSH installs use remote user settings. No VS Code window opens.
 Internet and sudo access are needed unless prerequisites are already present.
 USAGE
 }
 parse_options() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --workspace|--repo|--prefix|--code|--profile|--library-directory|--vsix|--server)
+      --workspace|--settings-file|--repo|--prefix|--code|--profile|--library-directory|--vsix|--server)
         [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || fail "$1 requires a value"
         case "$1" in
           --workspace) workspace="$(absolute "$2")" ;;
+          --settings-file) settings_file="$(absolute "$2")" ;;
           --repo) repo_root="$(absolute "$2")" ;;
           --prefix) deploy_dir="$(absolute "$2")" ;;
           --code) code_cli="$2" ;;
@@ -64,18 +72,21 @@ parse_options() {
         esac
         shift 2 ;;
       --skip-deps) skip_deps=1; shift ;;
+      --demo) demo=1; shift ;;
       --full-tests) full_tests=1; shift ;;
       --dry-run) dry_run=1; shift ;;
       -h|--help) usage; exit 0 ;;
       *) fail "Unknown option: $1 (use --help)" ;;
     esac
   done
-  for path in "$deploy_dir" "$repo_root" "$workspace" "$library_dir"; do
+  for path in "$deploy_dir" "$repo_root" "$workspace" "$library_dir" "$settings_file"; do
     [[ "$path" != *$'\n'* && "$path" != *$'\r'* ]] || fail 'Paths cannot contain line breaks'
   done
   [[ -f "$repo_root/vscode/package.json" && -f "$repo_root/uv.lock" ]] \
     || fail 'Use --repo to select the checkout containing the VS Code prototype and uv.lock'
+  [[ -f "$repo_root/vscode/scripts/user-settings.py" ]] || fail 'Checkout is missing vscode/scripts/user-settings.py'
   [[ -z "$workspace" || -d "$workspace" ]] || fail "Workspace directory does not exist: $workspace"
+  [[ "$demo" == 0 || -z "$workspace" ]] || fail 'Use either --workspace or --demo'
   [[ -z "$vsix" || -f "$vsix" ]] || fail "VSIX does not exist: $vsix"
   if [[ -n "$endpoint" ]]; then
     [[ "$endpoint" != *$'\n'* && "$endpoint" != *$'\r'* ]] || fail 'Server address cannot contain line breaks'
@@ -174,14 +185,13 @@ build_extension() {
   vsix="$repo_root/vscode/artifacts/clang-toolkit-prototype.vsix"
 }
 write_configuration() {
-  "$python_binary" - "$deploy_dir" "$workspace" "$endpoint" "$unit_file" "$library_dir" <<'PY'
-import json
+  "$python_binary" - "$deploy_dir" "$endpoint" "$unit_file" <<'PY'
 from pathlib import Path
 import re
 import sys
 import yaml
 
-root, workspace, endpoint, unit, library = sys.argv[1:]
+root, endpoint, unit = sys.argv[1:]
 root = Path(root)
 if endpoint.startswith('unix:///'):
     socket = endpoint.removeprefix('unix://')
@@ -196,11 +206,6 @@ else:
 config = root / 'server.yaml'
 config.write_text(yaml.safe_dump({'network': network}))
 config.chmod(0o600)
-settings = {'ctk.server': endpoint, 'ctk.configPath': str(config),
-            'ctk.pythonPath': str(root / 'runtime/bin/python'),
-            'ctk.libraryDirectory': library}
-(root / 'ctk.code-workspace').write_text(json.dumps(
-    {'folders': [{'path': workspace}], 'settings': settings}, indent=2) + '\n')
 if unit:
     def quoted(text, command=False):
         text = str(text).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%')
@@ -270,7 +275,8 @@ main() {
     [[ -n "$vsix" ]] && printf 'Use matching VSIX: %s\n' "$vsix" \
       || printf 'Install pinned pnpm; build SDK; run extension checks/tests; package VSIX.\n'
     printf 'Install private Python runtime/helpers; verify live unsaved AST navigation.\n'
-    printf 'Install extension using %s; verify installed version; generate ctk.code-workspace.\n' "$code_cli"
+    printf 'Install extension for your user using %s; verify installed version; update CTK user settings.\n' "$code_cli"
+    [[ -z "$workspace" && "$demo" == 0 ]] || printf 'Also create an optional shortcut workspace without CTK settings.\n'
     return
   fi
   check_platform
@@ -360,7 +366,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(archive.read(item))
 PY
-  if [[ -z "$workspace" ]]; then
+  if [[ "$demo" == 1 ]]; then
     workspace="$deploy_dir/demo"
     mkdir -p "$workspace/.ctk/actions"
     [[ -e "$workspace/semantic-inspector.cpp" ]] || cp "$repo_root/vscode/examples/semantic-inspector.cpp" "$workspace/"
@@ -380,12 +386,39 @@ PY
   "${code_command[@]}" --install-extension "$vsix" --force
   installed="$("${code_command[@]}" --list-extensions --show-versions)"
   [[ $'\n'"$installed"$'\n' == *$'\n'"clang-toolkit.clang-toolkit-prototype@$version"$'\n'* ]] || fail 'VS Code did not report the expected installed extension version'
+  step 'Configuring CTK for your user across projects'
+  "$python_binary" "$repo_root/vscode/scripts/user-settings.py" \
+    --code "$code_cli" --profile "$profile" --settings-file "$settings_file" \
+    --deployment "$deploy_dir" --server "$endpoint" --library-directory "$library_dir"
+  # Migrate the old installer-owned shortcut so it cannot override user settings.
+  "$python_binary" - "$deploy_dir/ctk.code-workspace" "$workspace" <<'PY'
+import json
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+workspace = sys.argv[2]
+if workspace or path.exists():
+    document = json.loads(path.read_text()) if path.exists() else {}
+    if workspace:
+        document['folders'] = [{'path': workspace}]
+    settings = document.get('settings', {})
+    for name in ('server', 'configPath', 'pythonPath', 'libraryDirectory'):
+        settings.pop('ctk.' + name, None)
+    if not settings:
+        document.pop('settings', None)
+    path.write_text(json.dumps(document, indent=2) + '\n')
+PY
   if [[ ! "$vsix" -ef "$deploy_dir/clang-toolkit-prototype.vsix" ]]; then
     cp "$vsix" "$deploy_dir/clang-toolkit-prototype.vsix"
   fi
   sha256sum "$deploy_dir/clang-toolkit-prototype.vsix" > "$deploy_dir/vsix.sha256"
-  step "Installed prototype $version. Open this workspace, then trust it to enable CTK:"
-  printf '%q ' "${code_command[@]}" "$deploy_dir/ctk.code-workspace"
+  step "Installed prototype $version for your user. Open any trusted C++ project."
+  if [[ -n "$workspace" ]]; then
+    printf '%q ' "${code_command[@]}" "$deploy_dir/ctk.code-workspace"
+  else
+    printf '%q ' "${code_command[@]}"
+    printf '/path/to/your/cpp-project'
+  fi
   printf '\nReload an existing VS Code window to activate an extension update.\n'
 }
 
