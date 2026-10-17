@@ -1,0 +1,261 @@
+{
+  "name": "clang-toolkit-prototype",
+  "displayName": "Clang Toolkit Prototype",
+  "description": "Unified Semantic Analysis and CTK script editing prototype",
+  "version": "0.2.36",
+  "publisher": "clang-toolkit",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:c",
+    "onLanguage:cpp",
+    "onView:ctk.analysis",
+    "onLanguage:ctk"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "ctk",
+        "aliases": [
+          "CTK Script",
+          "ctk"
+        ],
+        "extensions": [
+          ".ctk",
+          ".ctk-action"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ctk",
+        "scopeName": "source.ctk",
+        "path": "./syntaxes/ctk.tmLanguage.json"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ctkSemantic",
+          "title": "Semantic Analysis",
+          "icon": "media/semantic.svg"
+        }
+      ],
+      "panel": [
+        {
+          "id": "ctkResults",
+          "title": "CTK Inspector",
+          "icon": "media/semantic.svg"
+        }
+      ]
+    },
+    "views": {
+      "ctkSemantic": [
+        {
+          "type": "webview",
+          "id": "ctk.analysis",
+          "name": "Semantic Analysis"
+        }
+      ],
+      "ctkResults": [
+        {
+          "type": "webview",
+          "id": "ctk.result",
+          "name": "AST Inspector"
+        }
+      ]
+    },
+    "commands": [
+      {"command":"ctk.reloadFileAst","title":"Reload File AST","category":"CTK"},
+      {"command":"ctk.runInspectorNodeAction","title":"Run Action…","category":"CTK"},
+      {"command":"ctk.cancelSearch","title":"Cancel Search or Script","category":"CTK"},
+      {"command":"ctk.runAction","title":"Select Action…","category":"CTK"},
+      {"command":"ctk.createAction","title":"Create Action…","category":"CTK"},
+      {"command":"ctk.cancelAction","title":"Cancel Action","category":"CTK"},
+      {"command":"ctk.refreshActions","title":"Refresh Analysis","category":"CTK"},
+      {"command":"ctk.closeActions","title":"Close Analysis","category":"CTK"},
+      {
+        "command": "ctk.openAnalysis",
+        "title": "Open Semantic Analysis",
+        "category": "CTK"
+      },
+      {
+        "command": "ctk.runScript",
+        "title": "Run Script…",
+        "category": "CTK",
+        "icon": "$(play)"
+      },
+      {
+        "command": "ctk.runPredefined",
+        "title": "Run Predefined…",
+        "category": "CTK"
+      },
+      {
+        "command": "ctk.runCurrentScript",
+        "title": "Run Current Script",
+        "category": "CTK",
+        "icon": "$(play)"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "ctk.fileActions",
+        "label": "CTK"
+      }
+    ],
+    "menus": {
+      "commandPalette": [{"command":"ctk.runInspectorNodeAction","when":"false"}],
+      "webview/context": [{"command":"ctk.runInspectorNodeAction","when":"webviewId == 'ctk.result' && webviewSection == 'ast-node' && ctkAstCanRun","group":"navigation@1"}],
+      "explorer/context": [
+        {
+          "submenu": "ctk.fileActions",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$/",
+          "group": "navigation@90"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "ctk.fileActions",
+          "when": "editorLangId == cpp || editorLangId == c",
+          "group": "navigation@90"
+        }
+      ],
+      "ctk.fileActions": [
+        {"command":"ctk.runAction","group":"1_run@0"},
+        {
+          "command": "ctk.runScript",
+          "group": "1_run@1"
+        },
+        {
+          "command": "ctk.runPredefined",
+          "group": "1_run@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "ctk.runCurrentScript",
+          "when": "resourceLangId == ctk",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Clang Toolkit Prototype",
+      "properties": {
+        "ctk.server": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit native server endpoint, for example unix:///tmp/ctk.sock. Empty uses shared YAML discovery."
+        },
+        "ctk.configPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional shared CTK YAML configuration file."
+        },
+        "ctk.compilationDatabase": {
+          "type": "string",
+          "default": "",
+          "description": "Optional compile_commands.json file or directory."
+        },
+        "ctk.compileArguments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional compiler flags."
+        },
+        "ctk.maxFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000,
+          "default": 200
+        },
+        "ctk.maxResults": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50000,
+          "default": 2000
+        },
+        "ctk.rpcTimeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000
+        },
+        "ctk.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Python 3.14 interpreter with the CTK console dependencies; empty discovers a local console environment."
+        },
+        "ctk.libraryDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Console helper library folder, preloaded when scripts run; empty uses ~/.ctk/lib. Autocomplete inspects definitions without executing them."
+        },
+        "ctk.automaticClassSuggestions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open class-name suggestions while typing classByName's second argument, including when inline completions suppress normal quick suggestions."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[ctk]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "on"
+        },
+        "editor.suggestOnTriggerCharacters": true,
+        "editor.parameterHints.enabled": true,
+        "editor.tabCompletion": "on",
+        "editor.wordBasedSuggestions": "off"
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "biome check src tests media scripts",
+    "test:live": "CTK_INTEGRATION=1 vitest run tests/live.test.ts tests/actions-live.test.ts",
+    "test:host": "node scripts/test-host.mjs",
+    "test:host-cleanup": "node --test scripts/test-process-check.mjs",
+    "test:deploy": "node --test scripts/test-deploy-rhel9.mjs",
+    "package": "pnpm build && vsce package --no-dependencies --allow-missing-repository --out artifacts/clang-toolkit-prototype.vsix",
+    "test:console": "node scripts/test-console.mjs"
+  },
+  "dependencies": {
+    "@clang-toolkit/sdk": "file:../typescript",
+    "yaml": "^2.9.1",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.0",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/test-electron": "^2.5.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "packageManager": "pnpm@10.15.1"
+}

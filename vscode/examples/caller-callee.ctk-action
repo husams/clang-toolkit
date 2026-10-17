@@ -1,0 +1,11 @@
+---
+name: caller-callee
+description: Find one caller and one callee per call.
+arguments: []
+---
+match functionDecl(
+    isDefinition(),
+    forEachDescendant(callExpr(
+        callee(functionDecl().bind("callee"))
+    ))
+).bind("caller") in node

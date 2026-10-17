@@ -1,0 +1,6 @@
+---
+name: find-classes
+description: Find class definitions under the selected node.
+arguments: []
+---
+match cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("class") in node

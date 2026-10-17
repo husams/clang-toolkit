@@ -1,0 +1,7 @@
+node_modules/
+dist/
+schema/
+artifacts/
+.vscode-test/
+
+console/clang_toolkit/

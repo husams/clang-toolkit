@@ -1,0 +1,10 @@
+---
+name: order-fields
+description: Find class fields using the console's classByName helper.
+arguments:
+  - name: className
+    description: Class name
+    default: demo::Order
+---
+let target = classByName(node, className)
+match fieldDecl().bind("field") in target
