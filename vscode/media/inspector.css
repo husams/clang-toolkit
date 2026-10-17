@@ -73,6 +73,7 @@ nav {
 }
 #action {
   flex-shrink: 0;
+  margin: 4px 0 4px auto;
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
   padding: 5px 10px;
@@ -95,6 +96,7 @@ header {
 }
 .node-title {
   display: flex;
+  flex: 1;
   align-items: baseline;
   min-width: 0;
   gap: 14px;
@@ -140,12 +142,18 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.inspector-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 20px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  margin-bottom: 8px;
+}
 .inspector-tabs {
   display: flex;
   flex-shrink: 0;
   gap: 20px;
-  border-bottom: 1px solid var(--vscode-panel-border);
-  margin-bottom: 8px;
 }
 .inspector-tabs button {
   padding: 6px 0 8px;

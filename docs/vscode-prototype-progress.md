@@ -1063,3 +1063,28 @@ opens the predefined/workspace action picker for the displayed native node;
 cancelling preserves the analysis. The trial is left on Widget::check in
 Properties with the user's existing section-fold choices and custom action
 editor tabs preserved. No additional manual window was opened.
+
+## Run Action beside the fixed tabs, version 0.2.24
+
+Moved Run Action from the node header to the far right of the fixed
+AST/Properties tab bar. The button is separate from the tablist and uses the
+current selected native node from either tab. It remains visible as the tree
+or Properties scroll, and the whole-inspector fold still hides it with both
+tabs. The existing action picker and target validation are unchanged.
+
+TypeScript, Biome and the complete real VS Code extension-host suite pass.
+Logs: `vscode/artifacts/validation/inspector-tab-action-20261017/`.
+The temporary test host exits with CTK_TEST_PROCESSES_CLOSED; an independent
+audit confirms zero temporary test processes remain.
+
+Packaged and installed v0.2.24 in the approved normal profile. Archive and
+installed-version checks pass. VSIX SHA256:
+`e715e77d0a4df31d714297c839e984fec66d5980579321621010862b65d65c98`.
+
+Reloaded the existing normal-profile trial. Manual checks show the button on
+the far right of the tab bar in AST and Properties; scrolling the AST leaves
+the tabs and button fixed. Clicking it from AST after selecting Root opens
+the picker titled Action on Root; cancelling preserves that selection. The
+final installation was reloaded in the existing window and its Properties tab
+placement checked again. No additional manual trial window was opened, and
+custom action editor tabs and the managed native server remain intact.
