@@ -1,5 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Client } from "@clang-toolkit/sdk";
@@ -99,6 +106,55 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         service().inspect(settings, { translationUnit: broken }),
       ).rejects.toThrow(`${header}:1:2: error: broken included header`);
     }, 30000);
+    it("resolves bases and source ranges from unsaved source and header snapshots without touching disk", async () => {
+      const source = resolve(directory, "unsaved source.cpp"),
+        header = resolve(directory, "unsaved base.hpp"),
+        savedHeader = "struct Base { int oldField; };\n",
+        savedSource =
+          '#include "unsaved base.hpp"\nstruct Derived : Base {};\n';
+      await writeFile(header, savedHeader);
+      await writeFile(source, savedSource);
+      const draftHeader =
+          "// λ😀 buffer header\n\nstruct Base { int newField; };\n",
+        draftSource =
+          '#include "unsaved base.hpp"\n// unsaved position shift\n\nstruct Derived : Base { int changed; };\n',
+        draftSettings = {
+          ...settings,
+          buffers: { [source]: draftSource, [header]: draftHeader },
+        },
+        host = service(),
+        root = await host.inspect(draftSettings, { translationUnit: source }),
+        derived = root.children.find((node) => node.name === "Derived");
+      expect(derived?.line).toBe(4);
+      const page = await host.inspect(draftSettings, derived!.id),
+        baseId = page.semantics?.inheritance?.[0]?.nodeId;
+      expect(baseId).toBeTruthy();
+      const base = await host.inspect(draftSettings, baseId!);
+      expect(base.node.file).toBe(await realpath(header));
+      expect(base.node.line).toBe(3);
+      expect(base.node.excerpt).toContain("newField");
+      expect(base.children.some((node) => node.name === "Base::newField")).toBe(
+        true,
+      );
+      expect(base.children.some((node) => node.name === "Base::oldField")).toBe(
+        false,
+      );
+      expect(base.path?.at(-1)?.node.id).toBe(baseId);
+      expect(await readFile(source, "utf8")).toBe(savedSource);
+      expect(await readFile(header, "utf8")).toBe(savedHeader);
+      expect(base.parseCount).toBe(1);
+      const declaration = page.semantics?.inheritance?.[0]?.declaration;
+      expect(declaration?.symbol).toBeTruthy();
+      const rebound = await service().inspect(draftSettings, {
+        translationUnit: source,
+        reference: declaration!,
+      });
+      expect(rebound.node.name).toBe("Base");
+      expect(rebound.node.line).toBe(3);
+      expect(
+        rebound.children.some((node) => node.name === "Base::newField"),
+      ).toBe(true);
+    }, 30000);
     it("shows access-grouped members, native transitive inheritance and typed parameters", async () => {
       const fixture = resolve(directory, "semantic-inspector.cpp");
       await writeFile(
@@ -148,7 +204,7 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       );
       expect(baseSpecifier?.name).toBe("Root");
       const baseEdge = await host.inspect(settings, baseSpecifier!.id);
-      expect(baseEdge.semantics?.referencedDeclaration).toEqual({
+      expect(baseEdge.semantics?.referencedDeclaration).toMatchObject({
         name: "Root",
         nodeId: rootBaseId,
       });

@@ -9,8 +9,10 @@ import {
 } from "./actions.js";
 import {
   type AstInspection,
+  type AstReference,
   astDisplay,
   astInspectionSchema,
+  astReferenceSchema,
   nativeKind,
   type SourceSelection,
   sourceSelectionSchema,
@@ -26,7 +28,7 @@ export type ActionSettings = Pick<
   | "configPath"
   | "compilationDatabase"
   | "libraryDirectory"
->;
+> & { buffers?: Record<string, string> };
 const responseSchema = z.object({
   id: z.number().int(),
   progress: z.string().optional(),
@@ -160,27 +162,34 @@ export class ActionService {
   }
   async inspect(
     settings: ActionSettings,
-    target: string | { result?: Result; translationUnit: string },
+    target:
+      | string
+      | { result?: Result; translationUnit: string; reference?: AstReference },
   ): Promise<AstInspection> {
     const input =
       typeof target === "string"
         ? { nodeId: target }
-        : !target.result
-          ? { translationUnit: target.translationUnit }
-          : {
+        : target.reference
+          ? {
               translationUnit: target.translationUnit,
-              result: {
-                ...target.result,
-                raw: undefined,
-                nativeKind: nativeKind(target.result),
-                implicit: astDisplay(target.result).properties.some(
-                  (property) => property.label === "Implicit",
-                ),
-                kind: nativeKind(target.result).replace(/^./, (c) =>
-                  c.toUpperCase(),
-                ),
-              },
-            };
+              reference: astReferenceSchema.parse(target.reference),
+            }
+          : !target.result
+            ? { translationUnit: target.translationUnit }
+            : {
+                translationUnit: target.translationUnit,
+                result: {
+                  ...target.result,
+                  raw: undefined,
+                  nativeKind: nativeKind(target.result),
+                  implicit: astDisplay(target.result).properties.some(
+                    (property) => property.label === "Implicit",
+                  ),
+                  kind: nativeKind(target.result).replace(/^./, (c) =>
+                    c.toUpperCase(),
+                  ),
+                },
+              };
     const response = await this.request(
       { type: "inspect", settings, ...input },
       settings.directory,

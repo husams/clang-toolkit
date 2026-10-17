@@ -5,6 +5,7 @@ import type { NodeActionTarget } from "./actions.js";
 import {
   type AstEntry,
   type AstInspection,
+  type AstReference,
   type AstSemantics,
   astDisplay,
   type SourceSelection,
@@ -173,6 +174,9 @@ export class DetailsView
     private readonly uri: vscode.Uri,
     private readonly openSource: (result: Result) => Promise<void>,
     private readonly chooseAction: (target: NodeActionTarget) => Promise<void>,
+    private readonly refreshRelated: (
+      reference: AstReference,
+    ) => Promise<string | false | undefined> = async () => undefined,
   ) {
     this.status.name = "CTK AST inspection";
   }
@@ -501,21 +505,28 @@ export class DetailsView
       this.publish();
       return;
     }
-    if (this.running || !this.load) return;
     if (message.type === "related") {
+      if (this.running) return;
       if (!this.relatedNode(message.id))
         throw new Error("This base class is no longer available.");
+      const reference = this.reference(message.id);
+      const refreshed = reference
+        ? await this.refreshRelated(reference)
+        : undefined;
+      if (refreshed === false || !this.load) return;
+      const id = refreshed ?? message.id;
       const previous = this.current;
-      await this.inspect(message.id);
+      await this.inspect(id);
       if (
         previous &&
         this.current !== previous &&
-        this.current?.nativeId === message.id
+        this.current?.nativeId === id
       )
         this.history.push(previous);
       this.publish();
       return;
     }
+    if (this.running || !this.load) return;
     if (message.type === "action") {
       await this.chooseAction(await this.actionTarget());
       return;
@@ -623,6 +634,18 @@ export class DetailsView
       ) ??
         false)
     );
+  }
+  private reference(id: string): AstReference | undefined {
+    const base = this.current?.semantics?.inheritance?.find(
+      (base) => base.nodeId === id,
+    );
+    if (base?.declaration) return base.declaration;
+    for (const page of this.cache.values()) {
+      const reference = page.semantics?.referencedDeclaration;
+      if (reference?.nodeId === id && reference.symbol)
+        return { name: reference.name, symbol: reference.symbol };
+    }
+    return;
   }
   save(): InspectorState {
     return {

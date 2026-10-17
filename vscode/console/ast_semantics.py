@@ -52,6 +52,9 @@ def inheritance(inspector: AstInspector, target: Any, file: str) -> dict[str, An
                         created.add(identifier)
                     related.add(identifier)
                     item['nodeId'] = identifier
+                    if base.value.symbol_identity:
+                        item['declaration'] = dict(name=inspector.describe(identifier)['name'],
+                                                   symbol=base.value.symbol_identity)
                     existing = len(host.nodes)
                     edge_id = inspector.retain(row.binding('target'), file, 'Base specifier')
                     if len(host.nodes) > existing:

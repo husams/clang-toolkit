@@ -57,14 +57,13 @@ export class FileInspectionSync implements vscode.Disposable {
     const document = editor.document;
     if (!force && this.document === document && this.hasContext()) return;
     this.cancel();
-    if (!vscode.workspace.isTrusted || document.isDirty) return;
+    if (!vscode.workspace.isTrusted) return;
     this.document = document;
     const generation = this.generation,
       version = document.version;
     const current = () =>
       generation === this.generation &&
       !document.isClosed &&
-      !document.isDirty &&
       document.version === version &&
       vscode.window.activeTextEditor?.document === document;
     this.timer = setTimeout(() => {

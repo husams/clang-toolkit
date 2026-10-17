@@ -669,17 +669,26 @@ export class ActionsController implements vscode.Disposable {
     if (!file) return;
     const canonical = await realpath(file);
     this.target = vscode.Uri.file(canonical);
+    const settings = this.sessionSettings ?? this.settings(file),
+      config = vscode.workspace.getConfiguration("ctk");
     const dirty = await Promise.all(
       vscode.workspace.textDocuments
         .filter(
           (d) => d.isDirty && d.uri.scheme === "file" && CXX.test(d.uri.fsPath),
         )
-        .map((d) => realpath(d.uri.fsPath).catch(() => d.uri.fsPath)),
+        .map(async (d) => ({
+          file: await realpath(d.uri.fsPath).catch(() => d.uri.fsPath),
+          text: d.getText(),
+        })),
     );
-    if (dirty.includes(canonical))
+    if (
+      dirty.some(
+        (draft) =>
+          draft.file === canonical &&
+          settings.buffers?.[draft.file] !== draft.text,
+      )
+    )
       throw new Error("Save the C++ file before parsing it.");
-    const settings = this.sessionSettings ?? this.settings(file),
-      config = vscode.workspace.getConfiguration("ctk");
     this.busy = true;
     this.error = "";
     this.changed();

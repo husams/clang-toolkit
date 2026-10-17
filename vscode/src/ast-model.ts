@@ -14,10 +14,20 @@ import type { Result } from "./model.js";
 
 export { astBinding, nativeKind } from "./ast-facts.js";
 
+export const astReferenceSchema = z.object({
+  name: z.string().min(1),
+  symbol: z.string().min(1),
+});
+export type AstReference = z.infer<typeof astReferenceSchema>;
+
 export const astSemanticsSchema = z
   .object({
     referencedDeclaration: z
-      .object({ name: z.string().min(1), nodeId: z.string().min(1) })
+      .object({
+        name: z.string().min(1),
+        nodeId: z.string().min(1),
+        symbol: z.string().optional(),
+      })
       .optional(),
     inheritance: z
       .array(
@@ -28,6 +38,7 @@ export const astSemanticsSchema = z
           virtual: z.boolean(),
           unresolved: z.boolean().optional(),
           nodeId: z.string().min(1).optional(),
+          declaration: astReferenceSchema.optional(),
         }),
       )
       .max(128)

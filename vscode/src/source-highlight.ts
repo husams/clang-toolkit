@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import * as vscode from "vscode";
 import type { Result } from "./model.js";
 import { sourceOffsets, sourceTarget } from "./source-range.js";
@@ -76,15 +77,41 @@ export class SourceHighlight implements vscode.Disposable {
     this.range = undefined;
     this.expected = undefined;
   }
-  async reveal(result: Result): Promise<void> {
+  async reveal(result: Result, buffer?: string): Promise<void> {
     this.clear(true);
     const generation = this.generation;
     const target = sourceTarget(result);
     if (!target) return;
-    const document = await vscode.workspace.openTextDocument(
-      vscode.Uri.file(target.file),
-    );
-    if (generation !== this.generation || document.isDirty) return;
+    const file = await realpath(target.file).catch(() => target.file);
+    const documents = (
+      await Promise.all(
+        vscode.workspace.textDocuments
+          .filter(
+            (document) => !document.isClosed && document.uri.scheme === "file",
+          )
+          .map(async (document) => ({
+            document,
+            file: await realpath(document.uri.fsPath).catch(
+              () => document.uri.fsPath,
+            ),
+          })),
+      )
+    )
+      .filter((entry) => entry.file === file)
+      .map((entry) => entry.document);
+    if (buffer === undefined && documents.some((document) => document.isDirty))
+      return;
+    const existing =
+      buffer !== undefined
+        ? (documents.find((document) => document.getText() === buffer) ??
+          documents[0])
+        : undefined;
+    const document =
+      existing ??
+      (await vscode.workspace.openTextDocument(vscode.Uri.file(target.file)));
+    const matchesBuffer = () =>
+      buffer !== undefined ? document.getText() === buffer : !document.isDirty;
+    if (generation !== this.generation || !matchesBuffer()) return;
     const version = document.version;
     const offsets = sourceOffsets(target, document.getText());
     if (!offsets) return;
@@ -105,7 +132,7 @@ export class SourceHighlight implements vscode.Disposable {
     if (
       generation !== this.generation ||
       document.version !== version ||
-      document.isDirty
+      !matchesBuffer()
     )
       return;
     editor.revealRange(

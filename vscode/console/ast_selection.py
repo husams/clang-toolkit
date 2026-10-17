@@ -71,7 +71,7 @@ class AstSelection:
             if point.line < 1 or point.column < 1:
                 return None
             if file not in self.bytes:
-                self.bytes[file] = Path(file).read_bytes()
+                self.bytes[file] = self.inspector.host.buffers.read_bytes(file)
             lines = self.bytes[file].splitlines(keepends=True)
             if point.line > len(lines) or point.column - 1 > len(lines[point.line - 1].rstrip(b'\r\n')):
                 return None

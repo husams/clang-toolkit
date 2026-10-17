@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { z } from "zod";
 import { ActionsController } from "./actions-controller.js";
 import { SearchAstAccess, type SearchAstContext } from "./ast-access.js";
+import type { AstReference } from "./ast-model.js";
 import { findPython } from "./console-service.js";
 import {
   DetailsView,
@@ -137,6 +138,7 @@ export class Prototype {
       context.extensionUri,
       (result) => this.openSource(result),
       (target) => this.actions.choose(undefined, true, target),
+      (reference) => this.refreshRelated(reference),
     );
     this.searchAst = new SearchAstAccess(context.extensionUri);
     this.view = new AnalysisView(
@@ -693,8 +695,6 @@ export class Prototype {
     const editor = vscode.window.activeTextEditor;
     if (!editor || !CXX.test(editor.document.uri.fsPath))
       throw new Error("Open a C++ file before reloading its AST.");
-    if (editor.document.isDirty)
-      throw new Error("Save C++ changes before reloading its AST.");
     this.automaticInspection = true;
     this.fileInspection.refresh();
   }
@@ -814,10 +814,121 @@ export class Prototype {
     this.editorSelection.cancel();
     this.fileInspection.pause();
     try {
-      await this.sourceHighlight.reveal(result);
+      const file = await realpath(result.file).catch(() => result.file);
+      let buffer: string | undefined;
+      const context = await this.activeFileSession?.context;
+      if (context) buffer = context.session().settings.buffers?.[file];
+      await this.sourceHighlight.reveal(result, buffer);
     } finally {
       this.fileInspection.resume();
     }
+  }
+  private async refreshRelated(
+    reference: AstReference,
+  ): Promise<string | false | undefined> {
+    await this.editQueue;
+    if (!this.activeFileSession && this.inspectionFile) {
+      const file = this.inspectionFile;
+      const documents = (
+        await Promise.all(
+          vscode.workspace.textDocuments
+            .filter(
+              (document) =>
+                !document.isClosed && document.uri.scheme === "file",
+            )
+            .map(async (document) => ({
+              document,
+              file: await realpath(document.uri.fsPath).catch(
+                () => document.uri.fsPath,
+              ),
+            })),
+        )
+      )
+        .filter((entry) => entry.file === file)
+        .map((entry) => entry.document);
+      const document =
+        documents.find((document) => document.isDirty) ??
+        documents[0] ??
+        (await vscode.workspace.openTextDocument(vscode.Uri.file(file)));
+      const version = document.version;
+      const current = () =>
+        this.inspectionFile === file &&
+        !document.isClosed &&
+        document.version === version;
+      this.fileInspection.pause();
+      this.editorSelection.cancel();
+      try {
+        const editor = await vscode.window.showTextDocument(document, {
+          preserveFocus: true,
+          preview: false,
+        });
+        await this.inspectFile(editor, current, true);
+      } finally {
+        this.fileInspection.resume();
+      }
+      const refreshed = this.fileSessions.get(file);
+      if (!current() || !refreshed || refreshed.stale) return false;
+      const context = await refreshed.context;
+      if (!context) return false;
+      const target = await context.reference(reference);
+      return current() ? target.node.id : false;
+    }
+    const session = this.activeFileSession,
+      file = this.inspectionFile,
+      document = session?.document;
+    if (!session || !file || !document) return;
+    if (!session.stale) {
+      try {
+        const context = await session.context;
+        if (context && session.source === document.getText()) {
+          context.session();
+          return;
+        }
+      } catch {
+        // An edit can invalidate the native context before its watcher callback.
+      }
+    }
+    this.captureBookmark(session, file);
+    session.access.close();
+    delete session.context;
+    session.stale = true;
+    const revision = ++session.revision,
+      version = document.version,
+      text = document.getText(),
+      bookmark = session.bookmark;
+    const current = () =>
+      this.activeFileSession === session &&
+      this.fileSessions.get(file) === session &&
+      session.revision === revision &&
+      !document.isClosed &&
+      document.version === version;
+    const previous = session.state;
+    try {
+      const state = await this.details.refreshFile(
+        previous?.current?.node ?? {
+          id: document.uri.toString(),
+          name: basename(file),
+          kind: "File",
+          file,
+          line: 1,
+          column: 1,
+          excerpt: "",
+          raw: {},
+        },
+        previous,
+        (valid) => this.buildFileState(session, file, text, bookmark, valid),
+        current,
+      );
+      if (!state || !current()) return false;
+      this.acceptFileState(session, file, text, state);
+    } catch (error) {
+      if (current()) await this.failFileState(session, file, error, current);
+      throw error;
+    }
+    const context = await this.fileSessions.get(file)?.context;
+    if (!context || !current()) return false;
+    const target = await context.reference(reference);
+    return current() ? target.node.id : false;
   }
   private async inspectFile(
     editor: vscode.TextEditor,
@@ -835,14 +946,27 @@ export class Prototype {
       const created: FileInspectorSession = {
         access: new SearchAstAccess(
           this.context.extensionUri,
-          () => {
+          (reason) => {
             this.captureBookmark(created, file);
             created.stale = true;
             created.revision++;
             delete created.context;
+            // VS Code can emit a text change before isDirty becomes true.
+            // Wait for explicit navigation or a save instead of queuing a
+            // competing automatic refresh while an editor snapshot is built.
+            if (reason === "edit") return;
             // A failed save waits for the next save (or an explicit reload),
             // rather than looping on filesystem notifications or tab changes.
             if (created.failure) return;
+            if (
+              vscode.workspace.textDocuments.some(
+                (doc) =>
+                  doc.isDirty &&
+                  (doc === created.document ||
+                    /\.(?:h|hh|hpp|hxx)$/i.test(doc.uri.fsPath)),
+              )
+            )
+              return;
             if (this.activeFileSession === created && this.automaticInspection)
               this.fileInspection.refresh();
             else if (created.document && !created.document.isDirty)
@@ -989,6 +1113,13 @@ export class Prototype {
     const directory =
       vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file))?.uri.fsPath ??
       dirname(file);
+    if (
+      session.document?.isDirty ||
+      vscode.workspace.textDocuments.some(
+        (doc) => doc.isDirty && /\.(?:h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
+      )
+    )
+      return;
     await this.parseProblems.report(
       file,
       session.failure,

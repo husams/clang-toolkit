@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from google.protobuf.json_format import MessageToDict
+from clang_toolkit import Matcher
 
 from run_service import Results
 from ast_selection import AstSelection
@@ -127,9 +128,9 @@ class AstInspector:
     def inspect(self, request: dict[str, Any]) -> dict[str, Any]:
         if request.get('settings') != self.host.settings:
             raise ValueError('Analysis settings changed; refresh analysis before inspecting AST nodes.')
-        identifier = request.get('nodeId') or (
+        identifier = request.get('nodeId') or (self.resolve_reference(request) if request.get('reference') else (
             self.locate(request) if request.get('result')
-            else self.file_node(request['translationUnit']))
+            else self.file_node(request['translationUnit'])))
         target, file, _ = self.host.check_input(identifier)
         if identifier in self.related and request.get('resolveRelated', True):
             return self.selection.related(identifier)
@@ -168,7 +169,8 @@ class AstInspector:
             if identifier in self.references:
                 declaration = self.references[identifier]
                 response.setdefault('semantics', {})['referencedDeclaration'] = dict(
-                    nodeId=declaration, name=self.describe(declaration)['name'])
+                    nodeId=declaration, name=self.describe(declaration)['name'],
+                    symbol=self.host.check_input(declaration)[0].value.symbol_identity)
         except BaseException:
             for child_id in pending:
                 self.host.nodes.pop(child_id, None)
@@ -177,6 +179,27 @@ class AstInspector:
         self.collections.append(rows)
         self.cache[identifier] = response
         return response
+
+    def resolve_reference(self, request: dict[str, Any]) -> str:
+        """Resolve an old base link to an exact declaration in a fresh buffer AST."""
+        reference = request['reference']
+        root_id = self.host.root(request['translationUnit'])
+        tree, file, _ = self.host.check_input(root_id)
+        query = Matcher('cxxRecordDecl', Matcher('hasName', reference['name']),
+                        Matcher('isDefinition')).bind('base')
+        rows = self.host.client.match_in(query, tree)
+        try:
+            matches = [row.binding('base') for row in rows
+                       if row.bindings['base'].symbol_identity == reference['symbol']]
+            if len(matches) != 1:
+                raise ValueError('This base class changed or was removed; select a base from the updated Properties.')
+            identifier = self.retain(matches[0], file, 'Base class')
+        except BaseException:
+            rows.close()
+            raise
+        self.collections.append(rows)
+        self.related.add(identifier)
+        return identifier
 
     def close(self) -> None:
         self.selection.clear()

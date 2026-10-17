@@ -2,12 +2,17 @@ import { realpath } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as vscode from "vscode";
 import { ActionService, type ActionSettings } from "./action-service.js";
-import type { AstInspection, SourceSelection } from "./ast-model.js";
+import type {
+  AstInspection,
+  AstReference,
+  SourceSelection,
+} from "./ast-model.js";
 import { findPython } from "./console-service.js";
 import type { Result } from "./model.js";
 
 export interface SearchAstContext {
   inspect(id?: string): Promise<AstInspection>;
+  reference(reference: AstReference): Promise<AstInspection>;
   selectSource(
     id: string,
     selection: SourceSelection,
@@ -27,36 +32,57 @@ export class SearchAstAccess implements vscode.Disposable {
   private service: ActionService | undefined;
   private generation = 0;
   private file: string | undefined;
+  private readonly buffers = new Map<
+    string,
+    { document: vscode.TextDocument; version: number }
+  >();
   private readonly disposables: vscode.Disposable[] = [];
   constructor(
     private readonly uri: vscode.Uri,
-    private readonly invalidated: () => void = () => {},
+    private readonly invalidated: (reason?: "edit") => void = () => {},
     private readonly retained = false,
   ) {
     const watcher = vscode.workspace.createFileSystemWatcher(
       "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
     );
-    const reset = () => {
+    const reset = (reason?: "edit") => {
       this.reset();
-      invalidated();
+      invalidated(reason);
     };
-    const changed = async (uri: vscode.Uri) => {
+    const changed = async (uri: vscode.Uri, disk = false) => {
+      const generation = this.generation;
+      const header = /\.(?:h|hh|hpp|hxx)$/i.test(uri.fsPath);
       // Headers may affect any translation unit; unrelated source files do not.
       if (
         this.retained &&
         this.file &&
-        !/\.(?:h|hh|hpp|hxx)$/i.test(uri.fsPath)
+        (!header || (disk && this.buffers.size))
       ) {
-        const file = await realpath(uri.fsPath).catch(() => uri.fsPath);
-        if (file !== this.file) return;
+        const file =
+          uri.fsPath === this.file
+            ? this.file
+            : await realpath(uri.fsPath).catch(() => uri.fsPath);
+        // A delayed alias lookup belongs to the context present at the edit,
+        // not a replacement context opened while the lookup was in flight.
+        if (generation !== this.generation) return;
+        if (!header && file !== this.file) return;
+        const buffer = this.buffers.get(file);
+        // Disk notifications cannot change an immutable editor overlay. Saving
+        // or editing its document still invalidates the snapshot normally.
+        if (
+          disk &&
+          buffer?.document.isDirty &&
+          buffer.document.version === buffer.version
+        )
+          return;
       }
-      reset();
+      reset(disk ? undefined : "edit");
     };
     this.disposables.push(
       watcher,
-      watcher.onDidChange(changed),
-      watcher.onDidCreate(changed),
-      watcher.onDidDelete(changed),
+      watcher.onDidChange((uri) => void changed(uri, true)),
+      watcher.onDidCreate((uri) => void changed(uri, true)),
+      watcher.onDidDelete((uri) => void changed(uri, true)),
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (
           e.contentChanges.length &&
@@ -73,6 +99,7 @@ export class SearchAstAccess implements vscode.Disposable {
     this.generation++;
     this.service?.dispose();
     this.service = undefined;
+    this.buffers.clear();
   }
   close(): void {
     this.reset();
@@ -83,24 +110,46 @@ export class SearchAstAccess implements vscode.Disposable {
   ): Promise<SearchAstContext> {
     if (!vscode.workspace.isTrusted)
       throw new Error("Trust this workspace before inspecting AST nodes.");
-    const dirty = vscode.workspace.textDocuments.filter(
+    const documents = vscode.workspace.textDocuments.filter(
       (doc) =>
-        doc.isDirty && /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
+        !doc.isClosed &&
+        doc.uri.scheme === "file" &&
+        /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
     );
-    const relevantDirty = !this.retained
-      ? dirty.length > 0
-      : (
-          await Promise.all(
-            dirty.map(
-              async (doc) =>
-                /\.(?:h|hh|hpp|hxx)$/i.test(doc.uri.fsPath) ||
-                (await realpath(doc.uri.fsPath).catch(() => doc.uri.fsPath)) ===
-                  translationUnit,
-            ),
-          )
-        ).some(Boolean);
-    if (relevantDirty)
+    if (!this.retained && documents.some((doc) => doc.isDirty))
       throw new Error("Save C++ changes before inspecting AST nodes.");
+    const snapshots = (
+      await Promise.all(
+        documents.map(async (document) => {
+          const version = document.version,
+            text = document.getText(),
+            dirty = document.isDirty;
+          const file = await realpath(document.uri.fsPath).catch(
+            () => document.uri.fsPath,
+          );
+          return { document, version, text, dirty, file };
+        }),
+      )
+    ).filter(
+      ({ file }) =>
+        file === translationUnit || /\.(?:h|hh|hpp|hxx)$/i.test(file),
+    );
+    const buffers: Record<string, string> = {};
+    for (const { file, text, dirty } of snapshots) {
+      if (!dirty) continue;
+      if (buffers[file] !== undefined && buffers[file] !== text)
+        throw new Error(
+          "Two editors have different unsaved contents for the same C++ file.",
+        );
+      buffers[file] = text;
+    }
+    const unchanged = () =>
+      snapshots.every(
+        ({ document, version, dirty }) =>
+          (!dirty || !document.isClosed) && document.version === version,
+      );
+    if (!unchanged())
+      throw new Error("C++ edits changed while preparing the AST; try again.");
     const config = vscode.workspace.getConfiguration("ctk");
     const settings: ActionSettings = {
       directory:
@@ -108,6 +157,7 @@ export class SearchAstAccess implements vscode.Disposable {
           ?.uri.fsPath ?? dirname(translationUnit),
       timeoutMs: config.get<number>("rpcTimeoutMs", 30000),
       compileArguments: config.get<string[]>("compileArguments", []),
+      ...(Object.keys(buffers).length ? { buffers } : {}),
       ...Object.fromEntries(
         [
           ["endpoint", "server"],
@@ -124,10 +174,12 @@ export class SearchAstAccess implements vscode.Disposable {
     // Release the previous context, including bounded native child caches.
     this.reset();
     this.file = translationUnit;
+    for (const { file, document, version, dirty } of snapshots)
+      if (dirty) this.buffers.set(file, { document, version });
     const generation = this.generation;
     let root: AstInspection["root"] | undefined;
     const current = () => {
-      if (generation !== this.generation)
+      if (generation !== this.generation || !unchanged())
         throw new Error(
           "Source or settings changed; reselect a current analysis result.",
         );
@@ -155,6 +207,16 @@ export class SearchAstAccess implements vscode.Disposable {
           settings,
           id ?? { ...(result ? { result } : {}), translationUnit },
         );
+        current();
+        root = inspection.root;
+        return inspection;
+      },
+      reference: async (reference) => {
+        current();
+        const inspection = await service.inspect(settings, {
+          translationUnit,
+          reference,
+        });
         current();
         root = inspection.root;
         return inspection;

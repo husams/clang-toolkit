@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
-import hashlib
 import json
 from pathlib import Path
 import sys
@@ -18,14 +17,11 @@ from clang_toolkit.client import Client
 from clang_toolkit.match_values import MatchRow, MatchValue, NativeMatchCollection
 from run_service import Output, Results
 from ast_inspector import AstInspector
+from editor_buffers import EditorBuffers
 
 
 class ActionError(ValueError):
     """An action input, definition, or result violates the action contract."""
-
-
-def fingerprint(file: str) -> str:
-    return hashlib.sha256(Path(file).read_bytes()).hexdigest()
 
 
 class ActionHost:
@@ -37,14 +33,17 @@ class ActionHost:
         self.client._resolved_config = replace(self.client._configuration(),
                                               rpc_timeout=settings['timeoutMs'] / 1000)
         self.runtime = PrototypeRuntime(self.client, cwd=Path(settings['directory']))
-        self.runtime.config_store.effective['extra_args'] = settings['compileArguments']
+        self.buffers = EditorBuffers(settings.get('buffers', {}))
+        self.runtime.config_store.effective['extra_args'] = [
+            *settings['compileArguments'], *self.buffers.arguments]
         preload_libraries(self.runtime, settings.get('libraryDirectory') or None)
         self.base_bindings = dict(self.runtime.bindings)
         self.nodes: dict[str, tuple[Any, str, str]] = {}
         self.roots: dict[str, tuple[str, str]] = {}
         self.runs: list[list[Any]] = []
         self.parse_count = 0
-        self.sources: dict[str, list[str]] = {}
+        self.sources: dict[str, list[str]] = {
+            file: text.splitlines() for file, text in self.buffers.contents.items()}
         self.inspector = AstInspector(self)
 
     def dispatch(self, source: str) -> None:
@@ -56,7 +55,7 @@ class ActionHost:
 
     def root(self, file: str) -> str:
         file = str(Path(file).resolve())
-        current = fingerprint(file)
+        current = self.buffers.fingerprint(file)
         if file in self.roots:
             identifier, original = self.roots[file]
             if original != current:
@@ -74,7 +73,7 @@ class ActionHost:
         if identifier not in self.nodes:
             raise ActionError('This node has expired; refresh analysis to create a new context')
         value, file, label = self.nodes[identifier]
-        if self.roots[file][1] != fingerprint(file):
+        if self.roots[file][1] != self.buffers.fingerprint(file):
             raise ActionError('Source changed; refresh analysis before continuing')
         return value, file, label
 
@@ -148,12 +147,17 @@ class ActionHost:
                     truncated=truncated, parseCount=self.parse_count)
 
     def close(self) -> None:
-        self.inspector.close()
-        self.nodes.clear()
-        self.roots.clear()
-        self.runs.clear()
-        self.runtime.close()
-        self.client.close()
+        try:
+            self.inspector.close()
+            self.nodes.clear()
+            self.roots.clear()
+            self.runs.clear()
+            self.runtime.close()
+        finally:
+            try:
+                self.client.close()
+            finally:
+                self.buffers.close()
 
     def keep_alive(self) -> int:
         """Renew this host's retained cursors without changing AST identities."""

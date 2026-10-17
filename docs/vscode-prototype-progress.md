@@ -1543,3 +1543,60 @@ overlapping installation or manual UI. The harness reports
 CTK_TEST_PROCESSES_CLOSED; an independent audit confirms zero remaining
 temporary test processes.
 Logs: `vscode/artifacts/validation/base-doubleclick-20261017/`.
+
+## Navigate base classes using unsaved buffers, version 0.2.35
+
+- Implemented: each retained inspector context can parse private, immutable
+  snapshots of its source and open dirty headers through Clang VFS overlays.
+  The existing server accepts joined -ivfsoverlay flags; no native-server or
+  API change/restart is required. Original file names, include lookup, compile
+  database selection and source coordinates are preserved. Snapshot files live
+  in a private temporary directory and close with their worker session.
+- Implemented: following a stale base link rebuilds the context on demand and
+  resolves the declaration by its Clang symbol identity. New and explicitly
+  reloaded dirty C++ files also inspect their current buffers. Dirty navigation
+  highlights only when the editor text exactly matches the parsed snapshot.
+  Shared node actions reuse that same context; subsequent edits invalidate it.
+  Unsaved parse attempts do not publish saved-file Problems diagnostics.
+- Verified: the native overlay test resolves changed source/header contents,
+  current line/range and member names without touching disk, and resolves a
+  base into a replacement context by semantic identity. TypeScript, Biome,
+  all 111 extension unit tests and 18 native tests pass (one optional native
+  case skipped). Unit regressions also cover dirty path aliases, changed
+  snapshots, delayed disk events during unsaved parsing, and an old asynchronous
+  edit notification racing a new context.
+  The complete real VS Code host suite passes with the default console helper
+  library, including unsaved source/header base navigation, exact highlighting,
+  preserved dirty buffers and unchanged disk files, a shared node action, and
+  first-open dirty parsing. The harness reports CTK_TEST_PROCESSES_CLOSED; an
+  independent process audit finds no remaining temporary test processes.
+- Focused native VS Code reproduction passes three consecutive source/header
+  edit-and-navigate cycles and first-open dirty parsing. The trace exposed
+  text-change notifications arriving before VS Code sets isDirty; invalidation
+  now identifies edits explicitly, avoiding a competing automatic refresh.
+  Original saved-file refresh and exact source-path behavior remain covered by
+  the complete host suite.
+- Packaged and installed v0.2.35 in the existing normal VS Code profile.
+  Reloaded only the user's existing window, preserving every source/action tab
+  and the original unsaved C++ buffer. In that buffer, double-clicking Sample,
+  then its Base inheritance link, selects Base in Properties and highlights
+  its full current source range; the unsaved indicator remains visible.
+  A disk checksum confirms no changes to the user's source file. No extra
+  manual window was opened and the managed server was not restarted.
+  Screenshot: `vscode/artifacts/validation/unsaved-bases-20261017/normal-profile-unsaved.png`.
+  VSIX SHA-256: c2ff5e3c96e7218e23f4f343935ce8c3019bd03a5bafdd12215272f378311c87.
+- Wider repository checks: CTest completed all 363 cases: 356 pass and seven
+  native persistent-AST cache tests fail (storage-hit/artifact-publication
+  expectations). These execute the unchanged native binary; this update has
+  no server/API/core-Python changes. The full extension host and native overlay
+  suites pass against that same binary. Python units: 2,169 passed in the full
+  run; all 22 profile-dependent failures then passed when rerun with a
+  disposable process-local home (2,191 cases verified). The plain CLI rejects
+  comment syntax in the user's installed helper library; no user libraries
+  were changed. The isolated end-to-end run completed all 155 cases: 154 pass;
+  the console workspace editor scenario times out importing its shipped
+  helper library (15-second wait). That same case fails when rerun alone.
+  Both this console test and the seven C++ cache failures exercise unchanged
+  code outside the extension; no broader-suite-green claim is made.
+
+Logs: `vscode/artifacts/validation/unsaved-bases-20261017/`.

@@ -2567,6 +2567,143 @@ export async function run(): Promise<void> {
     /refresh failed/,
     "closing a failed file must clear its status-bar error",
   );
+  const draftUri = vscode.Uri.joinPath(folder.uri, "draft-navigation.cpp"),
+    draftHeaderUri = vscode.Uri.joinPath(folder.uri, "draft-navigation.hpp"),
+    savedDraft =
+      '#include "draft-navigation.hpp"\nstruct DraftDerived : draft::Base {};\n',
+    savedHeader = "namespace draft { struct Base { int savedField; }; }\n";
+  await vscode.workspace.fs.writeFile(draftUri, Buffer.from(savedDraft));
+  await vscode.workspace.fs.writeFile(draftHeaderUri, Buffer.from(savedHeader));
+  const draftDocument = await vscode.workspace.openTextDocument(draftUri),
+    draftHeaderDocument =
+      await vscode.workspace.openTextDocument(draftHeaderUri);
+  await vscode.window.showTextDocument(draftHeaderDocument, { preview: false });
+  await vscode.window.showTextDocument(draftDocument, { preview: false });
+  const draftRoot = await automaticFile("draft-navigation.cpp", "DraftDerived"),
+    draftDerived = draftRoot.children!.find(
+      (node) => node.name === "DraftDerived",
+    )!;
+  await api.details.receive({ type: "properties", id: draftDerived.id });
+  const oldBase = astState().semantics?.inheritance?.[0]?.nodeId;
+  assert.ok(oldBase);
+  const draftText = `// λ😀 unsaved source\n\n${savedDraft}`,
+    draftHeaderText =
+      "// λ😀 unsaved header\n\nnamespace draft { struct Base { int bufferField; }; }\n",
+    draftEdit = new vscode.WorkspaceEdit();
+  draftEdit.replace(
+    draftUri,
+    new vscode.Range(
+      draftDocument.positionAt(0),
+      draftDocument.positionAt(draftDocument.getText().length),
+    ),
+    draftText,
+  );
+  draftEdit.replace(
+    draftHeaderUri,
+    new vscode.Range(
+      draftHeaderDocument.positionAt(0),
+      draftHeaderDocument.positionAt(draftHeaderDocument.getText().length),
+    ),
+    draftHeaderText,
+  );
+  assert.equal(await vscode.workspace.applyEdit(draftEdit), true);
+  assert.equal(draftDocument.isDirty, true);
+  assert.equal(draftHeaderDocument.isDirty, true);
+  const draftReady = Date.now() + 10000;
+  while (astState().running && Date.now() < draftReady)
+    await new Promise((done) => setTimeout(done, 40));
+  assert.equal(
+    astState().running,
+    false,
+    "wait until the Properties base link is enabled before activating it",
+  );
+  await api.details.receive({ type: "related", id: oldBase });
+  assert.equal(astState().error, "", JSON.stringify(astState()));
+  assert.equal(astState().node?.name, "draft::Base");
+  assert.equal(astState().node?.line, 3);
+  assert.ok(
+    astState().children?.some(
+      (node) => node.name === "draft::Base::bufferField",
+    ),
+  );
+  assert.equal(
+    vscode.window.activeTextEditor?.document,
+    draftHeaderDocument,
+    "base navigation must reuse the existing unsaved header document, including URI aliases",
+  );
+  assert.equal(highlightedSource(), "struct Base { int bufferField; }");
+  assert.equal(draftDocument.isDirty, true);
+  assert.equal(draftHeaderDocument.isDirty, true);
+  assert.equal(
+    Buffer.from(await vscode.workspace.fs.readFile(draftUri)).toString(),
+    savedDraft,
+  );
+  assert.equal(
+    Buffer.from(await vscode.workspace.fs.readFile(draftHeaderUri)).toString(),
+    savedHeader,
+  );
+  await api.actions.setAction(
+    parseNodeAction(baseActionUri.fsPath, baseActionSource),
+    true,
+    await api.details.actionTarget(),
+  );
+  await api.actions.run();
+  assert.equal(actionState().parseCount, 1);
+  assert.ok(
+    actionState().results.some(
+      (node) => node.name === "draft::Base::bufferField",
+    ),
+  );
+  await api.actions.refresh();
+  await vscode.window.showTextDocument(draftHeaderDocument);
+  await vscode.commands.executeCommand(
+    "workbench.action.revertAndCloseActiveEditor",
+  );
+  await vscode.window.showTextDocument(draftDocument);
+  await vscode.commands.executeCommand(
+    "workbench.action.revertAndCloseActiveEditor",
+  );
+
+  const firstDirtyUri = vscode.Uri.joinPath(folder.uri, "first-dirty.cpp"),
+    firstSaved = "struct SavedOnly {};\n",
+    firstDraft =
+      "// never saved\nstruct BufferBase { int field; };\nstruct BufferDerived : BufferBase {};\n";
+  await vscode.workspace.fs.writeFile(firstDirtyUri, Buffer.from(firstSaved));
+  const firstDirtyDocument =
+      await vscode.workspace.openTextDocument(firstDirtyUri),
+    firstEdit = new vscode.WorkspaceEdit();
+  firstEdit.replace(
+    firstDirtyUri,
+    new vscode.Range(
+      firstDirtyDocument.positionAt(0),
+      firstDirtyDocument.positionAt(firstDirtyDocument.getText().length),
+    ),
+    firstDraft,
+  );
+  await vscode.workspace.applyEdit(firstEdit);
+  await vscode.window.showTextDocument(firstDirtyDocument, { preview: false });
+  const firstDirtyRoot = await automaticFile(
+    "first-dirty.cpp",
+    "BufferDerived",
+  );
+  await api.details.receive({
+    type: "properties",
+    id: firstDirtyRoot.children!.find((node) => node.name === "BufferDerived")!
+      .id,
+  });
+  const firstBase = astState().semantics?.inheritance?.[0]?.nodeId;
+  assert.ok(firstBase);
+  await api.details.receive({ type: "related", id: firstBase });
+  assert.equal(astState().node?.name, "BufferBase");
+  assert.equal(highlightedSource(), "struct BufferBase { int field; }");
+  assert.equal(firstDirtyDocument.isDirty, true);
+  assert.equal(
+    Buffer.from(await vscode.workspace.fs.readFile(firstDirtyUri)).toString(),
+    firstSaved,
+  );
+  await vscode.commands.executeCommand(
+    "workbench.action.revertAndCloseActiveEditor",
+  );
   console.log(
     "CTK_EXTENSION_HOST_PASS: real Clang save failures preserve the last valid AST, selection, expansion and Properties; status-bar errors, blocked stale actions, no tab-triggered retry, next-save recovery and background failure/recovery; save refresh preserving shifted/changed nodes, exact overloads, expanded branches and Properties; deleted-node parent fallback; inactive-save refresh without stealing the inspector; independent per-file sessions without reparsing, shared action ownership, last-tab release/reopen, CTK Inspector, live renewal, split-tab ownership, symbols, console, YAML actions, grouped matches, retained-node follow-up, stale edits, completion, semantic sections, base/source navigation and actions",
   );

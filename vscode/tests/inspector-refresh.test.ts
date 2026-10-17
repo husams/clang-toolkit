@@ -176,3 +176,45 @@ it("tracks background errors independently and clears each when its file recover
   expect(details.snapshot().inspectionStatus.text).toBe("");
   details.dispose();
 });
+it("refreshes a base link into a fresh buffer context even when the previous native loader is gone", async () => {
+  const previous = state("old-type"),
+    fresh = state("fresh-type");
+  previous.current!.semantics = {
+    referencedDeclaration: {
+      name: "demo::Base",
+      symbol: "base-usr",
+      nodeId: "old-base",
+    },
+  };
+  previous.load = undefined;
+  previous.prepareAction = undefined;
+  previous.error = "Source or settings changed";
+  const base = { ...fresh.current!.node, id: "fresh-base", name: "demo::Base" };
+  fresh.load = vi.fn(async () => ({
+    node: { ...base, locationValid: true },
+    children: [],
+    parseCount: 1,
+    root: { id: "root", file: "/example.cpp", label: "File root" },
+  }));
+  const open = vi.fn(),
+    refresh = vi.fn(async () => {
+      await details.restore(fresh, () => true);
+      return "fresh-base";
+    });
+  const details = new DetailsView({} as vscode.Uri, open, vi.fn(), refresh);
+  await details.restore(previous, () => true);
+  await details.receive({ type: "related", id: "old-base" });
+  expect(refresh).toHaveBeenCalledExactlyOnceWith({
+    name: "demo::Base",
+    symbol: "base-usr",
+  });
+  expect(details.snapshot()).toMatchObject({
+    node: { id: "fresh-base" },
+    error: "",
+    contextId: "fresh-type",
+  });
+  expect(open).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ id: "fresh-base" }),
+  );
+  details.dispose();
+});
