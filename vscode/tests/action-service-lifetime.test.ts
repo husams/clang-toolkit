@@ -136,3 +136,30 @@ it("does not report a stale session after closing during renewal", async () => {
   expect(invalidated).not.toHaveBeenCalled();
   expect(worker.sent).toHaveLength(count);
 });
+it("keeps the worker termination deadline when both owners close the shared session", async () => {
+  await open();
+  host.dispose();
+  host.dispose();
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(worker.kill).toHaveBeenCalledOnce();
+});
+it("keeps the file owner's callbacks when an action observes its shared session", async () => {
+  const owner = vi.fn(),
+    action = vi.fn(),
+    output = vi.fn();
+  host.setCallbacks(owner, () => {});
+  const release = host.subscribe(action, output);
+  await open();
+  const first = host.inspect(settings, "node");
+  worker.reply({ error: "cursor unavailable", output: ["action output"] });
+  await expect(first).rejects.toThrow("cursor unavailable");
+  expect(owner).toHaveBeenCalledTimes(1);
+  expect(action).toHaveBeenCalledTimes(1);
+  expect(output).toHaveBeenCalledWith("action output");
+  release();
+  const second = host.inspect(settings, "node");
+  worker.reply({ error: "cursor unavailable" });
+  await expect(second).rejects.toThrow("cursor unavailable");
+  expect(owner).toHaveBeenCalledTimes(2);
+  expect(action).toHaveBeenCalledTimes(1);
+});

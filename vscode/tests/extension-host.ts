@@ -295,7 +295,15 @@ export async function run(): Promise<void> {
     "saving source must replace stale native handles automatically",
   );
   await vscode.window.showTextDocument(initialEditor.document);
-  await automaticFile("demo.cpp");
+  const restoreDeadline = Date.now() + 15000;
+  while (astState().node?.id !== lazyClass.id && Date.now() < restoreDeadline)
+    await new Promise((done) => setTimeout(done, 40));
+  assert.equal(astState().node?.id, lazyClass.id);
+  assert.deepEqual(
+    astState().tree,
+    selectedClassTree,
+    "switching back must restore the selected class and expanded tree",
+  );
   await vscode.commands.executeCommand("ctk.openAnalysis");
   const running = api.execute({
     action: predefined[0]!,
@@ -1797,7 +1805,151 @@ export async function run(): Promise<void> {
     "reopening the same path must create a fresh live session",
   );
   assert.equal(reopened.canRunAction, true);
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+    { preview: false },
+  );
+  const rootClass = reopened.children!.find((node) => node.name === "Root")!;
+  const middleClass = reopened.children!.find(
+    (node) => node.name === "Middle",
+  )!;
+  await api.details.receive({
+    type: "expand",
+    id: rootClass.id,
+    expanded: true,
+  });
+  await api.details.receive({
+    type: "expand",
+    id: middleClass.id,
+    expanded: true,
+  });
+  await api.details.receive({ type: "child", id: rootClass.id });
+  await api.details.receive({
+    type: "expand",
+    id: rootClass.id,
+    expanded: false,
+  });
+  await inspectorTab("properties");
+  const savedFirst = astState();
+  const firstTarget = await api.details.actionTarget();
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(otherFile),
+    { preview: false },
+  );
+  const secondRoot = await automaticFile(
+    "auto-file.cpp",
+    "refreshedAutomatically",
+  );
+  const secondFunction = secondRoot.children!.find(
+    (node) => node.name === "refreshedAutomatically",
+  )!;
+  await api.details.receive({ type: "child", id: secondFunction.id });
+  await inspectorTab("ast");
+  const savedSecond = astState();
+  const secondTarget = await api.details.actionTarget();
+  async function restoredFile(
+    uri: vscode.Uri,
+    saved: ReturnType<typeof astState>,
+  ) {
+    await vscode.window.showTextDocument(
+      await vscode.workspace.openTextDocument(uri),
+      { preview: false },
+    );
+    const end = Date.now() + 15000;
+    while (
+      (astState().contextId !== saved.contextId || astState().running) &&
+      Date.now() < end
+    )
+      await new Promise((done) => setTimeout(done, 40));
+    const restored = astState();
+    assert.equal(
+      restored.contextId,
+      saved.contextId,
+      "switching tabs must reuse its native context",
+    );
+    assert.equal(
+      restored.node?.id,
+      saved.node?.id,
+      "the selected native node must survive tab switching",
+    );
+    assert.deepEqual(
+      restored.tree,
+      saved.tree,
+      "loaded branches and expansion must survive tab switching",
+    );
+    assert.equal(
+      restored.tab,
+      saved.tab,
+      "each file must restore its own AST/Properties tab",
+    );
+  }
+  await restoredFile(semanticUri, savedFirst);
+  await api.actions.setAction(
+    parseNodeAction(baseActionUri.fsPath, baseActionSource),
+    true,
+    firstTarget,
+  );
+  await api.actions.run();
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "returning to the first file must not reparse it",
+  );
+  await api.actions.refresh();
+  await restoredFile(otherFile, savedSecond);
+  await api.actions.setAction(
+    parseNodeAction(baseActionUri.fsPath, baseActionSource),
+    true,
+    secondTarget,
+  );
+  await api.actions.run();
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "the second file must retain its independent parse",
+  );
+  await api.actions.refresh();
+  await restoredFile(semanticUri, savedFirst);
+  async function tabsFor(uri: vscode.Uri) {
+    const file = await realpath(uri.fsPath);
+    const tabs: vscode.Tab[] = [];
+    for (const group of vscode.window.tabGroups.all)
+      for (const tab of group.tabs)
+        if (
+          tab.input instanceof vscode.TabInputText &&
+          (await realpath(tab.input.uri.fsPath).catch(() => "")) === file
+        )
+          tabs.push(tab);
+    assert.ok(tabs.length, `No open tabs for ${file}`);
+    return tabs;
+  }
+  const lastFirstTabs = await tabsFor(semanticUri);
+  await vscode.window.tabGroups.close(lastFirstTabs);
+  await restoredFile(otherFile, savedSecond);
+  await assert.rejects(
+    firstTarget.activate(),
+    /Source or settings changed|closed/,
+  );
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+    { preview: false },
+  );
+  const freshFirst = await automaticFile("semantic-inspector.cpp", "Root");
+  assert.notEqual(freshFirst.contextId, savedFirst.contextId);
+  assert.notEqual(freshFirst.node?.id, reopened.node?.id);
+  const lastSecondTabs = await tabsFor(otherFile);
+  await vscode.window.tabGroups.close(lastSecondTabs);
+  await new Promise((done) => setTimeout(done, 350));
+  assert.equal(
+    astState().contextId,
+    freshFirst.contextId,
+    "closing an inactive file must not release the active file's context",
+  );
+  await assert.rejects(
+    secondTarget.activate(),
+    /Source or settings changed|closed/,
+  );
   console.log(
-    "CTK_EXTENSION_HOST_PASS: CTK Inspector, live renewal, tab switching, split-tab ownership, source-tab release/reopen, compact inspector, status-bar recovery, injected class nodes, hidden-file/cursor updates, preserved tabs/tree, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
+    "CTK_EXTENSION_HOST_PASS: independent per-file sessions without reparsing, restored selections/expanded trees/tabs, shared action ownership, last-tab release/reopen, CTK Inspector, live renewal, split-tab ownership, compact inspector, status-bar recovery, injected class nodes, hidden-file/cursor updates, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
   );
 }

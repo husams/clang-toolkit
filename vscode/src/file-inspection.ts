@@ -15,6 +15,7 @@ export class FileInspectionSync implements vscode.Disposable {
     private readonly load: (
       editor: vscode.TextEditor,
       current: () => boolean,
+      force: boolean,
     ) => Promise<void>,
     private readonly failed: (error: unknown) => void,
     private readonly hasContext: () => boolean = () => true,
@@ -79,7 +80,7 @@ export class FileInspectionSync implements vscode.Disposable {
         // VS Code may hold /var and /private/var editors for the same file.
         if (!force && this.file === file && this.hasContext()) return;
         this.file = file;
-        await this.load(editor, current);
+        await this.load(editor, current, force);
       })()
         .catch(this.failed)
         .finally(() => {
@@ -101,10 +102,10 @@ export class FileInspectionSync implements vscode.Disposable {
     this.paused++;
     this.cancel();
   }
-  refresh(): void {
+  refresh(force = true): void {
     this.document = undefined;
     this.file = undefined;
-    this.observe(vscode.window.activeTextEditor, true);
+    this.observe(vscode.window.activeTextEditor, force);
   }
   resume(): void {
     this.paused--;

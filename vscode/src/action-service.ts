@@ -55,6 +55,10 @@ export class ActionService {
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private renewing: Promise<Response> | undefined;
   private directory: string | undefined;
+  private readonly observers = new Set<{
+    invalidated: (reason: string) => void;
+    log: (text: string) => void;
+  }>();
   constructor(
     private readonly script: string,
     private readonly python: string,
@@ -68,6 +72,22 @@ export class ActionService {
   ): void {
     this.invalidated = invalidated;
     this.log = log;
+  }
+  subscribe(
+    invalidated: (reason: string) => void,
+    log: (text: string) => void,
+  ): () => void {
+    const observer = { invalidated, log };
+    this.observers.add(observer);
+    return () => this.observers.delete(observer);
+  }
+  private invalidate(reason: string): void {
+    this.invalidated(reason);
+    for (const observer of this.observers) observer.invalidated(reason);
+  }
+  private output(text: string): void {
+    this.log(text);
+    for (const observer of this.observers) observer.log(text);
   }
 
   async run(
@@ -126,8 +146,8 @@ export class ActionService {
       void this.keepAlive().catch((error: unknown) => {
         if (this.disposed) return;
         this.stopHeartbeat();
-        this.log(`AST session renewal: ${String(error)}`);
-        this.invalidated(
+        this.output(`AST session renewal: ${String(error)}`);
+        this.invalidate(
           "Analysis session renewal failed; reload the file AST.",
         );
       });
@@ -214,14 +234,14 @@ export class ActionService {
         this.pending.delete(response.id);
         clearTimeout(pending.timer);
         clearTimeout(this.killTimer);
-        for (const text of response.output ?? []) if (text) this.log(text);
+        for (const text of response.output ?? []) if (text) this.output(text);
         if (response.error) {
           if (
             /cursor unavailable|cursor expired or closed|retained value has been closed|node has expired|analysis session expired/i.test(
               response.error,
             )
           )
-            this.invalidated(
+            this.invalidate(
               "Analysis context expired or closed; click Refresh, then Run to parse the same C++ file again.",
             );
           pending.reject(new Error(response.error));
@@ -241,7 +261,7 @@ export class ActionService {
       if (this.child !== child) return;
       this.child = undefined;
       this.fail(error);
-      this.invalidated(
+      this.invalidate(
         "Could not start action session; check ctk.pythonPath and refresh analysis.",
       );
     });
@@ -255,7 +275,7 @@ export class ActionService {
           `Action session stopped (${code}); refresh analysis. ${this.stderr}`,
         ),
       );
-      this.invalidated(
+      this.invalidate(
         "Action session closed; refresh analysis before continuing",
       );
     });
@@ -304,6 +324,7 @@ export class ActionService {
     this.pending.clear();
   }
   dispose(): void {
+    if (this.disposed) return;
     this.stopHeartbeat();
     this.disposed = true;
     const child = this.child;

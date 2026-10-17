@@ -1181,3 +1181,54 @@ The renamed CTK Inspector panel is visible; selecting actions-demo.cpp and
 semantic-inspector.cpp automatically changes the file root. Selecting Root
 opens its readable Properties with actions available after background renewal.
 Custom action tabs remain open and the managed server was not restarted.
+
+## Independent open-file inspector sessions, version 0.2.27
+
+Replaces the single automatic context with a cache keyed by each file's
+canonical filesystem path. Each visited open C/C++ file owns its native worker,
+minute-by-minute renewal and saved inspector state. Switching back restores the
+same selected native node, loaded children, expanded/collapsed branches,
+navigation history and AST/Properties tab without reparsing. Restoring an
+in-flight inspection waits for its worker before allowing another request.
+
+Actions borrow retained file sessions instead of taking ownership. Refreshing
+or closing Actions detaches its callbacks and results while the file retains
+its AST; running on another file does not close the earlier inspector worker.
+Action results use the worker that actually owns their handles. Shared observers
+preserve both file-lifetime recovery and action diagnostics. Disposal is safe
+when both the file and Actions close the same worker.
+
+Closing the file's last tab disposes its cache entry and native resources;
+split copies and filesystem aliases count as the same file. Closing an inactive
+file leaves the active file's context intact. Reopening a closed file starts
+a fresh native context. Source edits invalidate that source's cached session;
+headers and CTK settings invalidate cached sessions conservatively. Unrelated
+source-file changes no longer reset the active automatic inspector through the
+transient search-result owner. The inspector remains in CTK Inspector.
+
+Validation logs: `vscode/artifacts/validation/per-file-inspector-20261017/`.
+The first full-host run identified action handles being routed through an
+unrelated cached worker; ownership routing was corrected. The next run reached
+the new final close/reopen checks and revealed that the test must close both
+the /var and /private/var aliases before asserting last-tab release.
+
+TypeScript and Biome pass, along with all 65 extension unit tests (17 optional
+native unit cases remain opt-in). The final complete real VS Code extension-host
+suite passes with the console helper library enabled. New checks retain two
+independent files, restore exact node/context IDs, complete loaded trees and
+per-file AST/Properties tabs, run actions with parseCount still one for each
+file, detach Actions without closing either AST, close all aliases of one file
+without disturbing the other, reject closed targets, and reopen with fresh IDs.
+The harness reports CTK_TEST_PROCESSES_CLOSED; an independent process audit
+reports zero remaining temporary test processes.
+
+Packaged and installed v0.2.27 in the approved normal VS Code profile. Archive
+and installed-version checks pass. VSIX SHA256:
+`3a659cd472aea0aec099536530ceb0a305d2af4519b8e9278617e2d282ee0bab`.
+
+Reloaded the existing normal-profile trial, expanded Middle and selected Root
+in semantic-inspector.cpp, then opened actions-demo.cpp. Switching back restores
+Root and its Properties tab immediately; opening AST shows both Root and Middle
+still expanded, including Middle::weight. No extra manual VS Code window was
+opened, custom action editor tabs were preserved, and the managed server was
+not restarted.

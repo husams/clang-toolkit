@@ -22,6 +22,20 @@ interface Page {
   nativeId?: string;
   semantics?: AstSemantics | undefined;
 }
+export interface InspectorState {
+  current: Page | undefined;
+  history: Page[];
+  cache: Map<string, Page>;
+  tree: InspectorTree;
+  load: Load | undefined;
+  prepareAction: ((id: string) => Promise<NodeActionTarget>) | undefined;
+  contextId: string;
+  rootLabel: string;
+  tab: "ast" | "properties";
+  error: string;
+  notice: string;
+  operation: Promise<AstInspection | undefined> | undefined;
+}
 const nodeMenuSchema = z.object({
   webviewSection: z.literal("ast-node"),
   ctkAstNodeId: z.string().min(1),
@@ -80,7 +94,7 @@ export class DetailsView
     | ((id: string) => Promise<NodeActionTarget>)
     | undefined;
   private cache = new Map<string, Page>();
-  private readonly tree = new InspectorTree();
+  private tree = new InspectorTree();
   private treeReveal = 0;
   private retry: (() => Promise<void>) | undefined;
   private generation = 0;
@@ -238,8 +252,8 @@ export class DetailsView
     this.status.hide();
     this.current = { node: result };
     this.history = [];
-    this.cache.clear();
-    this.tree.reset();
+    this.cache = new Map();
+    this.tree = new InspectorTree();
     this.contextId = randomBytes(12).toString("hex");
     this.retry = undefined;
     this.load = load;
@@ -483,12 +497,71 @@ export class DetailsView
       ) ?? false
     );
   }
+  save(): InspectorState {
+    return {
+      current: this.current,
+      history: this.history,
+      cache: this.cache,
+      tree: this.tree,
+      load: this.load,
+      prepareAction: this.prepareAction,
+      contextId: this.contextId,
+      rootLabel: this.rootLabel,
+      tab: this.tab,
+      error: this.error,
+      notice: this.notice,
+      operation: this.operation,
+    };
+  }
+  async restore(state: InspectorState, current: () => boolean): Promise<void> {
+    const generation = ++this.generation;
+    this.current = state.current;
+    this.history = state.history;
+    this.cache = state.cache;
+    this.tree = state.tree;
+    this.load = state.load;
+    this.prepareAction = state.prepareAction;
+    this.contextId = state.contextId;
+    this.rootLabel = state.rootLabel;
+    this.tab = state.tab;
+    this.error = state.error;
+    this.notice = state.notice;
+    this.operation = undefined;
+    this.running = Boolean(state.operation);
+    this.retry = undefined;
+    this.rendered = undefined;
+    this.treeReveal++;
+    this.publish();
+    // A tab can be left while a native request is still finishing. Let it
+    // settle before the restored tree can issue another request to that host.
+    const pending = await state.operation?.catch(() => undefined);
+    if (generation !== this.generation || !current()) return;
+    this.running = false;
+    if (pending) {
+      const page = {
+        node: pending.node,
+        nativeId: pending.node.id,
+        children: pending.children,
+        ...(pending.semantics ? { semantics: pending.semantics } : {}),
+      };
+      this.tree.apply(page, pending.path, false);
+      this.cache.set(page.node.id, page);
+      if (this.current?.node.id === page.node.id) this.current = page;
+    }
+    if (!this.current?.nativeId) {
+      const id =
+        this.current && this.tree.node(this.current.node.id)
+          ? this.current.node.id
+          : undefined;
+      await this.inspect(id, undefined, current, false);
+    } else this.publish();
+  }
   clear(): void {
     this.generation++;
     this.current = undefined;
     this.history = [];
-    this.cache.clear();
-    this.tree.reset();
+    this.cache = new Map();
+    this.tree = new InspectorTree();
     this.load = undefined;
     this.prepareAction = undefined;
     this.retry = undefined;

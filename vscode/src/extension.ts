@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import * as vscode from "vscode";
 import { z } from "zod";
 import { ActionsController } from "./actions-controller.js";
-import { SearchAstAccess } from "./ast-access.js";
+import { SearchAstAccess, type SearchAstContext } from "./ast-access.js";
 import { findPython } from "./console-service.js";
-import { DetailsView } from "./details-view.js";
+import { DetailsView, type InspectorState } from "./details-view.js";
 import { EditorSelectionSync } from "./editor-selection.js";
 import { FileInspectionSync } from "./file-inspection.js";
 import { registerLanguage } from "./language.js";
@@ -67,6 +67,13 @@ const custom: Action = {
   parameters: [],
   source: 'match functionDecl(isExpansionInMainFile()).bind("symbol");',
 };
+interface FileInspectorSession {
+  access: SearchAstAccess;
+  context?: Promise<SearchAstContext>;
+  state?: InspectorState;
+  stale: boolean;
+  sources: Set<string>;
+}
 export class Prototype {
   readonly view: AnalysisView;
   readonly actions: ActionsController;
@@ -79,6 +86,8 @@ export class Prototype {
   private automaticInspection = false;
   private inspectionFile: string | undefined;
   private inspectionSources = new Set<string>();
+  private readonly fileSessions = new Map<string, FileInspectorSession>();
+  private activeFileSession: FileInspectorSession | undefined;
   private readonly output = vscode.window.createOutputChannel("CTK Output");
   private readonly taskStatus = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -100,15 +109,13 @@ export class Prototype {
   private rendered:
     | { action: string; matches: number; groups: number }
     | undefined;
-  constructor(context: vscode.ExtensionContext) {
+  constructor(private readonly context: vscode.ExtensionContext) {
     this.details = new DetailsView(
       context.extensionUri,
       (result) => this.openSource(result),
       (target) => this.actions.choose(undefined, true, target),
     );
-    this.searchAst = new SearchAstAccess(context.extensionUri, () => {
-      if (this.automaticInspection) this.fileInspection?.refresh();
-    });
+    this.searchAst = new SearchAstAccess(context.extensionUri);
     this.view = new AnalysisView(
       context.extensionUri,
       (message) => {
@@ -139,6 +146,13 @@ export class Prototype {
       this.actions,
       this.details,
       this.searchAst,
+      {
+        dispose: () => {
+          for (const session of this.fileSessions.values())
+            session.access.dispose();
+          this.fileSessions.clear();
+        },
+      },
       this.sourceHighlight,
       this.editorSelection,
       vscode.window.registerWebviewViewProvider("ctk.analysis", this.view, {
@@ -159,7 +173,7 @@ export class Prototype {
     };
     remember(vscode.window.activeTextEditor);
     this.fileInspection = new FileInspectionSync(
-      (editor, current) => this.inspectFile(editor, current),
+      (editor, current, force) => this.inspectFile(editor, current, force),
       (error) => this.output.appendLine(`File AST: ${String(error)}`),
       () => Boolean(this.details.snapshot().node),
     );
@@ -602,6 +616,7 @@ export class Prototype {
     const inspected = this.inspectionFile;
     const sources = [...this.inspectionSources];
     const actionContext = this.actions.sourceContext;
+    const sessions = [...this.fileSessions];
     // Preview-tab replacement and split changes can publish several tab events.
     await new Promise((done) => setTimeout(done, 0));
     const canonical = await realpath(file).catch(() => file);
@@ -618,13 +633,27 @@ export class Prototype {
       ),
     );
     if (opened.includes(canonical)) return;
+    for (const [path, session] of sessions) {
+      if (path !== canonical || this.fileSessions.get(path) !== session)
+        continue;
+      this.fileSessions.delete(path);
+      session.access.dispose();
+      if (this.activeFileSession === session) {
+        this.activeFileSession = undefined;
+        this.inspectionFile = undefined;
+        this.inspectionSources = new Set();
+        this.details.clear();
+        this.fileInspection.refresh(false);
+      }
+    }
     const inspectedCanonical = inspected
       ? await realpath(inspected).catch(() => inspected)
       : undefined;
     if (
       this.inspectionFile === inspected &&
       this.details.snapshot().contextId === contextId &&
-      associated.includes(canonical)
+      associated.includes(canonical) &&
+      !this.activeFileSession
     ) {
       if (opened.some((path) => associated.includes(path))) return;
       this.inspectionFile = undefined;
@@ -638,6 +667,8 @@ export class Prototype {
     await this.actions.closeFile(canonical, actionContext);
   }
   private async showResult(result: Result): Promise<void> {
+    this.saveFileInspector();
+    this.activeFileSession = undefined;
     this.automaticInspection = false;
     const translationUnit = this.target?.fsPath ?? result.file;
     let searchLoad: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
@@ -649,10 +680,30 @@ export class Prototype {
       ? (this.actions.sourceFile ?? translationUnit)
       : translationUnit;
     this.inspectionSources = new Set([this.inspectionFile]);
+    const canonical = await realpath(this.inspectionFile).catch(
+      () => this.inspectionFile,
+    );
+    const retained = canonical ? this.fileSessions.get(canonical) : undefined;
+    const candidateContext =
+      actionId && retained && !retained.stale
+        ? await retained.context
+        : undefined;
+    const retainedContext =
+      candidateContext?.session().service === this.actions.sourceService
+        ? candidateContext
+        : undefined;
+    if (retained && retainedContext) {
+      this.activeFileSession = retained;
+      this.inspectionSources = retained.sources;
+    }
     await this.openSource(result);
     await this.details.show(
       result,
       async (id, selection) => {
+        if (actionId && retainedContext)
+          return selection && id
+            ? retainedContext.selectSource(id, selection)
+            : retainedContext.inspect(id ?? actionId);
         if (actionId)
           return selection
             ? this.actions.selectSource(id ?? actionId, selection)
@@ -663,7 +714,10 @@ export class Prototype {
           : searchLoad.inspect(id);
       },
       (id) =>
-        this.actions.inspectorTarget(id, actionId ? undefined : searchLoad),
+        this.actions.inspectorTarget(
+          id,
+          actionId ? retainedContext : searchLoad,
+        ),
     );
   }
   private async openSource(result: Result): Promise<void> {
@@ -679,12 +733,48 @@ export class Prototype {
   private async inspectFile(
     editor: vscode.TextEditor,
     current: () => boolean,
+    force = false,
   ): Promise<void> {
+    const file = await realpath(editor.document.uri.fsPath);
+    if (!current()) return;
+    this.saveFileInspector();
     this.automaticInspection = true;
-    const file = editor.document.uri.fsPath;
     this.inspectionFile = file;
-    this.inspectionSources = new Set([file]);
-    let context: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
+    let session = this.fileSessions.get(file);
+    if (!session) {
+      const created: FileInspectorSession = {
+        access: new SearchAstAccess(
+          this.context.extensionUri,
+          () => {
+            created.stale = true;
+            delete created.state;
+            delete created.context;
+            if (this.activeFileSession === created && this.automaticInspection)
+              this.fileInspection.refresh();
+          },
+          true,
+        ),
+        stale: false,
+        sources: new Set([file]),
+      };
+      session = created;
+      this.fileSessions.set(file, session);
+    }
+    if (force) {
+      session.access.close();
+      delete session.state;
+      delete session.context;
+    }
+    this.activeFileSession = session;
+    this.inspectionSources = session.sources;
+    if (session.state && !session.stale) {
+      await this.details.restore(session.state, current);
+      return;
+    }
+    session.stale = false;
+    const selected = session;
+    const context = () =>
+      (selected.context ??= selected.access.open(undefined, file));
     await this.details.show(
       {
         id: editor.document.uri.toString(),
@@ -697,14 +787,19 @@ export class Prototype {
         raw: {},
       },
       async (id, selection) => {
-        context ??= await this.searchAst.open(undefined, file);
+        const source = await context();
         return selection && id
-          ? context.selectSource(id, selection)
-          : context.inspect(id);
+          ? source.selectSource(id, selection)
+          : source.inspect(id);
       },
-      (id) => this.actions.inspectorTarget(id, context),
+      async (id) => this.actions.inspectorTarget(id, await context()),
       { preserveEditor: true, current },
     );
+  }
+  private saveFileInspector(): void {
+    if (this.activeFileSession && !this.activeFileSession.stale)
+      this.activeFileSession.state = this.details.save();
+    this.editorSelection.cancel();
   }
 }
 export async function activate(

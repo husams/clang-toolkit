@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as vscode from "vscode";
 import { ActionService, type ActionSettings } from "./action-service.js";
@@ -15,6 +16,7 @@ export interface SearchAstContext {
     service: ActionService;
     settings: ActionSettings;
     root: AstInspection["root"];
+    retained: boolean;
   };
   transfer(): void;
 }
@@ -24,10 +26,12 @@ export interface SearchAstContext {
 export class SearchAstAccess implements vscode.Disposable {
   private service: ActionService | undefined;
   private generation = 0;
+  private file: string | undefined;
   private readonly disposables: vscode.Disposable[] = [];
   constructor(
     private readonly uri: vscode.Uri,
     private readonly invalidated: () => void = () => {},
+    private readonly retained = false,
   ) {
     const watcher = vscode.workspace.createFileSystemWatcher(
       "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
@@ -36,14 +40,29 @@ export class SearchAstAccess implements vscode.Disposable {
       this.reset();
       invalidated();
     };
+    const changed = async (uri: vscode.Uri) => {
+      // Headers may affect any translation unit; unrelated source files do not.
+      if (
+        this.retained &&
+        this.file &&
+        !/\.(?:h|hh|hpp|hxx)$/i.test(uri.fsPath)
+      ) {
+        const file = await realpath(uri.fsPath).catch(() => uri.fsPath);
+        if (file !== this.file) return;
+      }
+      reset();
+    };
     this.disposables.push(
       watcher,
-      watcher.onDidChange(reset),
-      watcher.onDidCreate(reset),
-      watcher.onDidDelete(reset),
+      watcher.onDidChange(changed),
+      watcher.onDidCreate(changed),
+      watcher.onDidDelete(changed),
       vscode.workspace.onDidChangeTextDocument((e) => {
-        if (/\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(e.document.uri.fsPath))
-          reset();
+        if (
+          e.contentChanges.length &&
+          /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(e.document.uri.fsPath)
+        )
+          void changed(e.document.uri);
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("ctk")) reset();
@@ -94,6 +113,7 @@ export class SearchAstAccess implements vscode.Disposable {
     // A newly opened file or selected search result starts a fresh history.
     // Release the previous context, including bounded native child caches.
     this.reset();
+    this.file = translationUnit;
     const generation = this.generation;
     let root: AstInspection["root"] | undefined;
     const current = () => {
@@ -133,7 +153,7 @@ export class SearchAstAccess implements vscode.Disposable {
         current();
         if (!root)
           throw new Error("Inspect this node before choosing an action.");
-        return { service, settings, root };
+        return { service, settings, root, retained: this.retained };
       },
       selectSource: async (id, selection) => {
         current();
@@ -144,7 +164,8 @@ export class SearchAstAccess implements vscode.Disposable {
       transfer: () => {
         current();
         // Actions now owns the live worker; new searches must not dispose it.
-        if (this.service === service) this.service = undefined;
+        if (!this.retained && this.service === service)
+          this.service = undefined;
       },
     };
   }

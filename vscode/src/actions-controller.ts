@@ -80,6 +80,8 @@ const CXX = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i;
 const EXCLUDE = "**/{.git,node_modules,build,.venv,.cache,dist}/**";
 export class ActionsController implements vscode.Disposable {
   private service: ActionService | undefined;
+  private sharedSession = false;
+  private releaseSessionCallbacks: (() => void) | undefined;
   private sessionSettings: ActionSettings | undefined;
   private action?: NodeAction;
   private values: Record<string, string> = {};
@@ -803,10 +805,11 @@ export class ActionsController implements vscode.Disposable {
             await this.refresh();
             source.transfer();
             this.service = session.service;
+            this.sharedSession = session.retained;
             this.sessionSettings = session.settings;
             this.root = session.root;
             this.target = vscode.Uri.file(session.root.file);
-            this.service.setCallbacks(
+            this.releaseSessionCallbacks = this.service.subscribe(
               (reason) => this.markStale(reason),
               (text) => this.output.appendLine(text),
             );
@@ -846,15 +849,18 @@ export class ActionsController implements vscode.Disposable {
       );
     if (this.root) this.target = vscode.Uri.file(this.root.file);
     try {
-      await this.service?.reset();
+      if (!this.sharedSession) await this.service?.reset();
     } catch (error) {
       this.output.appendLine(
         `Closing unavailable action session: ${String(error)}`,
       );
     } finally {
-      this.service?.dispose();
+      if (!this.sharedSession) this.service?.dispose();
+      this.releaseSessionCallbacks?.();
+      this.releaseSessionCallbacks = undefined;
     }
     this.service = undefined;
+    this.sharedSession = false;
     this.sessionSettings = undefined;
     this.root = undefined;
     this.input = undefined;
@@ -872,6 +878,9 @@ export class ActionsController implements vscode.Disposable {
   }
   get sourceFile(): string | undefined {
     return this.root?.file;
+  }
+  get sourceService(): ActionService | undefined {
+    return this.service;
   }
   get sourceContext(): string | undefined {
     return this.root?.id;
@@ -898,7 +907,8 @@ export class ActionsController implements vscode.Disposable {
   }
   dispose(): void {
     this.definitionGeneration++;
-    this.service?.dispose();
+    if (!this.sharedSession) this.service?.dispose();
+    this.releaseSessionCallbacks?.();
     this.argumentCompletion?.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }
