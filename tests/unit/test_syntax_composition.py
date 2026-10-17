@@ -63,6 +63,9 @@ def execute(request):
             [6, 4, 2],
         ),
         ("let xs = [1, 2]\n// comment\n | map((x) x + 1)\nxs", [2, 3]),
+        ("[1, 2, 3] |\n map((x) x * 2) |\n reverse", [6, 4, 2]),
+        ("[1, 2, 3]\r\n | map((x) x * 2)\r\n | reverse", [6, 4, 2]),
+        ("[1, 2, 3] | // next stage\n map((x) x * 2)\n\n | reverse", [6, 4, 2]),
     ],
 )
 def test_composable_expressions(execute, source, expected):

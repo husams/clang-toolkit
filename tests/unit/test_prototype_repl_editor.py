@@ -48,7 +48,8 @@ def test_compiled_editor_lexer_preserves_valid_tokens_without_false_errors(
 
 @pytest.mark.parametrize(
     "source",
-    ["let total = 1 +", "if true do", "if true do 1 else", "let xs = [1, 2"],
+    ["let total = 1 +", "if true do", "if true do 1 else", "let xs = [1, 2",
+     "let xs = [1, 2] |", "let xs = [1, 2]\n  |"],
 )
 def test_operator_condition_and_delimiter_prefixes_request_more_input(
     source: str,
@@ -127,12 +128,12 @@ def test_workspace_enter_uses_active_compiled_completeness_and_keeps_bad_source(
 
         complete = source + "\n2"
         ui.buffer.document = Document(complete, len(complete))
-        pipe.send_text("\x1b[27;5;13~")
+        pipe.send_text("\n")
         await _wait_until(lambda: submitted == [complete])
 
         invalid = "let total = 1 @ 2"
         ui.buffer.document = Document(invalid, len(invalid))
-        pipe.send_text("\x1b[27;5;13~")
+        pipe.send_text("\n")
         await _wait_until(lambda: ui.buffer.validation_error is not None)
         assert ui.buffer.text == invalid
         assert submitted == [complete]

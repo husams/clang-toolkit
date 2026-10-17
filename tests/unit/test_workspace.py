@@ -114,7 +114,7 @@ def test_multiline_expands_and_submits_as_one_command(tmp_path: Path) -> None:
         )
         assert not seen
         assert ui.editor_height() == 4
-        pipe.send_text("\r]\x1b[27;5;13~")
+        pipe.send_text("\r]\n")
         await wait_until(lambda: "submitted" in ui.results.text)
         assert ui.buffer.text == ""
         assert ui.editor_height() == 1
@@ -129,9 +129,9 @@ def test_compiled_workspace_transcript_uses_the_active_session_lexer(
     source = "let y = if $x > 0 do $x * 10 + 1 else 1"
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text("let x = 1\x1b[27;5;13~")
+        pipe.send_text("let x = 1\n")
         await wait_until(lambda: not ui.busy and "OK let x" in ui.results.text)
-        pipe.send_text(source + "\x1b[27;5;13~")
+        pipe.send_text(source + "\n")
         await wait_until(lambda: not ui.busy and "let y" in ui.results.text)
         document = ui.results.buffer.document
         rendered = ui.transcript_lexer.lex_document(document)
@@ -154,7 +154,7 @@ def test_legacy_workspace_transcript_keeps_semantic_matcher_colors(
     source = 'match addrLabelExpr(hasDeclaration(labelDecl(hasName("done"))))'
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text(source + "\x1b[27;5;13~")
+        pipe.send_text(source + "\n")
         await wait_until(lambda: not ui.busy and source in ui.results.text)
         document = ui.results.buffer.document
         rendered = ui.transcript_lexer.lex_document(document)
@@ -190,7 +190,7 @@ def test_assigned_batch_progress_reaches_workspace_before_command_finishes(tmp_p
     async def drive(ui, pipe):
         try:
             runtime.batch_progress = ui.show_batch_progress
-            pipe.send_text("let run = batch part in $inputs size 1 do { $part.index; }\x1b[27;5;13~")
+            pipe.send_text("let run = batch part in $inputs size 1 do { $part.index; }\n")
             await wait_until(lambda: any(event.phase == "working" for event in ui.progress_states.values()))
             assert any("elapsed" in event.status_label() for event in ui.progress_states.values())
             assert ui.busy and not ui.command_task.done()
@@ -296,13 +296,13 @@ def test_busy_command_keeps_next_draft_and_exit_joins_worker(tmp_path: Path) -> 
         return DispatchResult("finished", True)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text('print "first"\x1b[27;5;13~')
+        pipe.send_text('print "first"\n')
         await wait_until(lambda: ui.busy)
         assert "Running" in ui.footer()
         pipe.send_text('print "')
         await wait_until(lambda: ui.buffer.text == 'print ""')
         assert ui.buffer.document.text_after_cursor == '"'
-        pipe.send_text('next"\x1b[27;5;13~')
+        pipe.send_text('next"\n')
         await wait_until(lambda: ui.buffer.text == 'print "next"')
         assert seen == ['print "first"']
         assert ui.buffer.text == 'print "next"'
@@ -327,7 +327,7 @@ def test_runtime_history_is_written_once_and_reverse_search_works(
         return await asyncio.to_thread(dispatch_result, runtime.client, text, runtime)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text(source + "\x1b[27;5;13~")
+        pipe.send_text(source + "\n")
         await wait_until(
             lambda: "Ready" == ui.status and not ui.busy and bool(store.read_commands())
         )
@@ -361,7 +361,7 @@ def test_transcript_is_bounded_and_failure_is_visible(tmp_path: Path) -> None:
         ui.write("x" * (MAX_TRANSCRIPT_CHARS + 10))
         await wait_until(lambda: "trimmed" in ui.results.text)
         assert len(ui.results.text) <= MAX_TRANSCRIPT_CHARS
-        pipe.send_text('print "failed"\x1b[27;5;13~')
+        pipe.send_text('print "failed"\n')
         await wait_until(lambda: "Command failed" == ui.status)
         assert "Command failed" in ui.footer()
 

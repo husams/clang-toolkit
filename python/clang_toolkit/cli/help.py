@@ -1069,6 +1069,7 @@ _PIPE_ENTRY = CommandHelp(
     (
         "Each stage receives the value on its left as its first argument; its result flows to the next stage.",
         "A leading | continues the preceding expression on the next line without outer parentheses; semicolons end statements.",
+        "While typing, Ctrl+Enter or Option+Enter (macOS) inserts a line for the next | stage. Enter runs complete input at its end; Ctrl+J runs the whole draft. A trailing | requests another line automatically.",
         "Built-in stages include collection, tuple, string, and formatting helpers. Their signatures are shown by stage completion.",
         "List selection: xs[-1] selects the last item; xs[start:stop:step] returns a shallow list with an exclusive stop. Bounds clamp; step must be nonzero. xs[::-1] reverses order.",
         "first and last return one item or null for empty input. first(n) and last(n) return up to n items as lists; counts must be nonnegative integers. last(n) keeps original order; reverse returns a new reversed list.",

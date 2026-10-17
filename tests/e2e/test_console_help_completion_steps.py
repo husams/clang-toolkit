@@ -52,6 +52,8 @@ async def _prompt(
 ) -> str:
     with create_pipe_input() as pipe:
         session = create_session(input=pipe, output=DummyOutput(), cwd=cwd)
+        # Build the grammar before measuring the prompt's response time.
+        session.input_state_fn(source)
         task = asyncio.create_task(session.prompt_async("ctk> "))
         try:
             pipe.send_text(source)

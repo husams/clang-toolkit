@@ -25,3 +25,25 @@ Validation:
 - Updated pipeline and composition examples passed in compiled and tree
   consoles, including the real-terminal pipeline scenario.
 - Diff whitespace and Ruff checks passed (existing E731 rule excluded).
+
+## Multiline pipeline keyboard follow-up
+
+- [x] Ctrl+Enter inserts a line instead of executing the draft.
+- [x] Option+Enter on macOS, Alt+Enter, and Shift+Enter insert lines.
+- [x] Recognize CSI-u, modifyOtherKeys, and native Windows Meta-Return input.
+- [x] Apply these controls to both the workspace and ordinary prompt.
+- [x] Keep Enter for complete input and Ctrl+J for whole-draft execution.
+- [x] Verify leading/trailing `|`, comments, CRLF, and both evaluation engines.
+- [x] Verify all four shortcut/UI combinations in actual terminal processes;
+  incomplete pipeline drafts execute zero times, completed submissions once.
+- [x] Update shortcut hints, console help, documentation, and bundled skill.
+- [x] Complete the full unit, native, and acceptance regression runs.
+
+Follow-up validation: all 2,672 unit tests passed; all 440 native cases passed
+across the initial serial run and isolated partitions. All 205 acceptance cases
+were verified across isolated batches and targeted reruns. A blank-prompt test
+now initializes its grammar before measuring response time; native REPL command
+checks allow 60 seconds for query startup rather than the editor's 15-second
+response budget. Targeted reruns passed with those test timing fixes. The four
+new real-terminal shortcut/UI cases passed, and
+focused Ruff and diff whitespace checks passed.

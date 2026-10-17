@@ -25,7 +25,11 @@ that do not hide filters you intend to call.
 Pipes evaluate eagerly once per stage, from left to right. They bind below
 arithmetic, Boolean and conditional expressions. A leading `|` continues a
 pipeline across newlines without outer parentheses. A semicolon ends the
-statement. `on error` applies to the
+statement. While typing, use Ctrl+Enter or Option+Enter (macOS) to add a line
+before another `|` stage, then Enter at the end to execute; Ctrl+J executes the
+whole draft from any cursor position. A trailing `|` automatically requests a
+continuation line on Enter. Terminals must report modified Return distinctly;
+Alt+Enter or Escape then Enter is an alternative. `on error` applies to the
 whole preceding pipeline. Execution budgets and cancellation still apply;
 `take(3)` does not prevent earlier eager stages from processing their input.
 Command value and path operands accept full expressions, so a pipeline can be

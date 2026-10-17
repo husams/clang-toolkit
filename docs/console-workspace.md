@@ -33,10 +33,10 @@ uv run ctk --server unix:///tmp/ctk.sock
 | F6 / Shift+F6 | Move between input, results, visible files, and the active right panel |
 | Up / Down / Enter in files | Select entries; expand/collapse folders; prepare a file's `parse` command |
 | Escape | Close completion/menu, the focused right panel, or file explorer; return to input |
-| Ctrl+Enter in input | Execute the entire single-line or multiline draft from any cursor position |
+| Ctrl+Enter / Option+Enter (macOS) in input | Add an indented line, including before the next `|` stage |
 | Alt+Enter / Shift+Enter in input | Add an indented line, including after a complete statement |
 | Enter in input | Run complete input at its end; otherwise add an indented line |
-| Ctrl+J in input | Execute when the terminal cannot distinguish Ctrl+Enter |
+| Ctrl+J in input | Execute the entire single-line or multiline draft from any cursor position |
 | Ctrl+R | Search command history, or results when results have focus |
 | Ctrl+C | Clear a draft; request cancellation for a supported active batch |
 | F1 | Show shortcuts in the results pane |
@@ -78,7 +78,7 @@ return types use `hasReturnTypeLoc(TYPE_LOC_MATCHER)`.
 
 ## Multiline input
 
-Paste an entire CTK script and press Ctrl+Enter (or Ctrl+J) to run it. Separate top-level statements with newlines or semicolons; nested blocks, lists, strings, and comments retain their normal syntax. All statements share the current bindings and session. The console validates the entire script before execution, then runs statements in order and stops at the first execution error or `quit`/`exit`. Each statement keeps its output and expandable result trees, and history records the complete script once. Use Alt+Enter or Shift+Enter to write another statement without submitting the draft.
+Paste an entire CTK script and press Ctrl+J to run it. Separate top-level statements with newlines or semicolons; nested blocks, lists, strings, and comments retain their normal syntax. All statements share the current bindings and session. The console validates the entire script before execution, then runs statements in order and stops at the first execution error or `quit`/`exit`. Each statement keeps its output and expandable result trees, and history records the complete script once. Use Ctrl+Enter, Option+Enter (macOS), Alt+Enter, or Shift+Enter to add a line without submitting. This also lets you continue a pipeline with `|` on the next line without outer parentheses. Enter submits a complete pipeline at its end; Ctrl+J runs the whole draft from any cursor position.
 
 Input starts at one row. New logical lines and wrapped text expand the command area upward, reducing the results pane. Every logical input line has a number in the left gutter; wrapped continuations leave that number blank. Submitted commands render as numbered code blocks with their original indentation, grammar-aware CTK syntax colors, and a distinct dark background across each row. They have no CTK command label or decorative border. Long source lines wrap to the result pane width with a blank continuation gutter; changing pane width or the wrap setting rerenders them without changing retained source/search text. Keywords are pink, node matchers blue, traversal/combinator matchers purple, predicate matchers green, strings gold, variables/references teal, numeric/boolean literals orange, and operators a brighter gray than punctuation. These syntax roles share one palette across input, results and help examples; surrounding colors and panels are unchanged. Neither area uses `ctk>` or `...>` markers. The editor stops growing at half the usable terminal height and scrolls to keep the cursor visible; results retain at least three rows when the terminal has sufficient space. Submitting clears the editor back to one row.
 
@@ -113,7 +113,7 @@ F7 lists local `let` bindings. Enter toggles expansion of selected lists, match 
 
 Standalone matches, `print` of match values or FileSets, `file list`, and `bindings` also display expandable trees within the existing results pane. Focus results with F6 or click a row, then use the same arrows or Enter. Match rows expand into named bindings and their readable properties. File listings group the selected page under directories. Source blocks, formatted help, the editor, pane placement, and theme remain unchanged. Tree previews are searchable and bounded; their property labels show up to 512 characters, while F7 retains longer labels. The most recent 20 tree previews remain interactive; earlier previews retain their displayed text. Print a value again to inspect it anew. Basic prompt output and file exports keep their textual format.
 
-F8 groups server-owned open-file leases and retained analysis sessions under expandable roots. Expand a file or session to reveal its details. Select a row with arrows or the mouse; `a` prepares attachment of the selected session into a free `$attachedN` binding, and `c` prepares closure of the selected lease or cursor. The buttons beneath the inventory perform the same preparation. The command appears in the editor for review and runs when you press Ctrl+Enter there. Existing drafts are preserved. Listings are bounded to 100 files and 100 sessions.
+F8 groups server-owned open-file leases and retained analysis sessions under expandable roots. Expand a file or session to reveal its details. Select a row with arrows or the mouse; `a` prepares attachment of the selected session into a free `$attachedN` binding, and `c` prepares closure of the selected lease or cursor. The buttons beneath the inventory perform the same preparation. The command appears in the editor for review and runs when you press Ctrl+J there. Existing drafts are preserved. Listings are bounded to 100 files and 100 sessions.
 
 The underlying language already supports these controls:
 
@@ -193,11 +193,11 @@ Validation: 985 Python unit tests and all 336 freshly built native tests pass. T
 
 ## Tree and command-output refinements
 
-**Ctrl+Enter** now executes the whole draft, including a multiline draft with the cursor in the middle. **Enter** executes complete input at its end; inside a draft or incomplete syntax it adds a line using the existing indentation rules. The workspace recognizes both modifyOtherKeys and CSI-u modified Return sequences; **Ctrl+J** provides the same execution action for terminals that send ordinary Return for Ctrl+Enter. **Actions → Run command** also executes the whole draft without relying on modified-key reporting.
+**Ctrl+J** executes the whole draft, including a multiline draft with the cursor in the middle. **Enter** executes complete input at its end; inside a draft or incomplete syntax it adds a line using the existing indentation rules. The workspace recognizes both modifyOtherKeys and CSI-u modified Return sequences; **Ctrl+Enter** and **Option+Enter** insert an indented line; **Ctrl+J** remains an unambiguous execution shortcut. **Actions → Run command** also executes the whole draft without relying on modified-key reporting.
 
 Match rows show only named bindings. Each binding expands into its readable AST properties, without row transport metadata or synthetic collection helpers. `session list` is an expandable session inventory, and remaining command results are rendered as literal Markdown code blocks (JSON is indented). Existing layout and theme remain unchanged.
 
-Restart the isolated launcher above to load these refinements. Enter the following commands one at a time, using **Ctrl+Enter** to execute each:
+Restart the isolated launcher above to load these refinements. Enter the following commands one at a time, using **Ctrl+J** to execute each:
 
 ```ctk
 let tree = parse "examples/parse_match.cc"
@@ -215,7 +215,7 @@ Refinement validation: all 1,001 Python unit tests and all 116 acceptance cases 
 
 ## Return-key compatibility correction
 
-Some terminals report Enter and Ctrl+Enter identically. Enter again executes complete input when the cursor is at its end, including multiline drafts with trailing blank lines. Modified Ctrl+Enter and Ctrl+J execute from any cursor position; Actions → Run command provides a keyboard/mouse alternative in the existing menu. Pairing, indentation, layout, and theme remain unchanged.
+Some terminals report Enter and Ctrl+Enter identically. Enter again executes complete input when the cursor is at its end, including multiline drafts with trailing blank lines. Ctrl+J executes from any cursor position; modified Ctrl+Enter inserts a line; Actions → Run command provides a keyboard/mouse alternative in the existing menu. Pairing, indentation, layout, and theme remain unchanged.
 
 Correction validation: all 1,004 Python unit tests, 116 acceptance cases, and 336 native tests pass. Terminal acceptance checks execute both single-line and multiline drafts with ordinary Return; key-dispatch tests cover Ctrl+J, modified Ctrl+Enter, and menu execution from inside a draft. Three edited workspace modules pass type checking; focused lint and whitespace checks pass. Logs are retained under the worktree's ignored `build/tree-return-fix-*.log` files.
 
@@ -244,3 +244,15 @@ After integrating upstream main at `9831b6a`, a fresh native build succeeds and 
 ## Batch progress and source navigation implementation
 
 The subsequent `codex/console-source-progress` worktree change implements the mockup's progress bars and clickable match/binding links in the runtime. Source opens in a separate window with numbered, highlighted C++ and a paged match outline, keeping the console's existing layout and dark palette. See [controls, examples and validation](console-source-progress.md). All 1,032 Python unit tests, 116 acceptance cases and 336 native tests pass.
+
+## Multiline pipeline input
+
+Ctrl+Enter inserts a newline on Windows terminals that report modified Return; Option+Enter does the same on macOS. Alt+Enter and Shift+Enter also insert lines. If a terminal sends plain Return for Ctrl+Enter, use Alt+Enter or configure a distinct modified Return sequence; Escape followed by Enter also works. The console recognizes modifyOtherKeys, CSI-u, and native Windows Meta-Return input. macOS terminals must send Option+Enter as Meta/Escape+Return.
+
+```ctk
+let result = [1, 2, 3]
+    | map((x) x * 2)
+    | reverse
+```
+
+Insert lines after the list and first stage, then press Enter at the end to run the complete pipeline (`[6, 4, 2]`). Ctrl+J and Actions → Run command execute the whole draft from any cursor position. A trailing `|` also makes Enter continue an incomplete pipeline automatically. Both compiled and tree console engines support these forms.

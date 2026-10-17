@@ -187,6 +187,15 @@ def create_session(
         if target is not None:
             target.buffer.cursor_position = len(target.buffer.text)
 
+    @bindings.add("escape", "enter", filter=~is_searching, eager=True)
+    @bindings.add("escape", "c-j", filter=~is_searching, eager=True)
+    def newline(event: KeyPressEvent) -> None:
+        event.current_buffer.newline(copy_margin=True)
+
+    @bindings.add("c-j", filter=~is_searching, eager=True)
+    def execute(event: KeyPressEvent) -> None:
+        event.current_buffer.validate_and_handle()
+
     completer = ReplCompleter(
         references=references,
         field_resolver=field_resolver,

@@ -18,6 +18,7 @@ from clang_toolkit.cli.input_state import input_state
 from clang_toolkit.cli.prompt import PersistentPromptHistory
 from clang_toolkit.cli.runtime import Runtime
 from clang_toolkit.cli.runtime.history import HistoryStore
+from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
 from clang_toolkit.cli.workspace import WorkspaceConsole
 from clang_toolkit.client import Client
 from test_workspace import interact, wait_until
@@ -120,18 +121,63 @@ def test_read_format_completion_uses_current_statement() -> None:
     assert "text" in suggestions and "proto" not in suggestions
 
 
-@pytest.mark.parametrize("sequence", ["\x1b\r", "\x1b[13;2u", "\x1b[27;2;13~"])
+@pytest.mark.parametrize("sequence", [
+    "\x1b\r", "\x1b\n",  # Option+Enter; native Windows Ctrl+Enter.
+    "\x1b[13;2u", "\x1b[27;2;13~",  # Shift+Enter.
+    "\x1b[13;5u", "\x1b[27;5;13~",  # Ctrl+Enter.
+    "\x1b[13;6u", "\x1b[27;6;13~",  # Ctrl+Shift+Enter.
+    "\x1b[13;3u", "\x1b[27;3;13~",  # Alt+Enter.
+])
 def test_newline_key_builds_a_script_without_executing(tmp_path: Path, sequence: str) -> None:
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
         ui.buffer.document = Document('print "first"', len('print "first"'))
         pipe.send_text(sequence)
         await wait_until(lambda: ui.buffer.text == 'print "first"\n')
         assert not ui.busy and "OK" not in ui.results.text
-        pipe.send_text('print "second"\x1b[27;5;13~')
+        pipe.send_text('print "second"\n')
         await wait_until(lambda: not ui.busy and "OK" in ui.results.text)
         assert 'print "second"' in ui.results.text
 
     asyncio.run(interact(tmp_path, drive))
+
+
+@pytest.mark.parametrize("engine", ["compiled", "tree"])
+@pytest.mark.parametrize("sequence", ["\x1b[13;5u", "\x1b\r"])
+def test_type_multiline_pipeline_without_parentheses(
+    tmp_path: Path, engine: str, sequence: str,
+) -> None:
+    runtime = PrototypeRuntime(
+        Mock(spec=Client), cwd=tmp_path, environment={}, script_engine=engine,
+        history=HistoryStore(tmp_path / "pipeline-history.jsonl"),
+    )
+    submitted: list[str] = []
+
+    async def execute(text: str) -> DispatchResult:
+        submitted.append(text)
+        return dispatch_result(runtime.client, text, runtime)
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        pipe.send_text("let result = [1, 2, 3]")
+        await wait_until(lambda: ui.buffer.text == "let result = [1, 2, 3]")
+        pipe.send_text(sequence)
+        await wait_until(lambda: ui.buffer.text.endswith("\n"))
+        assert not submitted
+        pipe.send_text("    | map((x) x * 2)")
+        await wait_until(lambda: ui.buffer.text.endswith("x * 2)"))
+        pipe.send_text(sequence)
+        await wait_until(lambda: ui.buffer.text.endswith("\n    "))
+        assert not submitted
+        pipe.send_text("| reverse\r")
+        await wait_until(lambda: len(submitted) == 1 and not ui.busy)
+        assert runtime.bindings["result"] == [6, 4, 2]
+        expected = "let result = [1, 2, 3]\n    | map((x) x * 2)\n    | reverse"
+        assert submitted == [expected]
+        assert runtime.history.read_commands() == [expected]
+
+    try:
+        asyncio.run(interact(tmp_path, drive, execute=execute, script_engine=engine))
+    finally:
+        runtime.close()
 
 
 def test_pasted_script_executes_with_rich_results_and_single_history_entry(runtime: Runtime, tmp_path: Path) -> None:
@@ -142,7 +188,7 @@ def test_pasted_script_executes_with_rich_results_and_single_history_entry(runti
         return await asyncio.to_thread(dispatch_result, runtime.client, text, runtime)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text("\x1b[200~" + source + "\x1b[201~\x1b[27;5;13~")
+        pipe.send_text("\x1b[200~" + source + "\x1b[201~\n")
         await wait_until(lambda: not ui.busy and "DONE=7" in ui.results.text)
         assert ui.results.text.count("▸ List · list [2]") == 2
         assert runtime.history.read_commands() == [source]

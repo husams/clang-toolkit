@@ -124,7 +124,7 @@ def run_workspace(
     def redraw() -> None:
         os.write(master, b"\x0c")
 
-    def submit(source_text: str, expected: str, *, success: bool = True, execute_sequence: str = "\x1b[27;5;13~") -> None:
+    def submit(source_text: str, expected: str, *, success: bool = True, execute_sequence: str = "\n") -> None:
         before = len(
             HistoryStore(tmp_path / "state/clang_tools/history.jsonl").read_commands()
         )
@@ -174,7 +174,7 @@ def run_workspace(
         source_session = None
         initial_expiry = None
         for index, (command, marker) in enumerate(zip(commands, expected, strict=True)):
-            submit(command, marker, execute_sequence="\r" if index in {0, 3} else "\x1b[27;5;13~")
+            submit(command, marker, execute_sequence="\r" if index in {0, 3} else "\n")
             if index == 1:
                 with Client(server.endpoint) as observer:
                     info = next(
@@ -410,7 +410,7 @@ def run_workspace(
             ).group()
         )
         # Close the panel to keep the submitted command unwrapped for history.
-        os.write(master, b"\x1b[19~\x1b[27;5;13~")
+        os.write(master, b"\x1b[19~\n")
         read_until(
             "Ready",
             ready=True,
@@ -437,7 +437,7 @@ def run_workspace(
         read_until("│ session close")
         close_line = next(line for line in screen.display if "│ session close" in line)
         commands.append(re.search(r'session close "[0-9a-f-]+"', close_line).group())
-        os.write(master, b"\x1b[19~\x1b[27;5;13~")
+        os.write(master, b"\x1b[19~\n")
         read_until(
             "Ready",
             ready=True,
@@ -555,7 +555,7 @@ def run_workspace(
         assert "    2" in smart_frame
         (tmp_path / "workspace-editing.txt").write_text(smart_frame)
         commands.append("let smart = [\n    1,\n    2\n]")
-        os.write(master, b"\r]\x1b[27;5;13~")
+        os.write(master, b"\r]\n")
         redraw()
         read_until(
             "Ready",
@@ -571,7 +571,7 @@ def run_workspace(
         read_until('print ""')
         assert screen.buffer[screen.cursor.y][screen.cursor.x].data == '"'
         commands.append('print "PAIRED"')
-        os.write(master, b'PAIRED"\x1b[27;5;13~')
+        os.write(master, b'PAIRED"\n')
         read_until(
             "PAIRED",
             ready=True,
@@ -598,7 +598,7 @@ def run_workspace(
         )
         (tmp_path / "workspace-smart-pairs.txt").write_text(pair_frame)
         commands.append(prefix[:-5] + "isImplicit()" + suffix)
-        os.write(master, b")\x1b[B\x1b[B\x05\x1b[27;5;13~")
+        os.write(master, b")\x1b[B\x1b[B\x05\n")
         read_until(
             "Ready",
             ready=True,
@@ -619,7 +619,7 @@ def run_workspace(
             read_until(prefix + "(" + quote + quote + "))")
             assert screen.buffer[screen.cursor.y][screen.cursor.x].data == quote
             commands.append(prefix + "(" + quote + "paired" + quote + "))")
-            os.write(master, ("paired" + quote + "))\x1b[27;5;13~").encode())
+            os.write(master, ("paired" + quote + "))\n").encode())
             read_until(
                 "Ready",
                 ready=True,

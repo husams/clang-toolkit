@@ -9,6 +9,29 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.validation import ValidationError
 
 from clang_toolkit.cli.prompt import InputValidator, create_session
+from clang_toolkit.cli.app import _prompt
+
+
+@pytest.mark.parametrize("sequence", ["\x1b[13;5u", "\x1b[27;5;13~", "\x1b\r", "\x1b\n"])
+def test_prompt_modified_enter_continues_complete_pipeline(sequence):
+    async def run():
+        with create_pipe_input() as pipe:
+            session = create_session(input=pipe, output=DummyOutput(), script_engine="compiled")
+            task = asyncio.create_task(_prompt(session, "ctk> "))
+            try:
+                pipe.send_text("[1, 2, 3]" + sequence)
+                async with asyncio.timeout(2):
+                    while session.default_buffer.text != "[1, 2, 3]\n":
+                        await asyncio.sleep(0.01)
+                assert not task.done()
+                pipe.send_text("    | reverse\r")
+                return await asyncio.wait_for(task, 2)
+            finally:
+                if not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+
+    assert asyncio.run(run()) == "[1, 2, 3]\n    | reverse"
 
 
 @pytest.mark.parametrize(
