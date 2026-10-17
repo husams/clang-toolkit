@@ -117,6 +117,18 @@ def test_general_recursion_preserves_limits_and_restores_scopes(execute):
         execute("let bad = { ([]) 0; (h : t) bad(t) + 1 / h }; bad([1, 0, 2])")
 
 
+
+def test_cancellation_restores_continuation_scopes(execute):
+    context = Context()
+    context.cancel_hook = lambda: context.steps > 400
+    with pytest.raises(PrototypeError, match="cancelled"):
+        execute(MAP + "map_list(range(150), (x) x)", context)
+    assert context.call_depth == 0 and context.scopes == (context.bindings,)
+    assert context.consume_depth == 0
+    context.cancel_hook = None
+    assert execute("1 + 2", context) == 3
+
+
 def test_same_function_alias_keeps_original_self(execute):
     source = (
         MAP + "let old = map_list; let map_list = (xs, f) []; old(range(150), (x) x)"
