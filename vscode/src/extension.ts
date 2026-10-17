@@ -28,6 +28,7 @@ import {
   scriptAction,
   validateParameters,
 } from "./model.js";
+import { ParseProblems } from "./parse-problems.js";
 import { SourceHighlight } from "./source-highlight.js";
 import { AnalysisView } from "./views.js";
 import {
@@ -96,6 +97,7 @@ export class Prototype {
   readonly details: DetailsView;
   private readonly searchAst: SearchAstAccess;
   private readonly sourceHighlight = new SourceHighlight();
+  private readonly parseProblems = new ParseProblems();
   private readonly editorSelection: EditorSelectionSync;
   private readonly fileInspection: FileInspectionSync;
   private automaticInspection = false;
@@ -163,6 +165,7 @@ export class Prototype {
     context.subscriptions.push(
       this.output,
       this.taskStatus,
+      this.parseProblems,
       this.actions,
       this.details,
       this.searchAst,
@@ -698,6 +701,7 @@ export class Prototype {
       this.fileSessions.delete(path);
       session.access.dispose();
       this.details.setRefreshError(path);
+      this.parseProblems.clear(path);
       if (this.activeFileSession === session) {
         this.activeFileSession = undefined;
         this.inspectionFile = undefined;
@@ -874,8 +878,8 @@ export class Prototype {
       if (state && valid()) this.acceptFileState(selected, file, text, state);
     } catch (error) {
       if (valid()) {
-        this.failFileState(selected, file, error);
         selected.state ??= this.details.save();
+        await this.failFileState(selected, file, error, valid);
       }
     }
   }
@@ -932,12 +936,14 @@ export class Prototype {
     delete session.bookmark;
     delete session.failure;
     this.details.setRefreshError(file);
+    this.parseProblems.clear(file);
   }
-  private failFileState(
+  private async failFileState(
     session: FileInspectorSession,
     file: string,
     error: unknown,
-  ): void {
+    current: () => boolean,
+  ): Promise<void> {
     session.failure = error instanceof Error ? error.message : String(error);
     session.stale = true;
     session.access.close();
@@ -947,6 +953,16 @@ export class Prototype {
       file,
       session.failure,
       Boolean(session.state?.current?.nativeId),
+    );
+    const directory =
+      vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file))?.uri.fsPath ??
+      dirname(file);
+    await this.parseProblems.report(
+      file,
+      session.failure,
+      directory,
+      current,
+      session.document?.uri,
     );
   }
   private captureBookmark(session: FileInspectorSession, file: string): void {
@@ -1041,7 +1057,7 @@ export class Prototype {
       }
     } catch (error) {
       if (current()) {
-        this.failFileState(session, file, error);
+        await this.failFileState(session, file, error, current);
         if (this.activeFileSession === session && session.state)
           await this.details.restore(
             this.fileDisplayState(session, session.state),

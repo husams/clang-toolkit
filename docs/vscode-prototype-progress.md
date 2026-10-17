@@ -1322,3 +1322,54 @@ automatically displays the native file tree (Base, Sample, another and the four
 caller/callee functions) with Run Action enabled; all three custom action editor
 tabs remain open. No additional manual window was opened, user fixture contents
 were preserved, and the managed server was not restarted.
+
+## Clickable compiler errors in Problems, version 0.2.30
+
+Automatic inspector parse failures now publish native Clang errors in VS Code's
+Problems panel with source CTK. Each marker carries the real source file and
+line; Clang's UTF-8 byte column is converted to VS Code's UTF-16 character
+position, including non-ASCII text and CRLF source. Clicking a marker uses VS
+Code's standard error navigation. Included-header errors target the header.
+The open main document URI is retained when Clang reports its canonical alias.
+
+Compiler error locations come from the existing native parser RPC failure;
+no second compiler run, server restart, or guessed source position is required.
+Errors without source coordinates remain in the status bar. The last valid AST
+and saved selection/branches retain their previous failure/recovery behavior.
+
+Diagnostics belong to retained translation units. A successful parse or closing
+the file's last tab clears its contribution. Shared-header errors are deduplicated
+and remain while another retained file still reports them. Superseded reads,
+closed sessions and extension disposal cannot republish obsolete errors. Both
+active and background saves publish/clear their errors without replacing another
+file's inspector.
+
+Validation logs: `vscode/artifacts/validation/parse-problems-20261017/`.
+Unit coverage includes native-message extraction, paths with spaces/colons,
+invalid/missing locations, Unicode conversion, source URI aliases, shared-header
+ownership and cancellation/close/disposal. A real native worker check preserves
+the exact diagnostic for an undeclared identifier after Unicode text, then an
+error in an included header. The full VS Code test suite additionally checks
+the actual diagnostic URI, severity, message, exact #error location, and clearing
+after active/background recovery and last-tab close.
+
+TypeScript, Biome and all 86 extension unit tests pass (18 optional native cases
+remain opt-in). The focused native diagnostic test passes for both Unicode
+source and an included header. The complete real VS Code host suite also passes
+with the console helper library enabled; its harness reports
+CTK_TEST_PROCESSES_CLOSED, and an independent audit finds zero temporary test
+processes remaining.
+
+Packaged and installed v0.2.30 in the approved normal VS Code profile. Archive
+integrity and installed-version checks pass. VSIX SHA256:
+`233af5febb88cbe0dfc2a87dc9b6096d51cea26600167b444fc85232fcc6e572`.
+
+Verified a real Problems click in the existing normal-profile trial. A disposable
+C++ file first parsed successfully, then saving an undeclared identifier after
+λ and emoji text produced one CTK diagnostic at line 1, column 34 (native byte
+column 37). Double-clicking that CTK row opened the source at the missing
+identifier. Repairing and saving removed the marker; Problems reported no
+workspace problems. Closed and removed the disposable fixture, restored the
+original match-groups-demo.cpp and CTK Inspector panel, and preserved all three
+custom action editor tabs. No manual test window was opened and the managed
+server was not restarted.

@@ -2150,6 +2150,14 @@ export async function run(): Promise<void> {
     ),
   );
   const parseFailure = "#error deliberate saved-file parse failure\n";
+  const parseErrors = () =>
+    vscode.languages
+      .getDiagnostics()
+      .flatMap(([uri, diagnostics]) =>
+        diagnostics
+          .filter((diagnostic) => diagnostic.source === "CTK")
+          .map((diagnostic) => ({ uri, diagnostic })),
+      );
   const retainedSavedFile = () =>
     (api.snapshot() as { inspectorFiles: RetainedFile[] }).inspectorFiles.find(
       (file) => file.file.endsWith("/save-state.cpp"),
@@ -2161,7 +2169,13 @@ export async function run(): Promise<void> {
     assert.equal(await savedEditor.document.save(), true);
     const end = Date.now() + 45000;
     while (Date.now() < end) {
-      if (retainedSavedFile()?.error) return;
+      if (
+        retainedSavedFile()?.error &&
+        parseErrors().some(({ diagnostic }) =>
+          diagnostic.message.includes("deliberate saved-file parse failure"),
+        )
+      )
+        return;
       await new Promise((done) => setTimeout(done, 40));
     }
     assert.fail(
@@ -2181,6 +2195,30 @@ export async function run(): Promise<void> {
     expiredAfterFailure = await api.details.actionTarget();
   await saveParseFailure();
   const failedSave = astState();
+  const locatedErrors = parseErrors();
+  assert.equal(
+    locatedErrors.length,
+    1,
+    "native parse errors must appear once in Problems",
+  );
+  assert.equal(
+    await realpath(locatedErrors[0]!.uri.fsPath),
+    await realpath(savedUri.fsPath),
+  );
+  assert.equal(
+    locatedErrors[0]!.diagnostic.severity,
+    vscode.DiagnosticSeverity.Error,
+  );
+  assert.equal(locatedErrors[0]!.diagnostic.range.start.line, 0);
+  assert.equal(
+    locatedErrors[0]!.diagnostic.range.start.character,
+    1,
+    "Problems must retain Clang's exact #error location",
+  );
+  assert.equal(
+    locatedErrors[0]!.diagnostic.message,
+    "deliberate saved-file parse failure",
+  );
   assert.match(failedSave.error, /Clang reported errors|parsing|parse/i);
   assert.equal(failedSave.node?.id, beforeFailure.node?.id);
   assert.equal(failedSave.contextId, beforeFailure.contextId);
@@ -2264,6 +2302,11 @@ export async function run(): Promise<void> {
       state.node?.name === "sample::Keep::run",
   );
   assert.equal(retainedSavedFile()?.error, undefined);
+  assert.equal(
+    parseErrors().length,
+    0,
+    "a successful saved parse must clear the file's Problems",
+  );
   assert.equal(recovered.canRunAction, true);
   assert.equal(recovered.tab, "properties");
   assert.ok(
@@ -2301,6 +2344,11 @@ export async function run(): Promise<void> {
     "an unrelated failed save must not disable the active AST",
   );
   assert.match(astState().inspectionStatus.text, /AST refresh failed/);
+  assert.equal(
+    parseErrors().length,
+    1,
+    "failed background saves must publish their own Problems",
+  );
   assert.equal(retainedSavedFile()?.contextId, recovered.contextId);
   await repairParseFailure();
   const backgroundRecoveryEnd = Date.now() + 45000;
@@ -2321,6 +2369,11 @@ export async function run(): Promise<void> {
     "the next inactive save must retry the failed parse",
   );
   assert.equal(retainedSavedFile()?.error, undefined);
+  assert.equal(
+    parseErrors().length,
+    0,
+    "background recovery must clear its Problems",
+  );
   assert.notEqual(retainedSavedFile()?.contextId, recovered.contextId);
   assert.equal(astState().contextId, backgroundForeground.contextId);
   assert.doesNotMatch(astState().inspectionStatus.text, /refresh failed/);
@@ -2354,6 +2407,11 @@ export async function run(): Promise<void> {
     retainedSavedFile(),
     undefined,
     "closing the failed file's last tab must release its snapshot and session",
+  );
+  assert.equal(
+    parseErrors().length,
+    0,
+    "closing a failed file's last tab must clear its Problems",
   );
   assert.equal(astState().contextId, beforeFailedClose.contextId);
   assert.doesNotMatch(

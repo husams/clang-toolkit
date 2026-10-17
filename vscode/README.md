@@ -52,6 +52,8 @@ Right-click a C++ file: **CTK → Select Action…** pins that file as the initi
 
 If parsing fails after a save, the inspector keeps the last valid AST, selected node, expanded branches and AST/Properties tab visible. **CTK · AST refresh failed** in the status bar names the file and shows the error on hover. Saved-file refreshes are transactional: the replacement tree appears only after parsing and state restoration succeed. Native navigation and actions on the old handles are disabled until a successful refresh. Fix the code and save again to retry automatically; tab switching and filesystem notifications do not repeatedly retry a failed save. Failed background saves keep that file's cached AST and report the error without replacing another file's inspector. The next successful save clears the error, restores surviving branches and enables native navigation/actions again. Closing the file's last tab clears its error and releases its session.
 
+Compiler errors also appear under **CTK** in VS Code's **Problems** panel (View → Problems). Click an error to open its C++ file or included header at the compiler's exact line and column; Unicode positions are converted to VS Code coordinates. The next successful parse clears that file's errors, and closing its last tab releases them. Shared-header errors remain while another open file still reports them. Connection failures without compiler locations stay in the status bar.
+
 ## Node actions
 
 1. Open a C++ file, select **Actions**, and use the single **Select action…** picker. It lists predefined and workspace actions plus **Create action…**. Without an active C++ file, the first run asks for a file.

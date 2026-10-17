@@ -81,6 +81,24 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         `${name}.ctk-action`,
         `---\nname: ${name}\ndescription: Test action\narguments: []\n---\n${body}`,
       );
+    it("preserves native parser file, line and UTF-8 column in worker failures", async () => {
+      const broken = resolve(directory, "broken source.cpp"),
+        line = "int broken() { /* λ😀 */ return missing_name; }";
+      await writeFile(broken, `// native diagnostic\n${line}\n`);
+      const column =
+        Buffer.byteLength(line.slice(0, line.indexOf("missing_name"))) + 1;
+      await expect(
+        service().inspect(settings, { translationUnit: broken }),
+      ).rejects.toThrow(
+        `${broken}:2:${column}: error: use of undeclared identifier 'missing_name'`,
+      );
+      const header = resolve(directory, "broken header.hpp");
+      await writeFile(header, "#error broken included header\n");
+      await writeFile(broken, '#include "broken header.hpp"\n');
+      await expect(
+        service().inspect(settings, { translationUnit: broken }),
+      ).rejects.toThrow(`${header}:1:2: error: broken included header`);
+    }, 30000);
     it("shows access-grouped members, native transitive inheritance and typed parameters", async () => {
       const fixture = resolve(directory, "semantic-inspector.cpp");
       await writeFile(
