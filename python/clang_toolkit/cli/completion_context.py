@@ -31,6 +31,8 @@ _KEYWORD_TYPES = {
     "MATCH",
     "CFG",
     "CALLGRAPH",
+    "EXCLUDE_SYSTEM",
+    "NODE_FILTER",
     "TRAVERSE",
     "SCRIPT",
     "HELP",

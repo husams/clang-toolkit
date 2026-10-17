@@ -1284,7 +1284,9 @@ class AsyncClient:
                         direction: str | int | None = None,
                         max_depth: int | Literal["all"] | None = None,
                         projection: str = "shallow",
-                        main_file_only: bool = False, payload_depth: int = 24,
+                        main_file_only: bool = False,
+                        exclude_system_headers: bool = False,
+                        node_filter: str | None = None, payload_depth: int = 24,
                         payload_nodes: int = 10000,
                         scope: ResourceScope[AsyncClient] | str | None = None) -> call_graph_response_pb2.CallGraphResponse:
         request = _call_graph_value_request(self, target, function,
@@ -1293,7 +1295,9 @@ class AsyncClient:
             visit_template_instantiations=visit_template_instantiations,
             max_nodes=max_nodes, max_edges=max_edges, max_call_sites=max_call_sites,
             direction=direction, max_depth=max_depth, projection=projection,
-            main_file_only=main_file_only, payload_depth=payload_depth,
+            main_file_only=main_file_only,
+            exclude_system_headers=exclude_system_headers, node_filter=node_filter,
+            payload_depth=payload_depth,
             payload_nodes=payload_nodes, scope=scope)
         return await self._collect_call_graph_request(request)
 
@@ -1338,7 +1342,9 @@ class AsyncClient:
         call = None
         consumed = False
         state = CallGraphStreamState(
-            expect_unlimited_depth=request.unlimited_depth
+            expect_unlimited_depth=request.unlimited_depth,
+            expect_exclude_system_headers=request.exclude_system_headers,
+            expect_node_filter=request.node_filter,
         )
         try:
             call = analysis_service_pb2_grpc.AnalysisServiceStub(self._channel).StreamCallGraph(
@@ -1405,6 +1411,12 @@ class AsyncClient:
                 raise AnalysisError(
                     grpc.StatusCode.FAILED_PRECONDITION,
                     "server did not confirm unlimited call-graph depth support",
+                )
+            if (response.exclude_system_headers != request.exclude_system_headers
+                    or response.node_filter != request.node_filter):
+                raise AnalysisError(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "server did not confirm call-graph boundary filters",
                 )
             return response
         return response
@@ -2596,6 +2608,8 @@ def _call_graph_value_request(
     max_depth: int | Literal["all"] | None = None,
     projection: str = "shallow",
     main_file_only: bool = False,
+    exclude_system_headers: bool = False,
+    node_filter: str | None = None,
     payload_depth: int = 24,
     payload_nodes: int = 10000,
     scope: ResourceScope[Any] | str | None = None,
@@ -2642,6 +2656,7 @@ def _call_graph_value_request(
             compile_arguments=compile_arguments, visit_implicit_code=visit_implicit_code,
             visit_template_instantiations=visit_template_instantiations, max_nodes=max_nodes,
             max_edges=max_edges, projection=projection, main_file_only=main_file_only,
+            exclude_system_headers=exclude_system_headers, node_filter=node_filter,
             payload_depth=payload_depth, payload_nodes=payload_nodes)
         if descriptor is not None:
             _apply_input_descriptor(request.file, descriptor)
@@ -2652,7 +2667,9 @@ def _call_graph_value_request(
         request = call_graph_request("unused", visit_implicit_code=visit_implicit_code,
             visit_template_instantiations=visit_template_instantiations,
             max_nodes=max_nodes, max_edges=max_edges, projection=projection,
-            main_file_only=main_file_only, payload_depth=payload_depth,
+            main_file_only=main_file_only,
+            exclude_system_headers=exclude_system_headers, node_filter=node_filter,
+            payload_depth=payload_depth,
             payload_nodes=payload_nodes)
         request.ClearField("file")
         kind = selected.WhichOneof("target")

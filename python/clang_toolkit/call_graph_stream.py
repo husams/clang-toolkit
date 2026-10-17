@@ -9,7 +9,9 @@ from clang_toolkit._generated.analysis.v1.call_graph_stream_pb2 import (
 
 
 class CallGraphStreamState:
-    def __init__(self, *, expect_unlimited_depth: bool = False) -> None:
+    def __init__(self, *, expect_unlimited_depth: bool = False,
+                 expect_exclude_system_headers: bool = False,
+                 expect_node_filter: str = "") -> None:
         self.graphs = self.nodes = self.edges = self.call_sites = 0
         self.active = self.completed = False
         self.graph_nodes = self.graph_edges = self.graph_call_sites = 0
@@ -18,6 +20,8 @@ class CallGraphStreamState:
         self._root_node: int | None = None
         self._focus_node: int | None = None
         self._expect_unlimited_depth = expect_unlimited_depth
+        self._expect_exclude_system_headers = expect_exclude_system_headers
+        self._expect_node_filter = expect_node_filter
 
     def consume(self, event: CallGraphStreamEvent) -> None:
         def require(condition: bool) -> None:
@@ -46,6 +50,12 @@ class CallGraphStreamState:
                 raise AnalysisError(
                     grpc.StatusCode.FAILED_PRECONDITION,
                     "server did not confirm unlimited call-graph depth support",
+                )
+            if (value.graph.exclude_system_headers != self._expect_exclude_system_headers
+                    or value.graph.node_filter != self._expect_node_filter):
+                raise AnalysisError(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    "server did not confirm call-graph boundary filters",
                 )
             self.active = True
             self.graph_nodes = self.graph_edges = self.graph_call_sites = 0

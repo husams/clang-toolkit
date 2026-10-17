@@ -21,7 +21,7 @@ CALL_GRAPH_DIRECTION_IN: CallGraphDirection
 CALL_GRAPH_DIRECTION_BOTH: CallGraphDirection
 
 class CallGraphRequest(_message.Message):
-    __slots__ = ("file", "session", "binding", "file_handle", "visit_implicit_code", "visit_template_instantiations", "max_nodes", "max_edges", "projection", "main_file_only", "resource_scope_id", "direction", "max_depth", "max_call_sites", "function", "unlimited_depth")
+    __slots__ = ("file", "session", "binding", "file_handle", "visit_implicit_code", "visit_template_instantiations", "max_nodes", "max_edges", "projection", "main_file_only", "resource_scope_id", "direction", "max_depth", "max_call_sites", "function", "unlimited_depth", "exclude_system_headers", "node_filter")
     FILE_FIELD_NUMBER: _ClassVar[int]
     SESSION_FIELD_NUMBER: _ClassVar[int]
     BINDING_FIELD_NUMBER: _ClassVar[int]
@@ -38,6 +38,8 @@ class CallGraphRequest(_message.Message):
     MAX_CALL_SITES_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     UNLIMITED_DEPTH_FIELD_NUMBER: _ClassVar[int]
+    EXCLUDE_SYSTEM_HEADERS_FIELD_NUMBER: _ClassVar[int]
+    NODE_FILTER_FIELD_NUMBER: _ClassVar[int]
     file: _match_service_pb2.FileMatchTarget
     session: _match_service_pb2.SessionMatchTarget
     binding: _match_service_pb2.BindingMatchTarget
@@ -54,4 +56,6 @@ class CallGraphRequest(_message.Message):
     max_call_sites: int
     function: str
     unlimited_depth: bool
-    def __init__(self, file: _Optional[_Union[_match_service_pb2.FileMatchTarget, _Mapping]] = ..., session: _Optional[_Union[_match_service_pb2.SessionMatchTarget, _Mapping]] = ..., binding: _Optional[_Union[_match_service_pb2.BindingMatchTarget, _Mapping]] = ..., file_handle: _Optional[_Union[_resources_pb2.FileHandleTarget, _Mapping]] = ..., visit_implicit_code: _Optional[bool] = ..., visit_template_instantiations: _Optional[bool] = ..., max_nodes: _Optional[int] = ..., max_edges: _Optional[int] = ..., projection: _Optional[_Union[_value_projection_pb2.ValueProjection, _Mapping]] = ..., main_file_only: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ..., direction: _Optional[_Union[CallGraphDirection, str]] = ..., max_depth: _Optional[int] = ..., max_call_sites: _Optional[int] = ..., function: _Optional[str] = ..., unlimited_depth: _Optional[bool] = ...) -> None: ...
+    exclude_system_headers: bool
+    node_filter: str
+    def __init__(self, file: _Optional[_Union[_match_service_pb2.FileMatchTarget, _Mapping]] = ..., session: _Optional[_Union[_match_service_pb2.SessionMatchTarget, _Mapping]] = ..., binding: _Optional[_Union[_match_service_pb2.BindingMatchTarget, _Mapping]] = ..., file_handle: _Optional[_Union[_resources_pb2.FileHandleTarget, _Mapping]] = ..., visit_implicit_code: _Optional[bool] = ..., visit_template_instantiations: _Optional[bool] = ..., max_nodes: _Optional[int] = ..., max_edges: _Optional[int] = ..., projection: _Optional[_Union[_value_projection_pb2.ValueProjection, _Mapping]] = ..., main_file_only: _Optional[bool] = ..., resource_scope_id: _Optional[str] = ..., direction: _Optional[_Union[CallGraphDirection, str]] = ..., max_depth: _Optional[int] = ..., max_call_sites: _Optional[int] = ..., function: _Optional[str] = ..., unlimited_depth: _Optional[bool] = ..., exclude_system_headers: _Optional[bool] = ..., node_filter: _Optional[str] = ...) -> None: ...

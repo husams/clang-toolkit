@@ -1,4 +1,24 @@
 Feature: Useful callgraphs from retained native inputs
+  Scenario Outline: Console boundaries retain user headers alongside stdexcept
+    Given an isolated callgraph server using unix
+    When I run the header boundary console example with <engine>
+    Then the console excludes standard library and custom namespace nodes
+
+    Examples:
+      | engine   |
+      | tree     |
+      | compiled |
+
+  Scenario Outline: Callable boundaries exclude system headers and custom matches
+    Given an isolated callgraph server using <transport>
+    When I filter system headers and custom callable boundaries from retained inputs
+    Then filtered callgraphs keep user headers and stop at excluded callables
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
   Scenario Outline: Node limits are configurable and explicitly unlimited
     Given a callgraph server with node budget <budget> using <transport>
     When I override callgraph node budgets through filename tree and matched inputs

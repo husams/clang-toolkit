@@ -27,8 +27,17 @@ void script_option(google::protobuf::Message &message, const std::string &name,
              scalar.integer() >= 0)
       reflection->SetUInt64(&message, field, scalar.integer());
     else
-      throw ctk::script::Error(Code::InvalidArgument,
-                               "call graph max_nodes requires a nonnegative integer or all");
+      throw ctk::script::Error(
+          Code::InvalidArgument,
+          "call graph max_nodes requires a nonnegative integer or all");
+    return;
+  }
+  if (name == "node_filter" &&
+      message.GetDescriptor()->full_name() ==
+          "ctk.analysis.v1.CallGraphRequest" &&
+      field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_STRING &&
+      scalar.value_case() == ctk::analysis::v1::ScriptScalar::kText) {
+    reflection->SetString(&message, field, scalar.text());
     return;
   }
   if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_BOOL &&

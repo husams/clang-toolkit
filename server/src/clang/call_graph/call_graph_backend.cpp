@@ -11,7 +11,10 @@
 #include <algorithm>
 #include <clang/AST/ParentMapContext.h>
 #include <clang/AST/RecursiveASTVisitor.h>
+#include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <clang/ASTMatchers/Dynamic/Parser.h>
 #include <clang/Basic/SourceManager.h>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <unordered_map>
@@ -23,13 +26,55 @@ struct NativeCallSite {
   const clang::CallExpr *call{};
   const clang::Decl *invoking_callable{};
 };
+class CallableMatcher final
+    : public clang::ast_matchers::MatchFinder::MatchCallback {
+public:
+  explicit CallableMatcher(const std::string &text) {
+    clang::ast_matchers::dynamic::Diagnostics diagnostics;
+    llvm::StringRef matcher_text(text);
+    auto parsed = clang::ast_matchers::dynamic::Parser::parseMatcherExpression(
+        matcher_text, &diagnostics);
+    if (!parsed)
+      throw calls::CallGraphFailure(MatchCode::InvalidArgument,
+                                    diagnostics.toStringFull().c_str());
+    if (!parsed->canConvertTo<clang::Decl>())
+      throw calls::CallGraphFailure(
+          MatchCode::InvalidArgument,
+          "call graph node_filter must be a declaration matcher");
+    if (!finder_.addDynamicMatcher(*parsed, this))
+      throw calls::CallGraphFailure(
+          MatchCode::InvalidArgument,
+          "call graph node_filter must be a declaration matcher");
+  }
+  bool matches(const clang::Decl &decl, clang::ASTContext &ast) {
+    matched_ = false;
+    finder_.match(clang::DynTypedNode::create(decl), ast);
+    return matched_;
+  }
+  void run(const clang::ast_matchers::MatchFinder::MatchResult &) override {
+    matched_ = true;
+  }
+
+private:
+  clang::ast_matchers::MatchFinder finder_;
+  bool matched_{false};
+};
+const clang::Decl *filter_decl(const clang::CallGraphNode &node) {
+  const auto *decl = node.getDecl();
+  if (const auto *function = llvm::dyn_cast_or_null<clang::FunctionDecl>(decl))
+    if (const auto *definition = function->getDefinition())
+      return definition;
+  return decl;
+}
 class CallSiteCollector final
     : public clang::RecursiveASTVisitor<CallSiteCollector> {
 public:
   CallSiteCollector(calls::CallGraphBudget &budget, std::size_t limit,
-                    clang::ASTContext &ast, bool main_file_only)
+                    clang::ASTContext &ast, bool main_file_only,
+                    std::function<bool(const clang::Decl *)> admitted)
       : budget_(budget), limit_(limit), sources_(ast.getSourceManager()),
-        ast_(ast), main_file_only_(main_file_only) {}
+        ast_(ast), main_file_only_(main_file_only),
+        admitted_(std::move(admitted)) {}
   bool TraverseDecl(clang::Decl *decl) {
     // A default argument executes at each invocation, not at its declaration.
     if (llvm::isa_and_nonnull<clang::ParmVarDecl>(decl))
@@ -66,6 +111,9 @@ public:
     if (main_file_only_ && !sources_.isWrittenInMainFile(
                                sources_.getExpansionLoc(call->getExprLoc())))
       return true;
+    const auto *caller = invoking_callable_ ? invoking_callable_ : callable_;
+    if (caller && admitted_ && !admitted_(caller))
+      return true;
     budget_.check();
     if (budget_.call_sites >= limit_)
       throw calls::CallGraphFailure(MatchCode::ResourceExhausted,
@@ -91,6 +139,7 @@ private:
   clang::SourceManager &sources_;
   clang::ASTContext &ast_;
   bool main_file_only_;
+  std::function<bool(const clang::Decl *)> admitted_;
   bool visit_implicit_{true};
   bool visit_templates_{true};
   const clang::Decl *callable_{};
@@ -235,6 +284,35 @@ private:
       if (!owner || !owner->unit)
         return {MatchCode::Internal, "invalid native snapshot owner", {}};
       auto &ast = owner->unit->getASTContext();
+      std::unique_ptr<CallableMatcher> node_matcher;
+      if (!request.node_filter().empty())
+        node_matcher = std::make_unique<CallableMatcher>(request.node_filter());
+      std::unordered_map<const clang::Decl *, bool> scope_cache;
+      const auto in_scope = [&](const clang::Decl *decl) {
+        budget.check();
+        if (!decl)
+          return true;
+        const auto *representative = decl;
+        if (const auto *function = llvm::dyn_cast<clang::FunctionDecl>(decl))
+          if (const auto *definition = function->getDefinition())
+            representative = definition;
+        const auto *key = representative->getCanonicalDecl();
+        if (const auto cached = scope_cache.find(key);
+            cached != scope_cache.end())
+          return cached->second;
+        const auto &sources = ast.getSourceManager();
+        const auto location =
+            sources.getExpansionLoc(representative->getLocation());
+        if (location.isValid() && ((request.main_file_only() &&
+                                    !sources.isWrittenInMainFile(location)) ||
+                                   (request.exclude_system_headers() &&
+                                    sources.isInSystemHeader(location))))
+          return scope_cache.emplace(key, false).first->second;
+        return scope_cache
+            .emplace(key, !node_matcher ||
+                              node_matcher->matches(*representative, ast))
+            .first->second;
+      };
       const clang::Decl *requested_callable = nullptr;
       const clang::CallExpr *requested_call = nullptr;
       if (request.has_binding()) {
@@ -289,7 +367,14 @@ private:
                 "direction and depth apply to callable targets, not call "
                 "expressions",
                 {}};
-      calls::CallGraphBuilder graph(budget, request.main_file_only());
+      // When main-file, system-header, or matcher filtering is active, enforce
+      // max_nodes on the filtered inventory below. The visitor precheck would
+      // otherwise repeatedly rescan excluded nodes as the graph grows.
+      calls::CallGraphBuilder graph(
+          budget, request.main_file_only(),
+          node_matcher ? calls::CallGraphBuilder::ScopePredicate(in_scope)
+                       : calls::CallGraphBuilder::ScopePredicate{},
+          request.exclude_system_headers() || node_matcher != nullptr);
       if (request.has_visit_implicit_code())
         graph.ShouldVisitImplicitCode = request.visit_implicit_code();
       if (request.has_visit_template_instantiations())
@@ -315,10 +400,7 @@ private:
         const auto *node = entry.second.get();
         if (node == graph.getRoot())
           continue;
-        if (request.main_file_only() && node->getDecl() &&
-            !ast.getSourceManager().isWrittenInMainFile(
-                ast.getSourceManager().getExpansionLoc(
-                    node->getDecl()->getLocation())))
+        if (!in_scope(filter_decl(*node)))
           continue;
         if (!order.ordinals.contains(node->getDecl()->getCanonicalDecl()))
           return {MatchCode::Internal,
@@ -356,8 +438,10 @@ private:
         }
       }
       if ((requested_callable || !request.function().empty()) && !focus)
-        return {
-            MatchCode::NotFound, "callable not found in pinned snapshot", {}};
+        return {MatchCode::NotFound,
+                "callable not found in pinned snapshot or requested call graph "
+                "scope",
+                {}};
       if (!focus && (request.direction() !=
                          ctk::analysis::v1::CALL_GRAPH_DIRECTION_UNSPECIFIED ||
                      request.has_max_depth() || request.unlimited_depth()))
@@ -373,7 +457,8 @@ private:
           budget.check();
           const auto callee = indices.find(record.Callee);
           if (callee == indices.end()) {
-            if (!request.main_file_only())
+            if (!request.main_file_only() &&
+                !request.exclude_system_headers() && !node_matcher)
               return {MatchCode::Internal,
                       "call graph callee missing from graph",
                       {}};
@@ -393,7 +478,7 @@ private:
       const auto max_sites =
           request.has_max_call_sites() ? request.max_call_sites() : 100000;
       CallSiteCollector collector(budget, max_sites, ast,
-                                  request.main_file_only());
+                                  request.main_file_only(), in_scope);
       collector.set_visit_flags(graph.ShouldVisitImplicitCode,
                                 graph.ShouldVisitTemplateInstantiations);
       collector.TraverseDecl(ast.getTranslationUnitDecl());
@@ -446,8 +531,8 @@ private:
         direction = ctk::analysis::v1::CALL_GRAPH_DIRECTION_OUT;
       const auto depth_limit = request.unlimited_depth()
                                    ? std::numeric_limits<std::uint64_t>::max()
-                                   : request.has_max_depth() ? request.max_depth()
-                                                             : 1;
+                               : request.has_max_depth() ? request.max_depth()
+                                                         : 1;
       std::vector<std::int64_t> depth(nodes.size(), -1);
       std::vector<bool> selected(nodes.size(), !focus);
       selected[0] = true;
@@ -571,6 +656,8 @@ private:
       auto *header = started->mutable_graph();
       header->set_root_node(0);
       header->set_main_file_only(request.main_file_only());
+      header->set_exclude_system_headers(request.exclude_system_headers());
+      header->set_node_filter(request.node_filter());
       header->set_external_edges_omitted(external_edges);
       header->set_snapshot_generation(snapshot->generation);
       const auto main_file = owner->unit->getMainFileName().str();
