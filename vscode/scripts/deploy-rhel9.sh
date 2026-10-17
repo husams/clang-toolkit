@@ -132,6 +132,14 @@ ensure_node() {
   if command -v node >/dev/null && command -v npm >/dev/null && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then
     return
   fi
+  local node_bin
+  for node_bin in "$deploy_dir"/tools/node-v*-linux-*/bin; do
+    [[ -x "$node_bin/node" && -x "$node_bin/npm" ]] || continue
+    if "$node_bin/node" -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then
+      export PATH="$node_bin:$PATH"
+      return
+    fi
+  done
   [[ "$skip_deps" == 0 ]] || fail 'Node 22+ with npm is missing; install it or pass --vsix'
   local architecture manifest archive checksum directory
   case "$(uname -m)" in x86_64) architecture=x64 ;; aarch64|arm64) architecture=arm64 ;; *) fail 'Node bootstrap supports x86_64 and aarch64' ;; esac
@@ -154,6 +162,8 @@ build_extension() {
   [[ "$manager" =~ ^pnpm@[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'The prototype must pin a pnpm version'
   npm install --prefix "$deploy_dir/tools/pnpm" --no-audit --no-fund "$manager"
   local pnpm_cli="$deploy_dir/tools/pnpm/node_modules/.bin/pnpm"
+  # Package scripts invoke pnpm again; they must find this same pinned binary.
+  export PATH="$deploy_dir/tools/pnpm/node_modules/.bin:$PATH"
   "$pnpm_cli" --dir "$repo_root/typescript" install --frozen-lockfile
   "$pnpm_cli" --dir "$repo_root/typescript" build
   "$pnpm_cli" --dir "$repo_root/vscode" install --frozen-lockfile
@@ -304,12 +314,17 @@ main() {
     step 'Building the native server from this checkout'
     SKIP_DEPS=1 SKIP_TESTS="$((1-full_tests))" PACKAGE=0 INSTALL=0 \
       BUILD_DIR="$repo_root/build/rhel9-vscode" bash "$repo_root/scripts/build-rhel9.sh"
-    local linkage
-    linkage="$(ldd "$repo_root/build/rhel9-vscode/server/ctk-server")"
-    [[ "$linkage" != *'not found'* ]] || fail 'The built server has missing shared libraries'
+    local binary linkage
+    for binary in ctk-server ctk-index-worker; do
+      [[ -f "$repo_root/build/rhel9-vscode/server/$binary" ]] || fail "Native build did not produce $binary"
+      linkage="$(ldd "$repo_root/build/rhel9-vscode/server/$binary")"
+      [[ "$linkage" != *'not found'* ]] || fail "$binary has missing shared libraries"
+    done
     mkdir -p "$deploy_dir/bin"
-    install -m 755 "$repo_root/build/rhel9-vscode/server/ctk-server" "$deploy_dir/bin/ctk-server.new"
-    mv -f "$deploy_dir/bin/ctk-server.new" "$deploy_dir/bin/ctk-server"
+    for binary in ctk-server ctk-index-worker; do
+      install -m 755 "$repo_root/build/rhel9-vscode/server/$binary" "$deploy_dir/bin/$binary.new"
+      mv -f "$deploy_dir/bin/$binary.new" "$deploy_dir/bin/$binary"
+    done
     endpoint="unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ctk-vscode/ctk.sock"
   fi
   step 'Installing the private Python runtime from the locked checkout'

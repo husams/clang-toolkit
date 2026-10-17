@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -54,7 +55,7 @@ function fixture(t) {
     writeFileSync(join(repo, "vscode/examples", example), example);
   writeFileSync(
     join(repo, "scripts/build-rhel9.sh"),
-    '#!/usr/bin/env bash\nprintf "build:%s\\n" "$SKIP_TESTS" >> "$CTK_DEPLOY_LOG"\nmkdir -p "$BUILD_DIR/server"\nprintf "#!/bin/sh\\nexit 0\\n" > "$BUILD_DIR/server/ctk-server"\n',
+    '#!/usr/bin/env bash\nprintf "build:%s\\n" "$SKIP_TESTS" >> "$CTK_DEPLOY_LOG"\nmkdir -p "$BUILD_DIR/server"\nfor name in ctk-server ctk-index-worker; do printf "#!/bin/sh\\nexit 0\\n" > "$BUILD_DIR/server/$name"; done\n',
   );
   const zipped = spawnSync(
     python,
@@ -229,6 +230,7 @@ test("creates only its own user service with escaped paths and a usable demo", (
     /installed space %% \$\$value \\"quote\\"\/bin\/ctk-server"/,
   );
   assert.match(text, /Environment="CTK_STORAGE_ROOT=.*%% \$value/);
+  assert.equal(existsSync(join(f.prefix, "bin/ctk-index-worker")), true);
   assert.equal(
     readFileSync(join(f.library, "ctk_helpers.ctk"), "utf8"),
     "bundled",
@@ -246,6 +248,31 @@ test("creates only its own user service with escaped paths and a usable demo", (
       .length,
     1,
   );
+});
+
+test("reuses its installed Node runtime when system Node is absent", (t) => {
+  const f = fixture(t);
+  const privateBin = join(f.prefix, "tools/node-v22.23.3-linux-x64/bin");
+  mkdirSync(privateBin, { recursive: true });
+  symlinkSync(process.execPath, join(privateBin, "node"));
+  writeFileSync(join(privateBin, "npm"), "#!/bin/sh\nexit 0\n");
+  chmodSync(join(privateBin, "npm"), 0o755);
+  const noSystemNode = join(f.root, "empty-path");
+  mkdirSync(noSystemNode);
+  const result = spawnSync(
+    "bash",
+    [
+      "-c",
+      'source "$1"; deploy_dir="$2"; skip_deps=1; PATH="$3"; ensure_node; command -v node',
+      "check",
+      script,
+      f.prefix,
+      noSystemNode,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), join(privateBin, "node"));
 });
 
 test("rejects foreign services and unmanaged directories before building", (t) => {
@@ -291,7 +318,7 @@ test("builds with pinned pnpm and stops packaging when an extension check fails"
   const template = join(f.root, "pnpm-stub");
   writeFileSync(
     template,
-    '#!/usr/bin/env bash\nprintf "pnpm:%s\\n" "$*" >> "$CTK_DEPLOY_LOG"\nif [[ "$*" == *" test" ]]; then\n  [[ -x "$CTK_PYTHON" ]] || exit 8\n  printf "python:%s\\n" "$CTK_PYTHON" >> "$CTK_DEPLOY_LOG"\n  if [[ "$CTK_DEPLOY_FAIL_TEST" == 1 ]]; then exit 9; fi\nfi\n',
+    '#!/usr/bin/env bash\nprintf "pnpm:%s\\n" "$*" >> "$CTK_DEPLOY_LOG"\nif [[ "$*" == *" test" ]]; then\n  [[ -x "$CTK_PYTHON" ]] || exit 8\n  printf "python:%s\\n" "$CTK_PYTHON" >> "$CTK_DEPLOY_LOG"\n  if [[ "$CTK_DEPLOY_FAIL_TEST" == 1 ]]; then exit 9; fi\nfi\nif [[ "$*" == *" package" ]]; then [[ "$(command -v pnpm)" == "$0" ]] || exit 7; fi\n',
   );
   const harness = `
 source "$1"

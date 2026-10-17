@@ -39,7 +39,8 @@ desktop VS Code if `code` is missing. Use `--code /path/to/code` for another CLI
 VS Code 1.100 or newer is required. An existing older installation must be updated.
 
 The script installs prerequisites, builds the native server and SDK, runs extension
-type checks, lint and unit tests, and packages and installs the VSIX. It creates a
+type checks, lint and unit tests, and packages and installs the VSIX. The native
+server and its indexing worker are installed together. It creates a
 private Python 3.14 runtime, installs the shipped console helpers if absent, and
 starts `ctk-vscode-prototype.service` in your systemd user session. Existing helper
 files in `~/.ctk/lib` are kept, including user functions. A live check uses the actual
@@ -74,7 +75,8 @@ systemctl --user status ctk-vscode-prototype.service
 journalctl --user -u ctk-vscode-prototype.service -n 80 --no-pager
 ```
 
-`--skip-deps` assumes prerequisites are installed; it still installs locked Python
+`--skip-deps` reuses a Node runtime installed by an earlier deployment, or assumes
+prerequisites are otherwise installed; it still installs locked Python
 and JavaScript dependencies and is not an offline mode. `--server` accepts only a
 local Unix socket or loopback TCP endpoint; the server must share your filesystem.
 Use `--profile NAME`, `--library-directory DIR` and `--prefix DIR` to select other
