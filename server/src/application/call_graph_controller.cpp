@@ -14,12 +14,32 @@ struct CallGraphController::Impl {
   std::shared_ptr<OperationExecutor> executor;
   std::shared_ptr<ResourceManager> resources;
   MatchController *matches;
+  MatchCode retain(const std::string &owner, const std::string &scope_id,
+                   ctk::clang_layer::MatchExecution execution,
+                   const ctk::match::v1::InputDescriptor &input,
+                   const ctk::clang_layer::IMatchBackend::Checkpoint &check,
+                   ctk::match::v1::MatchStreamCompleted &completed,
+                   std::string &message) {
+    if (!matches || !execution.state) {
+      message = "retained call graph nodes are unavailable";
+      return MatchCode::FailedPrecondition;
+    }
+    auto reply = matches->retain_native(owner, std::move(execution), input,
+                                        scope_id, check);
+    message = reply.message;
+    if (reply.code == MatchCode::Ok) {
+      completed.set_session_id(reply.response.session_id());
+      completed.set_result_revision(reply.response.result_revision());
+      completed.mutable_expires_at()->CopyFrom(reply.response.expires_at());
+      completed.set_row_count(reply.response.results_size());
+    }
+    return reply.code;
+  }
   Impl(CursorSettings settings,
        std::shared_ptr<ctk::clang_layer::ICallGraphBackend> native,
        std::shared_ptr<OperationExecutor> work)
       : backend(std::move(native)), resources(settings.resources),
-        matches(nullptr),
-        limits{settings.call_graph_default_max_nodes, 1000000,
+        matches(nullptr), limits{settings.call_graph_default_max_nodes, 1000000,
                settings.results.max_bytes},
         executor(work ? std::move(work)
                       : make_operation_executor(settings.workers,
@@ -63,10 +83,12 @@ CallGraphResult CallGraphController::build(
             {}};
   if (request.strict_node_filter() && request.node_filter().empty())
     return {MatchCode::InvalidArgument,
-            "strict_node_filter requires node_filter", {}};
+            "strict_node_filter requires node_filter",
+            {}};
   if (request.has_binding() && !request.function().empty())
     return {MatchCode::InvalidArgument,
-            "function cannot be combined with a binding target", {}};
+            "function cannot be combined with a binding target",
+            {}};
   if (!ctk::analysis::v1::CallGraphDirection_IsValid(request.direction()))
     return {MatchCode::InvalidArgument, "unknown call graph direction", {}};
   if ((request.has_unlimited_depth() && request.unlimited_depth() &&
@@ -75,7 +97,8 @@ CallGraphResult CallGraphController::build(
       (request.has_max_call_sites() &&
        (request.max_call_sites() == 0 || request.max_call_sites() > 1000000)))
     return {MatchCode::InvalidArgument,
-            "call graph depth or call-site limit exceeds server bounds", {}};
+            "call graph depth or call-site limit exceeds server bounds",
+            {}};
   if (!impl_->backend)
     return {MatchCode::FailedPrecondition, "Clang analysis is disabled", {}};
   auto work = std::make_shared<ResourceManager::WorkLease>();
@@ -98,6 +121,7 @@ CallGraphResult CallGraphController::build(
               impl_->resources, owner, request.resource_scope_id(),
               work->token());
           std::shared_ptr<const ctk::clang_layer::NativeBindingState> state;
+          ctk::match::v1::InputDescriptor source_input;
           if (!request.has_file()) {
             if (!impl_->matches) {
               promise->set_value({MatchCode::FailedPrecondition,
@@ -115,7 +139,7 @@ CallGraphResult CallGraphController::build(
             else
               target.mutable_file_handle()->CopyFrom(request.file_handle());
             const auto resolved = impl_->matches->native_state(
-                owner, target, state, work->token());
+                owner, target, state, work->token(), &source_input);
             if (resolved.code != MatchCode::Ok) {
               promise->set_value({resolved.code, resolved.message, {}});
               return;
@@ -127,6 +151,23 @@ CallGraphResult CallGraphController::build(
             result = {MatchCode::Cancelled,
                       "call graph analysis cancelled before publication",
                       {}};
+          if (result.code == MatchCode::Ok && request.retain_nodes()) {
+            auto *descriptor = result.response.mutable_retained_nodes();
+            result.code =
+                impl_->retain(owner, request.resource_scope_id(),
+                              std::move(result.native_nodes),
+                              request.has_file() ? result.input : source_input,
+                              scoped_checkpoint, *descriptor, result.message);
+            if (result.code == MatchCode::Ok &&
+                (!scoped_checkpoint() ||
+                 result.response.ByteSizeLong() > impl_->limits.max_bytes)) {
+              close_retained_nodes(owner, descriptor->session_id());
+              result.code = !scoped_checkpoint() ? MatchCode::Cancelled
+                                                 : MatchCode::ResourceExhausted;
+              result.message =
+                  "call graph retained completion could not be published";
+            }
+          }
           promise->set_value(std::move(result));
         } catch (const std::exception &error) {
           promise->set_value({MatchCode::Internal, error.what(), {}});
@@ -148,7 +189,8 @@ CallGraphStreamResult CallGraphController::build_stream(
   const auto invalid = request.has_file()
                            ? detail::invalid_file_target(request.file())
                            : std::string{};
-  if (!sink || request.target_case() ==
+  if (!sink ||
+      request.target_case() ==
                    ctk::analysis::v1::CallGraphRequest::TARGET_NOT_SET ||
       !invalid.empty())
     return {MatchCode::InvalidArgument,
@@ -158,13 +200,16 @@ CallGraphStreamResult CallGraphController::build_stream(
   if ((request.has_max_edges() &&
        (!request.max_edges() || request.max_edges() > impl_->limits.max_edges)))
     return {MatchCode::InvalidArgument,
-            "call graph limits must be positive and within server bounds", {}};
+            "call graph limits must be positive and within server bounds",
+            {}};
   if (request.strict_node_filter() && request.node_filter().empty())
     return {MatchCode::InvalidArgument,
-            "strict_node_filter requires node_filter", {}};
+            "strict_node_filter requires node_filter",
+            {}};
   if (request.has_binding() && !request.function().empty())
     return {MatchCode::InvalidArgument,
-            "function cannot be combined with a binding target", {}};
+            "function cannot be combined with a binding target",
+            {}};
   if (!ctk::analysis::v1::CallGraphDirection_IsValid(request.direction()))
     return {MatchCode::InvalidArgument, "unknown call graph direction", {}};
   if ((request.has_unlimited_depth() && request.unlimited_depth() &&
@@ -173,7 +218,8 @@ CallGraphStreamResult CallGraphController::build_stream(
       (request.has_max_call_sites() &&
        (!request.max_call_sites() || request.max_call_sites() > 1000000)))
     return {MatchCode::InvalidArgument,
-            "call graph depth or call-site limit exceeds server bounds", {}};
+            "call graph depth or call-site limit exceeds server bounds",
+            {}};
   if (!impl_->backend)
     return {MatchCode::FailedPrecondition, "Clang analysis is disabled", {}};
   auto work = std::make_shared<ResourceManager::WorkLease>();
@@ -196,10 +242,12 @@ CallGraphStreamResult CallGraphController::build_stream(
                                                    request.resource_scope_id(),
                                                    work->token());
           std::shared_ptr<const ctk::clang_layer::NativeBindingState> state;
+          ctk::match::v1::InputDescriptor source_input;
           if (!request.has_file()) {
             if (!impl_->matches) {
               promise->set_value({MatchCode::FailedPrecondition,
-                                  "retained call graph targets are unavailable", {}});
+                                  "retained call graph targets are unavailable",
+                                  {}});
               return;
             }
             ctk::match::v1::MatchRequest target;
@@ -212,7 +260,7 @@ CallGraphStreamResult CallGraphController::build_stream(
             else
               target.mutable_file_handle()->CopyFrom(request.file_handle());
             const auto resolved = impl_->matches->native_state(
-                owner, target, state, work->token());
+                owner, target, state, work->token(), &source_input);
             if (resolved.code != MatchCode::Ok) {
               promise->set_value({resolved.code, resolved.message, {}});
               return;
@@ -237,11 +285,30 @@ CallGraphStreamResult CallGraphController::build_stream(
           if (result.code == MatchCode::Ok &&
               completion_event.ByteSizeLong() > impl_->limits.max_bytes) {
             result.code = MatchCode::ResourceExhausted;
-            result.message = "call graph completion exceeds response byte limit";
+            result.message =
+                "call graph completion exceeds response byte limit";
           }
           if (result.code == MatchCode::Ok && !check())
             result = {MatchCode::Cancelled,
-                      "call graph analysis cancelled before completion", {}};
+                      "call graph analysis cancelled before completion",
+                      {}};
+          if (result.code == MatchCode::Ok && request.retain_nodes()) {
+            auto *descriptor = result.completed.mutable_retained_nodes();
+            result.code =
+                impl_->retain(owner, request.resource_scope_id(),
+                              std::move(result.native_nodes),
+                              request.has_file() ? result.input : source_input,
+                              check, *descriptor, result.message);
+            if (result.code == MatchCode::Ok &&
+                (!check() || result.completed.ByteSizeLong() + 16 >
+                                 impl_->limits.max_bytes)) {
+              close_retained_nodes(owner, descriptor->session_id());
+              result.code = !check() ? MatchCode::Cancelled
+                                     : MatchCode::ResourceExhausted;
+              result.message =
+                  "call graph retained completion could not be published";
+            }
+          }
           promise->set_value(std::move(result));
         } catch (const std::exception &error) {
           promise->set_value({MatchCode::Internal, error.what(), {}});
@@ -251,8 +318,14 @@ CallGraphStreamResult CallGraphController::build_stream(
         }
       }))
     return {MatchCode::ResourceExhausted,
-            "call graph executor queue is full or stopped", {}};
+            "call graph executor queue is full or stopped",
+            {}};
   return future.get();
+}
+void CallGraphController::close_retained_nodes(const std::string &owner,
+                                               const std::string &id) {
+  if (impl_->matches && !id.empty())
+    (void)impl_->matches->close(owner, id);
 }
 void CallGraphController::stop_admission() {
   impl_->executor->stop_admission();

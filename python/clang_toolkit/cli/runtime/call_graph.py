@@ -178,7 +178,7 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
                 raise
             response = runtime._scoped_file_call(
                 selected,
-                lambda: runtime.client.callgraph(selected, **call_options),
+                lambda: runtime.client.callgraph(selected, **({"retain_nodes": True} if not standalone else {}), **call_options),
             )
             summary["functions"] = sum(
                 not node.is_virtual_root and node.node_index != response.root_node
@@ -232,13 +232,13 @@ def execute_call_graph(runtime: Runtime, statement: Tree) -> CallGraph | str:
 
     response = runtime._scoped_file_call(
         selected,
-        lambda: runtime.client.callgraph(selected, **call_options),
+        lambda: runtime.client.callgraph(selected, **({"retain_nodes": True} if not standalone else {}), **call_options),
     )
     if runtime._active_resource_scope is not None:
         from clang_toolkit.resources import require_complete
 
         require_complete(response)
-    value = CallGraph(response, selector=runtime.client.callgraph)
+    value = response if isinstance(response, CallGraph) else CallGraph(response, selector=runtime.client.callgraph)
     if standalone and output_format == "json":
         from .graph_options import render_graph
 

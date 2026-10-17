@@ -75,7 +75,14 @@ public:
   MatchReply native_state(
       const std::string &owner, const ctk::match::v1::MatchRequest &target,
       std::shared_ptr<const ctk::clang_layer::NativeBindingState> &state,
-      const std::string &work_token);
+      const std::string &work_token,
+      ctk::match::v1::InputDescriptor *input = nullptr);
+  // Publish already captured exact bindings, without executing a matcher.
+  MatchReply retain_native(
+      const std::string &owner, ctk::clang_layer::MatchExecution execution,
+      const ctk::match::v1::InputDescriptor &input, const std::string &scope_id,
+      const ctk::clang_layer::IMatchBackend::Checkpoint &checkpoint);
+
   MatchReply close(const std::string &owner, const std::string &id);
   ctk::match::v1::ListSessionsResponse list_sessions(const std::string &owner);
   MatchReply attach_session(const std::string &owner, const std::string &id,

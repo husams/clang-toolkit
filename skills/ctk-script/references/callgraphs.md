@@ -4,6 +4,87 @@ Use `callgraph` for represented static calls in one translation unit (TU).
 Call-graph hop depth, graph count limits and semantic payload expansion are
 independent. Keep shallow payloads unless detailed AST information is requested.
 
+## Match directly from returned callgraph nodes
+
+Assigned console graphs retain exact callable references into their pinned AST.
+Both `graph.nodes[i]` and `graph.function("project::work")` are valid `match`
+targets. Matching uses the callable definition when available, otherwise its
+declaration; overloads retain their exact identity. It neither reparses the file
+nor searches again by function name or source coordinates.
+
+Run the verified bundled recipe from the repository root with the updated client and server:
+
+```sh
+ctk --script-engine compiled --ui prompt --script skills/ctk-script/scripts/callgraph_match_nodes.ctk path=skills/ctk-script/assets/callgraph_project/main.cc
+```
+
+From another working directory, resolve the installed skill root and pass absolute paths.
+
+The complete script is [callgraph_match_nodes.ctk](../scripts/callgraph_match_nodes.ctk).
+It creates filename, parsed-file and matched-function graphs and matches directly
+from each returned node. Actual compiled-console output on macOS, 17 October 2026:
+
+```text
+FILENAME: nodes=4, edges=5, sites=2, root_sites=0
+FILENAME_MATCH: function=project::work, calls=1, callee=project::leaf
+FILENAME_SAME_SNAPSHOT=true
+FILENAME_SHALLOW={}
+PARSED: nodes=4, edges=5, sites=2, root_sites=0
+PARSED_MATCH: function=project::work, calls=1, callee=project::leaf
+PARSED_SAME_SNAPSHOT=true
+PARSED_SHALLOW={}
+MATCHED: nodes=4, edges=2, sites=2, root_sites=0
+MATCHED_MATCH: function=project::work, calls=1, callee=project::leaf
+MATCHED_SAME_SNAPSHOT=true
+MATCHED_SHALLOW={}
+```
+
+The filename and parsed-file graphs contain the admitted TU inventory. The
+matched-function graph follows all reachable admitted callees with `depth all`.
+All three match inside the same retained `project::work` definition and find
+its call to `project::leaf`; the native node references are independent of the
+shallow `{}` expression payload. Both console engines passed this example.
+Separate native and Unix/TCP acceptance tests also matched exact overloads after
+closing source values and deleting both the main file and its project header.
+
+`match ... in node` uses subtree scope by default. Add `scope self` to match
+only the callable, or `scope children` for its direct AST children. For an
+overload, select an exact signature, for example
+`graph.function("app::leaf", "int (int)")`.
+Graph filters govern graph inventory and call-site facts; a follow-up matcher
+searches the complete selected callable's AST.
+
+Each assigned graph owns an independent server cursor. Its nodes keep that
+cursor alive after the graph variable is dropped. Local `callees`/`callers`
+views share it and preserve native references when graph indices change.
+Closing the graph's session invalidates its nodes and local views; closing the
+original parsed file or matched seed does not. Normal ownership, revision,
+expiry, scope and memory limits apply. The virtual root has no callable and
+produces a clear error if used as a matching target. Normal console saves strip
+the retained cursor and node-reference fields; loaded JSON is detached.
+
+Python keeps the existing raw response default. Request an owned graph explicitly:
+
+```python
+from clang_toolkit import Client
+
+with Client() as client:
+    with client.callgraph("examples/callgraph_strict_filters/main.cc",
+                         exclude_system_headers=True, retain_nodes=True) as graph:
+        node = graph.function("project::work")
+        with client.match_in('callExpr().bind("call")', node) as calls:
+            print(len(calls))  # 1
+```
+
+The same `retain_nodes=True` option works with a parsed tree, a file handle or
+an exact matched binding; use `max_depth="all"` with a callable seed.
+`AsyncClient` supports `await client.callgraph(..., retain_nodes=True)`,
+`await client.match_in(..., node)` and `await graph.aclose()`.
+The raw protocol carries one `retained_nodes` completion descriptor and an
+optional `native_match_index` on each real node. These are separate from
+semantic AST fields and from the graph-local `node_index`.
+
+
 ## Select the right input and coverage
 
 | Input | Console form | Coverage |
@@ -167,8 +248,10 @@ is_complete, availability, main_file_only, external_edges_omitted
 exclude_system_headers, node_filter, strict_node_filter
 ```
 
-Resolve endpoints through `graph.nodes[index]`; graph-local indices are not
-native AST handles. Native graphs retain a virtual root even in a focused query.
+Resolve endpoints through `graph.nodes[index]`. An assigned live graph retains
+a separate exact native reference for each callable: use that node directly as
+a `match` target. Indices alone are local to one graph; exported/loaded graph
+data has no native ownership. Native graphs retain a virtual root even in a focused query.
 It is not an application entry point. Each native call record stays a separate
 edge, including repeated calls. Call-site facts and edges have different
 inventories: unresolved indirect calls have facts without an invented callee,

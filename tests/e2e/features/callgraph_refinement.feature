@@ -106,3 +106,23 @@ Feature: Useful callgraphs from retained native inputs
       | engine   |
       | tree     |
       | compiled |
+
+  Scenario Outline: Collected graph nodes remain exact native matching targets
+    Given an isolated callgraph server using <transport>
+    When I match exact callgraph nodes from filenames trees and matched functions
+    Then graph nodes reuse their snapshots after all source files are removed
+
+    Examples:
+      | transport |
+      | unix      |
+      | tcp       |
+
+  Scenario Outline: Graph node matching works in both console engines
+    Given an isolated callgraph server using unix
+    When I run the direct graph node matching console example with <engine>
+    Then the console matches the exact project function for all three graph inputs
+
+    Examples:
+      | engine   |
+      | tree     |
+      | compiled |

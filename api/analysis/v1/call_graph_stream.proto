@@ -1,5 +1,6 @@
 syntax = "proto3";
 package ctk.analysis.v1;
+import "match/v1/match_stream.proto";
 
 import "analysis/v1/call_graph_node.proto";
 import "analysis/v1/call_graph_edge.proto";
@@ -44,4 +45,6 @@ message CallGraphCompleted {
   uint64 edge_count = 3;
   uint64 call_site_count = 4;
   bool is_complete = 5;
+  // Published only on successful completion; close through MatchService.
+  ctk.match.v1.MatchStreamCompleted retained_nodes = 6;
 }

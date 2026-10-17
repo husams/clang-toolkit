@@ -1043,3 +1043,92 @@ def strict_console_is_project_only(strict_console):
         assert f"{label}_CALL: entry -> project::work" in run.stdout
     assert "third_party::trace" not in run.stdout
     assert "project::generated_call" not in run.stdout
+
+
+@when("I match exact callgraph nodes from filenames trees and matched functions",
+      target_fixture="graph_node_matches")
+def graph_node_matches(callgraph_server):
+    server, source = callgraph_server
+    header = source.with_name("project.hpp")
+    header.write_text('''namespace app {
+int leaf(int); double leaf(double);
+inline int leaf(int x) { return x + 7; }
+inline double leaf(double x) { return x + 2.0; }
+inline int work() { return leaf(3); }
+}
+''')
+    source.write_text('#include "project.hpp"\nint entry() { return app::work(); }\n')
+
+    async def run():
+        async with AsyncClient(server.endpoint) as client:
+            tree = await client.parse(source)
+            rows = await client.match_in('functionDecl(hasName("entry")).bind("f")', tree)
+            graphs = [
+                await client.callgraph(source, retain_nodes=True),
+                await client.callgraph(tree, retain_nodes=True),
+                await client.callgraph(rows[0].binding("f"), max_depth="all", retain_nodes=True),
+            ]
+            generations = [g.snapshot_generation for g in graphs]
+            # Close every source owner and remove every consumed source file.
+            await rows.aclose()
+            await tree.aclose()
+            header.unlink()
+            source.unlink()
+            counts = []
+            for graph in graphs:
+                node = graph.function("app::leaf", signature="int (int)")
+                literals = await client.match_in('integerLiteral().bind("n")', node)
+                assert len(literals) == 1
+                exact = await node.match('functionDecl(isDefinition()).bind("f")')
+                assert len(exact) == 1
+                # Reindexed node 0 is still the original entry native binding.
+                local = graph.callees("entry", depth=0)
+                assert local.nodes[0].node_index == 0
+                calls = await client.match_in('callExpr().bind("c")', local.nodes[0])
+                assert len(calls) == 1
+                counts.append((len(literals), len(exact), len(calls)))
+                with pytest.raises(ValueError, match="virtual root"):
+                    await client.match_in('functionDecl()', graph.nodes[0])
+                await literals.aclose()
+                await exact.aclose()
+                await calls.aclose()
+                await graph.aclose()
+                with pytest.raises(MatchValueError, match="closed"):
+                    await client.match_in('functionDecl()', node)
+            return generations, counts
+
+    return asyncio.run(run())
+
+
+@then("graph nodes reuse their snapshots after all source files are removed")
+def graph_nodes_remain_native(graph_node_matches):
+    generations, counts = graph_node_matches
+    assert len(set(generations)) == 1
+    assert counts == [(1, 1, 1)] * 3
+
+
+@when(parsers.parse("I run the direct graph node matching console example with {engine}"),
+      target_fixture="graph_matching_console")
+def graph_matching_console(callgraph_server, tmp_path, engine):
+    server, _ = callgraph_server
+    root = Path(__file__).resolve().parents[2]
+    libraries = tmp_path / "empty-node-match-libraries"
+    libraries.mkdir()
+    return subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint,
+         "--script-engine", engine, "--lib-dir", str(libraries), "--script",
+         str(root / "examples/callgraph_match_nodes.ctk")],
+        cwd=root, capture_output=True, text=True, timeout=60,
+    )
+
+
+@then("the console matches the exact project function for all three graph inputs")
+def graph_matching_console_output(graph_matching_console):
+    run = graph_matching_console
+    assert run.returncode == 0, run.stdout + run.stderr
+    for label in ("FILENAME", "PARSED", "MATCHED"):
+        edges = 2 if label == "MATCHED" else 5
+        assert f"{label}: nodes=4, edges={edges}, sites=2, root_sites=0" in run.stdout
+        assert f"{label}_MATCH: function=project::work, calls=1, callee=project::leaf" in run.stdout
+        assert f"{label}_SAME_SNAPSHOT=true" in run.stdout
+        assert f"{label}_SHALLOW={{}}" in run.stdout

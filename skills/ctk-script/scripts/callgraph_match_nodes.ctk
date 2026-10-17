@@ -1,0 +1,18 @@
+// Required argument: path. Uses project::work from the bundled callgraph fixture.
+let source = arg.path
+let filename = callgraph source exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let tree = parse source
+let entries = match functionDecl(hasName("entry"), isDefinition()).bind("f") in tree
+let parsed = callgraph in tree exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let matched = callgraph in entries[0].f depth all exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+foreach row in [{"label": "FILENAME", "graph": filename}, {"label": "PARSED", "graph": parsed}, {"label": "MATCHED", "graph": matched}] do {
+    let graph = row.graph
+    let work = graph.function("project::work")
+    let same = match functionDecl(isDefinition()).bind("f") in graph.nodes[work.node_index] scope self
+    let calls = match callExpr().bind("call") in work
+    let roots = graph.call_sites | filter((site) = site.caller_node == graph.root_node)
+    print "{row.label}: nodes={graph.nodes.length}, edges={graph.edges.length}, sites={graph.call_sites.length}, root_sites={roots.length}"
+    print "{row.label}_MATCH: function={same[0].f.qualified_name}, calls={calls.length}, callee={calls[0].call.call_site.static_callee_name}"
+    print "{row.label}_SAME_SNAPSHOT={graph.snapshot_generation == filename.snapshot_generation}"
+    print "{row.label}_SHALLOW={graph.call_sites[0].call}"
+}

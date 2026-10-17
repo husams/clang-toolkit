@@ -1,3 +1,4 @@
+from ...match.v1 import match_stream_pb2 as _match_stream_pb2
 from . import call_graph_node_pb2 as _call_graph_node_pb2
 from . import call_graph_edge_pb2 as _call_graph_edge_pb2
 from . import call_graph_request_pb2 as _call_graph_request_pb2
@@ -14,7 +15,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class CallGraphResponse(_message.Message):
-    __slots__ = ("root_node", "nodes", "edges", "is_complete", "availability", "main_file_only", "external_edges_omitted", "call_sites", "snapshot_generation", "source_file", "source_revision", "compilation_profile_id", "focus_node", "selection_direction", "selection_max_depth", "selection_boundary_edges", "selection_boundary_call_sites", "selection_unlimited_depth", "exclude_system_headers", "node_filter", "strict_node_filter")
+    __slots__ = ("root_node", "nodes", "edges", "is_complete", "availability", "main_file_only", "external_edges_omitted", "call_sites", "snapshot_generation", "source_file", "source_revision", "compilation_profile_id", "focus_node", "selection_direction", "selection_max_depth", "selection_boundary_edges", "selection_boundary_call_sites", "selection_unlimited_depth", "exclude_system_headers", "node_filter", "strict_node_filter", "retained_nodes")
     ROOT_NODE_FIELD_NUMBER: _ClassVar[int]
     NODES_FIELD_NUMBER: _ClassVar[int]
     EDGES_FIELD_NUMBER: _ClassVar[int]
@@ -36,6 +37,7 @@ class CallGraphResponse(_message.Message):
     EXCLUDE_SYSTEM_HEADERS_FIELD_NUMBER: _ClassVar[int]
     NODE_FILTER_FIELD_NUMBER: _ClassVar[int]
     STRICT_NODE_FILTER_FIELD_NUMBER: _ClassVar[int]
+    RETAINED_NODES_FIELD_NUMBER: _ClassVar[int]
     root_node: int
     nodes: _containers.RepeatedCompositeFieldContainer[_call_graph_node_pb2.CallGraphNode]
     edges: _containers.RepeatedCompositeFieldContainer[_call_graph_edge_pb2.CallGraphEdge]
@@ -57,7 +59,8 @@ class CallGraphResponse(_message.Message):
     exclude_system_headers: bool
     node_filter: str
     strict_node_filter: bool
-    def __init__(self, root_node: _Optional[int] = ..., nodes: _Optional[_Iterable[_Union[_call_graph_node_pb2.CallGraphNode, _Mapping]]] = ..., edges: _Optional[_Iterable[_Union[_call_graph_edge_pb2.CallGraphEdge, _Mapping]]] = ..., is_complete: _Optional[bool] = ..., availability: _Optional[_Iterable[_Union[_common_pb2.FieldAvailability, _Mapping]]] = ..., main_file_only: _Optional[bool] = ..., external_edges_omitted: _Optional[int] = ..., call_sites: _Optional[_Iterable[_Union[CallGraphCallSite, _Mapping]]] = ..., snapshot_generation: _Optional[int] = ..., source_file: _Optional[str] = ..., source_revision: _Optional[str] = ..., compilation_profile_id: _Optional[str] = ..., focus_node: _Optional[int] = ..., selection_direction: _Optional[_Union[_call_graph_request_pb2.CallGraphDirection, str]] = ..., selection_max_depth: _Optional[int] = ..., selection_boundary_edges: _Optional[int] = ..., selection_boundary_call_sites: _Optional[int] = ..., selection_unlimited_depth: _Optional[bool] = ..., exclude_system_headers: _Optional[bool] = ..., node_filter: _Optional[str] = ..., strict_node_filter: _Optional[bool] = ...) -> None: ...
+    retained_nodes: _match_stream_pb2.MatchStreamCompleted
+    def __init__(self, root_node: _Optional[int] = ..., nodes: _Optional[_Iterable[_Union[_call_graph_node_pb2.CallGraphNode, _Mapping]]] = ..., edges: _Optional[_Iterable[_Union[_call_graph_edge_pb2.CallGraphEdge, _Mapping]]] = ..., is_complete: _Optional[bool] = ..., availability: _Optional[_Iterable[_Union[_common_pb2.FieldAvailability, _Mapping]]] = ..., main_file_only: _Optional[bool] = ..., external_edges_omitted: _Optional[int] = ..., call_sites: _Optional[_Iterable[_Union[CallGraphCallSite, _Mapping]]] = ..., snapshot_generation: _Optional[int] = ..., source_file: _Optional[str] = ..., source_revision: _Optional[str] = ..., compilation_profile_id: _Optional[str] = ..., focus_node: _Optional[int] = ..., selection_direction: _Optional[_Union[_call_graph_request_pb2.CallGraphDirection, str]] = ..., selection_max_depth: _Optional[int] = ..., selection_boundary_edges: _Optional[int] = ..., selection_boundary_call_sites: _Optional[int] = ..., selection_unlimited_depth: _Optional[bool] = ..., exclude_system_headers: _Optional[bool] = ..., node_filter: _Optional[str] = ..., strict_node_filter: _Optional[bool] = ..., retained_nodes: _Optional[_Union[_match_stream_pb2.MatchStreamCompleted, _Mapping]] = ...) -> None: ...
 
 class CallGraphCallSite(_message.Message):
     __slots__ = ("caller_node", "callee_node", "call", "location", "range", "facts", "is_complete", "availability")

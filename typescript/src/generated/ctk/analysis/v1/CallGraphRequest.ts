@@ -25,6 +25,10 @@ export interface CallGraphRequest {
   'maxCallSites'?: (number | string | Long);
   'function'?: (string);
   'unlimitedDepth'?: (boolean);
+  'excludeSystemHeaders'?: (boolean);
+  'nodeFilter'?: (string);
+  'strictNodeFilter'?: (boolean);
+  'retainNodes'?: (boolean);
   'target'?: "file"|"session"|"binding"|"fileHandle";
   '_visitImplicitCode'?: "visitImplicitCode";
   '_visitTemplateInstantiations'?: "visitTemplateInstantiations";
@@ -52,6 +56,10 @@ export interface CallGraphRequest__Output {
   'maxCallSites'?: (string);
   'function': (string);
   'unlimitedDepth'?: (boolean);
+  'excludeSystemHeaders': (boolean);
+  'nodeFilter': (string);
+  'strictNodeFilter': (boolean);
+  'retainNodes': (boolean);
   'target'?: "file"|"session"|"binding"|"fileHandle";
   '_visitImplicitCode'?: "visitImplicitCode";
   '_visitTemplateInstantiations'?: "visitTemplateInstantiations";

@@ -47,4 +47,6 @@ message CallGraphRequest {
   // by the callable scope filters. Requires node_filter. Unknown indirect
   // targets remain; this does not change depth selection or root-site scoping.
   bool strict_node_filter = 20;
+  // Opt in to a separately owned cursor of exact callable declarations.
+  bool retain_nodes = 21;
 }

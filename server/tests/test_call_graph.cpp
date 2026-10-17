@@ -730,15 +730,20 @@ TEST_F(CallGraph, StreamsMoreThanOneHundredThousandNodes) {
       source << "void f" << i << "(){}\n";
   }
   request.mutable_file()->set_file_path("large.cc");
-  request.mutable_projection()->set_mode(ctk::analysis::v1::ValueProjection::SHALLOW);
+  request.mutable_projection()->set_mode(
+      ctk::analysis::v1::ValueProjection::SHALLOW);
   request.set_max_edges(200000);
   request.set_max_nodes(100000);
   EXPECT_EQ(controller.build(request, [] { return true; }).code,
             MatchCode::ResourceExhausted);
+  MatchController matches;
+  CallGraphController retained({}, {}, {}, &matches);
   for (const auto maximum : {std::uint64_t{functions + 1}, std::uint64_t{0}}) {
     request.set_max_nodes(maximum);
     std::size_t nodes = 0, edges = 0;
-    const auto result = controller.build_stream(
+    request.set_retain_nodes(maximum == 0);
+    auto &selected_controller = maximum == 0 ? retained : controller;
+    const auto result = selected_controller.build_stream(
         request, [] { return true; },
         [&](const auto &event, std::string &) {
           nodes += event.has_node();
@@ -749,6 +754,24 @@ TEST_F(CallGraph, StreamsMoreThanOneHundredThousandNodes) {
     EXPECT_TRUE(result.completed.is_complete());
     EXPECT_EQ(nodes, functions + 1);
     EXPECT_EQ(edges, functions);
+    if (maximum == 0) {
+      ASSERT_TRUE(result.completed.has_retained_nodes());
+      EXPECT_EQ(result.completed.retained_nodes().row_count(), functions);
+      ctk::match::v1::MatchRequest query;
+      query.set_query("functionDecl().bind(\"f\")");
+      query.set_preserve_source(true);
+      auto *binding = query.mutable_binding();
+      binding->set_session_id(result.completed.retained_nodes().session_id());
+      binding->set_bind("node");
+      binding->set_match_index(functions - 1);
+      binding->set_scope(ctk::match::v1::BINDING_MATCH_SCOPE_ROOT_ONLY);
+      const auto selected = matches.match("local-user", query, [] { return true; });
+      ASSERT_EQ(selected.code, MatchCode::Ok) << selected.message;
+      ASSERT_EQ(selected.response.results_size(), 1);
+      EXPECT_EQ(selected.response.results(0).bindings().at("f").location().line(), functions);
+      matches.close("local-user", selected.response.session_id());
+      retained.close_retained_nodes("local-user", result.completed.retained_nodes().session_id());
+    }
   }
 }
 TEST_F(CallGraph, LimitsCancellationAndQueueStopNeverPublishPartialGraphs) {
@@ -840,6 +863,69 @@ TEST_F(CallGraph, StrictNodeFilterRequiresMatcherWithoutPublishingEvents) {
       });
   EXPECT_EQ(result.code, MatchCode::InvalidArgument);
   EXPECT_EQ(events, 0U);
+}
+TEST_F(CallGraph, RetainedGraphNodesMatchExactDefinitionsAfterSourceRemoval) {
+  CursorSettings settings;
+  MatchController matches(settings);
+  CallGraphController calls(settings, {}, {}, &matches);
+  std::ofstream(directory.path() / "exact.cc")
+      << "int overload(int); double overload(double); "
+         "int overload(int x){return x+7;} "
+         "double overload(double x){return x+2.0;} "
+         "int entry(){return overload(1);}";
+  request.mutable_file()->set_file_path("exact.cc");
+  request.set_retain_nodes(true);
+  const auto graph = calls.build(request, [] { return true; }, "alice");
+  ASSERT_EQ(graph.code, MatchCode::Ok) << graph.message;
+  ASSERT_TRUE(graph.response.has_retained_nodes());
+  EXPECT_FALSE(graph.response.nodes(0).has_native_match_index());
+  EXPECT_EQ(graph.response.retained_nodes().row_count(), 3U);
+  std::filesystem::remove(directory.path() / "exact.cc");
+  for (const auto &node : graph.response.nodes()) {
+    if (!node.has_native_match_index())
+      continue;
+    ctk::match::v1::MatchRequest query;
+    query.set_query("integerLiteral().bind(\"n\")");
+    query.set_preserve_source(true);
+    auto *binding = query.mutable_binding();
+    binding->set_session_id(graph.response.retained_nodes().session_id());
+    binding->set_expected_result_revision(
+        graph.response.retained_nodes().result_revision());
+    binding->set_bind("node");
+    binding->set_match_index(node.native_match_index());
+    binding->set_scope(ctk::match::v1::BINDING_MATCH_SCOPE_SUBTREE);
+    const auto denied = matches.match("mallory", query, [] { return true; });
+    EXPECT_EQ(denied.code, MatchCode::NotFound);
+    auto result = matches.match("alice", query, [] { return true; });
+    ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+    if (node.function().qualified_name() == "overload" &&
+        node.function().type().spelling() == "int (int)")
+      EXPECT_EQ(result.response.results_size(),
+                1); // Definition, not forward declaration.
+    matches.close("alice", result.response.session_id());
+  }
+  calls.close_retained_nodes("alice",
+                             graph.response.retained_nodes().session_id());
+  EXPECT_EQ(matches.list_sessions("alice").sessions_size(), 0);
+}
+TEST_F(CallGraph, RetainedNodePublicationRespectsCursorBudgetAndCancellation) {
+  CursorSettings settings;
+  settings.max_cursors = 1;
+  MatchController matches(settings);
+  CallGraphController calls(settings, {}, {}, &matches);
+  request.set_retain_nodes(true);
+  const auto first = calls.build(request, [] { return true; });
+  ASSERT_EQ(first.code, MatchCode::Ok) << first.message;
+  const auto second = calls.build(request, [] { return true; });
+  EXPECT_EQ(second.code, MatchCode::ResourceExhausted);
+  EXPECT_EQ(matches.list_sessions("local-user").sessions_size(), 1);
+  calls.close_retained_nodes("local-user",
+                             first.response.retained_nodes().session_id());
+  const auto cancelled = calls.build_stream(
+      request, [] { return true; },
+      [](const auto &, std::string &) { return MatchCode::Cancelled; });
+  EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
+  EXPECT_EQ(matches.list_sessions("local-user").sessions_size(), 0);
 }
 } // namespace
 TEST_F(CallGraph, AnonymousBlocksUseTypedDeclarationsAndNativeCallExpressions) {

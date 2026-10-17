@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
+
 import os
 import threading
 from glob import has_magic, iglob
@@ -1623,15 +1625,16 @@ class Runtime:
             for match in value.matches:
                 for owners in self._block_owners:
                     owners.add(match._owner)
-        elif isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
-            for owners in self._block_owners:
-                owners.add(value._owner)
+        elif isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection | CallGraph | CallGraphNodeValue):
+            if value._owner is not None:
+                for owners in self._block_owners:
+                    owners.add(value._owner)
         return value
 
     @staticmethod
     def _native_owners(value: Any) -> set[Any]:
-        if isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection):
-            return {value._owner}
+        if isinstance(value, ParsedTree | MatchValue | MatchRow | BindingSelection | CallGraph | CallGraphNodeValue):
+            return {value._owner} if value._owner is not None else set()
         if isinstance(value, NativeMatchCollection):
             return set().union(
                 *(Runtime._native_owners(item) for item in value.matches)
@@ -1852,6 +1855,8 @@ class Runtime:
         target: Any = self._default_targets[-1] if self._default_targets else None
         if len(node.children) > 3 and node.children[3] is not None:
             selected = self._evaluate(node.children[3])
+            if isinstance(selected, CallGraphNodeValue):
+                selected = selected.binding
             if isinstance(selected, str | Directory):
                 path = (
                     selected.absolute if isinstance(selected, Directory) else selected

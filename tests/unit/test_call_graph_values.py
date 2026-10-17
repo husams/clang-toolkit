@@ -263,3 +263,87 @@ def test_neighborhood_recomputes_coverage_from_retained_records_only():
     assert [entry.field_path for entry in focused.availability] == ["included.fact"]
     assert [node.function.qualified_name for node in focused.nodes] == ["pkg::A"]
     assert not focused.edges
+
+
+def test_live_nodes_keep_exact_indices_across_local_graph_reindexing():
+    from clang_toolkit.client import _value_request
+    from clang_toolkit.cli.runtime.persistence import _plain_encode, _encode
+    from clang_toolkit.match_values import MatchValueError
+
+    client = object()
+    closed = []
+    owner = CursorOwner(client, "graph-cursor", 1, closed.append)
+    response = graph().response
+    response.source_file = "/project/fixture.cc"
+    response.retained_nodes.session_id = owner.session_id
+    response.retained_nodes.result_revision = 1
+    for node in response.nodes[1:]:
+        node.native_match_index = node.node_index - 1
+    live = CallGraph(response, owner=owner)
+    with pytest.raises(CallGraphError, match="virtual root"):
+        live.nodes[0].binding
+    detached = CallGraph(response)
+    with pytest.raises(CallGraphError, match="detached"):
+        detached.function("pkg::A").binding
+    selected = live.callees("pkg::D", depth=0)
+    node = selected.nodes[0]
+    assert node.node_index == 0
+    assert node.native_match_index == 3
+    request = _value_request(client, 'functionDecl().bind("f")', node)
+    assert request.binding.match_index == 3
+    assert request.binding.session_id == owner.session_id
+    assert request.preserve_source
+    with pytest.raises(MatchValueError, match="another client"):
+        _value_request(object(), 'functionDecl()', node)
+    plain = _plain_encode(live)
+    typed = _encode(live)["value"]["message"]
+    for exported in (plain, typed):
+        assert "retained_nodes" not in exported
+        assert all("native_match_index" not in item for item in exported["nodes"])
+    assert "native_match_index" not in _plain_encode(node)
+    assert live.response.HasField("retained_nodes")
+    owner.close()
+    assert closed == ["graph-cursor"]
+    with pytest.raises(MatchValueError, match="closed"):
+        _value_request(client, 'functionDecl()', node)
+    # A selected node pins its cursor even after its parent graph is gone.
+    import gc
+    released = []
+    temporary = CallGraph(response, owner=CursorOwner(client, "kept-node", 1, released.append))
+    kept = temporary.function("pkg::A")
+    del temporary
+    gc.collect()
+    assert not released
+    assert _value_request(client, 'functionDecl()', kept).binding.session_id == "kept-node"
+    del kept
+    gc.collect()
+    assert released == ["kept-node"]
+
+@pytest.mark.parametrize("engine", ["tree", "compiled"])
+def test_console_matches_nodes_and_function_lookup_with_normal_scopes(tmp_path, engine):
+    from unittest.mock import Mock
+    from clang_toolkit import Client
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+    from clang_toolkit.match_values import BindingSelection
+    from clang_toolkit._generated.match.v1.match_result_pb2 import BINDING_MATCH_SCOPE_ROOT_ONLY
+
+    client = Mock(spec=Client)
+    response = graph().response
+    response.nodes[1].native_match_index = 17
+    owner = CursorOwner(client, "exact-callables", 1, lambda _: None)
+    runtime = PrototypeRuntime(client, cwd=tmp_path, script_engine=engine)
+    runtime.bindings["g"] = CallGraph(response, owner=owner)
+    assert "pkg::A" in runtime.execute("$g.nodes[1]")
+    # A collection result mock is enough to verify exact retained dispatch.
+    from clang_toolkit._generated.match.v1.match_service_pb2 import MatchResponse
+    from clang_toolkit.match_values import MatchValue
+    client.match_in.return_value = MatchValue._from_response(
+        MatchResponse(session_id="result", result_revision=1),
+        CursorOwner(client, "result", 1, lambda _: None))
+    runtime.execute('let rows = match functionDecl().bind("f") in $g.nodes[1] scope self')
+    target = client.match_in.call_args.args[1]
+    assert isinstance(target, BindingSelection)
+    assert (target._owner.session_id, target._index, target.scope) == (
+        "exact-callables", 17, BINDING_MATCH_SCOPE_ROOT_ONLY)
+    runtime.execute('let rows = match callExpr().bind("c") in $g.function("pkg::A")')
+    assert client.match_in.call_args.args[1]._index == 17
