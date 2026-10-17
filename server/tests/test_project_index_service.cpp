@@ -1,3 +1,4 @@
+#include "../src/net/project_index_store.hpp"
 #include "ctk/net/index_service.hpp"
 
 #include <atomic>
@@ -8,13 +9,72 @@
 #include <iterator>
 #include <set>
 #include <sqlite3.h>
+#include <string_view>
 #include <thread>
 #include <utility>
+
+struct sqlite3_api_routines;
 
 namespace ctk::net {
 namespace fs = std::filesystem;
 namespace {
 using namespace ctk::index::v1;
+struct RevisionTrace {
+  fs::path database;
+  std::atomic<bool> revision_one{false};
+};
+RevisionTrace *active_revision_trace = nullptr;
+
+int trace_revision_one(unsigned event, void *context, void *statement, void *) {
+  if (event != SQLITE_TRACE_PROFILE)
+    return 0;
+  auto &trace = *static_cast<RevisionTrace *>(context);
+  auto *database = sqlite3_db_handle(static_cast<sqlite3_stmt *>(statement));
+  const char *filename = sqlite3_db_filename(database, "main");
+  if (!filename)
+    return 0;
+  std::error_code path_error;
+  const bool same_database =
+      fs::equivalent(filename, trace.database, path_error);
+  if (path_error || !same_database)
+    return 0;
+  char *expanded = sqlite3_expanded_sql(static_cast<sqlite3_stmt *>(statement));
+  const std::string_view sql(expanded ? expanded : "");
+  if (sql.find("INSERT INTO metadata") != std::string_view::npos &&
+      sql.find("'revision'") != std::string_view::npos &&
+      sql.find("'1'") != std::string_view::npos)
+    trace.revision_one.store(true, std::memory_order_release);
+  sqlite3_free(expanded);
+  return 0;
+}
+
+int install_revision_trace(sqlite3 *database, char **,
+                           const sqlite3_api_routines *) {
+  if (active_revision_trace)
+    sqlite3_trace_v2(database, SQLITE_TRACE_PROFILE, trace_revision_one,
+                     active_revision_trace);
+  return SQLITE_OK;
+}
+
+class RevisionTraceRegistration {
+public:
+  explicit RevisionTraceRegistration(RevisionTrace &trace) {
+    active_revision_trace = &trace;
+    registered_ = sqlite3_auto_extension(reinterpret_cast<void (*)(void)>(
+                      install_revision_trace)) == SQLITE_OK;
+  }
+  ~RevisionTraceRegistration() {
+    if (registered_)
+      sqlite3_cancel_auto_extension(
+          reinterpret_cast<void (*)(void)>(install_revision_trace));
+    active_revision_trace = nullptr;
+  }
+  bool registered() const { return registered_; }
+
+private:
+  bool registered_ = false;
+};
+
 class ProjectIndexServiceTest : public ::testing::Test {
 protected:
   fs::path root =
@@ -75,7 +135,8 @@ protected:
         << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-c\"," << source_two
         << "]}]";
   }
-  fs::path worker_wrapper(const fs::path &counter) {
+  fs::path worker_wrapper(const fs::path &counter,
+                          const std::string &before_exec = {}) {
     const auto shell_word = [](const std::string &value) {
       std::string out = "'";
       for (char c : value)
@@ -84,7 +145,8 @@ protected:
     };
     const auto path = root / "index-worker-wrapper";
     std::ofstream(path) << "#!/bin/sh\nprintf . >> "
-                        << shell_word(counter.string()) << "\nexec "
+                        << shell_word(counter.string()) << '\n'
+                        << before_exec << "exec "
                         << shell_word(CTK_TEST_INDEX_WORKER) << " \"$@\"\n";
     fs::permissions(path, fs::perms::owner_all);
     return path;
@@ -200,7 +262,7 @@ TEST_F(ProjectIndexServiceTest,
        SharedHeaderPayloadIsStoredOnceWithEveryTuProvenance) {
   std::string header;
   for (int i = 0; i < 200; ++i)
-    header += "int SharedSymbol" + std::to_string(i) + "();\n";
+    header += "inline int SharedSymbol" + std::to_string(i) + "(){return 1;}\n";
   write("shared.h", header);
   std::ofstream commands(project / "compile_commands.json");
   commands << '[';
@@ -441,6 +503,32 @@ TEST_F(ProjectIndexServiceTest,
 }
 
 TEST_F(ProjectIndexServiceTest,
+       ForegroundBurstResumesExtractionWithoutRediscovery) {
+  const auto counter = root / "worker-launches";
+  const auto wrapper = worker_wrapper(counter, "sleep 0.3\n");
+  bool yielded = false;
+  std::chrono::steady_clock::time_point busy_until{};
+  IndexServiceAdapter service(
+      storage,
+      [&] {
+        if (!yielded && fs::exists(counter) && fs::file_size(counter) >= 2) {
+          yielded = true;
+          busy_until =
+              std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+        }
+        return std::chrono::steady_clock::now() < busy_until;
+      },
+      wrapper);
+  const auto status = start_and_wait(service);
+  EXPECT_TRUE(yielded);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+  std::ifstream launches(counter);
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(),
+            4);
+}
+
+TEST_F(ProjectIndexServiceTest,
        ForegroundBurstYieldsStagedPublicationWithoutReextracting) {
   std::string source = "#include \"shared.h\"\n";
   for (int i = 0; i != 3000; ++i)
@@ -490,6 +578,81 @@ TEST_F(ProjectIndexServiceTest,
   start_and_wait(service);
   EXPECT_GE(calls.load(), 1000u);
   EXPECT_EQ(find(service, "AddedDuringForeground", false).symbols_size(), 3);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       HeaderEditDuringFinalCommitAdmissionIsRevalidated) {
+  RevisionTrace trace;
+  trace.database =
+      storage / "symbol-index" /
+      index_detail::digest_text(index_detail::root_key(project.string())) /
+      "symbols.sqlite3";
+  RevisionTraceRegistration registration(trace);
+  ASSERT_TRUE(registration.registered());
+
+  std::atomic<bool> edited{false};
+  std::chrono::steady_clock::time_point busy_until{};
+  IndexServiceAdapter service(
+      storage,
+      [&] {
+        if (trace.revision_one.load(std::memory_order_acquire) &&
+            !edited.exchange(true)) {
+          write("shared.h", "struct AddedDuringCommit {} prime;\n");
+          busy_until =
+              std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+        }
+        return std::chrono::steady_clock::now() < busy_until;
+      },
+      CTK_TEST_INDEX_WORKER);
+  const auto status = start_and_wait(service);
+  EXPECT_TRUE(trace.revision_one.load(std::memory_order_acquire));
+  EXPECT_TRUE(edited.load());
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(find(service, "AddedDuringCommit", false).symbols_size(), 3);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       HeaderEditDuringInnerValidationWaitRestartsManifestPass) {
+  write("a.h", "struct ExistingBeforeValidation {};\n");
+  write("one.cpp", "#include \"a.h\"\n#include \"shared.h\"\n"
+                   "#ifdef ALPHA_FEATURE\nint alphaOnly(){return 1;}\n"
+                   "#else\nint betaOnly(){return 2;}\n#endif\n");
+
+  RevisionTrace trace;
+  trace.database =
+      storage / "symbol-index" /
+      index_detail::digest_text(index_detail::root_key(project.string())) /
+      "symbols.sqlite3";
+  RevisionTraceRegistration registration(trace);
+  ASSERT_TRUE(registration.registered());
+
+  std::atomic<unsigned> checks_after_revision{0};
+  std::atomic<bool> edited{false};
+  std::chrono::steady_clock::time_point busy_until{};
+  IndexServiceAdapter service(
+      storage,
+      [&] {
+        // The sorted manifest begins with /a.h then /one.cpp. After commit
+        // admission (1), /a.h admission and its single-chunk hash callback
+        // (2-3), call 4 is admission for /one.cpp, so /a.h was already
+        // validated when this wait edits it.
+        if (trace.revision_one.load(std::memory_order_acquire) &&
+            checks_after_revision.fetch_add(1) + 1 == 4 &&
+            !edited.exchange(true)) {
+          write("a.h", "struct ExistingBeforeValidation {};\n"
+                       "struct AddedDuringValidation {};\n");
+          busy_until =
+              std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+        }
+        return std::chrono::steady_clock::now() < busy_until;
+      },
+      CTK_TEST_INDEX_WORKER);
+  const auto status = start_and_wait(service);
+  EXPECT_TRUE(trace.revision_one.load(std::memory_order_acquire));
+  EXPECT_TRUE(edited.load());
+  EXPECT_GE(checks_after_revision.load(), 4u);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(find(service, "AddedDuringValidation", false).symbols_size(), 2);
 }
 
 TEST_F(ProjectIndexServiceTest,

@@ -889,6 +889,9 @@ class WorkspaceConsole:
     def show_batch_progress(self, progress: BatchProgress) -> None:
         """Coalesce worker notifications before touching prompt_toolkit state."""
         if self.loop is not None and self.app.is_running:
+            if not progress.active:
+                self.loop.call_soon_threadsafe(self.flush_progress, progress)
+                return
             with self.progress_lock:
                 schedule = not self.pending_progress
                 self.pending_progress[progress.run_id] = progress
@@ -897,10 +900,13 @@ class WorkspaceConsole:
         else:
             self.result_trees.progress(progress)
 
-    def flush_progress(self) -> None:
+    def flush_progress(self, terminal: BatchProgress | None = None) -> None:
         with self.progress_lock:
             pending, self.pending_progress = self.pending_progress, {}
-        for progress in pending.values():
+        updates = [*pending.values()]
+        if terminal is not None:
+            updates.append(terminal)
+        for progress in updates:
             previous = self.progress_states.get(progress.run_id)
             if previous and progress.durable and previous.revision > progress.revision:
                 continue

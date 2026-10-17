@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
+from collections.abc import Callable
 from pathlib import Path
+from threading import Lock, Thread
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -421,6 +425,54 @@ def test_progress_updates_in_place_and_durable_polling_stops_on_completion(tmp_p
         await wait_until(lambda: not ui.batch_monitors)
         assert reads == ["durable"]
     asyncio.run(interact(tmp_path, drive))
+
+
+def test_terminal_progress_renders_after_queued_batch_output() -> None:
+    class QueuedLoop:
+        def __init__(self) -> None:
+            self.callbacks: deque[tuple[Callable[..., None], tuple]] = deque()
+
+        def call_soon_threadsafe(self, callback: Callable[..., None], *args: object) -> None:
+            self.callbacks.append((callback, args))
+
+        def drain(self) -> None:
+            while self.callbacks:
+                callback, args = self.callbacks.popleft()
+                callback(*args)
+
+    class ProgressTree:
+        def __init__(self) -> None:
+            self.rows: dict[str, BatchProgress] = {}
+
+        def progress(self, progress: BatchProgress) -> None:
+            self.rows[progress.run_id] = progress
+            events.append(progress.state)
+
+    events: list[str | tuple[str, str]] = []
+    loop = QueuedLoop()
+    ui = WorkspaceConsole.__new__(WorkspaceConsole)
+    ui.loop = loop
+    ui.app = SimpleNamespace(is_running=True, invalidate=lambda: None)
+    ui.progress_lock = Lock()
+    ui.pending_progress = {}
+    ui.progress_states = {}
+    ui.result_trees = ProgressTree()
+    ui.write_markdown = lambda markdown: events.append(("body", markdown))
+
+    def publish() -> None:
+        ui.show_batch_progress(BatchProgress("quick", 1))
+        ui.write_output("BODY_LINE\n" * 30 + "BODY_LAST")
+        ui.show_batch_progress(BatchProgress("quick", 1, 1, 1, state="completed"))
+
+    worker = Thread(target=publish)
+    worker.start()
+    worker.join()
+    loop.drain()
+
+    assert events[0] == "running"
+    assert events[1][0] == "body" and "BODY_LAST" in events[1][1]
+    assert events[2] == "completed"
+    assert len(ui.result_trees.rows) == 1
 
 
 def test_outline_panel_bindings_also_carry_source_links(tmp_path: Path) -> None:

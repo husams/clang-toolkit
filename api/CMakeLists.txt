@@ -79,6 +79,19 @@ add_library(ctk_analysis_api STATIC ${_analysis_sources})
 target_include_directories(ctk_analysis_api PUBLIC "${_match_generated_dir}")
 target_link_libraries(ctk_analysis_api PUBLIC ctk_match_api)
 
+set(_index_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/index-generated")
+set(_index_proto "${_api_schema_dir}/index/v1/index_service.proto")
+add_custom_command(
+  OUTPUT "${_index_generated_dir}/index/v1/index_service.pb.cc"
+         "${_index_generated_dir}/index/v1/index_service.pb.h"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${_index_generated_dir}"
+  COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
+          "--cpp_out=${_index_generated_dir}" --experimental_allow_proto3_optional "${_index_proto}"
+  DEPENDS "${_index_proto}" VERBATIM)
+add_library(ctk_index_api STATIC "${_index_generated_dir}/index/v1/index_service.pb.cc")
+target_include_directories(ctk_index_api PUBLIC "${_index_generated_dir}")
+target_link_libraries(ctk_index_api PUBLIC protobuf::libprotobuf)
+
 if(CTK_BUILD_NETWORK)
   find_package(gRPC CONFIG REQUIRED)
   add_custom_command(
@@ -136,25 +149,15 @@ if(CTK_BUILD_NETWORK)
     "${_query_generated_dir}/query/v1/query.grpc.pb.cc")
   target_include_directories(ctk_query_api PUBLIC "${_query_generated_dir}")
   target_link_libraries(ctk_query_api PUBLIC ctk_match_api protobuf::libprotobuf gRPC::grpc++)
-  set(_index_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/index-generated")
-  set(_index_proto "${_api_schema_dir}/index/v1/index_service.proto")
   add_custom_command(
-    OUTPUT "${_index_generated_dir}/index/v1/index_service.pb.cc"
-           "${_index_generated_dir}/index/v1/index_service.pb.h"
-           "${_index_generated_dir}/index/v1/index_service.grpc.pb.cc"
+    OUTPUT "${_index_generated_dir}/index/v1/index_service.grpc.pb.cc"
            "${_index_generated_dir}/index/v1/index_service.grpc.pb.h"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_index_generated_dir}"
-    COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
-            "--cpp_out=${_index_generated_dir}" --experimental_allow_proto3_optional "${_index_proto}"
     COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
             --experimental_allow_proto3_optional "--grpc_out=${_index_generated_dir}"
             "--plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>" "${_index_proto}"
     DEPENDS "${_index_proto}" VERBATIM)
-  add_library(ctk_index_api STATIC
-    "${_index_generated_dir}/index/v1/index_service.pb.cc"
-    "${_index_generated_dir}/index/v1/index_service.grpc.pb.cc")
-  target_include_directories(ctk_index_api PUBLIC "${_index_generated_dir}")
-  target_link_libraries(ctk_index_api PUBLIC protobuf::libprotobuf gRPC::grpc++)
+  target_sources(ctk_index_api PRIVATE "${_index_generated_dir}/index/v1/index_service.grpc.pb.cc")
+  target_link_libraries(ctk_index_api PUBLIC gRPC::grpc++)
 endif()
 
 set(_api_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")

@@ -40,7 +40,7 @@ def project(tmp_path, request, monkeypatch):
     root = tmp_path / "project"
     root.mkdir()
     (root / "shared.hpp").write_text(
-        "#include <vector>\nstruct SharedBefore { std::vector<int> values; };\n",
+        "#include <vector>\nstruct ForwardOnly;\nextern int externalOnly;\nint prototypeOnly();\nstruct SharedBefore { std::vector<int> values; };\n",
         encoding="utf-8")
     for name in ("one", "two"):
         (root / f"{name}.cc").write_text(
@@ -82,7 +82,9 @@ def foreground_works(indexed_project):
         result = client.find_symbols(root, "SharedBefore")
         assert len(result.symbols) >= 2
         assert {Path(s.translation_unit).name for s in result.symbols} == {"one.cc", "two.cc"}
-        assert all(s.usr and s.compile_context for s in result.symbols)
+        assert all(s.usr and s.compile_context and s.is_definition for s in result.symbols)
+        for name in ("ForwardOnly", "externalOnly", "prototypeOnly"):
+            assert not client.find_symbols(root, name).symbols
         assert client.lookup_symbol(root, result.symbols[0].usr).symbols
         assert not client.find_symbols(root, "std::", prefix=True).symbols
         with client.parse(root / "unrelated.cc") as tree:

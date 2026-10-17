@@ -49,9 +49,11 @@ int main(int argc, char **argv) {
                                      request.compile_arguments().end());
   response.set_success(ctk::clang_layer::extract_project_index(
       request.source(), request.compile_commands_directory(),
-      request.working_directory(), arguments, extraction, error));
+      request.working_directory(), arguments, extraction, error,
+      request.header_cache_directory()));
   response.set_error(error);
   response.set_compile_context(extraction.compile_context);
+  response.set_reused_header_symbols(extraction.reused_header_symbols);
   for (const auto &[path, hash] : extraction.dependencies) {
     auto *dependency = response.add_dependencies();
     dependency->set_path(path);

@@ -23,6 +23,7 @@ if(CTK_WITH_CLANG)
   target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_VERSION_MAJOR=${CTK_TEST_CLANG_VERSION_MAJOR})
   target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_TOOL_PATH="${CMAKE_CXX_COMPILER}")
   target_sources(ctk_tests PRIVATE
+    test_index_definition_reuse.cpp
     test_clang_query.cpp
     test_compilation_database.cpp
     test_file_discovery.cpp

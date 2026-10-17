@@ -38,6 +38,7 @@ void IndexWorker::start(const std::filesystem::path &executable,
                         const std::filesystem::path &result) {
   if (running())
     throw std::logic_error("index worker is already running");
+  completed_.reset();
   std::string program = executable.string(), input = request.string(),
               output = result.string();
   char request_option[] = "--request", result_option[] = "--result";
@@ -81,6 +82,11 @@ void IndexWorker::start(const std::filesystem::path &executable,
 }
 
 std::optional<int> IndexWorker::poll() {
+  if (completed_) {
+    const int status = *completed_;
+    completed_.reset();
+    return status;
+  }
   if (!running())
     return std::nullopt;
   int status = 0;
@@ -95,6 +101,52 @@ std::optional<int> IndexWorker::poll() {
                             "poll index worker");
   pid_ = -1;
   return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+}
+
+void IndexWorker::suspend() {
+  if (!running())
+    return;
+  if (const auto status = poll()) {
+    completed_ = status;
+    return;
+  }
+  if (!kill(-pid_, SIGSTOP))
+    return;
+  const int signal_error = errno;
+  try {
+    if (const auto status = poll()) {
+      completed_ = status;
+      return;
+    }
+  } catch (const std::system_error &) {
+    // Preserve the signal failure when polling cannot establish completion.
+  }
+  if (signal_error != ESRCH)
+    throw std::system_error(signal_error, std::generic_category(),
+                            "suspend index worker");
+}
+
+void IndexWorker::resume() {
+  if (!running())
+    return;
+  if (const auto status = poll()) {
+    completed_ = status;
+    return;
+  }
+  if (!kill(-pid_, SIGCONT))
+    return;
+  const int signal_error = errno;
+  try {
+    if (const auto status = poll()) {
+      completed_ = status;
+      return;
+    }
+  } catch (const std::system_error &) {
+    // Preserve the signal failure when polling cannot establish completion.
+  }
+  if (signal_error != ESRCH)
+    throw std::system_error(signal_error, std::generic_category(),
+                            "resume index worker");
 }
 
 void IndexWorker::stop() {

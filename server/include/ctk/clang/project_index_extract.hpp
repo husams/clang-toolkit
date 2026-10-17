@@ -16,6 +16,7 @@ struct ProjectIndexExtraction {
   std::vector<IndexedSymbol> symbols;
   std::map<std::string, std::string> dependencies;
   std::string compile_context;
+  std::uint64_t reused_header_symbols = 0;
 };
 struct ProjectIndexCommand {
   std::string source;
@@ -34,7 +35,8 @@ bool extract_project_index(const std::string &source,
                            const std::string &compile_commands_directory,
                            const std::string &working_directory,
                            const std::vector<std::string> &arguments,
-                           ProjectIndexExtraction &result, std::string &error);
+                           ProjectIndexExtraction &result, std::string &error,
+                           const std::string &header_cache_directory = {});
 bool list_project_translation_units(
     const std::string &compile_commands_directory,
     std::vector<ProjectIndexCommand> &translation_units, std::string &error);

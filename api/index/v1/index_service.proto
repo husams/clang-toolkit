@@ -86,6 +86,7 @@ message IndexWorkerRequest {
   bool list_translation_units = 3;
   string working_directory = 4;
   repeated string compile_arguments = 5;
+  string header_cache_directory = 6;
 }
 message IndexWorkerTranslationUnit {
   string source = 1;
@@ -101,4 +102,5 @@ message IndexWorkerResponse {
   repeated IndexWorkerDependency dependencies = 4;
   repeated Symbol symbols = 5;
   repeated IndexWorkerTranslationUnit translation_units = 6;
+  uint64 reused_header_symbols = 7;
 }
