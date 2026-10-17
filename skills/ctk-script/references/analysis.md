@@ -11,6 +11,7 @@ client-side files and need not be in the target project or current directory.
 | Where is a local read/written, initialized, live or overwritten? | [local_usage.ctk](../scripts/local_usage.ctk) | Run with `path`, `function`, `variable`, `output`; prints usage facts and exports the full report. |
 | What inclusive integer bounds reach each usage? | [value_ranges.ctk](../scripts/value_ranges.ctk) | Same arguments; adds interval facts, branch refinement and loop convergence. |
 | What are a class's members, template facts or ancestors? | [ctk_helpers.ctk](../scripts/ctk_helpers.ctk) | Import definitions, then call helpers with a live parsed target; see [utilities.md](utilities.md). |
+| Match inside a function returned by a callgraph without reparsing? | [callgraph_match_nodes.ctk](../scripts/callgraph_match_nodes.ctk) | Run with `path` pointing to the bundled `assets/callgraph_project/main.cc`; filename, parsed-file and matched-node graphs all retain exact callable references. |
 | How do I use pipes, tuple callbacks and formatting? | [pipe_report.ctk](../scripts/pipe_report.ctk) | Run without arguments; local-data demonstration, without native queries. |
 
 Analysis scripts execute immediately through `--script`; they are not import-only
