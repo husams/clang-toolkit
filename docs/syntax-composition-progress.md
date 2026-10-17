@@ -47,3 +47,15 @@ checks allow 60 seconds for query startup rather than the editor's 15-second
 response budget. Targeted reruns passed with those test timing fixes. The four
 new real-terminal shortcut/UI cases passed, and
 focused Ruff and diff whitespace checks passed.
+
+## Merge compatibility with current main
+
+Integrated main's VS Code prototype and deployment updates. Its class-name
+argument inference now follows both legacy trees and prototype expression
+nodes, preserving hints for bare and computed matcher-name operands without
+executing drafts. The existing regression reproduced the missing hint before
+the adapter fix; independent review approved the fix and added coverage.
+
+Post-integration checks: 252 focused console tests and all 19 VS Code editor
+adapter tests passed. Adapter Ruff checks passed with pre-existing E701/E402
+findings excluded, and diff whitespace checks passed.

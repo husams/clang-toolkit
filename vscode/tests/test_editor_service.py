@@ -88,6 +88,9 @@ class CompletionTests(unittest.TestCase):
         source = 'let inspect(node, wanted) = { match cxxRecordDecl(hasName(wanted)).bind("class") in node }'
         data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), parametersFor='inspect'))
         self.assertEqual(data['parameterRoles'], {'wanted': 'class'})
+        source = 'let inspect(node, wanted) = { match cxxRecordDecl(hasName("demo::" + wanted)).bind("class") in node }'
+        data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), parametersFor='inspect'))
+        self.assertEqual(data['parameterRoles'], {'wanted': 'class'})
         source = 'let forward(cpp, wanted) = classByName(cpp, wanted)\nlet inspect(node, cpp, wanted) = forward(cpp, wanted)'
         data = service.request(dict(source=source, cursor=len(source), directory=str(self.root), library=str(self.root), parametersFor='inspect'))
         self.assertEqual(data['parameterRoles'], {'cpp': 'path', 'wanted': 'class'})
