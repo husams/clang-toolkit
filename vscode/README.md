@@ -20,6 +20,77 @@ Press F5 and select **Run CTK Prototype**. Set `ctk.server` to an endpoint such 
 
 Alternatively, run `pnpm package` and use **Extensions → Install from VSIX…** with `artifacts/clang-toolkit-prototype.vsix`.
 
+## Deploy on RHEL 9
+
+Copy or check out this **prototype checkout** on the RHEL machine, then run as
+your normal VS Code user (not `sudo bash`):
+
+```sh
+bash vscode/scripts/deploy-rhel9.sh --workspace /path/to/cpp-project
+```
+
+RHEL 9, Rocky Linux 9, AlmaLinux 9 and CentOS Stream 9 are supported targets.
+Internet access and sudo for missing system packages are required. The native
+build needs the full AppStream and CodeReady Builder/CRB repositories, including
+the Clang and GCC toolset packages used by `scripts/build-rhel9.sh`. Run from a
+VS Code **Remote-SSH integrated terminal** when deploying to a remote extension
+host; this lets the installer find that host's VS Code CLI. Otherwise it installs
+desktop VS Code if `code` is missing. Use `--code /path/to/code` for another CLI;
+VS Code 1.100 or newer is required. An existing older installation must be updated.
+
+The script installs prerequisites, builds the native server and SDK, runs extension
+type checks, lint and unit tests, and packages and installs the VSIX. It creates a
+private Python 3.14 runtime, installs the shipped console helpers if absent, and
+starts `ctk-vscode-prototype.service` in your systemd user session. Existing helper
+files in `~/.ctk/lib` are kept, including user functions. A live check uses the actual
+packaged worker to verify unsaved-buffer parsing, base-class navigation and an
+action on the selected node before installing the extension. Its server, storage,
+runtime, configuration and workspace are under `~/.local/share/ctk-vscode`
+(`$XDG_DATA_HOME/ctk-vscode` when set). The native binary and Python package are
+copied/installed there; running the extension does not depend on keeping the build
+checkout in place.
+
+Open the generated `ctk.code-workspace` using the command printed at completion,
+then trust the workspace. No editor window opens during deployment. Project and
+user settings are not overwritten; existing folder-level `ctk.*` settings can take
+precedence over the generated workspace settings. Without `--workspace`, the script
+creates a small demo project with a custom action. Reload an existing VS Code
+window after an extension update. Rerunning updates the same managed deployment.
+
+```sh
+# Preview without changes (also works before copying the checkout to Linux).
+bash vscode/scripts/deploy-rhel9.sh --dry-run
+
+# Use a prebuilt portable VSIX matching this checkout; skip Node/pnpm entirely.
+bash vscode/scripts/deploy-rhel9.sh --vsix /path/to/clang-toolkit-prototype.vsix
+
+# Reuse an existing local CTK server instead of building/starting another one.
+bash vscode/scripts/deploy-rhel9.sh --server unix:///tmp/ctk.sock --skip-deps
+
+# Include the complete native and Python suites during the native build.
+bash vscode/scripts/deploy-rhel9.sh --full-tests
+
+systemctl --user status ctk-vscode-prototype.service
+journalctl --user -u ctk-vscode-prototype.service -n 80 --no-pager
+```
+
+`--skip-deps` assumes prerequisites are installed; it still installs locked Python
+and JavaScript dependencies and is not an offline mode. `--server` accepts only a
+local Unix socket or loopback TCP endpoint; the server must share your filesystem.
+Use `--profile NAME`, `--library-directory DIR` and `--prefix DIR` to select other
+locations. A working systemd user session is required for the managed server; it
+normally lasts for your login session. The installer does not enable lingering.
+It never changes or restarts another CTK service. See `--help` for all options.
+
+Installer regression checks: `pnpm --dir vscode test:deploy` (uses the checkout's
+Python environment, or `CTK_PYTHON`). These simulate package installation and
+systemd; actual machine deployment still needs validation on the destination.
+Prerequisite sources: [VS Code Linux setup](https://code.visualstudio.com/docs/setup/linux),
+[Node 22 distributions](https://nodejs.org/dist/latest-v22.x/),
+and [uv locked environment sync](https://docs.astral.sh/uv/concepts/projects/sync/).
+
+## Use the extension
+
 The Activity Bar hexagon opens Semantic Analysis. Server connection state and running work appear in the status bar; click the running task there to cancel. Clicking a result opens source and **CTK Inspector → AST Inspector** in the bottom panel. Plain script runs open **CTK Output** with the console's rendered output and diagnostics. Search file/result limits are explicit.
 
 Opening a C/C++ file automatically activates the extension and loads **AST Inspector** in CTK Inspector, with keyboard focus and the caret kept in the editor. The panel starts directly with the fixed AST/Properties tabs and Run Action; there is no repeated inspector title or navigation row. Use VS Code's Hide Panel control to hide the whole inspector. The inspector belongs in CTK Inspector; it adds no section to Explorer. It stays hidden while files and cursor positions update; reopening restores the selected tab, expanded branches and latest node. Background loading does not switch away from your current sidebar or open a hidden result panel. The inspector loads the file's native TranslationUnitDecl and its direct declarations from that file. No search or action is required. Click any child to fetch its direct children on demand; loading appears in the status bar, repeated visits reuse retained native nodes, and failures appear in the status bar. Click **CTK · reload AST**, or run **CTK: Reload File AST**, to load a fresh file context; expired sessions do not leave raw cursor errors or retry rows in the inspector. The whole tree is not fetched upfront. First opening a file starts its own retained context; saving the active C++ file or changing CTK settings reloads it. Inspector-driven source navigation keeps the current node/context, including navigation into headers.

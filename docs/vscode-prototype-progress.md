@@ -1631,3 +1631,45 @@ Screenshot: `vscode/artifacts/validation/unsaved-cursor-20261017/normal-profile-
 VSIX SHA-256: 2745ab7ffecf6333e15424ee66d904487892d884dd4fd6b9b4cae72bfc7504d0.
 
 Logs: `vscode/artifacts/validation/unsaved-cursor-20261017/`.
+
+## RHEL 9 deployment installer
+
+Added `vscode/scripts/deploy-rhel9.sh` and a deployment guide in
+`vscode/README.md`. The default flow installs prerequisites through the existing
+RHEL build script, builds the native server and extension, installs a private
+locked Python runtime and the VSIX, configures a dedicated systemd user service,
+and generates a workspace with explicit CTK settings. It preserves existing
+project settings and console helpers and opens no editor window. A prebuilt VSIX,
+existing local server, another profile and prerequisite reuse are supported.
+Native/Python full suites are opt-in; the deployment always checks its live
+packaged worker, including unsaved AST/base navigation and a retained-node action.
+
+Verification:
+
+- Bash syntax and ShellCheck 0.11.0 pass. Help and dry-run do not write or launch
+  software. Seven deployment regression tests pass, covering source-build gates,
+  failure propagation, service configuration, address validation, file preservation,
+  profile selection, VSIX compatibility and repeat installation from the deployed
+  archive. System package, service and extension-install commands are simulated.
+- A real disposable Python runtime was installed with the exact locked,
+  noneditable, production-only sync command. The actual v0.2.36 packaged worker
+  and shipped helpers pass the installer's live smoke test against the existing
+  macOS CTK server: unsaved source is parsed once, its base class is resolved,
+  an action returns Base::draft, and the disk file remains unchanged. The worker
+  closes its contexts and the temporary runtime/source files are removed.
+- TypeScript checks, Biome and all 115 extension unit tests pass. Biome reports
+  one existing informational style suggestion in inspector-bookmark.test.ts.
+  No extension UI behavior changed; no VS Code window was opened and the user's
+  managed server was not restarted.
+- End-to-end RHEL deployment is **not verified**. Read-only checks confirmed
+  Rocky Linux 9.8, a native build and VS Code Server 1.140 on linux-dev, but
+  automatic approval review rejected transferring the prototype/source payload
+  there because exporting it was outside the script-creation authorization.
+  The empty temporary host directory was removed. Local container validation
+  was unavailable because Podman's storage configuration fails before startup.
+  No system packages, services or normal extension profiles were changed.
+
+Run the behavioral checks with `pnpm --dir vscode test:deploy`. The extension
+version remains 0.2.36; this change adds deployment tooling only. The wider
+native/Python baseline limitations recorded above were not rerun for this
+shell/documentation change.

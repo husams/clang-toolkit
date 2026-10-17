@@ -238,6 +238,7 @@
     "test:live": "CTK_INTEGRATION=1 vitest run tests/live.test.ts tests/actions-live.test.ts",
     "test:host": "node scripts/test-host.mjs",
     "test:host-cleanup": "node --test scripts/test-process-check.mjs",
+    "test:deploy": "node --test scripts/test-deploy-rhel9.mjs",
     "package": "pnpm build && vsce package --no-dependencies --allow-missing-repository --out artifacts/clang-toolkit-prototype.vsix",
     "test:console": "node scripts/test-console.mjs"
   },
