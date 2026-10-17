@@ -6,6 +6,7 @@ client-side files and need not be in the target project or current directory.
 
 | Question | Resource | How to use it |
 | --- | --- | --- |
+| What calls are reachable from a function, keeping project headers and excluding system/vendor/generated calls? | [callgraph_project.ctk](../scripts/callgraph_project.ctk) | Run with `path`, `function`, `output`; see [callgraphs.md](callgraphs.md) for filename/retained inputs, scope, optional strict filtering and completeness. |
 | What blocks and branches form a function's CFG? | [cfg_stream.ctk](../scripts/cfg_stream.ctk) | Run with `path`, `function`; emits individual graph events. |
 | Where is a local read/written, initialized, live or overwritten? | [local_usage.ctk](../scripts/local_usage.ctk) | Run with `path`, `function`, `variable`, `output`; prints usage facts and exports the full report. |
 | What inclusive integer bounds reach each usage? | [value_ranges.ctk](../scripts/value_ranges.ctk) | Same arguments; adds interval facts, branch refinement and loop convergence. |
