@@ -83,13 +83,23 @@ export class SearchAstAccess implements vscode.Disposable {
   ): Promise<SearchAstContext> {
     if (!vscode.workspace.isTrusted)
       throw new Error("Trust this workspace before inspecting AST nodes.");
-    if (
-      vscode.workspace.textDocuments.some(
-        (doc) =>
-          doc.isDirty &&
-          /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
-      )
-    )
+    const dirty = vscode.workspace.textDocuments.filter(
+      (doc) =>
+        doc.isDirty && /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
+    );
+    const relevantDirty = !this.retained
+      ? dirty.length > 0
+      : (
+          await Promise.all(
+            dirty.map(
+              async (doc) =>
+                /\.(?:h|hh|hpp|hxx)$/i.test(doc.uri.fsPath) ||
+                (await realpath(doc.uri.fsPath).catch(() => doc.uri.fsPath)) ===
+                  translationUnit,
+            ),
+          )
+        ).some(Boolean);
+    if (relevantDirty)
       throw new Error("Save C++ changes before inspecting AST nodes.");
     const config = vscode.workspace.getConfiguration("ctk");
     const settings: ActionSettings = {

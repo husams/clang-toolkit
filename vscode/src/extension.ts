@@ -6,9 +6,19 @@ import { z } from "zod";
 import { ActionsController } from "./actions-controller.js";
 import { SearchAstAccess, type SearchAstContext } from "./ast-access.js";
 import { findPython } from "./console-service.js";
-import { DetailsView, type InspectorState } from "./details-view.js";
+import {
+  DetailsView,
+  type InspectorState,
+  refreshedInspectorState,
+} from "./details-view.js";
 import { EditorSelectionSync } from "./editor-selection.js";
 import { FileInspectionSync } from "./file-inspection.js";
+import {
+  bookmarkHeaders,
+  bookmarkTree,
+  type InspectorBookmark,
+  rebaseBookmark,
+} from "./inspector-bookmark.js";
 import { registerLanguage } from "./language.js";
 import {
   type Action,
@@ -73,6 +83,10 @@ interface FileInspectorSession {
   state?: InspectorState;
   stale: boolean;
   sources: Set<string>;
+  source?: string;
+  bookmark?: InspectorBookmark;
+  revision: number;
+  document?: vscode.TextDocument;
 }
 export class Prototype {
   readonly view: AnalysisView;
@@ -88,6 +102,11 @@ export class Prototype {
   private inspectionSources = new Set<string>();
   private readonly fileSessions = new Map<string, FileInspectorSession>();
   private activeFileSession: FileInspectorSession | undefined;
+  private editQueue: Promise<void> = Promise.resolve();
+  private readonly backgroundSaves = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   private readonly output = vscode.window.createOutputChannel("CTK Output");
   private readonly taskStatus = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -151,6 +170,9 @@ export class Prototype {
           for (const session of this.fileSessions.values())
             session.access.dispose();
           this.fileSessions.clear();
+          for (const timer of this.backgroundSaves.values())
+            clearTimeout(timer);
+          this.backgroundSaves.clear();
         },
       },
       this.sourceHighlight,
@@ -193,14 +215,49 @@ export class Prototype {
         }
       }),
       vscode.window.onDidChangeActiveTextEditor(remember),
-      vscode.workspace.onDidChangeTextDocument(({ document }) => {
-        if (document === this.customDocument) this.publish();
-      }),
+      vscode.workspace.onDidChangeTextDocument(
+        ({ document, contentChanges }) => {
+          if (document === this.customDocument) this.publish();
+          if (!CXX.test(document.uri.fsPath) || !contentChanges.length) return;
+          const sessions = new Map(this.fileSessions);
+          this.editQueue = this.editQueue
+            .then(async () => {
+              const file = await realpath(document.uri.fsPath).catch(
+                () => document.uri.fsPath,
+              );
+              const session = sessions.get(file);
+              if (!session || this.fileSessions.get(file) !== session) return;
+              this.captureBookmark(session, file);
+              if (session.bookmark)
+                rebaseBookmark(session.bookmark, contentChanges);
+            })
+            .catch((error: unknown) =>
+              this.output.appendLine(
+                `Remembering AST selection: ${String(error)}`,
+              ),
+            );
+        },
+      ),
+      vscode.workspace.onDidSaveTextDocument((document) =>
+        this.queueBackgroundSave(document),
+      ),
       { dispose: () => this.active?.cancel() },
     );
   }
   snapshot(): unknown {
     return {
+      inspectorFiles: [...this.fileSessions].map(([file, session]) => ({
+        file,
+        stale: session.stale,
+        contextId: session.state?.contextId,
+        node: session.state?.current
+          ? {
+              id: session.state.current.node.id,
+              name: session.state.current.node.name,
+              kind: session.state.current.node.kind,
+            }
+          : undefined,
+      })),
       tab: this.tab,
       actions: this.actions.snapshot(),
       action: this.action,
@@ -735,6 +792,7 @@ export class Prototype {
     current: () => boolean,
     force = false,
   ): Promise<void> {
+    await this.editQueue;
     const file = await realpath(editor.document.uri.fsPath);
     if (!current()) return;
     this.saveFileInspector();
@@ -746,33 +804,48 @@ export class Prototype {
         access: new SearchAstAccess(
           this.context.extensionUri,
           () => {
+            this.captureBookmark(created, file);
             created.stale = true;
-            delete created.state;
+            created.revision++;
             delete created.context;
             if (this.activeFileSession === created && this.automaticInspection)
               this.fileInspection.refresh();
+            else if (created.document && !created.document.isDirty)
+              this.queueBackgroundSave(created.document);
           },
           true,
         ),
         stale: false,
         sources: new Set([file]),
+        revision: 0,
       };
       session = created;
       this.fileSessions.set(file, session);
     }
     if (force) {
+      this.captureBookmark(session, file);
       session.access.close();
-      delete session.state;
       delete session.context;
+      session.revision++;
+      session.stale = true;
     }
     this.activeFileSession = session;
     this.inspectionSources = session.sources;
+    session.document = editor.document;
     if (session.state && !session.stale) {
       await this.details.restore(session.state, current);
       return;
     }
-    session.stale = false;
+    const bookmark = session.bookmark;
+    session.stale = Boolean(bookmark);
+    const text = editor.document.getText();
+    session.source = text;
     const selected = session;
+    const revision = selected.revision;
+    const valid = () =>
+      current() &&
+      this.fileSessions.get(file) === selected &&
+      selected.revision === revision;
     const context = () =>
       (selected.context ??= selected.access.open(undefined, file));
     await this.details.show(
@@ -790,11 +863,118 @@ export class Prototype {
         const source = await context();
         return selection && id
           ? source.selectSource(id, selection)
-          : source.inspect(id);
+          : this.inspectRoot(source, id, bookmark, file);
       },
       async (id) => this.actions.inspectorTarget(id, await context()),
-      { preserveEditor: true, current },
+      { preserveEditor: true, current: valid },
     );
+    if (bookmark && valid())
+      await this.details.rebind(bookmark, text, file, valid);
+    if (valid() && !this.details.snapshot().error) {
+      selected.stale = false;
+      selected.state = this.details.save();
+      delete selected.bookmark;
+    }
+  }
+  private captureBookmark(session: FileInspectorSession, file: string): void {
+    if (session.bookmark || session.source === undefined) return;
+    if (this.activeFileSession === session && !session.stale)
+      session.state = this.details.save();
+    if (session.state) {
+      const bookmark = bookmarkTree(
+        session.state.tree,
+        session.state.current?.nativeId,
+        session.source,
+        file,
+      );
+      if (bookmark) session.bookmark = bookmark;
+    }
+  }
+  private async inspectRoot(
+    context: SearchAstContext,
+    id: string | undefined,
+    bookmark: InspectorBookmark | undefined,
+    file: string,
+  ) {
+    let root = await context.inspect(id);
+    if (!id && bookmark) {
+      for (const selection of bookmarkHeaders(bookmark, file))
+        await context.selectSource(root.node.id, selection);
+      if (bookmarkHeaders(bookmark, file).length)
+        root = await context.inspect(root.node.id);
+    }
+    return root;
+  }
+  private queueBackgroundSave(document: vscode.TextDocument): void {
+    if (
+      document.uri.scheme !== "file" ||
+      !CXX.test(document.uri.fsPath) ||
+      document.isClosed ||
+      document.isDirty ||
+      document === vscode.window.activeTextEditor?.document
+    )
+      return;
+    const key = document.uri.toString();
+    clearTimeout(this.backgroundSaves.get(key));
+    const timer = setTimeout(() => {
+      this.backgroundSaves.delete(key);
+      void this.refreshSavedFile(document).catch((error: unknown) =>
+        this.output.appendLine(`Refreshing saved AST: ${String(error)}`),
+      );
+    }, 180);
+    timer.unref();
+    this.backgroundSaves.set(key, timer);
+  }
+  private async refreshSavedFile(document: vscode.TextDocument): Promise<void> {
+    await this.editQueue;
+    const file = await realpath(document.uri.fsPath);
+    const session = this.fileSessions.get(file);
+    if (!session || document.isClosed || document.isDirty) return;
+    const active = vscode.window.activeTextEditor?.document;
+    if (
+      active?.uri.scheme === "file" &&
+      (await realpath(active.uri.fsPath).catch(() => "")) === file
+    ) {
+      this.fileInspection.refresh();
+      return;
+    }
+    this.captureBookmark(session, file);
+    session.access.close();
+    delete session.context;
+    const revision = ++session.revision,
+      version = document.version;
+    const current = () =>
+      this.fileSessions.get(file) === session &&
+      session.revision === revision &&
+      !document.isClosed &&
+      !document.isDirty &&
+      document.version === version;
+    session.stale = true;
+    session.document = document;
+    const bookmark = session.bookmark,
+      text = document.getText();
+    session.source = text;
+    session.context = session.access.open(undefined, file);
+    const context = await session.context;
+    const root = await this.inspectRoot(context, undefined, bookmark, file);
+    if (!current()) return;
+    const state = await refreshedInspectorState(
+      root,
+      (id) => context.inspect(id),
+      (id) => this.actions.inspectorTarget(id, context),
+      session.state?.tab ?? "ast",
+      bookmark,
+      text,
+      file,
+      current,
+    );
+    if (state && current()) {
+      session.state = state;
+      session.stale = false;
+      delete session.bookmark;
+      if (this.activeFileSession === session)
+        await this.details.restore(state, current);
+    }
   }
   private saveFileInspector(): void {
     if (this.activeFileSession && !this.activeFileSession.stale)

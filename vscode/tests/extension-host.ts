@@ -285,12 +285,18 @@ export async function run(): Promise<void> {
   );
   await vscode.workspace.applyEdit(reloadEdit);
   await otherEditor.document.save();
-  const reloaded = await automaticFile(
-    "auto-file.cpp",
-    "refreshedAutomatically",
+  const reloaded = await waitForAst(
+    (state) =>
+      state.contextId !== hiddenSelection.contextId &&
+      state.node?.kind === "IntegerLiteral" &&
+      state.node.properties.some(
+        (property) =>
+          property.label === "Literal value" && property.value === "8",
+      ) &&
+      state.tree.some((row) => row.name === "refreshedAutomatically"),
   );
   assert.notEqual(
-    reloaded.node?.id,
+    reloaded.tree[0]?.id,
     otherAst.node?.id,
     "saving source must replace stale native handles automatically",
   );
@@ -1949,7 +1955,200 @@ export async function run(): Promise<void> {
     secondTarget.activate(),
     /Source or settings changed|closed/,
   );
+  const savedUri = vscode.Uri.joinPath(folder.uri, "save-state.cpp");
+  const savedSource = `// λ\nnamespace sample {\nstruct Keep {\n  int run(int value) { return value + 7; }\n  int run(double value) { return (int)value; }\n};\nstruct Other { int flag; };\n}\n`;
+  await vscode.workspace.fs.writeFile(savedUri, Buffer.from(savedSource));
+  const savedEditor = await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(savedUri),
+    { preview: false },
+  );
+  await automaticFile("save-state.cpp", "sample");
+  const numberOffset = savedSource.indexOf("7;");
+  const beforeNumber = savedEditor.document.positionAt(numberOffset - 1);
+  savedEditor.selection = new vscode.Selection(beforeNumber, beforeNumber);
+  await vscode.commands.executeCommand("cursorMove", {
+    to: "right",
+    by: "character",
+    value: 1,
+  });
+  async function waitForAst(
+    predicate: (state: ReturnType<typeof astState>) => boolean,
+  ) {
+    const end = Date.now() + 45000;
+    while (Date.now() < end) {
+      const state = astState();
+      if (!state.running && !state.error && predicate(state)) return state;
+      await new Promise((done) => setTimeout(done, 40));
+    }
+    assert.fail(
+      `AST restoration did not finish: ${JSON.stringify(astState())}`,
+    );
+  }
+  await waitForAst((state) => state.node?.kind === "IntegerLiteral");
+  const otherClass = astState().tree.find(
+    (row) => row.name === "sample::Other",
+  );
+  assert.ok(otherClass);
+  await api.details.receive({
+    type: "expand",
+    id: otherClass.id,
+    expanded: true,
+  });
+  await inspectorTab("properties");
+  const beforeSave = astState(),
+    staleSavedTarget = await api.details.actionTarget();
+  const editSaved = new vscode.WorkspaceEdit();
+  editSaved.insert(
+    savedUri,
+    new vscode.Position(0, 0),
+    "// inserted above the AST\n",
+  );
+  editSaved.replace(
+    savedUri,
+    new vscode.Range(
+      savedEditor.document.positionAt(numberOffset),
+      savedEditor.document.positionAt(numberOffset + 1),
+    ),
+    "99",
+  );
+  await vscode.workspace.applyEdit(editSaved);
+  await savedEditor.document.save();
+  const afterSave = await waitForAst(
+    (state) =>
+      state.contextId !== beforeSave.contextId &&
+      state.node?.kind === "IntegerLiteral" &&
+      state.node.properties.some(
+        (property) =>
+          property.label === "Literal value" && property.value === "99",
+      ),
+  );
+  assert.notEqual(
+    afterSave.node?.id,
+    beforeSave.node?.id,
+    "saving must replace native handles",
+  );
+  assert.equal(afterSave.tab, "properties");
+  for (const expanded of ["sample", "sample::Keep", "sample::Other"])
+    assert.ok(
+      afterSave.tree.some((row) => row.name === expanded && row.expanded),
+      `save must preserve expanded ${expanded}`,
+    );
+  assert.equal(
+    afterSave.tree.filter(
+      (row) => row.name === "sample::Keep::run" && row.expanded,
+    ).length,
+    1,
+    "restore must preserve the exact overload",
+  );
+  await assert.rejects(
+    staleSavedTarget.activate(),
+    /Source or settings changed|closed/,
+  );
+  const savedActionTarget = await api.details.actionTarget();
+  await api.actions.setAction(
+    parseNodeAction(baseActionUri.fsPath, baseActionSource),
+    true,
+    savedActionTarget,
+  );
+  await api.actions.run();
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "rebinding branches must reuse the new parse",
+  );
+  await api.actions.refresh();
+  const returnText = "return value + 99;",
+    returnStart = savedEditor.document.getText().indexOf(returnText);
+  const removeReturn = new vscode.WorkspaceEdit();
+  removeReturn.delete(
+    savedUri,
+    new vscode.Range(
+      savedEditor.document.positionAt(returnStart),
+      savedEditor.document.positionAt(returnStart + returnText.length),
+    ),
+  );
+  await vscode.workspace.applyEdit(removeReturn);
+  await savedEditor.document.save();
+  const removedSelection = await waitForAst(
+    (state) =>
+      state.contextId !== afterSave.contextId &&
+      state.node?.kind === "CompoundStmt",
+  );
+  assert.ok(
+    removedSelection.tree.some(
+      (row) => row.name === "sample::Other" && row.expanded,
+    ),
+  );
+  const bodyRow = removedSelection.tree.find((row) => row.selected);
+  assert.ok(bodyRow?.parent);
+  await api.details.receive({ type: "child", id: bodyRow.parent });
+  const selectedMethod = astState();
+  assert.equal(selectedMethod.node?.kind, "CXXMethodDecl");
+  assert.deepEqual(selectedMethod.semantics?.parameters, [
+    { name: "value", type: "int" },
+  ]);
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+    { preview: false },
+  );
+  const foreground = await automaticFile("semantic-inspector.cpp", "Root");
+  const inactiveEdit = new vscode.WorkspaceEdit();
+  inactiveEdit.insert(
+    savedUri,
+    new vscode.Position(0, 0),
+    "// saved while another tab is active\n",
+  );
+  await vscode.workspace.applyEdit(inactiveEdit);
+  await savedEditor.document.save();
+  type RetainedFile = {
+    file: string;
+    stale: boolean;
+    contextId?: string;
+    node?: { id: string; name: string; kind: string };
+  };
+  const inactiveDeadline = Date.now() + 45000;
+  let refreshedInactive: RetainedFile | undefined;
+  while (Date.now() < inactiveDeadline) {
+    refreshedInactive = (
+      api.snapshot() as { inspectorFiles: RetainedFile[] }
+    ).inspectorFiles.find((file) => file.file.endsWith("/save-state.cpp"));
+    if (
+      !refreshedInactive?.stale &&
+      refreshedInactive?.contextId !== selectedMethod.contextId &&
+      refreshedInactive?.node?.id !== selectedMethod.node?.id
+    )
+      break;
+    await new Promise((done) => setTimeout(done, 40));
+  }
+  assert.ok(
+    refreshedInactive &&
+      !refreshedInactive.stale &&
+      refreshedInactive.node?.id !== selectedMethod.node?.id,
+    "an inactive saved file must refresh before it is revisited",
+  );
+  assert.equal(
+    astState().contextId,
+    foreground.contextId,
+    "background save must not replace the active inspector",
+  );
+  await vscode.window.showTextDocument(savedEditor.document, {
+    preview: false,
+  });
+  const restoredSaved = await waitForAst(
+    (state) => state.contextId === refreshedInactive?.contextId,
+  );
+  assert.equal(restoredSaved.node?.id, refreshedInactive.node?.id);
+  assert.equal(restoredSaved.node?.name, "sample::Keep::run");
+  assert.deepEqual(restoredSaved.semantics?.parameters, [
+    { name: "value", type: "int" },
+  ]);
+  assert.equal(restoredSaved.tab, "properties");
+  assert.ok(
+    restoredSaved.tree.some(
+      (row) => row.name === "sample::Other" && row.expanded,
+    ),
+  );
   console.log(
-    "CTK_EXTENSION_HOST_PASS: independent per-file sessions without reparsing, restored selections/expanded trees/tabs, shared action ownership, last-tab release/reopen, CTK Inspector, live renewal, split-tab ownership, compact inspector, status-bar recovery, injected class nodes, hidden-file/cursor updates, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
+    "CTK_EXTENSION_HOST_PASS: save refresh preserving shifted/changed nodes, exact overloads, expanded branches and Properties; deleted-node parent fallback; inactive-save refresh without stealing the inspector; independent per-file sessions without reparsing, shared action ownership, last-tab release/reopen, CTK Inspector, live renewal, split-tab ownership, symbols, console, YAML actions, grouped matches, retained-node follow-up, stale edits, completion, semantic sections, base/source navigation and actions",
   );
 }

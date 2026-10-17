@@ -1232,3 +1232,47 @@ Root and its Properties tab immediately; opening AST shows both Root and Middle
 still expanded, including Middle::weight. No extra manual VS Code window was
 opened, custom action editor tabs were preserved, and the managed server was
 not restarted.
+
+## Save refresh with AST state restoration, version 0.2.28
+
+Saving an open C/C++ file creates fresh native handles and rebinds the inspector
+to its surviving selection and expanded/collapsed branches. Bookmarks retain
+declaration identity, kind, source context and structural paths. Editor changes
+rebase UTF-16 ranges before matching refreshed Clang UTF-8 source ranges. Undo
+can revive a removed anchor. Unchanged header nodes use their own native ranges;
+unique auxiliary nodes without source ranges use their enclosing structural
+role. Ambiguous matches are not guessed. Removing a selected node falls back
+to the nearest identifiable surviving parent.
+
+The inspector keeps its AST/Properties tab, and refreshing does not reveal a
+hidden panel or move the editor caret. Native action targets from the previous
+parse are invalidated; new targets and restored branches share the new parse.
+Saving an inactive open file refreshes its cached session without replacing the
+active inspector. Returning restores that already refreshed native selection.
+Unrelated dirty source buffers no longer prevent a retained file from refreshing;
+dirty headers and that file's own unsaved changes still block unsafe reuse.
+Per-file renewal, split/alias ownership and last-tab release remain in place.
+
+Validation logs: `vscode/artifacts/validation/save-restore-inspector-20261017/`.
+The first full-host run preserved the changed literal as intended and exposed
+an older test expectation that saving should reset to the file root. Updating
+that expectation allowed the full native suite to pass, including shifted and
+changed literals, overload identity, expanded sibling branches, deleted-node
+fallback, stale target rejection, one parse for restored actions and background
+saves. Final unit coverage adds undo, header-range and source-less-node cases.
+
+TypeScript and Biome pass. All 75 extension unit tests pass (17 optional native
+unit cases remain opt-in), and the final complete real VS Code host suite passes
+with the console helper library enabled. The harness reports
+CTK_TEST_PROCESSES_CLOSED, and an independent audit confirms zero remaining
+temporary test processes.
+
+Packaged and installed v0.2.28 in the approved normal VS Code profile. The
+archive integrity and installed-version checks pass. VSIX SHA256:
+`40818ab273d299099034c47e6af2bf18c8f9651b1500098641a1ae99b22a543a`.
+
+Reloaded the existing normal-profile trial on its current match-groups-demo.cpp
+tab. CTK Inspector loads the file's native declarations and enables Run Action;
+the three custom action tabs remain open. No manual test window was added and
+the managed server was not restarted. Save/edit behavior was exercised through
+real VS Code documents in the isolated host suite above.

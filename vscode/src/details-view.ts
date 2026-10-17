@@ -9,6 +9,11 @@ import {
   astDisplay,
   type SourceSelection,
 } from "./ast-model.js";
+import {
+  type BookmarkPage,
+  type InspectorBookmark,
+  rebuildTree,
+} from "./inspector-bookmark.js";
 import { InspectorTree } from "./inspector-tree.js";
 import type { Result } from "./model.js";
 
@@ -35,6 +40,56 @@ export interface InspectorState {
   error: string;
   notice: string;
   operation: Promise<AstInspection | undefined> | undefined;
+}
+export async function refreshedInspectorState(
+  root: BookmarkPage,
+  load: Load,
+  prepareAction: (id: string) => Promise<NodeActionTarget>,
+  tab: InspectorState["tab"],
+  bookmark: InspectorBookmark | undefined,
+  text: string,
+  file: string,
+  current: () => boolean,
+): Promise<InspectorState | undefined> {
+  const rebuilt = bookmark
+    ? await rebuildTree(
+        bookmark,
+        root,
+        async (id) => {
+          const page = await load(id);
+          if (!page) throw new Error("This AST node is no longer available.");
+          return page;
+        },
+        text,
+        file,
+        current,
+      )
+    : undefined;
+  if (!current()) return;
+  const tree = rebuilt?.tree ?? new InspectorTree();
+  if (!rebuilt) tree.apply(root);
+  const page = (value: BookmarkPage): Page => ({
+    ...value,
+    nativeId: value.node.id,
+  });
+  return {
+    current: page(rebuilt?.selected ?? root),
+    history: [],
+    cache: new Map(
+      [...(rebuilt?.pages ?? new Map([[root.node.id, root]]))].map(
+        ([id, value]) => [id, page(value)],
+      ),
+    ),
+    tree,
+    load,
+    prepareAction,
+    contextId: randomBytes(12).toString("hex"),
+    rootLabel: "File AST",
+    tab,
+    error: "",
+    notice: "",
+    operation: undefined,
+  };
 }
 const nodeMenuSchema = z.object({
   webviewSection: z.literal("ast-node"),
@@ -512,6 +567,62 @@ export class DetailsView
       notice: this.notice,
       operation: this.operation,
     };
+  }
+  async rebind(
+    bookmark: InspectorBookmark,
+    text: string,
+    file: string,
+    current: () => boolean,
+  ): Promise<void> {
+    if (
+      !this.current?.nativeId ||
+      !this.current.children ||
+      !this.load ||
+      !this.prepareAction ||
+      this.error
+    )
+      return;
+    const generation = ++this.generation,
+      load = this.load;
+    const valid = () => generation === this.generation && current();
+    this.running = true;
+    this.publish();
+    try {
+      const state = await refreshedInspectorState(
+        {
+          node: this.current.node,
+          children: this.current.children,
+          semantics: this.current.semantics,
+        },
+        async (id) => {
+          const operation = load(id);
+          this.operation = operation;
+          try {
+            return await operation;
+          } finally {
+            if (this.operation === operation) this.operation = undefined;
+          }
+        },
+        this.prepareAction,
+        this.tab,
+        bookmark,
+        text,
+        file,
+        valid,
+      );
+      if (state && valid()) {
+        state.tab = this.tab;
+        await this.restore(state, current);
+      }
+    } catch (error) {
+      if (valid())
+        this.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (valid()) {
+        this.running = false;
+        this.publish();
+      }
+    }
   }
   async restore(state: InspectorState, current: () => boolean): Promise<void> {
     const generation = ++this.generation;
