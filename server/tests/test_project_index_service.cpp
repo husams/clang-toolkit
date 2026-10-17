@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <iterator>
 #include <sqlite3.h>
 #include <thread>
 
@@ -66,6 +67,37 @@ protected:
         << ",\"arguments\":[" << compiler
         << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=2\",\"-c\"," << source_one
         << "]},";
+    out << "{\"directory\":" << directory << ",\"file\":" << source_two
+        << ",\"arguments\":[" << compiler
+        << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-c\"," << source_two
+        << "]}]";
+  }
+  void replace_argument(const std::string &original,
+                        const std::string &replacement) {
+    const auto path = project / "compile_commands.json";
+    std::ifstream input(path);
+    std::string contents(std::istreambuf_iterator<char>{input}, {});
+    const auto position = contents.find(original);
+    ASSERT_NE(position, std::string::npos);
+    contents.replace(position, original.size(), replacement);
+    std::ofstream(path) << contents;
+  }
+  void write_shadow_commands(const std::string &option,
+                             const fs::path &first, const fs::path &second) {
+    std::ofstream out(project / "compile_commands.json");
+    const auto compiler = quote(CTK_TEST_CLANG_TOOL_PATH);
+    const auto directory = quote(project.string());
+    const auto source_one = quote((project / "one.cpp").string());
+    const auto source_two = quote((project / "two.cpp").string());
+    const auto include_first = quote(option + first.string());
+    const auto include_second = quote(option + second.string());
+    out << "[";
+    for (int flavor = 1; flavor <= 2; ++flavor) {
+      out << "{\"directory\":" << directory << ",\"file\":" << source_one
+          << ",\"arguments\":[" << compiler << ",\"-std=c++20\","
+          << include_first << "," << include_second << ",\"-DFLAVOR="
+          << flavor << "\",\"-c\"," << source_one << "]},";
+    }
     out << "{\"directory\":" << directory << ",\"file\":" << source_two
         << ",\"arguments\":[" << compiler
         << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-c\"," << source_two
@@ -180,6 +212,107 @@ TEST_F(ProjectIndexServiceTest,
     EXPECT_EQ(again.revision(), first.revision() + 3);
     EXPECT_EQ(again.translation_units_skipped(), 3u);
   }
+}
+
+TEST_F(ProjectIndexServiceTest,
+       FailedCommandChangeKeepsLastGoodSymbolsUntilReplacementSucceeds) {
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto initial = start_and_wait(service);
+  ASSERT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+
+  write("shared.h", "#if FLAVOR == 3\n#error invalid context\n#elif FLAVOR == 1\n"
+                    "#define ALPHA_FEATURE 1\n#else\n#define BETA_FEATURE 1\n#endif\n");
+  replace_argument("-DFLAVOR=1", "-DFLAVOR=3");
+  ProjectIndexRequest request;
+  request.set_project_root(project.string());
+  ProjectIndexStatus status;
+  const auto failure_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  do {
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &request, &status).ok());
+    if (status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < failure_deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_FAILED);
+  const auto stale = find(service, "alphaOnly", false);
+  EXPECT_EQ(stale.symbols_size(), 2);
+  EXPECT_TRUE(stale.stale());
+  for (const auto &symbol : stale.symbols())
+    EXPECT_TRUE(symbol.stale());
+
+  write("shared.h", "#if FLAVOR == 1\n#define ALPHA_FEATURE 1\n#else\n"
+                    "#define BETA_FEATURE 1\n#endif\n");
+  const auto recovery_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  do {
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &request, &status).ok());
+    if (status.state() == INDEX_STATE_COMPLETE &&
+        status.revision() > initial.revision())
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < recovery_deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_GT(status.revision(), initial.revision());
+  EXPECT_EQ(status.translation_units_indexed(), 3);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 1);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       InvalidDriverFlagCannotReplaceCommittedSymbolsWithEmptyResult) {
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  start_and_wait(service);
+  replace_argument("-DFLAVOR=1", "-fno-such-index-flag");
+  ProjectIndexRequest request;
+  request.set_project_root(project.string());
+  ProjectIndexStatus status;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  do {
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &request, &status).ok());
+    if (status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_FAILED);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+  EXPECT_TRUE(find(service, "alphaOnly", false).stale());
+}
+
+TEST_F(ProjectIndexServiceTest,
+       AttachedQuoteIncludePathDetectsNewHeaderShadowingExistingHeader) {
+  const auto first = root / "first";
+  const auto second = root / "second";
+  fs::create_directories(first);
+  fs::create_directories(second);
+  write("one.cpp", "#include \"choice.hpp\"\nint one(){return 1;}\n");
+  std::ofstream(second / "choice.hpp") << "struct OldChoice {};\n";
+  write_shadow_commands("-iquote", first, second);
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto initial = start_and_wait(service);
+  ASSERT_EQ(find(service, "OldChoice", false).symbols_size(), 2);
+
+  std::ofstream(first / "choice.hpp") << "struct NewChoice {};\n";
+  ProjectIndexRequest request;
+  request.set_project_root(project.string());
+  ProjectIndexStatus status;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  do {
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &request, &status).ok());
+    if (status.state() == INDEX_STATE_COMPLETE &&
+        status.revision() >= initial.revision() + 2)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_EQ(status.revision(), initial.revision() + 2);
+  EXPECT_EQ(find(service, "NewChoice", false).symbols_size(), 2);
+  EXPECT_EQ(find(service, "OldChoice", false).symbols_size(), 0);
 }
 } // namespace
 } // namespace ctk::net

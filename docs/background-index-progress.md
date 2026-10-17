@@ -41,3 +41,18 @@ reproduced the prior driver mismatch before the fix. After rebuilding, **6 nativ
 indexing checks** and **4 live indexing E2E checks** passed, including the new PCH
 and mixed C/C++ selective-refresh case. This brings unique E2E coverage to **195**.
 Logs: `/tmp/ctk-index-native-final.log`, `/tmp/ctk-index-pch-after.log`.
+
+Pre-merge independent review fixed two additional refresh cases: a changed compile
+command that fails now retains its last successful symbols as stale until repair;
+attached include-path options are inventoried so new higher-priority headers
+trigger refresh even when the directories are outside the project tree. Native
+regressions cover both cases.
+The extractor also checks Clang error diagnostics explicitly, preventing driver
+errors from replacing committed symbols with an empty apparent success.
+Final pre-merge rebuild of server, worker and native tests succeeded; **8 focused
+native checks passed**, including all three new review regressions.
+All **4 live indexing E2E checks passed** against the final build (3 control/
+refresh scenarios plus the PCH case with `CTK_TEST_CLANG` set to the build's LLVM
+compiler). Logs: `/tmp/ctk-index-pr48-e2e.log` and
+`/tmp/ctk-index-pr48-pch.log`; the first PCH attempt lacked that required setting.
+The 4 focused Python indexing unit checks also passed.

@@ -407,6 +407,8 @@ private:
     commit(job, transaction);
   }
   void mark_failed(const Job &job, Database &db, const std::string &id,
+                   const std::string &source,
+                   const std::set<std::string> &active,
                    const std::string &error) {
     await_admission(job);
     Transaction transaction(db);
@@ -416,6 +418,21 @@ private:
     row.bind(1, error);
     row.bind(2, id);
     row.step();
+    // A changed compile command has a new ID. Keep any last-good contribution
+    // for this source, but expose it as stale while the new context fails.
+    Statement previous(db, "SELECT id FROM translation_unit WHERE main_file=?");
+    previous.bind(1, source);
+    Statement stale(db, "UPDATE translation_unit SET status='failed',last_error=? "
+                        "WHERE id=?");
+    while (previous.step()) {
+      const auto old_id = previous.text(0);
+      if (active.contains(old_id))
+        continue;
+      stale.bind(1, error);
+      stale.bind(2, old_id);
+      stale.step();
+      stale.reset();
+    }
     commit(job, transaction);
   }
   void reconcile(const Job &job, Database &db, const fs::path &directory) {
@@ -434,6 +451,7 @@ private:
     metadata(db, "total", std::to_string(total));
     std::set<std::string> active;
     std::uint64_t completed = 0, skipped = 0, failed = 0;
+    std::set<std::string> failed_sources;
     std::map<std::string, std::string> digest_cache;
     // Version/toolchain identity is part of each command key. Replacing the
     // extractor invalidates its saved contributions without a fourth table.
@@ -506,7 +524,8 @@ private:
         } catch (const Interrupted &) {
           throw;
         } catch (const std::exception &error) {
-          mark_failed(job, db, id, error.what());
+          mark_failed(job, db, id, unit.source(), active, error.what());
+          failed_sources.insert(unit.source());
           ++failed;
           progress(job, [&](auto &s) { s.set_error(error.what()); });
         }
@@ -525,9 +544,10 @@ private:
     await_admission(job);
     std::vector<std::string> obsolete;
     {
-      Statement rows(db, "SELECT id FROM translation_unit");
+      Statement rows(db, "SELECT id,main_file FROM translation_unit");
       while (rows.step())
-        if (!active.contains(rows.text(0)))
+        if (!active.contains(rows.text(0)) &&
+            !failed_sources.contains(rows.text(1)))
           obsolete.push_back(rows.text(0));
     }
     if (!obsolete.empty()) {

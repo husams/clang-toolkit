@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/RecursiveASTVisitor.h>
+#include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/Version.h>
 #include <clang/Frontend/FrontendAction.h>
@@ -14,6 +15,7 @@
 #include <clang/Tooling/Tooling.h>
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/Support/SHA256.h>
 #include <llvm/Support/VirtualFileSystem.h>
@@ -177,6 +179,21 @@ private:
   ProjectIndexExtraction &result;
 };
 
+class IndexDiagnosticConsumer final : public clang::DiagnosticConsumer {
+public:
+  void HandleDiagnostic(clang::DiagnosticsEngine::Level level,
+                        const clang::Diagnostic &diagnostic) override {
+    clang::DiagnosticConsumer::HandleDiagnostic(level, diagnostic);
+    if (level >= clang::DiagnosticsEngine::Error && first_error.empty()) {
+      llvm::SmallString<256> message;
+      diagnostic.FormatDiagnostic(message);
+      first_error = message.str().str();
+    }
+  }
+
+  std::string first_error;
+};
+
 class SingleCommandDatabase final : public clang::tooling::CompilationDatabase {
 public:
   SingleCommandDatabase(const std::string &source, const std::string &directory,
@@ -247,11 +264,22 @@ bool extract_project_index(const std::string &source,
     const auto &argument = arguments[i];
     std::string path;
     if ((argument == "-I" || argument == "-iquote" || argument == "-isystem" ||
-         argument == "-F") &&
+         argument == "-idirafter" || argument == "-F" ||
+         argument == "-iframework") &&
         i + 1 < arguments.size())
       path = arguments[++i];
     else if (argument.starts_with("-I") && argument.size() > 2)
       path = argument.substr(2);
+    else {
+      for (const char *option : {"-iquote", "-isystem", "-idirafter", "-F",
+                                 "-iframework"}) {
+        const std::string_view prefix(option);
+        if (argument.starts_with(prefix) && argument.size() > prefix.size()) {
+          path = argument.substr(prefix.size());
+          break;
+        }
+      }
+    }
     if (!path.empty())
       include_roots.insert(canonical((fs::path(path).is_absolute()
                                           ? fs::path(path)
@@ -288,8 +316,12 @@ bool extract_project_index(const std::string &source,
   SingleCommandDatabase fixed(source, working_directory, arguments);
   Factory factory(result);
   clang::tooling::ClangTool tool(fixed, {source});
-  if (tool.run(&factory) != 0) {
+  IndexDiagnosticConsumer diagnostics;
+  tool.setDiagnosticConsumer(&diagnostics);
+  if (tool.run(&factory) != 0 || !diagnostics.first_error.empty()) {
     error = "Clang failed to index translation unit: " + source;
+    if (!diagnostics.first_error.empty())
+      error += ": " + diagnostics.first_error;
     return false;
   }
   return true;
