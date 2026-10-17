@@ -31,7 +31,8 @@ execution budgets and cancellation preserved. Other recursion keeps the ordinary
 depth limit for unsupported forms. Direct recursive list functions also support
 compiled continuation loops and indexed internal tails; see
 `docs/recursive-lists.md` and `examples/recursive_lists.ctk`. Observable tails
-materialize as real shallow lists, and opaque effects snapshot shared backings.
+materialize as real shallow lists; matched internal tails share private backing
+snapshots that preserve mutation semantics.
 
 Maintained sources: `docs/list-patterns.md`, `examples/list_patterns.ctk`,
 `tests/unit/test_list_patterns.py`, `tests/e2e/test_list_patterns_steps.py`.

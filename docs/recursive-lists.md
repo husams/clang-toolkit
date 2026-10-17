@@ -30,12 +30,17 @@ linear space in depth.
 Ordinary argument evaluation order, clause order, checked arithmetic, execution
 budgets and cancellation remain enforced.
 
-Internal tails use an input list plus start/stop offsets. Passing a tail directly
-to another self call does not slice or copy it. Before an opaque callback, host
-operation, or callable-signature check can mutate an exposed backing list, all
-live tails sharing that backing are redirected to one private shallow snapshot.
-Subsequent tails share the private backing. This prevents mutation of the
-original input from changing a tail that ordinary pattern matching already copied.
+Internal tails use a backing list plus start/stop offsets. Passing a tail directly
+to another self call does not slice or copy it. Successful pattern matching
+isolates borrowed tails on one private shallow snapshot per exposed backing list,
+before any body operation or runtime hook can mutate that input. Subsequent
+tails share the private backing. This preserves the independent-tail behavior
+of ordinary pattern matching, including custom scalar operations and cancellation
+hooks. Traversing an existing tail chain uses one linear-size snapshot, rather
+than a new copy at every recursion level. Reintroducing a plain list as another
+matched argument can require another snapshot; this does not promise linear
+total space for arbitrary recursion. The smaller numeric specialization still
+needs no copy.
 
 Reading or escaping a tail through ordinary user code materializes a real list
 and retains that list's identity for aliases and subsequent mutation. Closures

@@ -357,3 +357,33 @@ def test_pattern_hooks_cannot_mutate_previously_bound_tails(execute, operation):
     context = Context(bindings={"values": values, "hooks": Hooks([7])})
     assert execute(source, context) == 6
     assert values == [1, 99, 3]
+
+
+def test_custom_scalar_operations_cannot_mutate_matched_tails(execute):
+    values = []
+
+    class Touch(str):
+        def __add__(self, other):
+            values[1] = "changed"
+            return super().__add__(other)
+
+    values[:] = [Touch("a"), "b", "c"]
+    context = Context(bindings={"values": values, "empty": ""})
+    source = "let f = { ([], n) empty; (h : t, n) { let piece = h + empty; piece + f(t, n) } }; f(values, 0)"
+    assert execute(source, context) == "abc"
+    assert values[1] == "changed"
+
+
+def test_cancellation_hooks_cannot_mutate_matched_tails(execute):
+    values = [1, 2, 3]
+    context = Context(bindings={"values": values})
+
+    def cancellation():
+        if context.lookup_scope("t") is not None:
+            values[1] = 99
+        return False
+
+    context.cancel_hook = cancellation
+    source = "let f = { ([], n) 0; (h : t, n) { let result = f(t, n); h + result } }; f(values, 0)"
+    assert execute(source, context) == 6
+    assert values == [1, 99, 3]

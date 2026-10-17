@@ -192,6 +192,8 @@ class RecursiveListProgram:
                     context.tick(owner.body)
                 bindings = matcher(values, arena)
                 if bindings is not None:
+                    # Capture slice semantics before any body operation or runtime hook.
+                    arena.freeze()
                     scopes = [*owner.scopes, {owner.name: owner, **bindings}]
                     context._scopes[:] = scopes
                     return _Frame(
