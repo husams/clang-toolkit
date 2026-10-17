@@ -16,6 +16,7 @@ import {
   scriptAction,
   validateParameters,
 } from "./model.js";
+import { SourceHighlight } from "./source-highlight.js";
 import { AnalysisView } from "./views.js";
 import {
   startConsoleWorker,
@@ -70,6 +71,7 @@ export class Prototype {
   private tab: "symbols" | "actions" = "symbols";
   readonly details: DetailsView;
   private readonly searchAst: SearchAstAccess;
+  private readonly sourceHighlight = new SourceHighlight();
   private readonly output = vscode.window.createOutputChannel("CTK Output");
   private readonly taskStatus = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -123,6 +125,7 @@ export class Prototype {
       this.actions,
       this.details,
       this.searchAst,
+      this.sourceHighlight,
       vscode.window.registerWebviewViewProvider("ctk.analysis", this.view, {
         webviewOptions: { retainContextWhenHidden: true },
       }),
@@ -569,20 +572,7 @@ export class Prototype {
     );
   }
   private async openSource(result: Result): Promise<void> {
-    if (!result.file) return;
-    const document = await vscode.workspace.openTextDocument(
-      vscode.Uri.file(result.file),
-    );
-    const line = Math.min(result.line - 1, Math.max(0, document.lineCount - 1));
-    const position = new vscode.Position(
-      line,
-      Math.min(result.column - 1, document.lineAt(line).text.length),
-    );
-    await vscode.window.showTextDocument(document, {
-      viewColumn: vscode.ViewColumn.One,
-      selection: new vscode.Range(position, position),
-      preserveFocus: true,
-    });
+    await this.sourceHighlight.reveal(result);
   }
 }
 export async function activate(

@@ -152,6 +152,7 @@ export class DetailsView
         children: inspection.children,
       };
       this.cache.set(inspection.node.id, this.current);
+      await this.openSource(this.current.node);
     } catch (error) {
       if (generation === this.generation)
         this.error = error instanceof Error ? error.message : String(error);
@@ -196,6 +197,7 @@ export class DetailsView
       this.current = page;
       this.error = "";
       this.publish();
+      await this.openSource(page.node);
       return;
     }
     if (message.type === "child") {
@@ -212,6 +214,7 @@ export class DetailsView
       this.error = "";
       this.publish();
       if (!this.current.children) await this.inspect(child.id);
+      else await this.openSource(this.current.node);
     }
   }
   async actionTarget(): Promise<NodeActionTarget> {

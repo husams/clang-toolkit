@@ -67,6 +67,14 @@ export async function run(): Promise<void> {
   assert.equal(rendered?.groups, 1, "webview must group results by file");
   await api.openResult(snapshot.results[0]!.id);
   const astState = () => api.details.snapshot();
+  const highlightedSource = () => {
+    const editor = vscode.window.activeTextEditor;
+    assert.ok(
+      editor,
+      "AST navigation must reveal its C++ editor automatically",
+    );
+    return editor.document.getText(editor.selection);
+  };
   async function renderedAst(kind: string) {
     const end = Date.now() + 10000;
     while (Date.now() < end) {
@@ -111,6 +119,11 @@ export async function run(): Promise<void> {
   assert.ok(methodBody, JSON.stringify(astState()));
   await api.details.receive({ type: "child", id: methodBody.id });
   await renderedAst("CompoundStmt");
+  assert.equal(
+    highlightedSource(),
+    "{ return quantity > 0; }",
+    "Symbol Search child navigation must select its complete body",
+  );
   const symbolTarget = await api.details.actionTarget();
   await api.actions.setAction(symbolFunctions, true, symbolTarget);
   const symbolState = () =>
@@ -509,24 +522,44 @@ export async function run(): Promise<void> {
   const rootAst = await renderedAst("FunctionDecl");
   assert.ok(rootAst.properties.includes("Return type"));
   const rootAstId = astState().node?.id;
+  const sourceLessChild = astState().children?.find(
+    (child) => !child.locationValid && !child.range.length,
+  );
+  if (sourceLessChild) {
+    await api.details.receive({ type: "child", id: sourceLessChild.id });
+    assert.equal(
+      highlightedSource(),
+      "",
+      "a source-less child must clear the previous AST selection",
+    );
+    await api.details.receive({ type: "root" });
+    await renderedAst("FunctionDecl");
+  }
   const body = astState().children?.find(
     (child) => child.kind === "CompoundStmt",
   );
   assert.ok(body, JSON.stringify(astState()));
   await api.details.receive({ type: "child", id: body.id });
   await renderedAst("CompoundStmt");
+  assert.equal(highlightedSource(), "{ return adjust(quantity); }");
   const returned = astState().children?.find(
     (child) => child.kind === "ReturnStmt",
   );
   assert.ok(returned);
   await api.details.receive({ type: "child", id: returned.id });
   await renderedAst("ReturnStmt");
+  assert.equal(highlightedSource(), "return adjust(quantity)");
   const callExpression = astState().children?.find(
     (child) => child.kind === "CallExpr",
   );
   assert.ok(callExpression);
   await api.details.receive({ type: "child", id: callExpression.id });
   const callInspector = await renderedAst("CallExpr");
+  assert.equal(
+    highlightedSource(),
+    "adjust(quantity)",
+    "child selection must highlight the complete call without a source-link click",
+  );
   assert.ok(callInspector.properties.includes("Callee"));
   assert.ok(astState().canRunAction);
   assert.match(callInspector.text, /Run action on this node/);
@@ -538,8 +571,18 @@ export async function run(): Promise<void> {
   assert.equal(vscode.window.activeTextEditor?.selection.start.line, 1);
   await api.details.receive({ type: "back" });
   await renderedAst("ReturnStmt");
+  assert.equal(
+    highlightedSource(),
+    "return adjust(quantity)",
+    "Back must restore the parent highlight",
+  );
   await api.details.receive({ type: "root" });
   await renderedAst("FunctionDecl");
+  assert.equal(
+    highlightedSource(),
+    "int processOrder(int quantity) { return adjust(quantity); }",
+    "Selected result must restore the full function highlight",
+  );
   assert.equal(
     astState().node?.id,
     rootAstId,
@@ -945,10 +988,26 @@ export async function run(): Promise<void> {
   assert.equal(relatedCallee.file, headerPath);
   await api.actions.select(relatedCallee.nodeId);
   assert.equal(
+    highlightedSource(),
+    "inline int sharedTarget(int value) { return value + 1; }",
+  );
+  assert.equal(
     vscode.window.activeTextEditor?.document.uri.fsPath,
     headerPath,
     "a cross-file binding must still open its own source",
   );
+  const headerBody = astState().children?.find(
+    (child) => child.kind === "CompoundStmt",
+  );
+  assert.ok(headerBody);
+  await api.details.receive({ type: "child", id: headerBody.id });
+  assert.equal(
+    highlightedSource(),
+    "{ return value + 1; }",
+    "header child selection must automatically highlight its header range",
+  );
+  assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, headerPath);
+  await api.details.receive({ type: "root" });
   await api.actions.setAction(functions, true);
   assert.equal(actionState().input.id, relatedCallee.nodeId);
   await api.actions.run(undefined, { name: "sharedTarget" });

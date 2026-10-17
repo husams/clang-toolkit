@@ -445,3 +445,44 @@ rerun through the same workflow after the label/cleanup corrections, and remains
 open on that ReturnStmt with its result match expanded. Isolated host windows
 closed normally. VSIX ZIP verification passed; final SHA256 is
 `0ad13ce8cd94bb4968e5de3dfcc2fa6dd0d2f8d7ee744efeaf11498541036d53`.
+
+## Automatic AST source-range highlighting, version 0.2.10
+
+Selecting an inspector child now reveals and selects its complete C++ source
+span automatically, with a theme-aware highlight while focus stays in CTK
+Result. Cached children, Back and Selected result update the editor in the same
+way. Source links and initial match selections use the same range handling.
+Navigation reuses an already visible source editor and reveals off-screen spans.
+Only one AST highlight is retained; selecting a source-less node clears the
+previous decoration and any still-matching AST selection. Editing its document
+clears the decoration, and dirty documents do not receive stale highlights.
+Generation/version checks discard superseded or edited document loads.
+
+The frontend reads the existing native expansion range. It uses the explicit
+exclusive end, including the final token and complete macro invocation, rather
+than guessing from Clang's legacy final-token start. UTF-8 byte offsets and
+byte-based columns convert to VS Code's UTF-16 positions. Invalid, out-of-file,
+reversed and split-codepoint spans cannot produce an arbitrary selection;
+missing exclusive ends fall back to a valid source point. Raw node metadata
+remains private to the extension host.
+
+TypeScript and Biome checks and 41 extension unit tests passed (12 native opt-in
+tests skipped), including seven focused range cases for final-token inclusion,
+Unicode/CRLF, byte columns, macro expansion, different files and unavailable
+coordinates. The complete real VS Code host asserts selected editor text after
+class-method/body and function/body/return/call navigation, Back, Selected result,
+source-less children when present, and a header body. It also retains the prior
+Actions, Symbol Search, follow-up, metadata and autocomplete coverage. No server,
+SDK, console worker or API implementation changed; previous repository-wide
+Python limitations remain recorded above. Logs:
+`vscode/artifacts/validation/ast-highlight-20261017/`.
+
+Installed v0.2.10 in the normal VS Code profile and reloaded the existing trial
+window. Searched for secondCaller and clicked its CompoundStmt, ReturnStmt and
+CallExpr children without using the source link. The installed editor selected
+the corresponding 27-, 22- and 15-character spans, including the final closing
+token; accessibility focus stayed in CTK Result throughout. Visual inspection
+confirmed only `secondTarget(2)` highlighted for the CallExpr. The trial remains
+open there, and isolated test windows closed normally. VSIX ZIP verification
+passed; SHA256 is
+`cc792e83323cbd783e41619087d3cea529d41dbe3a80479bf17960f6e59cf6f3`.
