@@ -1632,7 +1632,7 @@ VSIX SHA-256: 2745ab7ffecf6333e15424ee66d904487892d884dd4fd6b9b4cae72bfc7504d0.
 
 Logs: `vscode/artifacts/validation/unsaved-cursor-20261017/`.
 
-## RHEL 9 deployment installer
+## RHEL 9 deployment installer: initial local validation
 
 Added `vscode/scripts/deploy-rhel9.sh` and a deployment guide in
 `vscode/README.md`. The default flow installs prerequisites through the existing
@@ -1673,3 +1673,60 @@ Run the behavioral checks with `pnpm --dir vscode test:deploy`. The extension
 version remains 0.2.36; this change adds deployment tooling only. The wider
 native/Python baseline limitations recorded above were not rerun for this
 shell/documentation change.
+
+## Verified RHEL deployment and integration with main, 2026-10-17
+
+Integrated current main into the prototype, retaining its newer console selection
+behavior. The PR adds the extension, deployment tooling and portable test coverage;
+it keeps the current core Python/API/server implementation from main.
+
+The real installer was exercised on linux-dev (Rocky Linux 9.8, Clang 21.1.8,
+Python 3.14.7 and VS Code Server 1.140), using a disposable checkout, private
+deployment/helper directories and an isolated VS Code extension/user-data directory.
+The native build and locked runtime installation completed, the dedicated systemd
+user service started, and VS Code reported prototype 0.2.36 installed. Native
+prerequisites were already available; the official Node bootstrap was exercised.
+Desktop VS Code RPM installation was unnecessary on this Remote-SSH host.
+
+Fixed three deployment defects reproduced during validation:
+
+- Child package scripts now find the same pinned pnpm executable as the installer.
+- Repeat deployments reuse the installed private Node runtime with `--skip-deps`.
+- The native indexing worker is installed beside the server, with both binaries
+  checked for missing shared libraries. A real compilation-database project indexed
+  successfully through that installed worker and returned its WorkerProbe symbol.
+
+Test fixtures now preload only ctk_helpers.ctk, instead of also loading standalone
+analysis examples as helper libraries. AST navigation assertions follow the actual
+ElaboratedTypeLoc wrapper on Clang 21 before reaching RecordTypeLoc. The native
+template-argument regression binds the actual template-specialization location
+through a declaration matcher, then checks its direct children and stable parent
+identity. It preserves the native tree shape and the original identity assertions.
+
+Verification:
+
+- The installer completed with `--skip-deps --full-tests --vsix` pointing at its
+  already-installed archive: **440 C++ tests, 2,500 Python unit tests and 199
+  end-to-end scenarios pass**, followed by successful live worker verification and
+  VSIX reinstallation. E2E emits pytest-bdd fixture deprecation warnings.
+- Source build/package passes extension type checking, Biome and all 115 extension
+  unit tests. All 18 enabled live extension scenarios pass on Linux; the opt-in
+  normal-user helper-library scenario remains intentionally disabled.
+- Eight deployment regression tests pass on macOS and Linux, including the three
+  reproduced defects. The SDK's 52 unit tests, 19 editor-service tests and six
+  test-process cleanup cases also pass. Bash syntax and ShellCheck 0.11.0 pass.
+- The packaged worker verifies unsaved-buffer AST parsing, inheritance navigation
+  and an action on the selected base, with one parse and unchanged disk contents.
+  Existing-server deployment also succeeds and preserves the service's exact PID.
+- Every tracked source file tested on Linux matched the published branch's SHA-256
+  manifest before this results-only documentation update. The macOS full Python
+  run verified 2,444 cases initially; all 56 cases affected by unavailable shared
+  temporary directories pass when retried in an exclusive temporary directory.
+
+Validation ran headlessly. After capturing logs, the temporary user service,
+extension profile and checkout were removed, and the process audit found no
+remaining test processes. The existing linux-dev checkout remains clean. The
+active local syntax-composition checkout was preserved throughout.
+
+Logs and tested-source manifest:
+`vscode/artifacts/validation/rhel-deploy-20261017/`.
