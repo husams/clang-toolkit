@@ -54,16 +54,30 @@ waits for its AST extraction/database work.
 
 The managed macOS server was launched as a submitted job with no ProcessType.
 Apple documents CPU and I/O throttling for this default. A proposed Interactive
-service policy would avoid throttling the request-serving process while keeping
-indexing's per-thread/per-worker limits. Automatic approval rejected that
-service-wide change as outside the indexing authorization; user approval is
-pending, and the existing service policy remains in place. Proposed configuration:
-`/tmp/ctk-server-reviewed.plist`. Reference:
+service policy avoids throttling the request-serving process while keeping
+indexing's per-thread/per-worker limits. After explicit user approval, the policy
+was installed at `/Users/husam/.local/state/ctk/server.plist`; launchctl reports
+`spawn type = interactive (4)`. The server was restarted and indexing resumed.
+Reference:
 [Apple launchd manual](https://github.com/apple-oss-distributions/launchd/blob/main/man/launchd.plist.5).
 
 A separate SQLite compiler-optimization experiment measured 6.04 versus 5.85
 seconds on a native storage probe; this was not a meaningful improvement and the
 build-setting change was discarded.
+
+## Coverage-query correction
+
+Live cross-TU verification exposed another bottleneck once the index reached
+about 100 contributions: coverage counts read status/indexed_at fields stored
+after large dependency manifests in each translation_unit overflow record.
+The 250 ms lookup budget could therefore expire before the symbol query ran.
+A covering index on (status,indexed_at) makes both counts independent of those
+manifests without adding a table. Query-plan regression checks require covering
+index scans for both counts. After applying it, the previously failing lookup
+returned 100 matches in a mean 25.38 ms (maximum 47.70 ms over five requests)
+while indexing remained active. The final code includes automatic creation of
+this index for new and existing projects; all ten focused native and four live
+indexing checks passed again.
 
 ## Verification
 
@@ -81,3 +95,6 @@ The final full isolated Python unit run passed **2,493 tests** in 155.54 seconds
 (`/tmp/ctk-index-throughput-unit-isolated.log`); test code and limits were unchanged.
 The initial isolated collection needed the repository on PYTHONPATH for its
 cross-test imports. Full native checks and the queued full BDD run remain in progress.
+The native suite's background scheduling made one existing 200 ms cursor-expiry
+test fail; remaining validation returned to normal scheduling after the approved
+server policy was active. Timing-only failures are rerun unchanged in isolation.

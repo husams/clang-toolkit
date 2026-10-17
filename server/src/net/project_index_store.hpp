@@ -142,6 +142,10 @@ public:
              "NULL,input_fingerprint TEXT NOT NULL,dependencies_json TEXT NOT "
              "NULL,indexed_at INTEGER NOT NULL,status TEXT NOT NULL,last_error "
              "TEXT NOT NULL) WITHOUT ROWID;");
+        // Coverage/status reads must not traverse each TU's large dependency
+        // manifest, which precedes these fields in the row's overflow payload.
+        exec("CREATE INDEX IF NOT EXISTS translation_unit_coverage ON "
+             "translation_unit(status,indexed_at);");
         // Secondary indexes store a compact rowid instead of repeating the
         // long (TU, USR, file, offset, definition) primary key in every entry.
         exec(symbol_schema);

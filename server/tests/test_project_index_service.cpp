@@ -173,6 +173,23 @@ TEST_F(ProjectIndexServiceTest,
   ASSERT_EQ(sqlite3_step(tables), SQLITE_ROW);
   EXPECT_EQ(sqlite3_column_int(tables, 0), 3);
   sqlite3_finalize(tables);
+  // These hot-path counts must remain independent of manifest payload size.
+  for (const char *query : {"EXPLAIN QUERY PLAN SELECT count(*) FROM "
+                            "translation_unit WHERE indexed_at>0",
+                            "EXPLAIN QUERY PLAN SELECT count(*) FROM "
+                            "translation_unit WHERE status!='ready'"}) {
+    sqlite3_stmt *plan = nullptr;
+    ASSERT_EQ(sqlite3_prepare_v2(db, query, -1, &plan, nullptr), SQLITE_OK);
+    bool covering = false;
+    while (sqlite3_step(plan) == SQLITE_ROW) {
+      const auto *detail =
+          reinterpret_cast<const char *>(sqlite3_column_text(plan, 3));
+      covering |= detail && std::string(detail).find("COVERING INDEX") !=
+                                std::string::npos;
+    }
+    EXPECT_TRUE(covering) << query;
+    sqlite3_finalize(plan);
+  }
   sqlite3_close(db);
 
   write("shared.h", "#if FLAVOR == 1\n#define BETA_FEATURE 1\n#else\n#define "
