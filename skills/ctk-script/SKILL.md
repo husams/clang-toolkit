@@ -1,6 +1,6 @@
 ---
 name: ctk-script
-description: Write, run, explain, and debug clang-toolkit .ctk scripts. Includes ready-made CFG, local-variable and value-range analysis, class helpers, console queries, navigation, runnables, pipes, tuples and batches. Use the SDK reasoning skill for Python API tasks.
+description: Write, run, explain, and debug clang-toolkit .ctk scripts. Includes ready-made callgraph, CFG, local-variable and value-range analysis, class helpers, console queries, navigation, runnables, pipes, tuples and batches. Use the SDK reasoning skill for Python API tasks.
 ---
 
 # Write and use CTK scripts
@@ -8,6 +8,8 @@ description: Write, run, explain, and debug clang-toolkit .ctk scripts. Includes
 Produce runnable CTK statements that answer the user's question and verify them against the requested target when execution is authorized. Prefer direct binding fields and requested scalar output over dumping AST JSON.
 
 ## Start with a ready-made script
+
+For static call graphs, read [callgraphs.md](references/callgraphs.md) and use [callgraph_project.ctk](scripts/callgraph_project.ctk) when its project/header boundary fits. It covers filenames, retained parsed files and matched functions; unlimited call depth and node counts; system-header exclusion; custom and optional strict filters; shallow graph structure; actual console output and root-site counts. A matched function selects reachable calls within its translation unit, not disconnected functions or a whole-project merge.
 
 For CFGs, local usages or possible integer values, read [analysis.md](references/analysis.md) and run the matching bundled script with named arguments. It covers script selection, absolute skill paths, endpoints/build inputs, JSON exports, result interpretation and reuse of already parsed trees and matched nodes. Prefer these scripts when they cover the request; refine their selectors when an overload or shadowed declaration needs disambiguation.
 

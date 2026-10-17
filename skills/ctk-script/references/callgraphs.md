@@ -1,0 +1,246 @@
+# Static call graphs from filenames and retained nodes
+
+Use `callgraph` for represented static calls in one translation unit (TU).
+Call-graph hop depth, graph count limits and semantic payload expansion are
+independent. Keep shallow payloads unless detailed AST information is requested.
+
+## Select the right input and coverage
+
+| Input | Console form | Coverage |
+| --- | --- | --- |
+| Filename, path or filesystem File | `let graph = callgraph source` | Whole admitted TU inventory, including disconnected functions. |
+| Already parsed file or native file handle | `let graph = callgraph in tree` | Same TU inventory from its pinned AST generation. |
+| One retained function/method binding | `let graph = callgraph in row.f` | Outgoing depth-one neighborhood by default. |
+| One retained CallExpr binding | `let graph = callgraph in row.call` | Exact call site, lexical caller and optional static callee. |
+
+Given an existing matched node, pass that binding directly. Do not replace it
+with a filename or parse again. Keep the live parsed tree/bindings in the same
+console session; exported or loaded JSON cannot reconstruct native handles.
+Retained queries use the exact parsed generation, even if disk files change.
+Select one definition; `.one("description")` diagnoses zero or multiple matches.
+Refine an overloaded-name matcher rather than choosing the first row silently.
+
+For a callable seed, use `direction out`, `in` or `both` and `depth N` for call
+hops. `depth 0` keeps the seed. `depth all` follows every reachable admitted
+callable in the selected direction and terminates on cycles. It is valid only
+with one callable seed, not a whole-TU or exact-call-site query. A matched seed
+does not include disconnected functions and cannot merge other TUs. To get the
+entire admitted TU, pass the already parsed file instead, without `depth all`.
+
+## Independently control call depth, counts and payloads
+
+| Intent | Console | Meaning |
+| --- | --- | --- |
+| All reachable call hops | `depth all` | Removes the callable-hop limit; leaves other budgets active. |
+| Unlimited graph nodes | `nodes all` or `nodes 0` | Removes the node-count limit, including the virtual root. |
+| Finite graph nodes | `nodes 250000` | Explicit positive uint64 request; no fixed node ceiling. |
+| Compact semantic payloads | Omit `projection`, or use `projection shallow` | Default for filename and retained inputs; does not limit call-graph reachability. |
+| Expanded semantic payloads | `projection recursive payload-depth 6 payload-nodes 1000` | Explicit AST payload expansion, independent of call hops. |
+
+Omitted `nodes` uses `server.call_graph.default_max_nodes`, initially 10,000;
+setting that server default to 0 makes omitted node limits unlimited. An
+explicit request can override the default. `depth all nodes all` removes both
+limits independently; edge, call-site, work, memory, byte and cancellation
+controls remain. Raise finite `edges N` and `callsites N` only as needed. Root
+edges count toward edge budgets. Require successful completion and
+`graph.is_complete` before claiming a complete result for the requested scope.
+
+## System headers and advanced custom filters
+
+`exclude-system true` removes Clang-classified system-header callables while
+keeping ordinary project headers. Classification uses the definition, falling
+back to the declaration, at its expansion location; it honors `-isystem` and
+`#pragma GCC system_header`. Do not infer classification from `std::` or angle
+brackets. It also removes system-header call-site facts attached to the virtual
+root, before charging the site budget. Project-header root facts remain.
+`main-file true` excludes your own headers as well, so it is unsuitable when
+the user wants to keep project headers. Graph filters do not prevent Clang from
+parsing included headers: supply the real compilation profile and include paths.
+
+`node-filter` is a quoted Clang declaration matcher, evaluated on each callable
+definition or fallback declaration before topology and depth selection.
+The console option requires a quoted string literal; a bare variable such as
+`node-filter boundary_filter` is rejected. Customize the quoted matcher in each
+query rather than claiming that a runnable matcher value is accepted here.
+
+| Boundary | Matcher text |
+| --- | --- |
+| Exclude vendor/generated directory components | `functionDecl(unless(isExpansionInFileMatching("(^\|/)(vendor\|generated)/")))` |
+| Exclude a namespace | `functionDecl(unless(matchesName("(^\|::)vendor::")))` |
+| Keep a namespace plus the seed | `functionDecl(anyOf(matchesName("(^\|::)project::"), hasName("entry")))` |
+| Keep the project namespace and seed, excluding generated files | `functionDecl(anyOf(matchesName("(^\|::)project::"), hasName("entry")), unless(isExpansionInFileMatching("(^\|/)generated/")))` |
+| Keep project headers plus the seed, omitting generated files | `functionDecl(anyOf(isExpansionInFileMatching("/myproject/"), hasName("entry")), unless(isExpansionInFileMatching("/generated/")))` |
+
+Patterns are Clang regular expressions, not shell globs. `(^|::)` handles global
+qualification in matcher names. Compose compatible predicates with `allOf`,
+`anyOf` and `unless`. In Markdown tables, `\|` displays a literal `|`; use the
+unescaped pipe in the actual matcher. Combine scope filters with AND and retain
+the seed itself. Invalid matchers/statement matchers return invalid-argument;
+a filtered-out seed returns not-found. An exclusion is a traversal boundary:
+`entry -> excluded -> leaf` does not reach `leaf` through that excluded function.
+
+The default `strict-node-filter false` removes excluded callable nodes/edges
+but keeps boundary call-site facts from retained callers without a `callee_node`.
+For project-only known-callee facts, explicitly use `strict-node-filter true`
+with a nonempty `node-filter`. It additionally removes facts whose known static
+callee fails the combined scope filters, including facts attached to the virtual
+root, before the site budget is charged. It does not change admitted nodes,
+topology, depth selection or `external_edges_omitted`. Unknown indirect targets
+remain because they cannot be classified. Filtering names alone cannot prove
+that every unresolved target belongs to the project.
+
+## Run the complete three-input recipe
+
+[callgraph_project.ctk](../scripts/callgraph_project.ctk) explicitly opts in to
+strict mode, excludes system headers, removes the node-count limit, and compares
+filename, parsed-file and matched-function results. Its matched query uses
+`direction out depth all`. The initial non-strict query demonstrates that strict
+filtering is optional. It accepts `path`, `function` and `output`. To customize
+boundaries, copy the script and edit the quoted matcher in its four graph
+queries. The output directory must already exist.
+
+The bundled fixture [main.cc](../assets/callgraph_project/main.cc) contains
+`entry -> project::work -> project::leaf`, with project functions defined in
+`include/myproject/logic.hpp`. `entry` also calls `third_party::trace` in
+`vendor/trace.hpp` and `project::generated_call` in `generated/api.hpp`, proving
+that path filtering is independent of namespace names.
+
+Resolve `ctk_skill_dir` from the active skill's absolute path. Script and export
+paths are client-side; the source must be accessible to the server. With a local
+server that can read the bundled asset, run:
+
+```sh
+ctk_skill_dir=/absolute/path/to/ctk-script
+mkdir -p /tmp/ctk-project-calls /tmp/ctk-empty-libraries
+ctk --server unix:///tmp/ctk.sock --script-engine compiled --ui prompt \
+  --lib-dir /tmp/ctk-empty-libraries \
+  --script "$ctk_skill_dir/scripts/callgraph_project.ctk" \
+  "path=$ctk_skill_dir/assets/callgraph_project/main.cc" \
+  function=entry output=/tmp/ctk-project-calls
+```
+
+For a remote Linux server, run its console on that host or supply a server-side
+source path. The checked-in equivalent is
+`/home/husam/clang-toolkit/examples/callgraph_strict_filters/main.cc`; a Mac skill
+asset path is not automatically uploaded. Use the supplied/configured endpoint.
+For project code, pass its compilation database and refine the function matcher
+and boundary matcher to the actual layout. An allowlist can be safer than a
+vendor/generated denylist when dependencies live in other directories.
+
+### Starting from an already matched function
+
+Keep the existing `function_node` binding and run just the graph query. The
+following complete console submission first creates that binding in the fixture:
+
+```ctk
+let tree = parse "examples/callgraph_strict_filters/main.cc"
+let functions = match functionDecl(isDefinition(), hasName("entry")).bind("f") in tree
+let function_row = functions.one("entry definition")
+let function_node = function_row.f
+let graph = callgraph in function_node direction out depth all nodes all exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let roots = graph.call_sites | filter((site) = site.caller_node == graph.root_node)
+print "MATCHED: nodes={graph.nodes.length}, edges={graph.edges.length}, sites={graph.call_sites.length}, root_sites={roots.length}, strict={graph.strict_node_filter}, complete={graph.is_complete}"
+foreach site in graph.call_sites do {
+    print "CALL: {graph.nodes[site.caller_node].function.qualified_name} -> {site.facts.static_callee_name}"
+}
+save graph to "/tmp/ctk-matched-project-only.json" as json
+```
+
+The graph operation reuses the binding's parsed snapshot. Adding `depth all`
+does not request recursive AST payloads; the returned semantics stay shallow.
+
+## Returned structure and evidence
+
+Assignment collects a reusable graph; standalone `callgraph` streams a readable
+summary after terminal success. Add `format json` for raw ProtoJSON. The collected
+graph has:
+
+```text
+root_node: index of the synthetic root
+nodes: callable identity, function, location/range and definition facts
+edges: caller_node, callee_node, call and is_virtual_root_edge
+call_sites: caller_node, optional callee_node, call, location/range and facts
+source_file, source_revision, snapshot_generation, compilation_profile_id
+focus_node, selection_direction, selection_max_depth/selection_unlimited_depth
+selection_boundary_edges, selection_boundary_call_sites
+is_complete, availability, main_file_only, external_edges_omitted
+exclude_system_headers, node_filter, strict_node_filter
+```
+
+Resolve endpoints through `graph.nodes[index]`; graph-local indices are not
+native AST handles. Native graphs retain a virtual root even in a focused query.
+It is not an application entry point. Each native call record stays a separate
+edge, including repeated calls. Call-site facts and edges have different
+inventories: unresolved indirect calls have facts without an invented callee,
+and some native call records are outside the supported CallExpr family. Virtual
+calls describe the statically selected declaration, not proven runtime dispatch.
+
+Use `graph.call_sites | filter((site) = site.caller_node == graph.root_node)`
+to count root facts. Default shallow responses keep call-expression payloads
+unexpanded (the verified exports contain `call: {}`). Counts do not determine
+serialized or in-memory size; measure the current saved JSON when size matters
+and identify projection, scope, revision and target instead of promising a fixed
+size or reusing older baseline byte counts.
+
+Saved ProtoJSON can omit default scalar fields: an omitted `root_node` is 0,
+not an absent virtual root. It encodes uint64 graph indices as decimal strings;
+convert them when indexing ordinary JSON arrays. Live CTK graph values already
+support the endpoint indexing shown in the examples.
+
+The Linux verification recorded on 17 October 2026 used merged revision
+`628623311b3b` at `unix:///tmp/ctk.sock`; live evidence and the actual console
+output are maintained on the [callgraph Page](https://chatgpt.com/space/page_97441a03020481919a9361964dc17ff6).
+For this fixture the strict results contain 4 nodes including the virtual root,
+2 call sites and 0 root facts. Filename/parsed-file graphs have 5 edges (3 root
+edges plus 2 project calls); the focused matched graph has the 2 project edges.
+Omitting strict mode retains 4 call-site facts. Filename and parsed-file exports
+are identical. Recheck the connected client/server capabilities for new runs;
+historical verification is not a health check of the current endpoint.
+
+For the bundled recipe, the newly verified Linux console output is:
+
+```text
+DEFAULT: sites=4, strict=false
+FILENAME: nodes=4, edges=5, sites=2, root_sites=0, strict=true, complete=true
+FILENAME_CALL: project::work -> project::leaf
+FILENAME_CALL: entry -> project::work
+PARSED: nodes=4, edges=5, sites=2, root_sites=0, strict=true, complete=true
+PARSED_CALL: project::work -> project::leaf
+PARSED_CALL: entry -> project::work
+MATCHED: nodes=4, edges=2, sites=2, root_sites=0, strict=true, complete=true
+MATCHED_CALL: project::work -> project::leaf
+MATCHED_CALL: entry -> project::work
+```
+
+In that run, the UTF-8 JSON exports were **14,357 bytes** each for filename and
+parsed-file input, and **14,165 bytes** for matched input. These measurements
+used `/home/husam/clang-toolkit/examples/callgraph_strict_filters/main.cc` and
+include its source paths, provenance and shallow facts; they are not fixed size
+promises for another project. All three reported `complete=true` and
+`root_sites=0`.
+
+The combined project-namespace/entry-point allowlist with a generated-path
+exclusion in the matcher table was also run successfully with these same
+counts. A missing function was rejected by `.one(...)` with an explicit
+expected-one/got-zero error instead of selecting another function.
+
+Do not install packages, restart services or change compilation settings solely
+to make this example pass. Use an authorized existing endpoint, a real TTY-backed
+console, and the final exact script. Require completion before trusting exports;
+inspect `is_complete`, filter echoes, node/callee sets and root counts. Never
+report old output as freshly rerun. When streaming, require terminal success as
+well as completion; earlier events remain provisional if the stream fails.
+
+## Maintained implementation sources
+
+- `docs/call-graphs.md` and `docs/console-command-reference.md` in clang-toolkit
+- `examples/callgraph_reuse.ctk`, `examples/callgraph_system_sites.ctk` and
+  `examples/callgraph_strict_filters.ctk`
+- `api/analysis/v1/analysis_service.proto` and the call-graph protobuf contracts
+- `server/tests/test_call_graph.cpp` and `tests/unit/test_call_graph.py`
+
+For Python SDK collectors, callbacks, streams and local graph queries, use the
+SDK reasoning skill and current SDK guide. Python names include
+`exclude_system_headers`, `node_filter`, `strict_node_filter`, `max_depth="all"`
+and `max_nodes="all"`/0. These are the same scope controls, not a separate
+whole-project graph implementation.

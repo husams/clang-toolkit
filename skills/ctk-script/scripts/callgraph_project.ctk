@@ -1,0 +1,27 @@
+// Required arguments: path, function, output (existing client-side directory).
+// To customize boundaries, replace the quoted matcher in all four queries below.
+// This recipe explicitly opts in to strict filtering; the API default remains false.
+let source = arg.path
+let function_name = arg.function
+let ordinary = callgraph source nodes all exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))'
+print "DEFAULT: sites={ordinary.call_sites.length}, strict={ordinary.strict_node_filter}"
+
+let filename = callgraph source nodes all exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let tree = parse source
+let parsed = callgraph in tree nodes all exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+let functions = match functionDecl(isDefinition(), hasName(function_name)).bind("f") in tree
+let function_row = functions.one("function definition: {function_name}")
+let matched = callgraph in function_row.f direction out depth all nodes all exclude-system true node-filter 'functionDecl(unless(isExpansionInFileMatching("(^|/)(vendor|generated)/")))' strict-node-filter true
+
+foreach row in [{"label": "FILENAME", "graph": filename}, {"label": "PARSED", "graph": parsed}, {"label": "MATCHED", "graph": matched}] do {
+    let graph = row.graph
+    let roots = graph.call_sites | filter((site) = site.caller_node == graph.root_node)
+    print "{row.label}: nodes={graph.nodes.length}, edges={graph.edges.length}, sites={graph.call_sites.length}, root_sites={roots.length}, strict={graph.strict_node_filter}, complete={graph.is_complete}"
+    foreach site in graph.call_sites do {
+        print "{row.label}_CALL: {graph.nodes[site.caller_node].function.qualified_name} -> {site.facts.static_callee_name}"
+    }
+}
+
+save filename to "{arg.output}/filename.json" as json
+save parsed to "{arg.output}/parsed.json" as json
+save matched to "{arg.output}/matched.json" as json
