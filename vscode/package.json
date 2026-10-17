@@ -2,7 +2,7 @@
   "name": "clang-toolkit-prototype",
   "displayName": "Clang Toolkit Prototype",
   "description": "Unified Semantic Analysis and CTK script editing prototype",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "publisher": "clang-toolkit",
   "license": "MIT",
   "type": "module",
@@ -229,6 +229,7 @@
     "lint": "biome check src tests media scripts",
     "test:live": "CTK_INTEGRATION=1 vitest run tests/live.test.ts tests/actions-live.test.ts",
     "test:host": "node scripts/test-host.mjs",
+    "test:host-cleanup": "node --test scripts/test-process-check.mjs",
     "package": "pnpm build && vsce package --no-dependencies --allow-missing-repository --out artifacts/clang-toolkit-prototype.vsix",
     "test:console": "node scripts/test-console.mjs"
   },

@@ -570,6 +570,7 @@ def request(data: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == '__main__':
+    print(json.dumps(dict(ready=True)), flush=True)
     for line in sys.stdin:
         identity = None
         try:

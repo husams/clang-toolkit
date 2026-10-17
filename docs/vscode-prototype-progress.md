@@ -946,3 +946,58 @@ facts through Inheritance down to the final Source range keeps the tabs fixed
 at exactly the same position. Returning to AST preserves Widget's selection
 and expanded branch. The trial remains open on AST; custom action editor tabs
 are preserved and the user's managed server was not restarted or replaced.
+
+## Completion recovery and test cleanup, version 0.2.20
+
+The earlier full-host completion timeout did not repeat during an instrumented
+run: the same default-library argument inference completed in about three
+seconds, and that traced run passed. A standalone reproduction completed in
+2.197 seconds. Temporary request tracing was removed after diagnosis.
+
+The completion bridge nevertheless had two confirmed lifecycle defects: its
+30-second request clock included cold Python imports, and timing out removed
+only the waiting request while leaving the worker and its queue alive.
+The worker now acknowledges readiness before draft processing starts. Startup
+and request processing have separate 30-second bounds. Identical in-flight
+requests share one operation; completed results are not cached. Timeout,
+interpreter failure or invalid protocol replies terminate the owned worker,
+reject its waiting requests and allow the next attempt to start a fresh one.
+Late messages/exits from an old worker cannot invalidate its replacement;
+disposing the service also closes a worker that is still starting.
+
+The real-host test launcher now owns its VS Code process and disposable server
+directly. It uses separate profile and extension directories and closes its
+owned process groups, including descendants, before removing the workspace.
+Success, failure, SIGINT, SIGTERM and the ten-minute overall deadline all reach
+cleanup; unresponsive children receive a forced shutdown. Cleanup cannot
+launch another window if interruption happens during setup. The user's
+normal VS Code profile and managed server are outside these process groups.
+
+Validation logs are in
+`vscode/artifacts/validation/completion-timeout-20261017/`. TypeScript and Biome
+pass. All 75 extension tests pass, including all 17 native opt-ins and eight
+new lifecycle regressions. All 17 Python console-adapter checks pass, including
+the real readiness protocol. Six cleanup checks pass on macOS, covering
+successful/failed launchers with surviving descendants, forced shutdown,
+failed launch, macOS process-group liveness probes and interruption of the
+actual harness using stand-ins that
+open no windows. The cold-start regression keeps startup and processing below
+their individual limits while exceeding the old combined limit; timeout
+regressions verify worker termination and a successful retry.
+
+The complete final real VS Code run (`host-final-clean.log`) passes all
+existing scenarios, including editor/Options completion, YAML actions,
+semantic properties, native AST/source navigation, follow-up actions and
+preserved tabs. The runner exits successfully and prints
+`CTK_TEST_PROCESSES_CLOSED`; an independent process audit reports zero test
+processes remaining. The preceding run passed the scenarios but reported
+EPERM while probing an already-closed server process group. Cleanup now
+confirms actual group membership with `ps` when that macOS probe is denied;
+the sixth cleanup regression covers this case. No test window is left open.
+
+Packaged and installed v0.2.20 in the approved normal profile; archive and
+installed-version checks pass. VSIX SHA256:
+`68b4289f7310f17fbfdaa54542853dfd818408353efbbe179733d9e567927d2c`.
+Installation opened no window and did not reload the user's current editor;
+reload that existing window to activate the updated extension. No shared
+native server, user helper library or custom action draft was changed.

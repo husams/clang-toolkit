@@ -1,6 +1,9 @@
 """Regressions for the VS Code adapter using the console's real engine."""
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -10,6 +13,20 @@ spec.loader.exec_module(service)
 
 
 class CompletionTests(unittest.TestCase):
+    def test_worker_acknowledges_startup_before_serving_completions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = 'match functionD'
+            payload = dict(id=7, source=source, cursor=len(source), directory=directory, library=directory)
+            result = subprocess.run(
+                [sys.executable, '-I', '-B', '-u', str(Path(service.__file__).resolve())],
+                input=json.dumps(payload) + '\n', capture_output=True, text=True,
+                timeout=30, check=True,
+            )
+        ready, response = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual(ready, {'ready': True})
+        self.assertEqual(response['id'], 7)
+        self.assertIn('functionDecl', {item['label'] for item in response['items']})
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
