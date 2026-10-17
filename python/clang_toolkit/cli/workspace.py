@@ -692,7 +692,7 @@ class WorkspaceConsole:
 
     def editor_title(self) -> str:
         lines = self.buffer.document.line_count
-        return f" Script · {lines} line{'s' if lines != 1 else ''} · Ctrl+Enter run · Alt+Enter newline"
+        return f" Script · {lines} line{'s' if lines != 1 else ''} · Ctrl+J run · Ctrl/Option+Enter newline"
 
     def footer(self) -> str:
         active = next(
@@ -1236,7 +1236,7 @@ class WorkspaceConsole:
             "## Workspace shortcuts\n\n"
             "**F1** Shortcuts · **F2** Actions · **F3** Files · **F4** Help · **F5** Refresh · **F6** Focus\n\n"
             "**F7** Outline · **F8** Resources · **F9** Server · **F10** Quit\n\n"
-            "- **Ctrl+Enter** or **Ctrl+J** runs the whole script, with statements separated by newlines or semicolons. **Alt+Enter** or **Shift+Enter** adds an indented line. **Enter** runs complete input at its end; otherwise it adds an indented line. **Actions → Run command** also executes. Paired brackets and quotes keep the cursor inside.\n"
+            "- **Ctrl+Enter**, **Option+Enter** (macOS), **Alt+Enter**, or **Shift+Enter** adds an indented line, including before a pipeline's next `|` stage. **Ctrl+J** runs the whole script. **Enter** runs complete input at its end; otherwise it adds an indented line. **Actions → Run command** also executes. Paired brackets and quotes keep the cursor inside.\n"
             "- **Ctrl+R** searches history or results; **Ctrl+C** clears a draft or requests cancellation.\n"
             "- **Escape** closes the focused panel or menu. Files are local; selecting a file prepares `parse`.\n"
             "- Outline: **Enter** expands/collapses; **Left/Right** pans; **p** prepares `print`. Select Next/Previous page for 50 items.\n"

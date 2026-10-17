@@ -189,19 +189,21 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             acknowledgement += 1
             text += f'\nprint "PTY_ACK_{{{acknowledgement}}}"'
             acknowledgement_marker = f"PTY_ACK_{acknowledgement}"
-        # Match the real multiline paste gesture. The workspace uses Ctrl+Enter;
+        # Match the real multiline paste gesture. The workspace uses Ctrl+J;
         # the prompt accepts with Enter after bracketed paste. Prompt mode uses
         # the normal Enter key once all pasted lines have arrived.
-        sequence = "\x1b[27;5;13~" if ui == "workspace" else "\r"
+        sequence = "\n" if ui == "workspace" else "\r"
         os.write(master, ("\x1b[200~" + text + "\x1b[201~").encode())
         final_fragment = text.splitlines()[-1][-18:]
         visible = read_until(final_fragment)
         os.write(master, sequence.encode())
         if success:
-            visible = read_until(acknowledgement_marker, idle=True)
+            # Native query initialization can exceed the editor's 15-second
+            # response budget while the complete native suite is also running.
+            visible = read_until(acknowledgement_marker, timeout=60, idle=True)
             assert not marker or marker in visible, visible
         elif marker:
-            visible = read_until(marker)
+            visible = read_until(marker, timeout=60)
         return visible or "\n".join(screen.display)
 
     def wait_for_exit(timeout: float = 10) -> int:
@@ -414,7 +416,7 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             loop = "while true do continue"
             os.write(master, ("\x1b[200~" + loop + "\x1b[201~").encode())
             read_until("while true do continue")
-            os.write(master, b"\x1b[27;5;13~")
+            os.write(master, b"\n")
             read_until("Running")
             os.write(master, b"\x03")
             cancellation = read_until("execution cancelled", idle=True)

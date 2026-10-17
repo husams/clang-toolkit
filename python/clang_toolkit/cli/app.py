@@ -391,10 +391,13 @@ async def _run_batch_with_interrupts(
 
 
 async def _prompt(session, prompt: str) -> str:
-    prompt_async = getattr(session, "prompt_async", None)
-    if prompt_async is not None and inspect.iscoroutinefunction(prompt_async):
-        return await prompt_async(prompt)
-    return await asyncio.to_thread(session.prompt, prompt)
+    from clang_toolkit.cli.workspace_editing import control_enter_keys
+
+    with control_enter_keys():
+        prompt_async = getattr(session, "prompt_async", None)
+        if prompt_async is not None and inspect.iscoroutinefunction(prompt_async):
+            return await prompt_async(prompt)
+        return await asyncio.to_thread(session.prompt, prompt)
 
 
 async def _run_interactive_command(

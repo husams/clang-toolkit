@@ -145,6 +145,22 @@ def test_inline_dormant_bodies_are_ignored_and_defaults_follow_callbacks(runtime
     assert session.requirements('let apply(f = () = { background functionDecl() }) = f(); apply()').background_query
 
 
+@pytest.mark.parametrize("definition, call", [
+    ('let make() = { let f = () { background functionDecl() }; f }', 'make()()'),
+    ('let make(flag) = if flag then [() { background functionDecl() }] else [() 1]',
+     'make(1 == 1)[0]()'),
+    ('let make(flag) = if flag then {run: () { background functionDecl() }} else {run: () 1}',
+     'make(1 == 1).run()'),
+])
+def test_expression_callees_in_prepared_bodies_are_checked_before_admission(runtime, definition, call):
+    submit(runtime, definition)
+    assert runtime._prototype_session.requirements(call).background_query
+    result = dispatch_result(runtime.client,
+        f'let report = batch chunk in inputs size 1 progress off do {{ {call} }}', runtime)
+    assert not result.success and "foreground" in result.output
+    assert runtime.client.scopes == []
+
+
 def test_inline_batch_callbacks_capture_each_group_snapshot(runtime):
     submit(runtime, 'let state = [0]; let apply(f) = f()')
     submit(runtime, 'let report = batch chunk in inputs size 1 progress off do { '

@@ -493,13 +493,9 @@ class Runtime:
             value, text = execute_management_value(self, statement)
             return value, None if value_context else self._emit_output(text)
         if kind in _COLLECTION_VALUE_KINDS:
-            self._collection_command(statement)
-            if kind == "set_item_command":
+            value = self._collection_command(statement)
+            if kind in {"set_item_command", "delete_command"} and isinstance(statement.children[1], Tree):
                 value = self._resolve_name(self._collection_parts(statement.children[1])[0])
-            elif kind == "delete_command":
-                value = self._resolve_name(self._collection_parts(statement.children[1])[0])
-            else:
-                value = self._resolve_collection_ref(statement.children[1])
             return value, None
         # Effect-only legacy commands already route all display through the sink.
         display = self._execute_statement_legacy(statement, source)
@@ -1120,7 +1116,7 @@ class Runtime:
                 raise EvaluationError(str(error)) from error
         return value, suffixes[-1][1]
 
-    def _collection_command(self, statement: Tree) -> None:
+    def _collection_command(self, statement: Tree) -> Any:
         kind = str(statement.data)
         if kind == "push_command":
             target = self._resolve_collection_ref(statement.children[1])
@@ -1130,7 +1126,7 @@ class Runtime:
                 call_method(target, "push", [value])
             except ReferenceError as error:
                 raise EvaluationError(str(error)) from error
-            return
+            return target
         if kind == "set_item_command":
             target, key = self._bare_mutation_target(statement.children[1])
             value = self._evaluate(statement.children[-1])
@@ -1145,7 +1141,7 @@ class Runtime:
                 target[key] = value
             except ReferenceError as error:
                 raise EvaluationError(str(error)) from error
-            return
+            return target
         if kind == "delete_command":
             target, key = self._bare_mutation_target(statement.children[1])
             from .collections import mutable_index_target
@@ -1162,6 +1158,7 @@ class Runtime:
                     del target[key]
             except ReferenceError as error:
                 raise EvaluationError(str(error)) from error
+            return target
 
     def _split_values(self, value: Any, separator: Any) -> list[str]:
         if not isinstance(value, str) or not isinstance(separator, str):

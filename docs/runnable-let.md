@@ -31,14 +31,14 @@ built-in matcher definitions keep their template behavior; wrappers calling a
 custom matcher use ordinary runnable calls and can still return matchers.
 
 Inline runnable values omit `let` and the name. Pass one directly as an
-argument with `(PARAM, ...) = EXPR` or `(PARAM, ...) = { STATEMENTS }`:
+argument with `(PARAM, ...) EXPR` or `(PARAM, ...) { STATEMENTS }`:
 
 ```ctk
 let apply(operation, value) = operation(value)
-apply((x) = x + 1, 5)
-apply((x) = { on error 0; x + 1 }, 5)
+apply((x) x + 1, 5)
+apply((x) { on error 0; x + 1 }, 5)
 let run(operation) = operation()
-run(() = 42)
+run(() 42)
 ```
 
 Both `apply` calls return `6`; `run` returns `42`. Inline definitions create a
@@ -48,16 +48,27 @@ lexical captures, fresh call frames and checked execution limits. Use `()` for
 zero parameters. An expression body extends through the complete expression;
 a following argument comma or enclosing delimiter ends it.
 
+Command value and path operands accept full expressions, including callbacks,
+pipelines, conditionals and computed paths. For example,
+`save (items | map((x) x * 2)) to (directory + "/report.json") as json`.
+Prefix commands separate their operand with whitespace: `read (path + suffix)`;
+adjacent `read(value)` is a callable invocation when `read` names a runnable.
+The older inline `=` spelling remains accepted. Ordinary grouping and calls
+take precedence over ambiguous inline bodies: `(x) - 1` subtracts one and
+`(f)(x)` invokes f. Use `(x) { -x }` for a callback starting with a unary operator.
+
 Inline callables can also be assigned, stored in collections and returned:
 
 ```ctk
-let make_adder(base) = (value, extra = base) = value + extra
+let make_adder(base) = (value, extra = base) value + extra
 let add_ten = make_adder(10)
 add_ten(5)
 ```
 
-This returns `15`, retaining `base` after `make_adder` finishes. Invocation uses
-a callable's bound name; assign a returned or indexed value before invoking it.
+This returns `15`, retaining `base` after `make_adder` finishes. Callable
+expressions can be invoked directly: `make_adder(10)(5)`, `operations[0](5)`,
+and `record.operation(5)`. The callee runs once, and argument validation
+precedes argument effects, as with named calls.
 Inline bodies form the same loop-control boundary as named bodies. Foreground
 batches inspect reachable inline callbacks before admission and snapshot their
 captures; dormant bodies do not request native work.

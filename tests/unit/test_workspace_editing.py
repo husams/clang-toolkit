@@ -16,10 +16,9 @@ from clang_toolkit.cli.workspace_editing import insert_pair, smart_newline
 from test_workspace import interact, wait_until
 
 
-@pytest.mark.parametrize("sequence", ["\x1b[27;5;13~", "\x1b[13;5u", "\n"])
 @pytest.mark.parametrize("source", ['print "single"', "let values = [\n    1,\n    2\n]"])
-def test_control_enter_runs_whole_draft_from_middle(
-    tmp_path: Path, sequence: str, source: str,
+def test_control_j_runs_whole_draft_from_middle(
+    tmp_path: Path, source: str,
 ) -> None:
     seen: list[str] = []
 
@@ -29,7 +28,7 @@ def test_control_enter_runs_whole_draft_from_middle(
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
         ui.buffer.document = Document(source, 5)
-        pipe.send_text(sequence)
+        pipe.send_text("\n")
         await wait_until(lambda: not ui.busy and "executed" in ui.results.text)
         assert ui.buffer.text == ""
 
@@ -47,7 +46,6 @@ def test_ordinary_return_executes_complete_drafts_in_legacy_terminals(tmp_path: 
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
         ui.buffer.document = Document(source, len(source))
-        # Legacy terminals send the same carriage return for Ctrl+Enter.
         pipe.send_text("\r")
         await wait_until(lambda: not ui.busy and "executed" in ui.results.text)
         assert not ui.buffer.text
@@ -87,7 +85,8 @@ def test_control_enter_mapping_restores_plain_prompt_keys(tmp_path: Path) -> Non
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
         pipe.send_text("print 7\x1b[13;5u")
-        await wait_until(lambda: "OK print 7" in ui.results.text)
+        await wait_until(lambda: ui.buffer.text == "print 7\n")
+        assert "OK print 7" not in ui.results.text
 
     asyncio.run(interact(tmp_path, drive))
     assert ANSI_SEQUENCES == before
@@ -169,7 +168,7 @@ def test_paired_typing_deletion_paste_and_submission_in_the_workspace(
         assert ui.buffer.document.text_after_cursor == "]"
         pipe.send_text("\x7f")
         await wait_until(lambda: ui.buffer.text == "let x = ")
-        pipe.send_text("[\r1,\r2\r]\x1b[27;5;13~")
+        pipe.send_text("[\r1,\r2\r]\n")
         await wait_until(
             lambda: "Ready" == ui.status and not ui.busy and not ui.buffer.text
         )
@@ -179,7 +178,7 @@ def test_paired_typing_deletion_paste_and_submission_in_the_workspace(
         pipe.send_text("\x1b[200~" + paste + "\x1b[201~")
         await wait_until(lambda: ui.buffer.text == paste)
         assert ui.buffer.cursor_position == len(paste)
-        pipe.send_text('\x03print "hello"\x1b[27;5;13~')
+        pipe.send_text('\x03print "hello"\n')
         await wait_until(lambda: 'OK print "hello"' in ui.results.text)
         assert not ui.buffer.text
 

@@ -340,7 +340,7 @@ def test_session_list_captures_inventory_once_and_expands_in_results(tmp_path: P
         return dispatch_result(client, source, runtime)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text("session list\x1b[13;5u")
+        pipe.send_text("session list\n")
         await wait_until(lambda: bool(ui.result_trees.trees) and not ui.busy)
         assert "▸ Sessions" in ui.results.text
         select_result(ui, "$Sessions")
@@ -378,7 +378,7 @@ def test_matches_expand_in_results_and_keep_commands_help_and_draft(
         return DispatchResult("after result", True)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text("print $rows\x1b[27;5;13~")
+        pipe.send_text("print $rows\n")
         await wait_until(lambda: bool(ui.result_trees.trees) and not ui.busy)
         assert "legacy JSON" not in ui.results.text
         before = ui.results.text
@@ -587,7 +587,7 @@ def test_bindings_command_displays_live_branches_in_results(tmp_path: Path) -> N
         return await asyncio.to_thread(dispatch_result, runtime.client, source, runtime)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text("bindings\x1b[27;5;13~")
+        pipe.send_text("bindings\n")
         await wait_until(lambda: bool(ui.result_trees.trees) and not ui.busy)
         select_result(ui, "$config")
         pipe.send_text("\r")

@@ -124,19 +124,35 @@ def _combined_grammar() -> str:
     )
     proto_source = proto_source.replace(
         'CNAME: /[A-Za-z_][A-Za-z0-9_]*/',
-        'MEMBER_NAME: /(?!(?:hasField|fieldState|fieldOr|joinWith|unique|sort|filter|push|pop|delete|set|insert|remove|clear)\\s*\\()[A-Za-z_][A-Za-z0-9_]*/\nCNAME: /[A-Za-z_][A-Za-z0-9_]*/',
+        'MEMBER_NAME: /(?!(?:hasField|fieldState|fieldOr|joinWith|unique|sort|filter|push|pop|delete|set|insert|remove|clear|one|get|hasKey|strip|function|callers|callees|shortest_path|shortest_route|grouped_calls|recursive_components|recursion_components)\\s*\\()[A-Za-z_][A-Za-z0-9_]*/\nCNAME: /[A-Za-z_][A-Za-z0-9_]*/',
     )
     builtin_matcher_names = "|".join(re.escape(name) for name in sorted(SCRIPT_BUILTIN_MATCHERS))
     matcher_names = "|".join(re.escape(name) for name in sorted(
         SCRIPT_BUILTIN_MATCHERS | {"glob"}))
+    # General postfix calls must not reinterpret Clang matcher constructors as
+    # variable reads. Keep the same reserved-call boundary as named calls.
     proto_source = proto_source.replace(
-        'named_call: CNAME "(" arguments? ")"',
-        'named_call: ROUTINE_NAME "(" arguments? ")"\n'
+        'reference: "$"? CNAME',
+        'reference: "$"? REFERENCE_NAME\n'
+        + r'REFERENCE_NAME: /(?!(?:' + matcher_names + r')\s*\()[A-Za-z_][A-Za-z0-9_]*/',
+    )
+    proto_source = proto_source.replace(
+        'named_call.3: CNAME "(" arguments? ")"',
+        'named_call.3: ROUTINE_NAME "(" arguments? ")"\n'
         + r'ROUTINE_NAME.20: /(?!(?:' + matcher_names + r')\s*\()[A-Za-z_][A-Za-z0-9_]*(?=\s*\()/',
     )
     # Leave command syntax in the released grammar; expose native commands as
     # opaque leaves while ordinary assignments/displays/loops use prototype IR.
     legacy_source = _prefix_grammar(_LEGACY_GRAMMAR.read_text(encoding="utf-8"), _PREFIX)
+    # Prefix commands use whitespace before their operands. Keep adjacent
+    # `name(...)` callable syntax available, including user-defined names that
+    # also spell commands, and pipe calls such as `items | flatten()`.
+    for name in ("PARSE", "READ", "LOAD", "POP", "DELETE", "FLATTEN", "INSPECT",
+                 "CFG", "CALLGRAPH", "TRAVERSE", "SCRIPT"):
+        legacy_source = legacy_source.replace(
+            f"LEGACY_{name}.2: /{name.lower()}(?![a-zA-Z0-9_])/",
+            f"LEGACY_{name}.30: /{name.lower()}(?=\\s|$)/",
+        )
     proto_source = _prefix_grammar(proto_source, _PROTO_PREFIX, prefix_aliases=True)
     legacy_source = legacy_source.replace("legacy_reference:", "legacy_reference.10:")
     legacy_source = legacy_source.replace("?legacy_command_expression:", "?legacy_command_expression.10:")
@@ -162,7 +178,7 @@ def _combined_grammar() -> str:
         "?proto_postfix: proto_atom proto_postfix_part*\n              | proto_host_atom\n",
     )
     proto_source = proto_source.replace(
-        "proto_named_call: PROTO_ROUTINE_NAME",
+        "proto_named_call.3: PROTO_ROUTINE_NAME",
         """?proto_host_atom: legacy_reference LEGACY_DOT legacy_method_call -> host_expression
                 | legacy_root_matcher -> host_expression
                 | legacy_command_expression -> host_expression
@@ -177,7 +193,7 @@ def _combined_grammar() -> str:
                 | legacy_join_expression -> host_expression
                 | legacy_flatten_expression -> host_expression
 
-proto_named_call: PROTO_ROUTINE_NAME""",
+proto_named_call.3: PROTO_ROUTINE_NAME""",
     )
     return "\n".join(
         (
@@ -191,6 +207,18 @@ proto_named_call: PROTO_ROUTINE_NAME""",
             r"""
 _host_newlines: _HOST_NEWLINE*
 _HOST_NEWLINE: /\r?\n/
+
+%extend legacy_value_expression: proto_expression
+%extend legacy_path_value_expression: proto_expression
+%extend legacy_path_target_expression: proto_expression
+%extend legacy_output_path: proto_expression
+%extend legacy_target_expression: proto_expression
+%extend legacy_index_expression: proto_expression
+%extend legacy_method_argument: proto_expression
+%extend legacy_collection_ref: proto_expression
+%extend legacy_argument: proto_expression
+%extend legacy_root_expression: proto_expression
+%extend legacy_command_expression: LEGACY_INSPECT proto_expression -> inspect
 
 %override legacy_reference: LEGACY_DOLLAR? LEGACY_NAME (LEGACY_DOT legacy_property_name | LEGACY_DOT legacy_method_call | LEGACY_LSQB legacy_index_expression LEGACY_RSQB)*
 
@@ -209,7 +237,7 @@ legacy_definition_matcher: LEGACY_DEFINITION_MATCHER_NAME LEGACY_LPAR _host_newl
 %override legacy_nested_matcher: LEGACY_MATCHER_NAME _host_newlines LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
 %override legacy_arguments: legacy_argument (_host_newlines LEGACY_COMMA _host_newlines legacy_argument)*
 %override legacy_bind: LEGACY_BIND LEGACY_LPAR _host_newlines LEGACY_STRING _host_newlines LEGACY_RPAR
-%override legacy_target_matcher: LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_target_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
+%override legacy_target_matcher.50: LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_target_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher
 %override legacy_target_arguments: legacy_target_expression (_host_newlines LEGACY_COMMA _host_newlines legacy_target_expression)*
 """,
             'LEGACY_DEFINITION_MATCHER_NAME: /(?:' + builtin_matcher_names + r')(?=\s*\()/',
@@ -244,6 +272,11 @@ def parser() -> Lark:
 
 def _normalize_host_tree(tree: Tree[Any]) -> Tree[Any]:
     """Restore the legacy parser's original token names inside opaque leaves."""
+    tree = Tree(tree.data, [
+        child.value[0] if isinstance(child, Node) and child.kind == "host"
+        and str(child.value[0].data) == "matcher" else child
+        for child in tree.children
+    ], meta=tree.meta)
     children = [
         _normalize_host_tree(child)
         if isinstance(child, Tree)
@@ -353,6 +386,13 @@ def _validate_host_control_scope(program: Node) -> None:
                     f"{tree.data} is only valid as a top-level REPL command "
                     f"(line {node.line}, column {node.column})"
                 )
+            def visit_host(tree: Any) -> None:
+                for child in getattr(tree, "children", ()):
+                    if isinstance(child, Node):
+                        visit(child, top_level=False)
+                    else:
+                        visit_host(child)
+            visit_host(tree)
             return
         for child in node.children:
             visit(child, top_level=False)

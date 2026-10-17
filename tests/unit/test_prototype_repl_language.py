@@ -122,22 +122,21 @@ def test_native_match_target_suffixes_stay_inside_host_command() -> None:
     match_tree, mode = _host(calls.children[0])
     assert (match_tree.data, mode) == ("match", "expression")
     target = match_tree.children[-1]
-    assert isinstance(target, Tree)
-    assert target.data == "reference"
-    assert [str(child) for child in target.children if not isinstance(child, Tree)] == [
-        "$", "rows", ".", "f"
-    ]
+    assert isinstance(target, Node)
+    assert (target.kind, target.value) == ("get", "f")
+    assert (target.children[0].kind, target.children[0].value) == ("ref", "rows")
     matcher = match_tree.children[1]
     assert isinstance(matcher, Tree)
     assert matcher.children[-1].data == "bind"
 
     indexed_tree, _ = _host(first.children[0])
     indexed_target = indexed_tree.children[-1]
-    assert isinstance(indexed_target, Tree)
-    assert indexed_target.data == "reference"
-    assert [str(child) for child in indexed_target.children if not isinstance(child, Tree)] == [
-        "$", "rows", "[", "0", "]", ".", "f"
-    ]
+    assert isinstance(indexed_target, Node)
+    assert (indexed_target.kind, indexed_target.value) == ("get", "f")
+    index = indexed_target.children[0]
+    assert index.kind == "index"
+    assert (index.children[0].kind, index.children[0].value) == ("ref", "rows")
+    assert (index.children[1].kind, index.children[1].value) == ("literal", 0)
 
 
 @pytest.mark.parametrize("command", ["match", 'cursor open "sample.cc"', "cfg"])

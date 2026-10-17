@@ -24,17 +24,15 @@ Tokenizer = Callable[[str], list[Token]]
 
 @contextmanager
 def control_enter_keys() -> Iterator[None]:
-    """Distinguish modified Return for this workspace; restore prompt defaults."""
-    sequences = ("\x1b[27;5;13~", "\x1b[27;6;13~", "\x1b[13;5u", "\x1b[13;6u")
-    newline_sequences = ("\x1b[27;2;13~", "\x1b[13;2u")
-    previous = {
-        sequence: ANSI_SEQUENCES.get(sequence)
-        for sequence in (*sequences, *newline_sequences)
-    }
+    """Decode Ctrl/Alt/Shift+Enter as newlines; restore terminal defaults."""
+    sequences = tuple(
+        sequence
+        for modifier in (2, 3, 5, 6)
+        for sequence in (f"\x1b[27;{modifier};13~", f"\x1b[13;{modifier}u")
+    )
+    previous = {sequence: ANSI_SEQUENCES.get(sequence) for sequence in sequences}
     try:
         for sequence in sequences:
-            ANSI_SEQUENCES[sequence] = Keys.ControlJ
-        for sequence in newline_sequences:
             ANSI_SEQUENCES[sequence] = (Keys.Escape, Keys.ControlM)
         yield
     finally:
@@ -261,6 +259,7 @@ def editing_bindings(
         buffer.validate_and_handle()
 
     @bindings.add("escape", "enter", filter=enabled, eager=True)
+    @bindings.add("escape", "c-j", filter=enabled, eager=True)
     def newline(event: KeyPressEvent) -> None:
         smart_newline(buffer, tokenizer=tokenizer, input_state_fn=input_state_fn)
 

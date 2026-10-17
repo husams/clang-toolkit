@@ -18,6 +18,7 @@ import pyte
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from clang_toolkit.cli.runtime.history import HistoryStore
 from tests.e2e.test_network_steps import _launch_server
 
 pytestmark = pytest.mark.e2e
@@ -45,6 +46,39 @@ def pipe_console(tmp_path, request, monkeypatch):
 def _command(server, library, *args):
     return [str(Path(sys.executable).with_name("ctk")), "--server", server.endpoint,
             "-c", str(server.config), "--lib-dir", str(library), *args]
+
+
+@when(parsers.parse('I execute syntax composition using the "{engine}" engine'),
+      target_fixture="composition_output")
+def composition_output(pipe_console, tmp_path, engine):
+    server, source, library = pipe_console
+    example = Path(__file__).resolve().parents[2] / "examples/syntax_composition.ctk"
+    script = tmp_path / "composition.ctk"
+    script.write_text(example.read_text() + '\n'
+        'let makers = [() cxxRecordDecl(isDefinition(), hasName("demo::Widget")).bind("c")]\n'
+        f'let tree = parse ({json.dumps(str(source))} + "")\n'
+        'let selected = match makers[0]() in (if true then tree else null)\n'
+        'print "NATIVE={selected[0].c.decl_name}"\n')
+    destination = tmp_path / "composition.json"
+    result = subprocess.run(
+        _command(server, library, "--script-engine", engine, "--script", str(script),
+                 f"output={destination}"),
+        cwd=tmp_path, text=True, capture_output=True, timeout=90,
+        env=dict(os.environ, NO_COLOR="1"),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout, json.loads(destination.read_text())
+
+
+@then("composition prints the expected calls and saved records")
+def verify_composition_output(composition_output):
+    output, records = composition_output
+    lines = output.splitlines()
+    assert lines[:2] == ["RETURNED=42", "INDEXED=42"]
+    expected = [{"name": "Other", "count": 1}, {"name": "Widget", "count": 2}]
+    assert records == expected
+    assert json.loads(lines[-2]) == expected
+    assert lines[-1] == "NATIVE=demo::Widget"
 
 
 @when(parsers.parse('I execute the complete filter script using the "{engine}" engine'),
@@ -136,11 +170,28 @@ def verify_selection_output(selection_output):
 
 @when("I paste the tuple pipeline into the real console terminal", target_fixture="pipe_terminal")
 def pipe_terminal(pipe_console, tmp_path):
+    return _run_pipe_terminal(pipe_console, tmp_path)
+
+
+@when(parsers.parse('I type a multiline pipeline with "{shortcut}" in the "{ui}" console'),
+      target_fixture="typed_pipeline_terminal")
+def typed_pipeline_terminal(pipe_console, tmp_path, shortcut, ui):
+    sequence = b"\x1b[13;5u" if shortcut == "Ctrl+Enter" else b"\x1b\r"
+    return _run_pipe_terminal(pipe_console, tmp_path, ui=ui, newline_sequence=sequence)
+
+
+@then("the pipeline runs once with the expected result")
+def verify_typed_pipeline_terminal(typed_pipeline_terminal):
+    assert "KEY_PIPELINE_6_2" in typed_pipeline_terminal
+    assert "error:" not in typed_pipeline_terminal
+
+
+def _run_pipe_terminal(pipe_console, tmp_path, *, ui="prompt", newline_sequence=None):
     server, _, library = pipe_console
     master, slave = pty.openpty()
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 120, 0, 0))
     process = subprocess.Popen(
-        _command(server, library, "--script-engine", "compiled", "--ui", "prompt"),
+        _command(server, library, "--script-engine", "compiled", "--ui", ui),
         stdin=slave, stdout=slave, stderr=slave,
         cwd=Path(__file__).resolve().parents[2], close_fds=True,
         env=dict(os.environ, TERM="xterm-256color", NO_COLOR="1",
@@ -173,7 +224,25 @@ def pipe_terminal(pipe_console, tmp_path):
         raise AssertionError(f"Console did not show {marker!r}:\n" + "\n".join(screen.display))
 
     try:
-        wait_for("ctk>")
+        wait_for("Session open" if ui == "workspace" else "ctk>")
+        if newline_sequence is not None:
+            history = HistoryStore(tmp_path / "state/clang_tools/history.jsonl")
+            stages = ["let key_result = [1, 2, 3]", "    | map((x) x * 2)", "    | reverse"]
+            os.write(master, stages[0].encode())
+            wait_for(stages[0])
+            for stage in stages[1:]:
+                # The editor copies the current line's indentation.
+                os.write(master, newline_sequence + stage.lstrip().encode())
+                wait_for(stage.strip())
+                assert not history.read_commands()
+            os.write(master, b"\r")
+            wait_for("Ready" if ui == "workspace" else "ctk>")
+            os.write(master, b'print "KEY_PIPELINE_{key_result[0]}_{key_result[2]}"\x0a')
+            visible = wait_for("KEY_PIPELINE_6_2")
+            commands = history.read_commands()
+            assert commands[0] == "\n".join(stage.lstrip() for stage in stages)
+            assert len(commands) == 2
+            return visible
         script = (_example_source() + '\n'
                   + (Path(__file__).resolve().parents[2] / "examples/list_selection.ctk").read_text()
                   + '\nprint "PIPELINE_PTY_{report[0].count}_{report[1].count}"')

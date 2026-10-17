@@ -1,0 +1,11 @@
+// Run with the compiled or tree console engine; output is a named script argument.
+let pairs = [("Widget", 2), ("Empty", 0), ("Other", 1)]
+let report = pairs
+    | filter((name, count) count > 0)
+    | map((name, count) {name: name, count: count})
+let make_adder(base) = (value) base + value
+let operations = [(value) value * 2]
+print "RETURNED={make_adder(19)(23)}"
+print "INDEXED={operations[0](21)}"
+save report | reverse to arg.output as json
+print (read arg.output as json) | json

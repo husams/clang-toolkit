@@ -393,6 +393,20 @@ def class_parameter_names(definition: str) -> frozenset[str]:
     class_roots = {'cxxRecordDecl', 'recordDecl', 'classTemplateDecl',
                    'classTemplateSpecializationDecl', 'classTemplatePartialSpecializationDecl'}
 
+    def references(value: Any) -> None:
+        if isinstance(value, Node):
+            if value.kind == 'ref':
+                names.add(value.value)
+            if value.kind == 'host':
+                references(value.value[0])
+            for child in value.children:
+                references(child)
+        elif isinstance(value, Tree):
+            if value.data == 'reference' and len(value.children) == 2:
+                names.add(str(value.children[1]))
+            for child in value.children:
+                references(child)
+
     def visit(value: Any, class_scope: bool = False) -> None:
         if isinstance(value, Node):
             if value.kind == 'host':
@@ -407,9 +421,7 @@ def class_parameter_names(definition: str) -> frozenset[str]:
                 elif MATCHER_METADATA.get(matcher, ('',))[0] == 'node':
                     class_scope = False
                 if class_scope and matcher in {'hasName', 'hasAnyName', 'matchesName'}:
-                    for reference in value.find_data('reference'):
-                        if len(reference.children) == 2:
-                            names.add(str(reference.children[1]))
+                    references(value)
             for child in value.children:
                 visit(child, class_scope)
 

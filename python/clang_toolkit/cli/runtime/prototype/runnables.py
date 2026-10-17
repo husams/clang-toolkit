@@ -118,6 +118,13 @@ def invoke_named(context: Context, node: Any, name: str,
         present = value is not None
     if not present:
         raise _error(context, node, f"unregistered host function {name!r}")
+    return invoke_value(context, node, value, arguments, name=name, injected=injected)
+
+
+def invoke_value(context: Context, node: Any, value: Any,
+                 arguments: Callable[[], list[Any]], *, name: str = "<expression>",
+                 injected: Any = _MISSING) -> Any:
+    """Invoke an already evaluated callee, checking arguments before effects."""
     value = _current_filter_callable(context, value)
     positional_nodes = [item for item in child_values(node) if getattr(item, "kind", None) != "keyword_arg"]
     keyword_nodes = [item for item in child_values(node) if getattr(item, "kind", None) == "keyword_arg"]

@@ -29,9 +29,9 @@ assign_stmt: target ASSIGN_OP closed_expression
 runnable_definition.20: "let" CNAME "(" parameters? ")" "=" block
                       | "let" CNAME "(" parameters? ")" "=" closed_expression
 open_runnable_definition.20: "let" CNAME "(" parameters? ")" "=" open_expression -> runnable_definition
-inline_runnable.20: "(" parameters? ")" "=" block
-                   | "(" parameters? ")" "=" closed_expression
-open_inline_runnable.20: "(" parameters? ")" "=" open_expression -> inline_runnable
+inline_runnable: "(" parameters? ")" "="? closed_expression
+inline_block_runnable.1: "(" parameters? ")" "="? block -> inline_runnable
+open_inline_runnable: "(" parameters? ")" "="? open_expression -> inline_runnable
 
 parameters: separators? parameter ("," separators? parameter)* ","? separators?
 parameter: pattern ("=" expression)?
@@ -42,25 +42,27 @@ parameter: pattern ("=" expression)?
         | "(" pattern "," separators? pattern ("," separators? pattern)* ","? ")" -> tuple_pattern
 
 ?expression: closed_expression | open_expression
-?closed_expression: closed_pipe_expr
-?open_expression: open_pipe_expr
-closed_pipe_expr: closed_pipe_base (PIPE_OP pipe_stage)* recovery_tail? -> pipe_expr
-open_pipe_expr: open_pipe_base (PIPE_OP pipe_stage)* recovery_tail? -> pipe_expr
+?closed_expression: inline_runnable | closed_pipe_expr
+?open_expression: open_inline_runnable | open_pipe_expr
+closed_pipe_expr: closed_pipe_base (soft_newlines PIPE_OP soft_newlines pipe_stage)* recovery_tail? -> pipe_expr
+open_pipe_expr: open_pipe_base (soft_newlines PIPE_OP soft_newlines pipe_stage)* recovery_tail? -> pipe_expr
 ?closed_pipe_base: conditional
-                 | inline_runnable
+                 | inline_block_runnable
                  | closed_if_expr
                  | closed_unless_expr
                  | closed_foreach_expr
                  | closed_while_expr
                  | closed_repeat_expr
 ?open_pipe_base: conditional
-               | open_inline_runnable
+               | inline_block_runnable
                | open_if_expr
                | open_unless_expr
                | open_foreach_expr
                | open_while_expr
                | open_repeat_expr
-multiline_expression: open_pipe_base (soft_newlines PIPE_OP soft_newlines pipe_stage)* recovery_tail? -> pipe_expr
+?multiline_expression: inline_runnable
+                    | open_inline_runnable
+                    | open_pipe_base (soft_newlines PIPE_OP soft_newlines pipe_stage)* recovery_tail? -> pipe_expr
 ?pipe_stage: named_call | reference
 ?conditional: recoverable -> recovery_expr
 closed_if_expr: "if" expression closed_conditional_body closed_if_else -> if_expr
@@ -138,6 +140,8 @@ comparison: additive comparison_tail?
 
 ?postfix_part: soft_newlines "." soft_newlines CNAME -> member_part
              | index_expression
+             | call_suffix
+call_suffix.2: "(" arguments? ")"
 
 target: reference target_part*
 ?target_part: "." CNAME       -> target_member_part
@@ -153,7 +157,7 @@ reference: "$"? CNAME
      | tuple_literal
      | grouped_expression
 
-named_call: CNAME "(" arguments? ")"
+named_call.3: CNAME "(" arguments? ")"
 arguments: separators? argument ("," separators? argument)* ","? separators?
 ?argument: CNAME "=" expression -> keyword_argument
          | expression
@@ -162,9 +166,9 @@ index_expression: "[" separators? expression separators? "]"
                 | "[" separators? slice_bound ":" slice_bound (":" slice_bound)? "]" -> slice_expression
 slice_bound: separators? expression? separators?
 
-grouped_expression: "(" inner_expression ")"
+grouped_expression.2: "(" inner_expression ")"
 inner_expression: separators? multiline_expression separators?
-tuple_literal: "(" separators? ")" -> empty_tuple
+tuple_literal.2: "(" separators? ")" -> empty_tuple
              | "(" separators? expression separators? "," separators? expression ("," separators? expression)* ","? separators? ")" -> tuple_items
              | "(" separators? expression separators? "," separators? ")" -> tuple_singleton
 

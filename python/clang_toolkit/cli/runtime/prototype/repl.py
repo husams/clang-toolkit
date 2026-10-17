@@ -88,6 +88,18 @@ class _ReplContext(Context):
 class PrototypeRuntime(Runtime):
     """Use the prototype compiler for script flow and Runtime for CTK operations."""
 
+    def _resolve_collection_ref(self, node: Any) -> Any:
+        if isinstance(node, Node):
+            return self._evaluate(node)
+        return super()._resolve_collection_ref(node)
+
+    def _bare_mutation_target(self, node: Any) -> tuple[Any, Any]:
+        if isinstance(node, Node):
+            if node.kind != "index":
+                raise LegacyEvaluationError("collection item operation requires a final [key] or [index]")
+            return self._evaluate(node.children[0]), self._evaluate(node.children[1])
+        return super()._bare_mutation_target(node)
+
     def _index_value(self, value: Any, key: Any) -> Any:
         from .semantics import index_value
 
@@ -163,6 +175,8 @@ class PrototypeRuntime(Runtime):
         return super()._reference_property(name, value, field, root=root)
 
     def _has_dynamic_part(self, node: Tree) -> bool:
+        if any(isinstance(child, Node) for child in node.children):
+            return True
         if node.data == "matcher" and self._prototype_context is not None:
             present, value = self._prototype_context.binding_state(str(node.children[0]))
             if present and isinstance(value, RunnableBlock):
@@ -454,7 +468,7 @@ class ReplSession:
                 self.record("display", value)
                 self.emitted = True
             return
-        tail = self.last_tail if node.kind in {"conditional", "block", "call", "recovery"} else node.kind
+        tail = self.last_tail if node.kind in {"conditional", "block", "call", "invoke", "recovery"} else node.kind
         self.last_tail = tail
         if id(node) not in self.top_statements:
             if node.kind == "host" and id(node) in self.host_displays:

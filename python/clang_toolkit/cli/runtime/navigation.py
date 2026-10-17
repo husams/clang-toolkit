@@ -24,10 +24,8 @@ def execute_navigation(runtime: Runtime, statement: Tree) -> Any:
     seen_limit = False
     after_in = False
     for index, child in enumerate(statement.children[2:], start=2):
-        if isinstance(child, Tree):
-            if child.data == "reference" and after_in:
-                target = runtime._evaluate(child)
-            elif child.data == "navigation_nodes":
+        if isinstance(child, Tree) or hasattr(child, "kind"):
+            if isinstance(child, Tree) and child.data == "navigation_nodes":
                 if seen_limit:
                     raise EvaluationError("duplicate navigation nodes option")
                 seen_limit = True
@@ -35,6 +33,8 @@ def execute_navigation(runtime: Runtime, statement: Tree) -> Any:
                 if not raw.isdigit() or not 1 <= int(raw) <= 100000:
                     raise EvaluationError("navigation nodes must be 1..100000")
                 max_nodes = int(raw)
+            elif after_in:
+                target = runtime._evaluate(child)
             else:
                 matcher = runtime._evaluate(child)
                 if not isinstance(matcher, MatcherExpr):

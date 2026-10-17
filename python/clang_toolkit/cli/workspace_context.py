@@ -82,8 +82,8 @@ class CommandContext(MarkdownPanel):
         entry = help_entry(topic)
         if entry is None:
             markdown = (
-                "## Workspace\n\nWrite a command below. **Ctrl+Enter** runs the whole draft; "
-                "**Ctrl+J** also runs it. **Enter** executes complete input at its end; "
+                "## Workspace\n\nWrite a command below. **Ctrl+J** runs the whole draft. "
+                "**Ctrl+Enter** or **Option+Enter** (macOS) adds a line for another `|` stage. **Enter** executes complete input at its end; "
                 "otherwise it adds an indented line. **Actions → Run command** also executes.\n\n"
                 "## Panels\n\n- **F3** Local files\n- **F4** Command help\n"
                 "- **F7** Binding outline\n- **F8** Resources\n"

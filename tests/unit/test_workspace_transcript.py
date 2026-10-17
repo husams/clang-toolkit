@@ -46,7 +46,7 @@ def test_other_command_results_are_formatted_literal_markdown(
         return DispatchResult(output, success)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
-        pipe.send_text("print 7\x1b[27;5;13~")
+        pipe.send_text("print 7\n")
         await wait_until(lambda: not ui.busy and expected in ui.results.text)
         assert ui.transcript_lexer.blocks
         block = ui.transcript_lexer.blocks[-1]
@@ -196,7 +196,7 @@ def test_actual_parser_and_runtime_errors_mark_the_submitted_block(
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
         for source, expected in [(";et x = 1", ";"), ("print $missing", "$missing")]:
             ui.clear_results()
-            pipe.send_text(source + "\x1b[27;5;13~")
+            pipe.send_text(source + "\n")
             await wait_until(
                 lambda: ui.status == "Command failed" and "^" in ui.results.text
             )
@@ -233,7 +233,7 @@ def test_error_marker_keeps_a_readers_cursor_on_the_same_source_character(
 
         async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
             source = "let x = [\n  $missing\n]"
-            pipe.send_text("\x1b[200~" + source + "\x1b[201~\x1b[27;5;13~")
+            pipe.send_text("\x1b[200~" + source + "\x1b[201~\n")
             await wait_until(lambda: ui.busy and "  3 │ ]" in ui.results.text)
             ui.follow = False
             ui.results.buffer.cursor_position = ui.results.text.rindex("]")
@@ -299,7 +299,7 @@ def test_rendered_help_survives_append_error_markers_trim_and_clear(
         # A near-full transcript exercises both offset shifting and eviction.
         ui.write("old output\n" * (MAX_TRANSCRIPT_CHARS // 11))
         for command in ["help parse", "parse?", "help match"]:
-            pipe.send_text(command + "\x1b[27;5;13~")
+            pipe.send_text(command + "\n")
             await wait_until(
                 lambda: not ui.busy and not ui.buffer.text and ui.last_source == command
             )
@@ -310,7 +310,7 @@ def test_rendered_help_survives_append_error_markers_trim_and_clear(
         assert "\x1b" not in ui.results.text
         assert ui.transcript_lexer.blocks
         blocks = list(ui.transcript_lexer.blocks)
-        pipe.send_text("print $missing\x1b[27;5;13~")
+        pipe.send_text("print $missing\n")
         await wait_until(lambda: "unknown variable" in ui.results.text)
         lines = ui.transcript_lexer.lex_document(ui.results.buffer.document)
         for block in blocks:

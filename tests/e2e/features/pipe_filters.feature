@@ -26,3 +26,25 @@ Feature: Pipe filters and tuple callbacks in the console
     Given an isolated pipe-filter console and class fixture
     When I paste the tuple pipeline into the real console terminal
     Then the terminal prints the verified tuple pipeline result
+
+  Scenario Outline: Type pipeline stages on separate lines without submitting
+    Given an isolated pipe-filter console and class fixture
+    When I type a multiline pipeline with "<shortcut>" in the "<ui>" console
+    Then the pipeline runs once with the expected result
+
+    Examples:
+      | shortcut     | ui        |
+      | Ctrl+Enter   | workspace |
+      | Option+Enter | workspace |
+      | Ctrl+Enter   | prompt    |
+      | Option+Enter | prompt    |
+
+  Scenario Outline: Expressions compose across callbacks, calls and file operands
+    Given an isolated pipe-filter console and class fixture
+    When I execute syntax composition using the "<engine>" engine
+    Then composition prints the expected calls and saved records
+
+    Examples:
+      | engine   |
+      | compiled |
+      | tree     |
