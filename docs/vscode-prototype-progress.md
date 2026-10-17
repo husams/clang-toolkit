@@ -1276,3 +1276,49 @@ tab. CTK Inspector loads the file's native declarations and enables Run Action;
 the three custom action tabs remain open. No manual test window was added and
 the managed server was not restarted. Save/edit behavior was exercised through
 real VS Code documents in the isolated host suite above.
+
+## Failed saved-file refreshes retain the last valid AST, version 0.2.29
+
+Saved-file refreshes now build and restore a replacement AST offscreen before
+committing it to the inspector. A failed parse preserves the preceding valid
+node, readable properties, selected AST/Properties tab and all expanded branches.
+The old native handles are detached from inspector navigation and actions, and
+the failed replacement worker is released. No parse-error rows are inserted in
+the inspector. The status bar reports AST refresh failed with the affected file,
+error and a save-again hint. Returning to a failed file restores that snapshot
+without reparsing or triggering a retry loop.
+
+The next save retries automatically using the rebased selection/branch bookmarks.
+A successful replacement clears that file's error and restores native navigation
+and actions. Inactive saves use the same transaction and error reporting while
+preserving the foreground inspector. Multiple files retain independent errors;
+recovering or closing a file clears only its own status. Closing its last tab
+still disposes its session and snapshot. Superseded refreshes cannot overwrite
+another file's current inspector.
+
+Validation logs: `vscode/artifacts/validation/failed-save-inspector-20261017/`.
+Focused tests cover retained facts throughout a failed replacement, stale-handle
+blocking, next-attempt success, late-error cancellation and independent background
+errors. The real VS Code suite inserts an actual C++ #error, checks exact retained
+tree/properties and selected-node identity, confirms errors appear only in the
+status bar, switches away/back without retrying, repairs and saves to recover,
+runs an action through the replacement parse, repeats failure/recovery in an
+inactive tab, and closes a failed file's last tab. The first host run reached
+recovery and exposed stale diagnostic text left on the hidden status item; the
+cleared status now resets its text and tooltip as well.
+
+TypeScript, Biome and all 78 extension unit tests pass (17 optional native unit
+cases remain opt-in). The final complete real VS Code extension-host suite passes
+with the console helper library enabled, including actual Clang error/recovery
+and failed-file close checks. The harness reports CTK_TEST_PROCESSES_CLOSED and
+an independent audit confirms zero remaining temporary test processes.
+
+Packaged and installed v0.2.29 in the approved normal VS Code profile. Archive
+integrity and installed-version checks pass. VSIX SHA256:
+`db6b403fec90c8f5fe745ea88cd4145c10ac5972972fecb4b53142fbcea93c2d`.
+
+Reloaded the existing normal-profile match-groups-demo.cpp trial. CTK Inspector
+automatically displays the native file tree (Base, Sample, another and the four
+caller/callee functions) with Run Action enabled; all three custom action editor
+tabs remain open. No additional manual window was opened, user fixture contents
+were preserved, and the managed server was not restarted.

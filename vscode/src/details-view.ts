@@ -161,6 +161,10 @@ export class DetailsView
   private contextId = randomBytes(12).toString("hex");
   private rendered: z.infer<typeof messages> | undefined;
   private operation: Promise<AstInspection | undefined> | undefined;
+  private readonly refreshErrors = new Map<
+    string,
+    { message: string; hasAst: boolean }
+  >();
   private readonly status = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
     38,
@@ -269,9 +273,18 @@ export class DetailsView
   }
   private publish(): void {
     this.status.command = undefined;
+    const refreshError =
+      [...this.refreshErrors].find(
+        ([file]) => file === this.current?.node.file,
+      ) ?? [...this.refreshErrors].at(-1);
     if (this.running) {
       this.status.text = "$(loading~spin) CTK · inspecting AST";
       this.status.tooltip = "Loading the selected AST node";
+      this.status.show();
+    } else if (refreshError && (!this.error || !this.load)) {
+      const [file, failure] = refreshError;
+      this.status.text = "$(warning) CTK · AST refresh failed";
+      this.status.tooltip = `${file}\n${failure.message}\n${failure.hasAst ? "Showing the last valid AST. " : ""}Save this file again to retry.`;
       this.status.show();
     } else if (this.error || this.notice) {
       const expired =
@@ -287,12 +300,61 @@ export class DetailsView
       this.status.command = "ctk.reloadFileAst";
       this.status.show();
     } else {
+      this.status.text = "";
+      this.status.tooltip = undefined;
       this.status.hide();
     }
     void this.view?.webview.postMessage({
       type: "state",
       state: this.snapshot(),
     });
+  }
+  setRefreshError(file: string, error?: string, hasAst = false): void {
+    if (error) this.refreshErrors.set(file, { message: error, hasAst });
+    else this.refreshErrors.delete(file);
+    this.publish();
+  }
+  async refreshFile(
+    result: Result,
+    previous: InspectorState | undefined,
+    build: (current: () => boolean) => Promise<InspectorState | undefined>,
+    current: () => boolean,
+  ): Promise<InspectorState | undefined> {
+    if (!current()) return;
+    if (previous) this.applyState(previous);
+    else {
+      this.clear();
+      this.current = { node: result };
+      this.rootLabel = "File AST";
+    }
+    const generation = ++this.generation;
+    const valid = () => generation === this.generation && current();
+    // The displayed snapshot may outlive its native worker. Keep its facts
+    // visible, but never traverse or run an action through the old handles.
+    this.load = undefined;
+    this.prepareAction = undefined;
+    this.operation = undefined;
+    this.retry = undefined;
+    this.error = "";
+    this.notice = "";
+    this.running = true;
+    this.publish();
+    try {
+      const state = await build(valid);
+      if (!state || !valid()) return;
+      state.tab = this.tab;
+      await this.restore(state, current);
+      return state;
+    } catch (error) {
+      if (!valid()) return;
+      this.error = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      if (generation === this.generation) {
+        this.running = false;
+        this.publish();
+      }
+    }
   }
   async show(
     result: Result,
@@ -433,7 +495,7 @@ export class DetailsView
       this.publish();
       return;
     }
-    if (this.running) return;
+    if (this.running || !this.load) return;
     if (message.type === "related") {
       if (!this.relatedNode(message.id))
         throw new Error("This base class is no longer available.");
@@ -624,8 +686,7 @@ export class DetailsView
       }
     }
   }
-  async restore(state: InspectorState, current: () => boolean): Promise<void> {
-    const generation = ++this.generation;
+  private applyState(state: InspectorState): void {
     this.current = state.current;
     this.history = state.history;
     this.cache = state.cache;
@@ -642,6 +703,11 @@ export class DetailsView
     this.retry = undefined;
     this.rendered = undefined;
     this.treeReveal++;
+  }
+  async restore(state: InspectorState, current: () => boolean): Promise<void> {
+    if (!current()) return;
+    const generation = ++this.generation;
+    this.applyState(state);
     this.publish();
     // A tab can be left while a native request is still finishing. Let it
     // settle before the restored tree can issue another request to that host.

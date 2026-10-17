@@ -2103,6 +2103,7 @@ export async function run(): Promise<void> {
   type RetainedFile = {
     file: string;
     stale: boolean;
+    error?: string;
     contextId?: string;
     node?: { id: string; name: string; kind: string };
   };
@@ -2148,7 +2149,219 @@ export async function run(): Promise<void> {
       (row) => row.name === "sample::Other" && row.expanded,
     ),
   );
+  const parseFailure = "#error deliberate saved-file parse failure\n";
+  const retainedSavedFile = () =>
+    (api.snapshot() as { inspectorFiles: RetainedFile[] }).inspectorFiles.find(
+      (file) => file.file.endsWith("/save-state.cpp"),
+    );
+  async function saveParseFailure() {
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(savedUri, new vscode.Position(0, 0), parseFailure);
+    assert.equal(await vscode.workspace.applyEdit(edit), true);
+    assert.equal(await savedEditor.document.save(), true);
+    const end = Date.now() + 45000;
+    while (Date.now() < end) {
+      if (retainedSavedFile()?.error) return;
+      await new Promise((done) => setTimeout(done, 40));
+    }
+    assert.fail(
+      `A real Clang parse error was not reported: ${JSON.stringify(api.snapshot())}`,
+    );
+  }
+  async function repairParseFailure() {
+    const edit = new vscode.WorkspaceEdit();
+    edit.delete(
+      savedUri,
+      new vscode.Range(new vscode.Position(0, 0), new vscode.Position(1, 0)),
+    );
+    assert.equal(await vscode.workspace.applyEdit(edit), true);
+    assert.equal(await savedEditor.document.save(), true);
+  }
+  const beforeFailure = astState(),
+    expiredAfterFailure = await api.details.actionTarget();
+  await saveParseFailure();
+  const failedSave = astState();
+  assert.match(failedSave.error, /Clang reported errors|parsing|parse/i);
+  assert.equal(failedSave.node?.id, beforeFailure.node?.id);
+  assert.equal(failedSave.contextId, beforeFailure.contextId);
+  assert.deepEqual(
+    failedSave.tree,
+    beforeFailure.tree,
+    "a failed parse must leave every old branch and selection visible",
+  );
+  assert.deepEqual(failedSave.node, beforeFailure.node);
+  assert.deepEqual(failedSave.semantics, beforeFailure.semantics);
+  assert.equal(failedSave.tab, "properties");
+  assert.equal(failedSave.canRunAction, false);
+  assert.match(failedSave.inspectionStatus.text, /AST refresh failed/);
+  assert.match(String(failedSave.inspectionStatus.tooltip), /save-state\.cpp/);
+  assert.match(
+    String(failedSave.inspectionStatus.tooltip),
+    /last valid AST.*Save this file again to retry/s,
+  );
+  await assert.rejects(api.details.actionTarget(), /current AST node/);
+  await assert.rejects(
+    expiredAfterFailure.activate(),
+    /Source or settings changed|closed/,
+  );
+  await api.details.selectSource({ file: savedUri.fsPath, start: 0, end: 0 });
+  await inspectorTab("ast");
+  await api.details.receive({
+    type: "expand",
+    id: failedSave.tree[0]!.id,
+    expanded: false,
+  });
+  assert.deepEqual(
+    astState().tree,
+    beforeFailure.tree,
+    "failed snapshots must not navigate invalid native handles",
+  );
+  await inspectorTab("properties");
+  const failedRendered = astState().rendered;
+  assert.ok(
+    failedRendered?.type === "rendered" &&
+      !failedRendered.text.includes("Clang reported errors"),
+    "parse errors belong only in the status bar",
+  );
+  await new Promise((done) => setTimeout(done, 800));
+  assert.equal(
+    astState().running,
+    false,
+    "failed parsing must not start a retry loop",
+  );
+  assert.equal(astState().contextId, beforeFailure.contextId);
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+    { preview: false },
+  );
+  const unaffected = await automaticFile("semantic-inspector.cpp", "Root");
+  assert.equal(unaffected.canRunAction, true);
+  assert.match(
+    unaffected.inspectionStatus.text,
+    /AST refresh failed/,
+    "an inactive file's error remains available in the status bar",
+  );
+  await vscode.window.showTextDocument(savedEditor.document, {
+    preview: false,
+  });
+  const failureRestoreEnd = Date.now() + 10000;
+  while (
+    Date.now() < failureRestoreEnd &&
+    (astState().contextId !== beforeFailure.contextId || !astState().error)
+  )
+    await new Promise((done) => setTimeout(done, 40));
+  assert.equal(
+    astState().contextId,
+    beforeFailure.contextId,
+    "revisiting a failed saved file must restore its last valid AST without reparsing",
+  );
+  assert.ok(astState().error);
+  assert.deepEqual(astState().tree, beforeFailure.tree);
+  await repairParseFailure();
+  const recovered = await waitForAst(
+    (state) =>
+      state.contextId !== beforeFailure.contextId &&
+      state.node?.name === "sample::Keep::run",
+  );
+  assert.equal(retainedSavedFile()?.error, undefined);
+  assert.equal(recovered.canRunAction, true);
+  assert.equal(recovered.tab, "properties");
+  assert.ok(
+    recovered.tree.some((row) => row.name === "sample::Other" && row.expanded),
+  );
+  assert.deepEqual(recovered.semantics?.parameters, [
+    { name: "value", type: "int" },
+  ]);
+  assert.doesNotMatch(recovered.inspectionStatus.text, /refresh failed/);
+  await api.actions.setAction(
+    parseNodeAction(baseActionUri.fsPath, baseActionSource),
+    true,
+    await api.details.actionTarget(),
+  );
+  await api.actions.run();
+  assert.equal(
+    actionState().parseCount,
+    1,
+    "a recovered action must use the successful replacement parse",
+  );
+  await api.actions.refresh();
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+    { preview: false },
+  );
+  const backgroundForeground = await automaticFile(
+    "semantic-inspector.cpp",
+    "Root",
+  );
+  await saveParseFailure();
+  assert.equal(astState().contextId, backgroundForeground.contextId);
+  assert.equal(
+    astState().canRunAction,
+    true,
+    "an unrelated failed save must not disable the active AST",
+  );
+  assert.match(astState().inspectionStatus.text, /AST refresh failed/);
+  assert.equal(retainedSavedFile()?.contextId, recovered.contextId);
+  await repairParseFailure();
+  const backgroundRecoveryEnd = Date.now() + 45000;
+  while (Date.now() < backgroundRecoveryEnd) {
+    const retained = retainedSavedFile();
+    if (
+      retained &&
+      !retained.stale &&
+      !retained.error &&
+      retained.contextId !== recovered.contextId
+    )
+      break;
+    await new Promise((done) => setTimeout(done, 40));
+  }
+  assert.equal(
+    retainedSavedFile()?.stale,
+    false,
+    "the next inactive save must retry the failed parse",
+  );
+  assert.equal(retainedSavedFile()?.error, undefined);
+  assert.notEqual(retainedSavedFile()?.contextId, recovered.contextId);
+  assert.equal(astState().contextId, backgroundForeground.contextId);
+  assert.doesNotMatch(astState().inspectionStatus.text, /refresh failed/);
+  await vscode.window.showTextDocument(savedEditor.document, {
+    preview: false,
+  });
+  const recoveredBackground = await waitForAst(
+    (state) => state.contextId === retainedSavedFile()?.contextId,
+  );
+  assert.equal(recoveredBackground.node?.name, "sample::Keep::run");
+  assert.equal(recoveredBackground.canRunAction, true);
+  assert.ok(
+    recoveredBackground.tree.some(
+      (row) => row.name === "sample::Other" && row.expanded,
+    ),
+  );
+  await saveParseFailure();
+  await vscode.window.showTextDocument(
+    await vscode.workspace.openTextDocument(semanticUri),
+    { preview: false },
+  );
+  const beforeFailedClose = await automaticFile(
+    "semantic-inspector.cpp",
+    "Root",
+  );
+  await vscode.window.tabGroups.close(await tabsFor(savedUri));
+  const failedCloseEnd = Date.now() + 10000;
+  while (Date.now() < failedCloseEnd && retainedSavedFile())
+    await new Promise((done) => setTimeout(done, 40));
+  assert.equal(
+    retainedSavedFile(),
+    undefined,
+    "closing the failed file's last tab must release its snapshot and session",
+  );
+  assert.equal(astState().contextId, beforeFailedClose.contextId);
+  assert.doesNotMatch(
+    astState().inspectionStatus.text,
+    /refresh failed/,
+    "closing a failed file must clear its status-bar error",
+  );
   console.log(
-    "CTK_EXTENSION_HOST_PASS: save refresh preserving shifted/changed nodes, exact overloads, expanded branches and Properties; deleted-node parent fallback; inactive-save refresh without stealing the inspector; independent per-file sessions without reparsing, shared action ownership, last-tab release/reopen, CTK Inspector, live renewal, split-tab ownership, symbols, console, YAML actions, grouped matches, retained-node follow-up, stale edits, completion, semantic sections, base/source navigation and actions",
+    "CTK_EXTENSION_HOST_PASS: real Clang save failures preserve the last valid AST, selection, expansion and Properties; status-bar errors, blocked stale actions, no tab-triggered retry, next-save recovery and background failure/recovery; save refresh preserving shifted/changed nodes, exact overloads, expanded branches and Properties; deleted-node parent fallback; inactive-save refresh without stealing the inspector; independent per-file sessions without reparsing, shared action ownership, last-tab release/reopen, CTK Inspector, live renewal, split-tab ownership, symbols, console, YAML actions, grouped matches, retained-node follow-up, stale edits, completion, semantic sections, base/source navigation and actions",
   );
 }

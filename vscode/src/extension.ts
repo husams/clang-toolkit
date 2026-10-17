@@ -81,6 +81,7 @@ interface FileInspectorSession {
   access: SearchAstAccess;
   context?: Promise<SearchAstContext>;
   state?: InspectorState;
+  failure?: string;
   stale: boolean;
   sources: Set<string>;
   source?: string;
@@ -249,6 +250,7 @@ export class Prototype {
       inspectorFiles: [...this.fileSessions].map(([file, session]) => ({
         file,
         stale: session.stale,
+        error: session.failure,
         contextId: session.state?.contextId,
         node: session.state?.current
           ? {
@@ -695,6 +697,7 @@ export class Prototype {
         continue;
       this.fileSessions.delete(path);
       session.access.dispose();
+      this.details.setRefreshError(path);
       if (this.activeFileSession === session) {
         this.activeFileSession = undefined;
         this.inspectionFile = undefined;
@@ -808,6 +811,9 @@ export class Prototype {
             created.stale = true;
             created.revision++;
             delete created.context;
+            // A failed save waits for the next save (or an explicit reload),
+            // rather than looping on filesystem notifications or tab changes.
+            if (created.failure) return;
             if (this.activeFileSession === created && this.automaticInspection)
               this.fileInspection.refresh();
             else if (created.document && !created.document.isDirty)
@@ -822,7 +828,7 @@ export class Prototype {
       session = created;
       this.fileSessions.set(file, session);
     }
-    if (force) {
+    if (force || (session.stale && !session.failure)) {
       this.captureBookmark(session, file);
       session.access.close();
       delete session.context;
@@ -832,49 +838,116 @@ export class Prototype {
     this.activeFileSession = session;
     this.inspectionSources = session.sources;
     session.document = editor.document;
-    if (session.state && !session.stale) {
-      await this.details.restore(session.state, current);
+    if (session.state && (!session.stale || (session.failure && !force))) {
+      await this.details.restore(
+        this.fileDisplayState(session, session.state),
+        current,
+      );
       return;
     }
     const bookmark = session.bookmark;
-    session.stale = Boolean(bookmark);
+    session.stale = true;
     const text = editor.document.getText();
-    session.source = text;
     const selected = session;
     const revision = selected.revision;
     const valid = () =>
       current() &&
       this.fileSessions.get(file) === selected &&
       selected.revision === revision;
-    const context = () =>
-      (selected.context ??= selected.access.open(undefined, file));
-    await this.details.show(
-      {
-        id: editor.document.uri.toString(),
-        name: basename(file),
-        kind: "File",
-        file,
-        line: 1,
-        column: 1,
-        excerpt: "",
-        raw: {},
-      },
-      async (id, selection) => {
-        const source = await context();
-        return selection && id
-          ? source.selectSource(id, selection)
-          : this.inspectRoot(source, id, bookmark, file);
-      },
-      async (id) => this.actions.inspectorTarget(id, await context()),
-      { preserveEditor: true, current: valid },
-    );
-    if (bookmark && valid())
-      await this.details.rebind(bookmark, text, file, valid);
-    if (valid() && !this.details.snapshot().error) {
-      selected.stale = false;
-      selected.state = this.details.save();
-      delete selected.bookmark;
+    try {
+      const state = await this.details.refreshFile(
+        {
+          id: editor.document.uri.toString(),
+          name: basename(file),
+          kind: "File",
+          file,
+          line: 1,
+          column: 1,
+          excerpt: "",
+          raw: {},
+        },
+        session.state,
+        (current) =>
+          this.buildFileState(selected, file, text, bookmark, current),
+        valid,
+      );
+      if (state && valid()) this.acceptFileState(selected, file, text, state);
+    } catch (error) {
+      if (valid()) {
+        this.failFileState(selected, file, error);
+        selected.state ??= this.details.save();
+      }
     }
+  }
+  private fileDisplayState(
+    session: FileInspectorSession,
+    state: InspectorState,
+  ): InspectorState {
+    return session.failure
+      ? {
+          ...state,
+          error: session.failure,
+          notice: "",
+          load: undefined,
+          prepareAction: undefined,
+          operation: undefined,
+        }
+      : state;
+  }
+  private async buildFileState(
+    session: FileInspectorSession,
+    file: string,
+    text: string,
+    bookmark: InspectorBookmark | undefined,
+    current: () => boolean,
+  ): Promise<InspectorState | undefined> {
+    session.context ??= session.access.open(undefined, file);
+    const context = await session.context;
+    if (!current()) return;
+    const root = await this.inspectRoot(context, undefined, bookmark, file);
+    if (!current()) return;
+    return refreshedInspectorState(
+      root,
+      (id, selection) =>
+        selection && id
+          ? context.selectSource(id, selection)
+          : context.inspect(id),
+      (id) => this.actions.inspectorTarget(id, context),
+      session.state?.tab ?? "ast",
+      bookmark,
+      text,
+      file,
+      current,
+    );
+  }
+  private acceptFileState(
+    session: FileInspectorSession,
+    file: string,
+    text: string,
+    state: InspectorState,
+  ): void {
+    session.state = state;
+    session.source = text;
+    session.stale = false;
+    delete session.bookmark;
+    delete session.failure;
+    this.details.setRefreshError(file);
+  }
+  private failFileState(
+    session: FileInspectorSession,
+    file: string,
+    error: unknown,
+  ): void {
+    session.failure = error instanceof Error ? error.message : String(error);
+    session.stale = true;
+    session.access.close();
+    delete session.context;
+    this.output.appendLine(`Refreshing ${file}: ${session.failure}`);
+    this.details.setRefreshError(
+      file,
+      session.failure,
+      Boolean(session.state?.current?.nativeId),
+    );
   }
   private captureBookmark(session: FileInspectorSession, file: string): void {
     if (session.bookmark || session.source === undefined) return;
@@ -953,32 +1026,37 @@ export class Prototype {
     session.document = document;
     const bookmark = session.bookmark,
       text = document.getText();
-    session.source = text;
-    session.context = session.access.open(undefined, file);
-    const context = await session.context;
-    const root = await this.inspectRoot(context, undefined, bookmark, file);
-    if (!current()) return;
-    const state = await refreshedInspectorState(
-      root,
-      (id) => context.inspect(id),
-      (id) => this.actions.inspectorTarget(id, context),
-      session.state?.tab ?? "ast",
-      bookmark,
-      text,
-      file,
-      current,
-    );
-    if (state && current()) {
-      session.state = state;
-      session.stale = false;
-      delete session.bookmark;
-      if (this.activeFileSession === session)
-        await this.details.restore(state, current);
+    try {
+      const state = await this.buildFileState(
+        session,
+        file,
+        text,
+        bookmark,
+        current,
+      );
+      if (state && current()) {
+        this.acceptFileState(session, file, text, state);
+        if (this.activeFileSession === session)
+          await this.details.restore(state, current);
+      }
+    } catch (error) {
+      if (current()) {
+        this.failFileState(session, file, error);
+        if (this.activeFileSession === session && session.state)
+          await this.details.restore(
+            this.fileDisplayState(session, session.state),
+            current,
+          );
+      }
     }
   }
   private saveFileInspector(): void {
-    if (this.activeFileSession && !this.activeFileSession.stale)
-      this.activeFileSession.state = this.details.save();
+    if (this.activeFileSession) {
+      if (!this.activeFileSession.stale)
+        this.activeFileSession.state = this.details.save();
+      else if (this.activeFileSession.state)
+        this.activeFileSession.state.tab = this.details.snapshot().tab;
+    }
     this.editorSelection.cancel();
   }
 }
