@@ -41,7 +41,9 @@ Reading or escaping a tail through ordinary user code materializes a real list
 and retains that list's identity for aliases and subsequent mutation. Closures
 capturing a tail receive a real list. Nested elements retain their identity:
 these are shallow-list semantics, not deep copies. List subclasses keep their
-own slicing behavior rather than using plain-list cursors.
+own slicing behavior rather than using plain-list cursors. Custom pattern
+length, indexing and type hooks trigger the same snapshot protection before
+they can mutate another matched argument.
 
 ## Boundaries
 

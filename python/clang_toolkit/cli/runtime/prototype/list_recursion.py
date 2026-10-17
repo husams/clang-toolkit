@@ -89,6 +89,14 @@ def _is_list(value: Any) -> bool:
     return isinstance(value, (list, _Cursor))
 
 
+def _pattern_value(value: Any, arena: _Arena) -> Any:
+    kind = type(value)
+    if kind is not list and kind is not tuple and kind is not _Cursor:
+        # Subclass length/index/type hooks may mutate another matched argument.
+        arena.freeze()
+    return value
+
+
 def _tail(value: Any, offset: int, arena: _Arena) -> Any:
     if isinstance(value, _Cursor) and value.owned is None:
         return _Cursor(
@@ -97,6 +105,7 @@ def _tail(value: Any, offset: int, arena: _Arena) -> Any:
     items = value.materialize() if isinstance(value, _Cursor) else value
     if type(items) is not list:
         # Preserve subclass slicing hooks instead of applying plain-list sharing.
+        arena.freeze()
         return items[offset:]
     return _Cursor(items, offset, len(items), arena)
 

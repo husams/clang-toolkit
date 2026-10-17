@@ -117,7 +117,6 @@ def test_general_recursion_preserves_limits_and_restores_scopes(execute):
         execute("let bad = { ([]) 0; (h : t) bad(t) + 1 / h }; bad([1, 0, 2])")
 
 
-
 def test_cancellation_restores_continuation_scopes(execute):
     context = Context()
     context.cancel_hook = lambda: context.steps > 400
@@ -330,3 +329,31 @@ def test_generated_steps_match_ordinary_execution_in_prepared_console(
     finally:
         runtime.close()
         client.close()
+
+
+@pytest.mark.parametrize("operation", ["length", "index", "slice"])
+def test_pattern_hooks_cannot_mutate_previously_bound_tails(execute, operation):
+    values = [1, 2, 3]
+    lengths = 0
+
+    class Hooks(list):
+        def __len__(self):
+            nonlocal lengths
+            lengths += 1
+            if operation == "length" and lengths == 2:
+                values[1] = 99
+            return super().__len__()
+
+        def __getitem__(self, index):
+            if operation == ("slice" if isinstance(index, slice) else "index"):
+                values[1] = 99
+            return super().__getitem__(index)
+
+    pattern = "other : rest" if operation == "slice" else "[other]"
+    source = (
+        "let f = { ([], _) 0; (h : t, " + pattern + ") h + f(t, hooks) }; "
+        "f(values, hooks)"
+    )
+    context = Context(bindings={"values": values, "hooks": Hooks([7])})
+    assert execute(source, context) == 6
+    assert values == [1, 99, 3]
