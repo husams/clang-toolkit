@@ -85,6 +85,7 @@ class StyledBlock:
     start: int
     text: str
     lines: list[StyleAndTextTuples]
+    result_key: str | None = None
 
 
 class TranscriptLexer(Lexer):
