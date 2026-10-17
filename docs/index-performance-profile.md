@@ -1,147 +1,60 @@
-# Index validation bottleneck and fix
+# Background index performance profile and validation fix
 
-The previous fresh 623-TU run completed in 2,623.467 seconds (43m43s).
-Both fixes completed a fresh 623-TU run in **1,035.916 seconds (17m15.916s)**,
-versus 2,623.467 seconds (43m43.467s) previously: an observed **2.53x speedup**
-and **60.5% less elapsed time**. All 771 sampled active requests succeeded:
-symbol lookups stayed below 9 ms, fresh native parse/match below 36 ms, and
-status requests below 10 ms. No RPC failures or timeouts were observed.
+## Current result
 
-| Full 623-TU run | Elapsed |
-| --- | ---: |
-| Definitions-only/context-reuse baseline | 43m43.467s |
-| Directory-digest cache alone | 35m06.108s |
-| Directory cache plus retained foreground yields | **17m15.916s** |
+Code `4cfb528` indexed all **623 TUs in 1041.032 seconds (17m21.032s)**, with zero failed, skipped or pending TUs and revision 623. Compared with the recorded 43m43.467s baseline, this is an observed **2.52x speedup** and **60.3% less elapsed time**. The earlier 17m15.916s measurement predates the final freshness and worker-completion fixes; the final code has now been measured separately.
 
-The intermediate run exposed a second bottleneck: foreground bursts discarded
-the active extractor, and the next pass revalidated every preceding TU.
-These are observed timings; OS cache warmth and unrelated host activity were
-not controlled. See [the final measurement](index-full-623-optimized-validation.md).
+All **771 sampled requests during indexing succeeded**: exact/USR lookups were below 6 ms, prefix lookups below 11 ms, real out-of-line definition lookups below 4 ms, fresh native parse/match below 35 ms and status below 12 ms. These are concurrent sampled bursts, not a saturation guarantee. All 202,255 physical definition rows and all 623 TU/header memberships exactly match the previous completed index, including compilation contexts and owner IDs. SQLite has exactly three tables, no non-definition rows and no standard-header rows matching the checked include paths.
 
-## Measured bottleneck
+The measurement used a temporary private Interactive launchd service, matching the previously approved managed-server policy. The index thread retained Utility priority and extraction workers retained nice 15. The managed server was untouched. The private service was removed after successful verification; its completed database and raw evidence remain in `/tmp/ctk623-pr60-role-bgmli2s4`. See [the full measurement](index-full-623-optimized-validation.md).
 
-A five-second sample of the isolated server caught its entire sampled background
-index thread in `replace -> manifest_current -> digest_file -> include_inventory`,
-mostly `stat`, directory enumeration and filesystem metadata calls. This sample
-identifies an expensive validation interval, not a percentage of the whole run.
-The worker constructs include-directory inventories, and the controller previously
-repeated full walks before and after each publication. Foreground interruptions
-could also restart reconciliation and repeat validation of completed TUs.
+## Historical full-project measurements
 
-Standalone extraction of representative small declaration/expression TUs took
-1.38–2.56 seconds. A generated query protobuf TU took 5.73 seconds with derived
-header reuse disabled and 17.18 seconds with a populated derived cache in one
-probe. Native parsing is still required; extracted-record reuse alone does not
-guarantee a speedup.
+These runs used the same frozen 623-TU compile database and Release flags (`-O1 -DNDEBUG -g0`) with empty persistent and derived caches. OS filesystem caches and unrelated host activity were not controlled.
 
-Cold/warm effects were substantial: a six-TU server probe took 76.38 seconds,
-while a repeat on the old binary took 19.49 seconds. An experimental disk-policy
-adjustment was reverted because its apparent gain did not survive the warm-cache
-control. The final fix retains the existing CPU and I/O priority policy.
+| Run | Elapsed | Qualification |
+| --- | ---: | --- |
+| Earlier baseline | 43m43.467s | historical baseline |
+| Directory-digest cache | 35m06.108s | intermediate cache-only implementation |
+| Directory cache plus retained foreground yields | 17m15.916s | pre-final worker/admission fixes; not the current final result |
+| `4cfb528` | **17m21.032s** | final freshness and worker-exit fixes; private Interactive service |
 
-Raw evidence is under `/tmp/ctk-index-profile-7elxptnq/`: `server-before/cpu.sample.txt`,
-the server timing logs, `workers-before.jsonl`, and saved source changes. The small
-profiling cohorts are not used to claim a full-project speedup.
+The historical comparison is directional, not a controlled causal estimate. One source file changed between earlier runs, and host load and OS cache warmth varied.
 
-## Change
+## Profile evidence and source-difference audit
 
-The background controller now retains only bounded include-directory digests,
-guarded by kernel directory notifications: kqueue on macOS, inotify on Linux.
-Unchanged directories reuse their digest. Changes, lost watches and queue errors
-invalidate cached inventories; unavailable or exhausted watches use full walks.
-Directory timestamps and a time-to-live are not freshness criteria.
+A five-second sample of the isolated server in the earlier profile caught the background thread in `replace -> manifest_current -> digest_file -> include_inventory`, mostly filesystem metadata calls. This identified an expensive validation interval, not a percentage of total runtime. Separate foreground-burst tests showed that discarding the active worker could restart reconciliation and redo prior validation.
 
-Watches cover directory ancestors and intermediate symlinks, including external
-targets. Root inode identity is checked, and a changing initial walk is retried.
-Directory inventories also record symlink targets, so direct retargets with
-unchanged relative filenames invalidate the old digest. An external-symlink-chain
-regression test failed before the guard fix and passed afterward.
+The directory-cache experiment retained all 623 TU variants and matching header-group membership. Its 202,255 definition rows differed from the earlier 202,257 only for `server/tests/test_match_cursors.cpp`: 352 prior records versus 350 replacement records, with changed source digests. All records outside that edited file matched. The compile database was frozen, but source files and other host activity were not. Evidence: `/tmp/ctk623-optimized-s98xsvzi/semantic-comparison.json` and `semantic-differences.json`.
 
-Header contents still receive fresh hashes before and after publication. Existing
-macro-sensitive definition extraction/reuse, standard-header exclusion, three
-SQLite tables, worker limits, foreground admission, pause/resume/cancel and
-affected-TU refresh remain in place. This change adds no parallel extraction
-workers.
+Raw initial profiling evidence remains under `/tmp/ctk-index-profile-7elxptnq/`. Small profiling cohorts are not project-wide timing claims. Earlier private diagnostic runs `q81`, `x6tgz3pq`, and `uobmmbvv` are excluded from performance claims; they failed before a valid full measurement, hit worker suspension permission errors, or had a debugger attached. A 3-TU interactive control took 5.727 seconds and is not a full-project timing.
 
-Resource bounds are 128 cached digests and at most 2,048 directory watches. macOS
-additionally caps watch descriptors below half the available allowance after a
-256-descriptor reserve; unsupported/resource-constrained cases fall back to walks.
+## Current implementation notes
 
-Foreground admission now suspends the isolated worker process group and resumes
-the same extraction once foreground work clears. The worker consumes no CPU
-while suspended. Its 120-second wall deadline excludes that suspension, while
-the existing CPU, memory and output limits remain. Cancellation kills and reaps
-the entire suspended group. Publication waits for foreground admission instead
-of rolling back solely because another request arrived; pause/cancel and input
-freshness checks still gate every commit.
+The controller caches bounded include-directory inventory digests behind kernel notifications (kqueue on macOS, inotify on Linux). Watch loss, overflow, unsupported watching, and inventory changes invalidate cached values and fall back to fresh walks. Directory timestamps and TTLs do not establish freshness. Watches cover ancestors and symlink chains; the root identity and initial walk are rechecked. Resource bounds are 128 cached roots and 2,048 watched directories, with macOS descriptor reserve/cap.
 
-A regression reproduced six worker launches for one discovery and three TUs;
-after the fix it requires exactly four. Process tests verify retained extraction
-across suspend/resume and cancellation of a suspended group. All 29 focused
-indexing/admission/process cases pass before the final timing run.
+The isolated worker is retained across foreground work by suspending and resuming its process group; worker CPU, memory, output, and wall limits remain. Cancellation kills and reaps the group. A completed-worker race is fixed by reaping completed children and preserving their exit status for the next poll, instead of signaling an exited child. A second poll handles completion between the first poll and the signal.
 
-## Verification of the final code
+Publication validates source/header dependencies, compile-command digest, and worker identity after admission. If an admission wait occurs inside manifest validation, the validator discards its partial digest map and retries the entire manifest from empty state before commit. Hashing remains outside the status mutex, and the admission fix adds no extra validation pass on the normal no-wait path. Deterministic regressions cover edits during final commit admission and during an inner manifest-validation wait.
 
-- All **462 native tests pass** in one full run (112.848 seconds). An earlier
-  concurrent run hit the existing 60-second completion limit in one standard-
-  header fixture; both its isolated retry and the final full suite passed.
-- All **2,500 Python unit cases have passing results**. The full run passed
-  2,499 cases; one 10-second local-console startup timeout passed when rerun
-  from the project directory. That test never contacts the server. Python
-  product code was unchanged by these performance fixes.
-- All **199 end-to-end cases pass** together (1,547.25 seconds), with the
-  configured Clang compiler set explicitly. This includes the console indexing,
-  pause/resume, affected-TU refresh and foreground-request scenarios.
-- End-to-end tests ran from a neutral directory with absolute package paths.
-  Running discovery from the Release checkout exposes an existing `-O1` to
-  `/O1` normalization bug on both the old and new binaries; it is unrelated to
-  this patch and is not fixed here.
-- A separate process constrained to 64 file descriptors verified that an
-  unavailable watch budget still performs fresh directory scans and detects
-  new headers.
-- Formatting and diff whitespace checks pass. Linux execution was unavailable
-  because the local Podman service was stopped; the Linux notification path
-  has not been exercised in this session.
+A console terminal progress-ordering correction is also included; it does not affect indexing semantics or performance results. Extraction remains serial and isolated. Each TU is still parsed with its own flags; the derived cache reuses definition records, not the Clang parse. The existing three-table SQLite schema, selective TU refresh, standard/system-header exclusion and foreground APIs remain supported.
 
-## Full-run verification
+## Verification for current code
 
-The fresh private run uses the same frozen 623-TU compile database as the 43m43s
-measurement, the same Release flags (`-O1 -DNDEBUG -g0`), empty persistent and
-derived caches, one-second status polling, and concurrent symbol/status/new-parse
-bursts approximately every minute. OS filesystem caches are not flushed.
+- Full native suite: 465 passed in 78.525s (`/tmp/ctk-pr60-final465-native.log`).
+- Full Python unit suite: 2,817 passed in 355.07s (`/tmp/ctk-pr60-final-unit.log`).
+- The full E2E run passed 206 cases and failed one workspace progress-ordering case. After that fix, the failed case and all three indexing scenarios passed together on the final build (4 passed in 37.18s). Logs: `/tmp/ctk-pr60-e2e.log` and `/tmp/ctk-pr60-4cf-e2e.log`.
+- Build `4cfb528`: 32 focused native tests passed in 32.206s (`/tmp/ctk-pr60-4cf-native-focused.log`); 4 focused E2E tests passed in 37.18s (`/tmp/ctk-pr60-4cf-e2e.log`).
+- Both stale-publication regressions failed against the old implementation; the outer-only intermediate fix still failed the inner-wait regression. The final implementation passes both: `/tmp/ctk-pr60-red.log`, `/tmp/ctk-pr60-inner-red.log`, `/tmp/ctk-pr60-green.log`.
+- The completed-worker regression reproduced `suspend index worker: Operation not permitted` before the fix; all 13 process tests pass after it. Evidence: `/tmp/worker-exit-fix-logs/old-red.log` and `final-focused.log`.
+- Earlier isolated workspace startup waits hit their 3-second limit; the final full 2,817-case suite passed without changing that limit. A native run using a shared default cache failed seven artifact-storage assertions; subsequent full runs with fresh private storage passed.
+- Linux was not run because Podman was stopped; the Linux notification path remains unverified here.
 
-The managed server is untouched. The private run copies its binaries and stores
-its evidence outside the worktree to survive another checkout cleanup.
-Final elapsed time and request latency are recorded in
-`index-full-623-optimized-validation.md`; the completed run is
-`/tmp/ctk623-final-g0icnyxg/`.
+## Final full-run evidence
 
-Final status recorded COMPLETE, 623 indexed/completed, zero skipped/failed/
-pending, and revision 623. Unlike the interrupted passes, completion counters
-did not reset during this measured run. All 202,255 physical definition rows
-are identical to the intermediate completed index, including their owner IDs
-and compilation contexts; all 623 TU-variant/header-group memberships also
-match. SQLite still has exactly three tables, zero non-definition rows and
-zero checked standard/builtin include-path rows. User-defined specializations
-inside namespace `std` are not mistaken for standard-header definitions.
-
-The private endpoint is `unix:///tmp/ctk623-final-g0icnyxg/q.sock` (PID 53809).
-Its periodic refresher was paused after timing and after the idle probes,
-preserving the completed index for inspection without ongoing background work.
-The final binary/source hashes and raw samples are retained in that run folder;
-the source patch/new-file archive is in `/tmp/ctk-index-profile-7elxptnq/`.
-
-Latest validation logs: `/tmp/ctk-yield-native-final.log`,
-`/tmp/ctk-yield-python.log`, `/tmp/ctk-yield-python-cwd-retry.log`, and
-`/tmp/ctk-yield-e2e.log`. The expected failing-before regression is retained in
-`/tmp/ctk-yield-red.log`; the 29-case focused pass is `ctk-yield-green.log`.
-
-The intermediate directory-cache run retained all 623 TU variants and identical
-header-group memberships. Its 202,255 definition rows differ from the previous
-202,257 only in `server/tests/test_match_cursors.cpp`, which changed in the main
-checkout between runs: 352 old records versus 350 replacement records, with
-different recorded source digests. Every definition record outside that edited
-file is identical. The compile database is frozen; source files and unrelated
-host activity are not frozen. Raw comparisons are in the intermediate run folder
-`/tmp/ctk623-optimized-s98xsvzi/semantic-comparison.json` and
-`semantic-differences.json`.
+- Code: `4cfb5282ff3e27e2ec41278c968a52e92e09c6dd`; binaries and source SHA-256 hashes are in `/tmp/ctk623-pr60-role-bgmli2s4/run.json`.
+- Workload: the frozen original 623-TU compile database; Release `-O1 -DNDEBUG -g0`; empty private persistent and derived caches. Native parsing warmed before timing (0.503s); the warmup had a 30s budget, while timed client requests retained the 2s budget. Timing runs from StartProjectIndex to the first COMPLETE status, with one-second polling.
+- Results and request samples: `/tmp/ctk623-pr60-role-bgmli2s4/result.json`, `samples.jsonl`, `events.jsonl` and `server.log`.
+- Exact record/context/membership comparison: `/tmp/ctk623-pr60-role-bgmli2s4/semantic-comparison.json`; all comparisons pass.
+- Private service cleanup is recorded in `/tmp/ctk623-pr60-role-bgmli2s4/service-cleanup.json`; index files are retained.
+- Host/OS caveat: filesystem cache warmth and unrelated host load were uncontrolled; source files were not frozen. Historical speedups are observational, not controlled causal estimates.

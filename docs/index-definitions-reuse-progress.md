@@ -133,7 +133,7 @@ end-to-end speedup is claimed from that trial.
 
 The fresh full run completed all 623 TUs in 43m 43.467s, with zero failed TUs. Sampled cross-TU lookups stayed below 42 ms and foreground parse/match requests below 134 ms, with zero RPC failures or timeouts. This does not meet the desired indexing speed; see [the full measured report](index-full-623-validation.md) for build/load conditions, content checks and observer corrections.
 
-## Profiled performance fixes and final full run
+## Initial optimized measurement before final review
 
 The final fresh run completed **623/623 TUs in 17m15.916s**, with zero failed
 TUs: an observed 2.53x speedup over 43m43.467s. The controller reuses directory
@@ -158,3 +158,15 @@ the older run also predates an edit to one test source. See the
 [profile and fix](index-performance-profile.md) and
 [final full measurement](index-full-623-optimized-validation.md) for evidence,
 timing limits and the source-difference audit.
+
+## Final admission validation and worker-exit race fixes
+
+Current code is `4cfb528`. The final commit validator runs after foreground admission and rechecks dependency digests, compile-command contents, and worker identity before SQLite publication. If foreground or pause admission occurs partway through manifest validation, the validator clears the partial digest map and retries from the first dependency. This closes the stale-input gap without hashing under the status mutex or repeating hashes in the ordinary no-wait path. Deterministic tests cover edits during both final admission and an inner validation wait; both are red against the old implementation.
+
+The worker controller reaps completed children and caches their exit status rather than signaling an exited child, including completion between polling and signaling. The console terminal progress-ordering correction is included separately and has no index-data effect.
+
+Verification for this code: all 465 native tests passed (78.525s), all 2,817 Python unit tests passed (355.07s), and the full E2E run passed 206 cases with one workspace-ordering failure. After correcting it, that case and all three indexing cases passed together on the final build. The final build’s 32 focused native tests passed (32.206s), and its four focused E2E tests passed (37.18s). Linux was not run because Podman was stopped.
+
+The final fresh 623-TU benchmark completed in **17m21.032s (1041.032s)** with zero failed, skipped or pending TUs. All 771 concurrent sampled requests passed: exact/USR below 6ms, prefix below 11ms, real separate-TU function-definition lookup below 4ms, fresh parse/match below 35ms, and status below 12ms. All 202,255 raw definition records and all 623 TU/header memberships match the previous completed index exactly; there are still only three SQLite tables and zero non-definition/checked standard-header rows.
+
+The private run used the previously approved Interactive service policy with Utility indexing and nice-15 extraction workers. It retained empty private caches, the frozen original 623-TU compile database, the same Release flags and one-second status polling. The service was removed after verification, retaining `/tmp/ctk623-pr60-role-bgmli2s4`. The 43m43.467s, 35m06.108s and 17m15.916s runs remain historical; the final result separately verifies the corrected code. Host activity, OS cache warmth and historical source changes remain uncontrolled. See [the profile](index-performance-profile.md) and [full measurement](index-full-623-optimized-validation.md).
