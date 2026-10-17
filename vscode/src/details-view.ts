@@ -120,14 +120,12 @@ export class DetailsView
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}' ${view.webview.cspSource};">
 <link rel="stylesheet" href="${css}"></head><body><main>
-<details id="inspector-section" data-section="AST Inspector" open><summary>AST Inspector</summary><div class="inspector-body">
+<div class="inspector-body">
 <p id="empty">Open a C++ file or select a match to inspect its AST.</p>
 <section id="inspector" hidden>
 <div class="inspector-toolbar"><div class="inspector-tabs" role="tablist" aria-label="AST inspector">
 <button id="ast-tab" role="tab" aria-controls="ast-panel" aria-selected="true">AST</button>
 <button id="properties-tab" role="tab" aria-controls="properties-panel" aria-selected="false" tabindex="-1">Properties</button></div><button id="action">Run Action</button></div>
-<nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav>
-<div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button>
 <section id="ast-panel" class="outline" role="tabpanel" aria-labelledby="ast-tab">
 <ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
 <section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><div class="node-title"><h2 id="name"></h2><span id="kind"></span></div></header>
@@ -136,7 +134,7 @@ export class DetailsView
 <div id="semantics"></div>
 <details id="properties-group" data-section="Properties" open><summary>Properties</summary><div class="section-body"><dl id="properties"></dl></div></details>
 <details id="range-group" data-section="Source range" hidden><summary>Source range</summary><div class="section-body"><dl id="range"></dl></div></details>
-</section></section></div></details></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
+</section></section></div></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
         this.error = error instanceof Error ? error.message : String(error);
@@ -175,6 +173,11 @@ export class DetailsView
       error: this.error,
       notice: this.notice,
       rootLabel: this.rootLabel,
+      inspectionStatus: {
+        text: this.status.text,
+        tooltip: this.status.tooltip,
+        command: this.status.command,
+      },
       visible: this.view?.visible ?? false,
       tab: this.tab,
       contextId: this.contextId,
@@ -196,6 +199,27 @@ export class DetailsView
     };
   }
   private publish(): void {
+    this.status.command = undefined;
+    if (this.running) {
+      this.status.text = "$(loading~spin) CTK · inspecting AST";
+      this.status.tooltip = "Loading the selected AST node";
+      this.status.show();
+    } else if (this.error || this.notice) {
+      const expired =
+        /cursor unavailable|cursor expired or closed|retained value has been closed/i.test(
+          this.error,
+        );
+      this.status.text = this.error
+        ? "$(warning) CTK · reload AST"
+        : "$(info) CTK · no AST node";
+      this.status.tooltip = expired
+        ? "This analysis session expired or closed. Click to reload the file AST."
+        : `${this.error || this.notice}\nClick to reload the file AST.`;
+      this.status.command = "ctk.reloadFileAst";
+      this.status.show();
+    } else {
+      this.status.hide();
+    }
     void this.view?.webview.postMessage({
       type: "state",
       state: this.snapshot(),

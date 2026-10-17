@@ -572,6 +572,15 @@ export class Prototype {
     if (!result) throw new Error("This result is no longer available");
     await this.showResult(result);
   }
+  reloadFileAst(): void {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !CXX.test(editor.document.uri.fsPath))
+      throw new Error("Open a C++ file before reloading its AST.");
+    if (editor.document.isDirty)
+      throw new Error("Save C++ changes before reloading its AST.");
+    this.automaticInspection = true;
+    this.fileInspection.refresh();
+  }
   private async showResult(result: Result): Promise<void> {
     this.automaticInspection = false;
     const translationUnit = this.target?.fsPath ?? result.file;
@@ -654,6 +663,7 @@ export async function activate(
   );
   for (const [name, handler] of [
     ["ctk.openAnalysis", () => prototype.view.reveal()],
+    ["ctk.reloadFileAst", () => prototype.reloadFileAst()],
     [
       "ctk.runScript",
       (uri?: vscode.Uri) => prototype.choose("scripts", uri, true),

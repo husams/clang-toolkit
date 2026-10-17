@@ -5,9 +5,7 @@ import { renderTree } from "./inspector-tree.js";
 const api = acquireVsCodeApi();
 const el = (id) => document.getElementById(id);
 const post = (type, data = {}) => api.postMessage({ type, ...data });
-const restoreSections = sectionState(api, (group) => {
-  if (group.id === "inspector-section") post("ready");
-});
+const restoreSections = sectionState(api);
 restoreSections(document.querySelector("main"));
 const tabs = ["ast", "properties"];
 for (const [index, tab] of tabs.entries()) {
@@ -31,10 +29,7 @@ for (const [index, tab] of tabs.entries()) {
   });
 }
 for (const [id, type] of [
-  ["back", "back"],
-  ["root", "root"],
   ["location", "source"],
-  ["retry", "retry"],
   ["action", "action"],
 ])
   el(id).addEventListener("click", () => post(type));
@@ -80,16 +75,8 @@ window.addEventListener("message", ({ data }) => {
   el("source").textContent = node.excerpt;
   el("source").hidden = !node.excerpt;
   el("source-section").hidden = !node.locationValid && !node.excerpt;
-  el("back").disabled = !state.back || state.running;
-  el("root").textContent = state.rootLabel;
-  el("root").disabled = !state.back || state.running;
   el("location").disabled = state.running;
   el("action").disabled = !state.canRunAction;
-  el("error").textContent = state.error;
-  el("notice").textContent = state.notice;
-  el("notice").hidden = !state.notice;
-  el("retry").hidden = !state.error;
-  el("retry").disabled = state.running;
   fields("properties", node.properties);
   el("properties-group").hidden = !node.properties.length;
   renderSemantics(el("semantics"), node, state.semantics, post, state);

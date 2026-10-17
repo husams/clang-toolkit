@@ -1088,3 +1088,48 @@ the picker titled Action on Root; cancelling preserves that selection. The
 final installation was reloaded in the existing window and its Properties tab
 placement checked again. No additional manual trial window was opened, and
 custom action editor tabs and the managed native server remain intact.
+
+## Compact inspector and expired-session recovery, version 0.2.25
+
+Removed the redundant AST Inspector disclosure/title and the entire
+Back/File AST navigation row. CTK Result now starts with the fixed
+AST/Properties tabs and right-aligned Run Action. The tree or Properties uses
+the remaining height. Per-property section folding remains available; the
+native panel Hide control hides the whole inspector.
+
+Inspection errors and unmatched-source notices now use the existing status
+bar item instead of consuming rows above the node. Expired/closed cursor
+errors are described as an expired or closed analysis session. Clicking
+CTK · reload AST, or invoking CTK: Reload File AST, creates a fresh automatic
+file-inspection context rather than retrying the unavailable handle. Actions
+on the failed node remain disabled until a live node is selected. Reload
+requires a saved C/C++ editor; it preserves existing action results.
+
+A fresh native inspection of Root::Root succeeds with zero children and an
+empty inheritance list. Closing a reproduction-owned native handle causes a
+retained-value-closed error. The original trial's cursor-unavailable state was
+also observed before installation. These are native analysis-lifetime errors,
+not AST properties. The server's default cursor idle lifetime is five minutes;
+no server lifetime setting or managed server was changed.
+
+TypeScript and Biome pass, as do all 58 extension unit tests (17 optional
+native tests were not enabled in that unit run). The complete real VS Code
+extension-host suite passes, including a new unavailable-cursor regression:
+the raw error/navigation/title text is absent from the inspector, the status
+item offers Reload File AST, failed-node actions are blocked, and reloading
+then inspecting the real Root::Root succeeds with actions enabled. Existing
+completion, search/actions, grouping, semantic sections, source sync,
+highlighting and tab/tree preservation checks also pass.
+
+Logs: `vscode/artifacts/validation/compact-inspector-20261017/`. The test host
+reports CTK_TEST_PROCESSES_CLOSED and an independent process audit reports zero
+temporary test processes. Packaged and installed v0.2.25 in the approved
+normal profile; archive and installed-version checks pass. VSIX SHA256:
+`08be9aa9e6accb53a4300862c1b4b23f0365b6b36e8e5226e2372c219237119c`.
+
+Reloaded the existing normal-profile trial and selected Root::Root through
+the AST tree. Its Properties load successfully, Run Action is enabled, and
+the inspector begins directly with the tabs and node content. The redundant
+title, Back/File AST, raw cursor error and Retry rows are absent. Custom
+action editor tabs and saved Properties-fold choices are preserved; no
+additional manual trial window was opened.

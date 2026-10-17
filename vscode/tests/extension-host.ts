@@ -1602,7 +1602,6 @@ export async function run(): Promise<void> {
   await inspectorTab("ast");
   assert.deepEqual(astState().tree, widgetTree);
   for (const title of [
-    "AST Inspector",
     "Source",
     "Inheritance",
     "Public members",
@@ -1684,7 +1683,58 @@ export async function run(): Promise<void> {
     ["Root::id"],
   );
   await api.actions.close();
+  await api.details.show(
+    {
+      id: "expired-node",
+      name: "Root::Root",
+      kind: "CXXRecordDecl",
+      file: vscode.Uri.joinPath(folder.uri, "semantic-inspector.cpp").fsPath,
+      line: 1,
+      column: 1,
+      excerpt: "",
+      raw: {},
+    },
+    async () => {
+      throw new Error("cursor unavailable");
+    },
+    async () => {
+      throw new Error("Expired nodes cannot run actions");
+    },
+  );
+  const expiredState = astState();
+  assert.equal(expiredState.error, "cursor unavailable");
+  assert.equal(expiredState.canRunAction, false);
+  assert.equal(expiredState.inspectionStatus.command, "ctk.reloadFileAst");
+  assert.match(
+    String(expiredState.inspectionStatus.tooltip),
+    /analysis session expired/,
+  );
+  assert.doesNotMatch(
+    String(expiredState.inspectionStatus.tooltip),
+    /cursor unavailable/,
+  );
+  const expiredProperties = await inspectorTab("properties");
+  assert.doesNotMatch(
+    expiredProperties.text,
+    /AST Inspector|← Back|File AST|cursor unavailable|Retry loading children/,
+  );
+  await assert.rejects(api.details.actionTarget(), /Select a current AST node/);
+  await vscode.commands.executeCommand("ctk.reloadFileAst");
+  const refreshedAst = await automaticFile("semantic-inspector.cpp");
+  const refreshedClass = refreshedAst.children?.find(
+    (node) => node.name === "Root",
+  );
+  assert.ok(refreshedClass);
+  await api.details.receive({ type: "child", id: refreshedClass.id });
+  const injected = astState().children?.find(
+    (node) => node.name === "Root::Root",
+  );
+  assert.ok(injected);
+  await api.details.receive({ type: "child", id: injected.id });
+  assert.equal(astState().error, "");
+  assert.equal(astState().node?.name, "Root::Root");
+  assert.equal(astState().canRunAction, true);
   console.log(
-    "CTK_EXTENSION_HOST_PASS: collapsible AST Inspector in CTK Result, hidden-file/cursor updates, preserved tabs/tree, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
+    "CTK_EXTENSION_HOST_PASS: compact inspector, status-bar expiry/reload recovery, injected class nodes, hidden-file/cursor updates, preserved tabs/tree, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
   );
 }
