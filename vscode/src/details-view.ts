@@ -122,11 +122,11 @@ export class DetailsView
 <link rel="stylesheet" href="${css}"></head><body><main>
 <p id="empty">Open a C++ file or select a match to inspect its AST.</p>
 <section id="inspector" hidden>
-<nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav>
-<div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button>
 <div class="inspector-tabs" role="tablist" aria-label="AST inspector">
 <button id="ast-tab" role="tab" aria-controls="ast-panel" aria-selected="true">AST</button>
 <button id="properties-tab" role="tab" aria-controls="properties-panel" aria-selected="false" tabindex="-1">Properties</button></div>
+<nav aria-label="AST navigation"><button id="back">← Back</button><button id="root">Selected result</button></nav>
+<div id="error" role="alert"></div><p id="notice" role="status"></p><button id="retry" hidden>Retry loading children</button>
 <section id="ast-panel" class="outline" role="tabpanel" aria-labelledby="ast-tab">
 <ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
 <section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><h2 id="name"></h2><span id="kind"></span></header>

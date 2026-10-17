@@ -910,3 +910,39 @@ to the `check` method kept it collapsed. Reopening restored Properties showing
 selected with its Widget/TU ancestors expanded. The trial remains open with
 the AST tab visible; custom action editor tabs were preserved. The user's
 managed server was not restarted or replaced.
+
+## Fixed inspector tabs, version 0.2.19
+
+Moved the AST/Properties tab strip to the top of the inspector's fixed header,
+with Back/File AST beneath it. The view fills its native sidebar section;
+the AST tree and Properties are bounded, separate scrolling areas. Removed
+the tree's minimum viewport-height calculation and the outer document's scroll
+so tree/property scrolling cannot move the tabs out of view. The tree keeps
+its existing scroll position and selected-node reveal behavior, and Properties
+retains its collapsible semantic sections. The native sidebar header still
+collapses the entire inspector.
+
+TypeScript and Biome pass. The first two host attempts reached the original
+20-second initial AST deadline while the native worker was still loading;
+an isolated worker/server diagnostic completed successfully in 19.253 seconds.
+The host's automatic-file wait now allows 45 seconds, covering the existing
+30-second RPC deadline plus worker startup and error-reporting overhead.
+No production RPC timeout or server behavior changed. Validation logs are in
+`vscode/artifacts/validation/ast-fixed-tabs-20261017/`.
+
+The extension unit run passes: 50 tests, with 17 native opt-ins skipped. The
+final full host run passed initial AST loading and continued, then stopped on
+`Console completion timed out`; it is not a green full-host result. That log
+is retained as `host-completion-timeout.log`. No console/runtime code changed.
+The test window and its disposable server closed after the failure.
+
+Packaged and installed v0.2.19 in the approved normal VS Code profile; archive
+verification and installed-version checks pass. VSIX SHA256:
+`6aee2ced4f058fdfa11f733f5a26bddefe94816c058c02d944b4fa4536c3d6eb`.
+Reloaded the existing normal-profile trial and verified scrolling directly:
+scrolling the AST to later declarations leaves AST/Properties and navigation
+in place. Double-clicking Widget opens Properties; scrolling from the class
+facts through Inheritance down to the final Source range keeps the tabs fixed
+at exactly the same position. Returning to AST preserves Widget's selection
+and expanded branch. The trial remains open on AST; custom action editor tabs
+are preserved and the user's managed server was not restarted or replaced.

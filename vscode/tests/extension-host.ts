@@ -41,7 +41,8 @@ export async function run(): Promise<void> {
       await vscode.commands.executeCommand("ctk.result.focus", {
         preserveFocus: true,
       });
-    const end = Date.now() + 20000;
+    // Allow the worker's 30-second RPC plus startup/error-reporting overhead.
+    const end = Date.now() + 45000;
     while (Date.now() < end) {
       const state = astState();
       if (
