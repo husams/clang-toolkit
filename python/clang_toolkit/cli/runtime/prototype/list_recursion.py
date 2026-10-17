@@ -312,6 +312,7 @@ class _Emitter:
                     observations,
                 )
         elif kind == "consume":
+            put(f"context.tick({n})")
             put("context.consume_depth += 1")
             put("try:")
             result = self.emit(node.children[0], lines, indent + 1, tail, observations)

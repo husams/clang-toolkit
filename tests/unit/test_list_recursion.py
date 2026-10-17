@@ -274,3 +274,47 @@ def test_dynamic_self_rebinding_dispatches_the_selected_callable(execute):
         execute("let f = { ([]) 0; (h : t) { rebind(); f(t) } }; f([1, 2])", context)
         == 99
     )
+
+
+@pytest.mark.parametrize("engine", ["tree", "compiled"])
+@pytest.mark.parametrize(
+    "definition, name, expression",
+    [
+        (MAP, "map_list", "map_list([1, 2, 3], (x) x * 2)"),
+        (FILTER, "filter_list", "filter_list([1, 2, 3], (x) x % 2 == 0)"),
+        (REVERSE, "reverse_list", "reverse_list([1, 2, 3])"),
+        (
+            "let walk = { ([]) 0; (h : t) { let n = walk(t); n + h } }; ",
+            "walk",
+            "walk([1, 2, 3])",
+        ),
+    ],
+)
+def test_generated_steps_match_ordinary_execution_in_prepared_console(
+    engine, definition, name, expression
+):
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+    from clang_toolkit.client import Client
+
+    client = Client()
+    runtime = PrototypeRuntime(client, script_engine=engine, environment={})
+    try:
+        source = definition + f"toggle({name}); " + expression
+        program, compiled = runtime._prototype_session.program(source)
+        steps = []
+        for enabled in (True, False):
+
+            def toggle(function):
+                if not enabled:
+                    object.__setattr__(function, "recursion", None)
+
+            context = Context(functions={"toggle": toggle})
+            result = (
+                evaluate(program, context) if engine == "tree" else compiled(context)
+            )
+            assert result is not None
+            steps.append(context.steps)
+        assert steps[0] == steps[1]
+    finally:
+        runtime.close()
+        client.close()
