@@ -853,6 +853,10 @@ export class Prototype {
     session.stale = true;
     const text = editor.document.getText();
     const selected = session;
+    // A new save is a new attempt. If its filesystem notification arrives
+    // while parsing, invalidation must schedule a replacement, not retain the
+    // previous failure's "wait for next save" suppression.
+    delete selected.failure;
     const revision = selected.revision;
     const valid = () =>
       current() &&
@@ -1040,6 +1044,7 @@ export class Prototype {
       document.version === version;
     session.stale = true;
     session.document = document;
+    delete session.failure;
     const bookmark = session.bookmark,
       text = document.getText();
     try {

@@ -1373,3 +1373,57 @@ workspace problems. Closed and removed the disposable fixture, restored the
 original match-groups-demo.cpp and CTK Inspector panel, and preserved all three
 custom action editor tabs. No manual test window was opened and the managed
 server was not restarted.
+
+## Deduplicate CTK and clang Problems entries, version 0.2.31
+
+Problems now keeps another provider's diagnostic when CTK reports the same
+physical source file, start position, error severity and message. Initial
+capitalization, whitespace and curly/straight quote differences are normalized;
+C++ identifier spelling and case remain significant. The other provider's
+marker, source range and associated actions remain available. Unrelated errors
+at the same location, warnings and errors at different positions stay distinct.
+
+The extension observes diagnostic changes, including providers that publish
+after CTK. A matching CTK marker is withdrawn while the other marker exists;
+the cached CTK marker returns if that provider removes it. CTK-only errors remain
+visible when no language server is available. Filesystem aliases resolve to
+the same physical file for comparison, and shared-header CTK markers are also
+deduplicated across aliases. Other providers' collections are never modified.
+Unchanged output does not rewrite the CTK collection, preventing diagnostic
+notification loops. Disposal removes the listener and ignores pending alias
+lookups. Existing AST preservation and Problems navigation remain in place.
+
+Validation logs: `vscode/artifacts/validation/deduplicate-problems-20261017/`.
+Focused coverage includes an existing clang error, delayed publication,
+withdrawal/fallback restoration, distinct messages/locations/severities,
+case-sensitive C++ names, filesystem aliases and notification-loop prevention.
+The real VS Code host suite adds a separate clang diagnostic collection after
+a genuine parse error, verifies exactly one matching Problems entry, then removes
+that collection and verifies the CTK fallback returns without replacing the AST.
+
+The first complete host run passed deduplication but exposed an existing save
+retry race: a late filesystem notification could invalidate a replacement while
+the previous failure still suppressed retries. Starting a new saved-file attempt
+now clears that suppression, allowing invalidation to schedule its replacement.
+The last valid AST and previous status-bar error remain available until success.
+The final run passes the background save/recovery checks as well.
+
+TypeScript, Biome and all 93 extension unit tests pass (18 optional native cases
+remain opt-in). The final complete real VS Code extension-host suite passes with
+the console helper library enabled, including live diagnostic handoff/fallback.
+The harness reports CTK_TEST_PROCESSES_CLOSED; an independent audit confirms
+zero remaining temporary test processes.
+
+Packaged and installed v0.2.31 in the approved normal VS Code profile. Archive
+integrity and installed-version checks pass. VSIX SHA256:
+`b366d57d85d99541a0a6ab90bb0df4efc02b6f8cc14d9fbe82615510ee9cfc9f`.
+
+Verified with both CTK and the real clang extension in the existing normal
+profile. Saving an undeclared identifier after Unicode text produced exactly
+one Problems entry, attributed to clang at line 1, column 34; CTK still reported
+its parse failure in the status bar. Double-clicking the remaining entry selected
+the identifier in C++. On repair, the CTK fallback appeared while reparsing,
+then the successful parse cleared it and Problems reported no workspace issues.
+Closed and removed the disposable fixture, restored match-groups-demo.cpp and
+CTK Inspector, and preserved the three custom action tabs. No extra manual VS
+Code window was opened and the managed server was not restarted.

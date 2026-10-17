@@ -54,6 +54,8 @@ If parsing fails after a save, the inspector keeps the last valid AST, selected 
 
 Compiler errors also appear under **CTK** in VS Code's **Problems** panel (View → Problems). Click an error to open its C++ file or included header at the compiler's exact line and column; Unicode positions are converted to VS Code coordinates. The next successful parse clears that file's errors, and closing its last tab releases them. Shared-header errors remain while another open file still reports them. Connection failures without compiler locations stay in the status bar.
 
+When clang or another provider reports the same error at the same source position, Problems keeps that provider's entry and suppresses the matching CTK entry. Initial capitalization, whitespace and quote-style differences are ignored; C++ identifier spelling and case are preserved. CTK-only errors remain visible, and the CTK entry returns if the other provider removes its diagnostic. This updates automatically as providers publish results, including paths that refer to the same physical file.
+
 ## Node actions
 
 1. Open a C++ file, select **Actions**, and use the single **Select action…** picker. It lists predefined and workspace actions plus **Create action…**. Without an active C++ file, the first run asks for a file.

@@ -2219,6 +2219,56 @@ export async function run(): Promise<void> {
     locatedErrors[0]!.diagnostic.message,
     "deliberate saved-file parse failure",
   );
+  const clangProblems =
+    vscode.languages.createDiagnosticCollection("ctk-test-clang");
+  async function waitForProblemCount(count: number) {
+    const end = Date.now() + 10000;
+    while (Date.now() < end && parseErrors().length !== count)
+      await new Promise((done) => setTimeout(done, 40));
+    assert.equal(
+      parseErrors().length,
+      count,
+      "CTK must respond to another provider's diagnostic changes",
+    );
+  }
+  try {
+    const duplicate = new vscode.Diagnostic(
+      new vscode.Range(0, 1, 0, 6),
+      "Deliberate saved-file parse failure",
+      vscode.DiagnosticSeverity.Error,
+    );
+    duplicate.source = "clang";
+    duplicate.code = "pp_hash_error";
+    clangProblems.set(locatedErrors[0]!.uri, [duplicate]);
+    await waitForProblemCount(0);
+    const sharedErrors = vscode.languages
+      .getDiagnostics(locatedErrors[0]!.uri)
+      .filter(
+        (diagnostic) =>
+          diagnostic.message.toLowerCase() ===
+          "deliberate saved-file parse failure",
+      );
+    assert.equal(
+      sharedErrors.length,
+      1,
+      "Problems must keep only the matching clang entry",
+    );
+    assert.equal(sharedErrors[0]!.source, "clang");
+    assert.equal(
+      astState().contextId,
+      failedSave.contextId,
+      "deduplication must not replace the cached AST",
+    );
+    clangProblems.delete(locatedErrors[0]!.uri);
+    await waitForProblemCount(1);
+    assert.equal(
+      parseErrors()[0]!.diagnostic.source,
+      "CTK",
+      "CTK must remain available when clang stops reporting the error",
+    );
+  } finally {
+    clangProblems.dispose();
+  }
   assert.match(failedSave.error, /Clang reported errors|parsing|parse/i);
   assert.equal(failedSave.node?.id, beforeFailure.node?.id);
   assert.equal(failedSave.contextId, beforeFailure.contextId);
@@ -2366,7 +2416,7 @@ export async function run(): Promise<void> {
   assert.equal(
     retainedSavedFile()?.stale,
     false,
-    "the next inactive save must retry the failed parse",
+    `the next inactive save must retry the failed parse: ${JSON.stringify(retainedSavedFile())}`,
   );
   assert.equal(retainedSavedFile()?.error, undefined);
   assert.equal(
