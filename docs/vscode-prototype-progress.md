@@ -1001,3 +1001,40 @@ installed-version checks pass. VSIX SHA256:
 Installation opened no window and did not reload the user's current editor;
 reload that existing window to activate the updated extension. No shared
 native server, user helper library or custom action draft was changed.
+
+## Restore the collapsible inspector to CTK Result, version 0.2.21
+
+Corrected the earlier placement change: AST Inspector belongs in the separate
+CTK Result bottom panel, not in Explorer. Its full-width AST Inspector header
+now folds the whole inspector, including the AST and Properties tabs. Folding
+uses the existing persisted section state; background file/cursor inspection
+continues without reopening the section or a hidden panel. Expanding it
+restores the current tab, selected node and expanded tree branches. The tabs
+and navigation remain fixed above the independently scrolling tree/Properties
+body. No Explorer view is contributed by this extension.
+
+The first real scrolling check exposed an incorrectly sized details content
+wrapper, which allowed the header and tabs to scroll away. The inspector body
+is now bounded beneath its header rather than relying on percentage sizing
+through that wrapper. Manual verification in the existing normal-profile
+trial confirms both tree and Properties scroll under fixed tabs. Folding
+hides both tabs and all content; moving the cursor to Widget::check while
+folded keeps it folded. Reopening preserves Properties and shows the selected
+method and its typed parameters. Switching to AST retains the expanded Widget
+branch and selected check declaration. Explorer no longer contains AST
+Inspector; unrelated extensions' views were left alone.
+
+Validation logs: `vscode/artifacts/validation/ctk-result-collapse-20261017/`.
+TypeScript and Biome pass; all 58 extension unit tests pass (17 native opt-ins
+were not enabled in that run). The final complete real VS Code extension-host
+suite passes against the final layout, including default helper-library
+completion, YAML actions, grouping, native AST/semantic properties, source
+highlighting, follow-up actions, preserved tabs/tree and hidden-panel updates.
+The host launcher exits successfully and reports CTK_TEST_PROCESSES_CLOSED;
+an independent process audit confirms zero temporary test processes remain.
+
+Packaged and installed v0.2.21 in the approved normal profile, then reloaded the
+existing trial window to activate it. The VSIX archive verifies successfully;
+SHA256: `747c6cc0b486594b2a3e3b1ca9628be98f1df73c1c22e56c8c1c160e63d66d04`.
+Custom action editor tabs and the managed native server are preserved. No
+additional manual trial window was opened.

@@ -5,7 +5,10 @@ import { renderTree } from "./inspector-tree.js";
 const api = acquireVsCodeApi();
 const el = (id) => document.getElementById(id);
 const post = (type, data = {}) => api.postMessage({ type, ...data });
-const restoreSections = sectionState(api);
+const restoreSections = sectionState(api, (group) => {
+  if (group.id === "inspector-section") post("ready");
+});
+restoreSections(document.querySelector("main"));
 const tabs = ["ast", "properties"];
 for (const [index, tab] of tabs.entries()) {
   const button = el(`${tab}-tab`);

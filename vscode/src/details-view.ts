@@ -120,6 +120,7 @@ export class DetailsView
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}' ${view.webview.cspSource};">
 <link rel="stylesheet" href="${css}"></head><body><main>
+<details id="inspector-section" data-section="AST Inspector" open><summary>AST Inspector</summary><div class="inspector-body">
 <p id="empty">Open a C++ file or select a match to inspect its AST.</p>
 <section id="inspector" hidden>
 <div class="inspector-tabs" role="tablist" aria-label="AST inspector">
@@ -136,7 +137,7 @@ export class DetailsView
 <div id="semantics"></div>
 <details id="properties-group" data-section="Properties" open><summary>Properties</summary><div class="section-body"><dl id="properties"></dl></div></details>
 <details id="range-group" data-section="Source range" hidden><summary>Source range</summary><div class="section-body"><dl id="range"></dl></div></details>
-</section></section></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
+</section></section></div></details></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
         this.error = error instanceof Error ? error.message : String(error);

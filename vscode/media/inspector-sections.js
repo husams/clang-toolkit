@@ -1,4 +1,4 @@
-export function sectionState(api) {
+export function sectionState(api, onToggle = () => {}) {
   const saved = api.getState()?.sections;
   const sections = new Map(
     Object.entries(saved && typeof saved === "object" ? saved : {}).filter(
@@ -15,6 +15,7 @@ export function sectionState(api) {
         if (!group.isConnected) return;
         sections.set(title, group.open);
         api.setState({ sections: Object.fromEntries(sections) });
+        onToggle(group);
       });
     }
   };

@@ -14,13 +14,13 @@ export async function run(): Promise<void> {
     "clang-toolkit.clang-toolkit-prototype",
   );
   assert.ok(extension);
-  assert.deepEqual(extension.packageJSON.contributes.views.explorer, [
+  assert.equal(extension.packageJSON.contributes.views.explorer, undefined);
+  assert.deepEqual(extension.packageJSON.contributes.views.ctkResults, [
     { type: "webview", id: "ctk.result", name: "AST Inspector" },
   ]);
-  assert.equal(
-    extension.packageJSON.contributes.viewsContainers.panel,
-    undefined,
-  );
+  assert.deepEqual(extension.packageJSON.contributes.viewsContainers.panel, [
+    { id: "ctkResults", title: "CTK Result", icon: "media/semantic.svg" },
+  ]);
   const folder = vscode.workspace.workspaceFolders?.[0];
   assert.ok(folder);
   const target = vscode.Uri.joinPath(folder.uri, "demo.cpp");
@@ -224,7 +224,7 @@ export async function run(): Promise<void> {
     Buffer.from("int automaticallyLoaded() { return 7; }\n"),
   );
   await inspectorTab("properties");
-  await vscode.commands.executeCommand("workbench.action.closeSidebar");
+  await vscode.commands.executeCommand("workbench.action.closePanel");
   const hiddenDeadline = Date.now() + 10000;
   while (astState().visible && Date.now() < hiddenDeadline)
     await new Promise((done) => setTimeout(done, 40));
@@ -236,7 +236,7 @@ export async function run(): Promise<void> {
   assert.equal(
     otherAst.visible,
     false,
-    "opening C++ must keep the sidebar hidden",
+    "opening C++ must keep the result panel hidden",
   );
   const literal = otherEditor.document.getText().indexOf("7");
   const beforeLiteral = otherEditor.document.positionAt(literal - 1);
@@ -257,7 +257,7 @@ export async function run(): Promise<void> {
   assert.equal(
     hiddenSelection.visible,
     false,
-    "cursor updates must keep the sidebar hidden",
+    "cursor updates must keep the result panel hidden",
   );
   assert.equal(hiddenSelection.tab, "properties");
   assert.ok(otherEditor.selection.isEmpty);
@@ -1602,6 +1602,7 @@ export async function run(): Promise<void> {
   await inspectorTab("ast");
   assert.deepEqual(astState().tree, widgetTree);
   for (const title of [
+    "AST Inspector",
     "Source",
     "Inheritance",
     "Public members",
@@ -1684,6 +1685,6 @@ export async function run(): Promise<void> {
   );
   await api.actions.close();
   console.log(
-    "CTK_EXTENSION_HOST_PASS: Explorer AST Inspector, hidden-file/cursor updates, preserved tabs/tree, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
+    "CTK_EXTENSION_HOST_PASS: collapsible AST Inspector in CTK Result, hidden-file/cursor updates, preserved tabs/tree, symbols, console, YAML actions, grouped matches, retained-node follow-up, history, stale edits, completion, Properties navigation, semantic sections, exact base selection, source highlighting and actions",
   );
 }
