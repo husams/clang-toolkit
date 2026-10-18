@@ -262,3 +262,46 @@ def test_index_find_scoped_exact_preserves_literal_query(tmp_path, engine):
         client.list_project_indexes.assert_not_called()
     finally:
         runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+@pytest.mark.parametrize("category, raw", [("function", "Function"), ("class", "CXXRecord"), ("variable", "Var")])
+@pytest.mark.parametrize("scope", ["", ' in "/project"'])
+def test_optional_kind_filter_is_forwarded_and_kind_returned(tmp_path, engine, category, raw, scope):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(projects=[
+        pb.ProjectIndexStatus(project_root="/project")])
+    client.find_symbols.return_value = pb.FindSymbolsResponse(symbols=[
+        pb.Symbol(name="demo", qualified_name="demo", kind=raw)])
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        source = f'index find "demo" exact kind {category}' + scope
+        assert f"[{raw}]" in runtime.execute(source)
+        client.find_symbols.assert_called_once_with("/project", "demo", prefix=False, kind=category)
+        runtime.execute("let hits = " + source)
+        field = "$hits.symbols[0].kind" if scope else "$hits[0].result.symbols[0].kind"
+        assert runtime.evaluate(field) == raw
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+def test_unknown_console_kind_fails_before_rpc(tmp_path, engine):
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        with pytest.raises(Exception, match="kind must be"):
+            runtime.execute('index find "demo" kind unknown')
+        client.find_symbols.assert_not_called()
+        client.list_project_indexes.assert_not_called()
+    finally:
+        runtime.close()

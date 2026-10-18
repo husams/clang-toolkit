@@ -235,10 +235,32 @@ public:
     changed_.notify_all();
     return status_;
   }
-  FindSymbolsResponse find(grpc::ServerContext &context,
-                           const std::string &root, const std::string &query,
-                           std::uint32_t requested_limit, bool prefix,
-                           bool by_usr) {
+  FindSymbolsResponse
+  find(grpc::ServerContext &context, const std::string &root,
+       const std::string &query, std::uint32_t requested_limit, bool prefix,
+       bool by_usr,
+       FindSymbolsRequest::Kind kind = FindSymbolsRequest::KIND_ANY) {
+    std::string kind_filter;
+    switch (kind) {
+    case FindSymbolsRequest::KIND_ANY:
+      break;
+    case FindSymbolsRequest::KIND_FUNCTION:
+      kind_filter = "kind IN ('Function','CXXMethod','CXXConstructor',"
+                    "'CXXDestructor','CXXConversion','CXXDeductionGuide') AND ";
+      break;
+    case FindSymbolsRequest::KIND_CLASS:
+      kind_filter =
+          "kind IN ('Record','CXXRecord','ClassTemplateSpecialization',"
+          "'ClassTemplatePartialSpecialization') AND ";
+      break;
+    case FindSymbolsRequest::KIND_VARIABLE:
+      kind_filter =
+          "kind IN ('Var','VarTemplateSpecialization',"
+          "'VarTemplatePartialSpecialization','Field','Binding') AND ";
+      break;
+    default:
+      throw std::invalid_argument("invalid symbol kind filter");
+    }
     const auto key = root_key(root);
     if (query.empty())
       throw std::invalid_argument("symbol query cannot be empty");
@@ -297,7 +319,7 @@ public:
     const std::string projection =
         "SELECT tu_id,usr,file_path,byte_offset,is_definition,qualified_name "
         "FROM symbol";
-    const std::string columns = projection + " WHERE ";
+    const std::string columns = projection + " WHERE " + kind_filter;
     // Prefix matching and ordering share NOCASE, allowing the qualified-name
     // index to stop early. Bound each OR arm before merging and deduplicating.
     const std::string order =
@@ -318,10 +340,12 @@ public:
       // can choose that equality for access and scan instead of the NOCASE
       // index.
       sql = "WITH selected AS MATERIALIZED (" + projection +
-            " INDEXED BY symbol_name_prefix WHERE name=?1 COLLATE NOCASE "
+            " INDEXED BY symbol_name_prefix WHERE " + kind_filter +
+            "name=?1 COLLATE NOCASE "
             "AND +name=?1 COLLATE BINARY UNION " +
-            projection +
-            " INDEXED BY symbol_qualified_prefix WHERE qualified_name=?2 "
+            projection + " INDEXED BY symbol_qualified_prefix WHERE " +
+            kind_filter +
+            "qualified_name=?2 "
             "COLLATE NOCASE AND +qualified_name=?2 COLLATE BINARY ORDER BY " +
             order + " LIMIT ?3), ";
     } else {
@@ -344,6 +368,7 @@ public:
                   "COLLATE BINARY ") +
         "AND file_path=(SELECT file_path FROM boundary) AND byte_offset="
         "(SELECT byte_offset FROM boundary) AND " +
+        kind_filter +
         (by_usr ? "usr=?1"
          : prefix
              ? "(name LIKE ?1 ESCAPE '\\' OR qualified_name LIKE ?2 ESCAPE "
@@ -1892,12 +1917,13 @@ public:
       throw std::logic_error("project has not been started on this server");
     return monitor->control(root, action);
   }
-  FindSymbolsResponse find(grpc::ServerContext &context,
-                           const std::string &root, const std::string &query,
-                           std::uint32_t limit, bool prefix, bool by_usr) {
+  FindSymbolsResponse
+  find(grpc::ServerContext &context, const std::string &root,
+       const std::string &query, std::uint32_t limit, bool prefix, bool by_usr,
+       FindSymbolsRequest::Kind kind = FindSymbolsRequest::KIND_ANY) {
     auto monitor = project(root);
     return (monitor ? *monitor : reader_)
-        .find(context, root, query, limit, prefix, by_usr);
+        .find(context, root, query, limit, prefix, by_usr, kind);
   }
 
 private:
@@ -1998,7 +2024,8 @@ grpc::Status IndexServiceAdapter::FindSymbols(grpc::ServerContext *context,
   return rpc([&] {
     *out = indexer_->find(
         *context, request->project_root(), request->query(), request->limit(),
-        request->match_mode() == FindSymbolsRequest::MATCH_MODE_PREFIX, false);
+        request->match_mode() == FindSymbolsRequest::MATCH_MODE_PREFIX, false,
+        request->kind());
   });
 }
 grpc::Status

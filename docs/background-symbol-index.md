@@ -190,3 +190,29 @@ expressions; unrestricted glob/regex searches would require scanning and are
 not provided. Use `exact` to search literal operator names containing `*`, `?`,
 or brackets. Global searches perform one bounded lookup per listed project,
 so their cost grows with the number of projects.
+
+### Optional symbol kind filter
+
+```ctk
+index find "flow::cl*" kind function in "ctk-lab"
+index find "Widget" kind class
+index find "counter" exact kind variable
+index find "flow::clamp" exact in "ctk-lab"
+let hits = index find "flow::clamp" exact kind function in "ctk-lab"
+print $hits.symbols[0].kind
+```
+
+Omit `kind` to search every kind, including namespaces, aliases, and enums.
+Functions include free functions, methods, constructors, destructors, conversion
+functions and deduction guides. Classes include named records (class, struct,
+union) and class-template specializations. Variables include indexed variables,
+fields, bindings and variable-template specializations; local variables are not
+part of the project definition index. The filter works with prefixes, trailing
+`*`, exact matching and global searches, and runs on the server before limiting
+results. Every result retains its raw Clang `kind` (such as `Function`,
+`CXXMethod`, `CXXRecord`, or `Var`), also shown beside its name in console output.
+
+Python clients accept `find_symbols(project, query, kind="function")`, with an
+empty kind (the default) meaning unfiltered. Both server and client must be
+updated to use filtering. Stored symbols and worker extraction are unchanged;
+existing indexes do not need reindexing for this search filter.
