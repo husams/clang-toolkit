@@ -40,7 +40,7 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     strings = [runtime._string(str(child)) for child in node.children
                if isinstance(child, Token) and child.type == "STRING"]
     target = strings[-1]
-    if (str(node.data) == "index_status" and target not in {"", ".", "..", "~"}
+    if (str(node.data) in {"index_status", "index_find"} and target not in {"", ".", "..", "~"}
             and "/" not in target and not target.startswith("~")):
         projects = runtime.client.list_project_indexes().projects
         matches = sorted({item.project_root for item in projects

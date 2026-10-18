@@ -160,3 +160,5 @@ indexes; restart the desired project monitors through the indexing API afterward
 `index status "ctk-lab"` resolves the Project name shown by `index list`.
 Duplicate names report all matching paths; use the full path to select one.
 Unknown names report an error. Explicit paths (including `./ctk-lab`) retain path semantics.
+
+`index find "flow::clamp" in "ctk-lab"` uses the same project-name resolution and ambiguity checks as `index status`; explicit paths remain supported.
