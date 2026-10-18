@@ -19,6 +19,40 @@ console, also checked in real compiled/tree terminal acceptance tests:
 Large counts: 1000, 500, 1000
 ```
 
+## Direct Python loop specialization
+
+The accumulator map/filter and push-based reverse forms in the example now emit
+ordinary indexed Python loops. Recognition uses structure, so function and parameter
+names can change. Map and filter append directly into their ordinary output list;
+reverse traverses the snapshot in reverse order after accounting for descent.
+There are no per-element generators, continuation requests, or saved frames on
+these paths. The wrappers `map_list` and `filter_list` call the optimized accumulator
+functions at fixed cost.
+
+The exact generated functions, including execution accounting, are checked in:
+[map_into](generated-list-loops/map_into.py),
+[filter_into](generated-list-loops/filter_into.py), and
+[reverse_list](generated-list-loops/reverse_list.py).
+Their bound namespace supplies the original source nodes and safety operations.
+
+Each traversal takes one shallow snapshot after initial clause matching. Indexed
+visits and private tail views reuse that snapshot; nested elements retain identity,
+input mutation does not change subsequent visits, and appends still reject cycles.
+Callback order, diagnostics, step budgets, cancellation, scopes, and the existing
+reverse pending-work item limit remain enforced. Reverse has no physical pending
+stack, but keeps the same logical limit and failure point. Both console engines
+use this specialization.
+
+Plain input/output lists and DSL runnable callbacks take the fast path. List
+subclasses, Python callbacks, custom cancellation/observation/host hooks, foreground
+resource scopes, and unrecognized function bodies retain existing execution.
+If a callback replaces host evaluation during traversal, the next affected push
+uses that evaluator and map/filter resume general execution with the current
+lexical bindings. Standalone prototype property calls are not changed into console
+`.push` calls.
+The more general continuation transformation below remains available for other
+recursive forms.
+
 ## Execution and sharing
 
 A direct self call in tail position replaces the current execution frame.
