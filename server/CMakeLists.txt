@@ -95,7 +95,8 @@ if(CTK_BUILD_NETWORK)
     src/net/analysis_service.cpp src/net/index_service.cpp)
   target_include_directories(ctk_network PUBLIC include)
   target_link_libraries(ctk_core PUBLIC ctk_query_api ctk_analysis_api)
-  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto)
+  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto
+    PRIVATE ctk::sqlite)
 endif()
 
 if(CTK_WITH_CLANG)

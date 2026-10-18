@@ -1,8 +1,8 @@
 # Included by the existing clang-toolkit root when CTK_BUILD_APIS=ON.
 # This is a schema/code-generation library, not another top-level project.
-find_package(Protobuf CONFIG QUIET NAMES protobuf)
+find_package(Protobuf MODULE QUIET)
 if(NOT Protobuf_FOUND)
-  find_package(Protobuf REQUIRED)
+  find_package(Protobuf CONFIG REQUIRED NAMES protobuf)
 endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
