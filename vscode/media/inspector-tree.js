@@ -166,7 +166,9 @@ export function renderTree(host, state, post, navigate) {
     if (reference) {
       declaration.className = "tree-declaration";
       declaration.textContent =
-        row.kind === "DeclRefExpr" ? "↗ Declaration" : "↗ Base declaration";
+        row.kind === "DeclRefExpr" || row.kind === "MemberExpr"
+          ? "↗ Declaration"
+          : "↗ Base declaration";
       declaration.title = `Inspect declaration ${reference.name}`;
       declaration.setAttribute("aria-label", declaration.title);
       declaration.disabled = state.running;
