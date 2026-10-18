@@ -8,6 +8,7 @@ from typing import Any, Callable, Mapping
 
 from .semantics import Context, ExecutionLimitError, PrototypeError, _error, child_values
 from .patterns import compile_matcher, pattern_names, format_pattern
+from .plain_list_loops import compile_scalar_loop
 
 _MISSING = object()
 
@@ -28,6 +29,7 @@ class RunnableBlock:
     definition: str = ""
     recursion: Any = None
     direct_loop: Any = None
+    scalar_loop: Any = None
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(_format_pattern(item) for item in self.parameters)})"
@@ -168,7 +170,8 @@ def create_runnable(context: Context, node: Any, executable: Callable[[Context],
                           context.scopes, context.source, context.string_templates,
                           (node.line, node.column), context.source_name, defaults, node.children[1:],
                           context.source[slice(*node.source_span)] if node.source_span else "",
-                          compile_list_recursion(node, context))
+                          compile_list_recursion(node, context),
+                          scalar_loop=compile_scalar_loop(node.children[0], parameters, executable))
     return value
 
 
