@@ -68,6 +68,50 @@ export async function run(): Promise<void> {
       `File AST did not load automatically: ${JSON.stringify(astState())}`,
     );
   }
+  if (process.env.CTK_TEST_GRAPHS_ONLY === "1") {
+    const graphFile = vscode.Uri.joinPath(folder.uri, "graph.cpp");
+    await vscode.workspace.fs.writeFile(
+      graphFile,
+      Buffer.from(
+        "int leaf(int value) { return value + 1; }\nint submit(int value) { if (value > 0) return leaf(value); return 0; }\n",
+      ),
+    );
+    await vscode.window.showTextDocument(
+      await vscode.workspace.openTextDocument(graphFile),
+    );
+    const root = await automaticFile("graph.cpp", "submit");
+    const fn = root.children?.find((node) => node.name === "submit");
+    assert.ok(fn);
+    await api.details.receive({ type: "child", id: fn.id });
+    for (const kind of ["callgraph", "cfg"] as const) {
+      await api.details.receive({ type: "tab", tab: kind });
+      const end = Date.now() + 45000;
+      while (Date.now() < end) {
+        const state = astState();
+        if (
+          state.graph.model?.kind === kind &&
+          state.graph.rendered?.key === state.graph.model.key
+        )
+          break;
+        await new Promise((done) => setTimeout(done, 40));
+      }
+      const state = astState();
+      assert.equal(state.graph.error, "");
+      assert.equal(state.graph.model?.kind, kind);
+      assert.equal(
+        state.graph.rendered?.key,
+        state.graph.model?.key,
+        JSON.stringify(state.graph),
+      );
+      assert.ok((state.graph.rendered?.nodeCount ?? 0) > 1);
+      if (kind === "cfg") {
+        assert.ok(state.graph.rendered?.labels.includes("True"));
+        assert.ok(state.graph.rendered?.labels.includes("False"));
+      }
+    }
+    console.log("CTK native call graph and CFG webviews passed");
+    return;
+  }
   if (
     process.env.CTK_TEST_REFERENCE_ONLY === "1" ||
     process.env.CTK_TEST_MEMBER_REFERENCE_ONLY === "1"

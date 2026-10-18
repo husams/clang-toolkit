@@ -1,0 +1,262 @@
+.graph-window {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font: 13px var(--vscode-font-family);
+}
+.graph-window #graph {
+  height: 100%;
+}
+.graph-panel:not([hidden]) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.graph-panel [hidden] {
+  display: none;
+}
+.graph-controls,
+.graph-footer,
+.graph-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 0;
+}
+.graph-panel button,
+.graph-panel select,
+.graph-panel input {
+  box-sizing: border-box;
+  font: inherit;
+}
+.graph-panel button {
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-widget-border);
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.graph-panel button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  text-decoration: none;
+}
+.graph-panel button:focus-visible,
+.graph-panel input:focus-visible,
+.graph-panel select:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+.graph-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.graph-panel select,
+.graph-panel input {
+  max-width: 100%;
+  min-width: 0;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+  padding: 4px;
+}
+.graph-panel input {
+  width: 170px;
+}
+.graph-breadcrumb {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.graph-controls .graph-breadcrumb {
+  flex: 1;
+  min-width: 100px;
+  padding: 0;
+  min-height: 26px;
+}
+.graph-breadcrumb button {
+  border: 0;
+  padding: 2px;
+  text-decoration: underline;
+}
+.graph-breadcrumb span {
+  overflow-wrap: anywhere;
+}
+.graph-plot {
+  flex: 1;
+  min-height: 80px;
+  width: 100%;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  background: var(--vscode-editor-background);
+}
+.graph-lines,
+.graph-nodes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.graph-lines {
+  pointer-events: none;
+}
+.graph-edge {
+  fill: none;
+  stroke: var(--vscode-descriptionForeground);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+.graph-edge.active {
+  stroke: var(--vscode-focusBorder);
+  stroke-width: 2;
+}
+.graph-edge.compact {
+  stroke-width: 0.7;
+  opacity: 0.65;
+}
+.graph-arrow {
+  fill: var(--vscode-descriptionForeground);
+}
+.graph-arrow.active {
+  fill: var(--vscode-focusBorder);
+}
+.graph-edge-label {
+  fill: var(--vscode-foreground);
+  stroke: var(--vscode-editor-background);
+  paint-order: stroke;
+  stroke-width: 5px;
+  font-size: 12px;
+}
+.graph-node {
+  z-index: 1;
+  position: absolute;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 3px;
+  background: var(--vscode-editor-background);
+  height: 32px;
+}
+.graph-node.current {
+  border-color: var(--vscode-focusBorder);
+  outline: 1px solid var(--vscode-focusBorder);
+}
+.graph-node .graph-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 0;
+  padding: 4px 8px;
+  white-space: nowrap;
+  font: 12px var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-foreground);
+}
+.graph-node.root .graph-name {
+  color: var(--vscode-textLink-foreground);
+}
+.graph-node .graph-toggle {
+  border: 0;
+  border-left: 1px solid var(--vscode-widget-border);
+  align-self: stretch;
+  padding: 0 6px;
+  font-size: 14px;
+}
+.graph-node.cfg {
+  height: auto;
+  flex-direction: column;
+  align-items: stretch;
+}
+.graph-detail {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  padding: 0 8px 5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 270px;
+}
+.graph-panel .graph-glyph {
+  position: absolute;
+  min-width: 28px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.graph-glyph::after {
+  content: "";
+  display: block;
+  margin: auto;
+  width: 16px;
+  height: 3px;
+  background: var(--vscode-descriptionForeground);
+}
+.graph-glyph.current::after {
+  background: var(--vscode-focusBorder);
+}
+.graph-footer {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+.graph-footer .graph-count {
+  margin-right: auto;
+}
+.graph-message {
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+.graph-warnings {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  padding: 4px 0;
+}
+.graph-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.graph-search select {
+  max-height: 120px;
+  max-width: 100%;
+}
+.graph-plot[aria-busy="true"]::after {
+  content: "Arranging graph…";
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-descriptionForeground);
+  padding: 4px;
+}
+@media (pointer: coarse) {
+  .graph-panel button,
+  .graph-panel select {
+    min-height: 44px;
+  }
+  .graph-panel input {
+    font-size: 16px;
+  }
+  .graph-panel .graph-glyph {
+    min-height: 28px;
+  }
+}
+.graph-window .graph-controls,
+.graph-window .graph-footer {
+  padding: 8px 12px;
+}
+.graph-search {
+  position: relative;
+}
+.graph-search select {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 2;
+  min-width: 250px;
+}

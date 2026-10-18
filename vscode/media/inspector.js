@@ -1,3 +1,4 @@
+import { GraphView } from "./graph-view.js";
 import { referenceNavigation } from "./inspector-navigation.js";
 import { sectionState } from "./inspector-sections.js";
 import { renderSemantics } from "./inspector-semantics.js";
@@ -9,7 +10,14 @@ const post = (type, data = {}) => api.postMessage({ type, ...data });
 const navigate = referenceNavigation(post);
 const restoreSections = sectionState(api);
 restoreSections(document.querySelector("main"));
-const tabs = ["ast", "properties"];
+const tabs = ["ast", "properties", "callgraph", "cfg"];
+const graphs = Object.fromEntries(
+  ["callgraph", "cfg"].map((kind) => [
+    kind,
+    new GraphView(el(`${kind}-panel`), api),
+  ]),
+);
+let graphRevision = -1;
 for (const [index, tab] of tabs.entries()) {
   const button = el(`${tab}-tab`);
   button.addEventListener("click", () => post("tab", { tab }));
@@ -59,6 +67,11 @@ window.addEventListener("message", ({ data }) => {
   el("empty").hidden = Boolean(node);
   el("inspector").hidden = !node;
   if (!node) return;
+  const override =
+    state.graph?.uiRevision !== graphRevision
+      ? state.graph?.uiState
+      : undefined;
+  graphRevision = state.graph?.uiRevision;
   const treeFocused = el("tree").contains(document.activeElement);
   for (const tab of tabs) {
     const selected = state.tab === tab;
@@ -66,6 +79,8 @@ window.addEventListener("message", ({ data }) => {
     el(`${tab}-tab`).tabIndex = selected ? 0 : -1;
     el(`${tab}-panel`).hidden = !selected;
   }
+  if (state.tab === "callgraph" || state.tab === "cfg")
+    graphs[state.tab].update(state.graph, override);
   if (state.tab === "properties" && treeFocused) el("properties-tab").focus();
   el("name").textContent = node.name;
   el("name").title = node.name;
@@ -79,6 +94,7 @@ window.addEventListener("message", ({ data }) => {
   el("source-section").hidden = !node.locationValid && !node.excerpt;
   el("location").disabled = state.running;
   el("action").disabled = !state.canRunAction;
+  el("action").hidden = state.tab === "callgraph" || state.tab === "cfg";
   fields("properties", node.properties);
   el("properties-group").hidden = !node.properties.length;
   renderSemantics(el("semantics"), node, state.semantics, state, navigate);

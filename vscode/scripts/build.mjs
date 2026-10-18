@@ -93,6 +93,8 @@ await writeFile(
 );
 
 await mkdir("dist", { recursive: true });
+await cp("node_modules/elkjs/lib/elk.bundled.js", "media/elk.bundled.js");
+await cp("node_modules/elkjs/LICENSE.md", "media/elk.LICENSE.md");
 await mkdir("artifacts", { recursive: true });
 await cp("../typescript/schema", "schema", { recursive: true });
 await cp("../python/clang_toolkit", "console/clang_toolkit", {

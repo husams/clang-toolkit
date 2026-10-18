@@ -14,7 +14,10 @@ export function sectionState(api) {
       group.addEventListener("toggle", () => {
         if (!group.isConnected) return;
         sections.set(title, group.open);
-        api.setState({ sections: Object.fromEntries(sections) });
+        api.setState({
+          ...api.getState(),
+          sections: Object.fromEntries(sections),
+        });
       });
     }
   };

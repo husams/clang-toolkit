@@ -31,6 +31,7 @@ import {
 } from "./model.js";
 import { ParseProblems } from "./parse-problems.js";
 import { SourceHighlight } from "./source-highlight.js";
+import { selectedSource } from "./source-range.js";
 import { AnalysisView } from "./views.js";
 import {
   startConsoleWorker,
@@ -274,6 +275,28 @@ export class Prototype {
       ),
       { dispose: () => this.active?.cancel() },
     );
+  }
+  async showGraph(kind: "callgraph" | "cfg"): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (
+      editor?.document.uri.scheme === "file" &&
+      CXX.test(editor.document.uri.fsPath)
+    ) {
+      const document = editor.document,
+        version = document.version,
+        current = () => !document.isClosed && document.version === version;
+      await this.inspectFile(editor, current);
+      const selection = selectedSource(
+        document.uri.fsPath,
+        document.getText(),
+        document.offsetAt(editor.selection.start),
+        document.offsetAt(editor.selection.end),
+      );
+      if (selection && current())
+        await this.selectEditorSource(selection, current);
+    }
+    await this.details.receive({ type: "tab", tab: kind });
+    await vscode.commands.executeCommand("ctk.result.focus");
   }
   snapshot(): unknown {
     return {
@@ -807,6 +830,14 @@ export class Prototype {
           id,
           actionId ? retainedContext : searchLoad,
         ),
+      {
+        graphLoad: (kind, id) => {
+          const source = actionId ? retainedContext : searchLoad;
+          if (!source) return this.actions.graph(id, kind);
+          const { service, settings } = source.session();
+          return service.graph(settings, id, kind);
+        },
+      },
     );
   }
   private async openSource(result: Result): Promise<void> {
@@ -1128,6 +1159,10 @@ export class Prototype {
       text,
       file,
       current,
+      (kind, id) => {
+        const { service, settings } = context.session();
+        return service.graph(settings, id, kind);
+      },
     );
   }
   private acceptFileState(
@@ -1312,6 +1347,8 @@ export async function activate(
   );
   for (const [name, handler] of [
     ["ctk.openAnalysis", () => prototype.view.reveal()],
+    ["ctk.showCallGraph", () => prototype.showGraph("callgraph")],
+    ["ctk.showCfg", () => prototype.showGraph("cfg")],
     ["ctk.reloadFileAst", () => prototype.reloadFileAst()],
     [
       "ctk.runScript",
