@@ -29,21 +29,45 @@ There are no per-element generators, continuation requests, or saved frames on
 these paths. The wrappers `map_list` and `filter_list` call the optimized accumulator
 functions at fixed cost.
 
-The exact generated functions, including execution accounting, are checked in:
+For proven pure scalar callbacks, the compiler now selects direct `for`/`append`
+loops with native arithmetic. The actual selected Python for the example is:
+[map](generated-list-loops/plain_map.py),
+[filter](generated-list-loops/plain_filter.py), and
+[reverse](generated-list-loops/plain_reverse.py).
+The callable wrappers and one invocation guard still perform argument validation,
+snapshotting and scope restoration outside those loops.
+
+Before traversal, a single scan proves exact input types and integer bounds for
+every callback subexpression. Supported map/filter expressions use one integer
+parameter, literals, unary signs, arithmetic `+`, `-`, `*`, comparisons, boolean
+negation and remainder by a nonzero literal. Remainder preserves the DSL's sign
+rule for negative dividends. Interval proofs reject potentially overflowing
+intermediate arithmetic. Scalar reverse needs no callback. Nested collections,
+custom values, effects, dynamic callbacks and unsupported expressions use the
+existing guarded execution, preserving identity, cycle checks and diagnostics.
+
+The compiler hoists a conservative bound on the complete source-step cost. If the
+remaining budget cannot cover it, the original guarded loop preserves the exact
+first failing source node and partial output. Successful plain loops update step
+counts inline; filter accounts separately for kept and rejected items. Reverse
+accounts for logical descent in one operation and unwind per item, preserving
+its pending-work item limit without allocating a pending stack. No per-item
+runtime guard, callback invocation, scope dictionary or continuation is needed
+on the plain path.
+
+Standard cancellation events are polled before each pure iteration/effect boundary
+and periodically during the initial proof scan. Reverse also polls before its
+compressed descent. Cancellation remains cooperative; it is not polled at every
+logical source tick on this path. Custom hooks, instrumented tick methods,
+replaced callbacks and custom observers retain guarded execution with their
+original ordering. The standard console observer's internal tail state is
+updated directly; externally observable statement handling stays on the guarded
+path. Original source locations and execution state are restored on exit.
+
+The general compact dispatchers remain checked in for comparison:
 [map_into](generated-list-loops/map_into.py),
 [filter_into](generated-list-loops/filter_into.py), and
 [reverse_list](generated-list-loops/reverse_list.py).
-Their bound namespace supplies one shared execution guard per invocation. The
-emitted map/filter functions are 15/16 lines and reverse is 18 lines. Traversal,
-callback use, conditional filtering, and ordinary `append` calls remain visible;
-source accounting and scope restoration live in the shared guard. No per-element
-continuation objects are introduced.
-
-Adjacent source steps use batched accounting when there are no cancellation hooks,
-cleanup, or instrumented ticks. Exhausting a batch still fails at the exact original
-source node. Other cases retain every individual cancellation/step check. Appending
-an exact built-in scalar avoids allocating cycle-traversal sets; collections and
-custom values retain the existing validation and diagnostics.
 
 Each traversal takes one shallow snapshot after initial clause matching. Indexed
 visits and private tail views reuse that snapshot; nested elements retain identity,

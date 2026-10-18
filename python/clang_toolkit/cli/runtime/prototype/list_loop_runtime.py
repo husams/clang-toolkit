@@ -19,10 +19,11 @@ from .semantics import ExecutionLimitError, _as_bool, _error, observe_statement
 
 
 class LoopPlan:
-    """Immutable source metadata prepared once when a runnable is compiled."""
+    """Source metadata and the most recently selected plain specialization."""
 
     def __init__(self, shape: LoopShape) -> None:
         self.shape = shape
+        self.last_plain = None
         self.body = shape.full.children[0]
         self.base = shape.empty.children[0]
         self.base_value = _statement(self.base.children[0])
