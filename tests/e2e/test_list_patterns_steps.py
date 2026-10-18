@@ -33,7 +33,7 @@ def pattern_console(tmp_path, request, monkeypatch):
 
 
 @when(parsers.parse('I run the list-pattern example in the "{engine}" terminal'), target_fixture="pattern_terminal")
-def pattern_terminal(pattern_console, tmp_path, engine):
+def pattern_terminal(pattern_console, tmp_path, engine, example="list_patterns.ctk", marker="PATTERNS_PTY_6"):
     server, library = pattern_console
     master, slave = pty.openpty()
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 45, 140, 0, 0))
@@ -72,10 +72,13 @@ def pattern_terminal(pattern_console, tmp_path, engine):
 
     try:
         wait_for("ctk>")
-        source = (Path(__file__).resolve().parents[2] / "examples/list_patterns.ctk").read_text()
-        source += '\nprint "PATTERNS_PTY_{total([1, 2, 3])}"'
+        source = (Path(__file__).resolve().parents[2] / "examples" / example).read_text()
+        if example == "list_patterns.ctk":
+            source += '\nprint "PATTERNS_PTY_{total([1, 2, 3])}"'
+        else:
+            source += '\nprint "RECURSION_PTY_{map_list([3], (x) x * 2)[0]}"'
         os.write(master, ("\x1b[200~" + source + "\x1b[201~\n").encode())
-        visible = wait_for("PATTERNS_PTY_6")
+        visible = wait_for(marker)
         assert HistoryStore(tmp_path / "state/clang_tools/history.jsonl").read_commands() == [source]
         return visible
     finally:
@@ -98,3 +101,19 @@ def verify_pattern_terminal(pattern_terminal):
     assert "Destructured: 10, 20, 30" in lines
     assert "Large total: 12497500" in lines
     assert "error:" not in pattern_terminal
+
+
+@when(parsers.parse('I run the recursive-list example in the "{engine}" terminal'), target_fixture="recursion_terminal")
+def recursion_terminal(pattern_console, tmp_path, engine):
+    return pattern_terminal(pattern_console, tmp_path, engine, "recursive_lists.ctk", "RECURSION_PTY_6")
+
+
+@then("the terminal prints recursive map filter and reverse results")
+def verify_recursion_terminal(recursion_terminal):
+    lines = [line.strip() for line in recursion_terminal.splitlines()]
+    assert "[10,20,30,40,50]" in lines
+    assert "[2,4]" in lines
+    assert "[5,4,3,2,1]" in lines
+    assert "[1,2,3,4,5]" in lines
+    assert "Large counts: 1000, 500, 1000" in lines
+    assert "error:" not in recursion_terminal

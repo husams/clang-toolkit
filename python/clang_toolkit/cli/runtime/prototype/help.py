@@ -73,7 +73,9 @@ Destructuring is atomic. Bound tails are independent shallow lists; discarded ta
 Grouped clauses try top to bottom, share positional arity and cannot have defaults.
 A matching body's error does not fall through; unmatched arguments report a pattern error.
 Patterns compile to Python checks; pure numeric right folds use bounded indexed loops.
-Other recursion retains the ordinary call-depth limit. Native scripts are unchanged.
+Supported direct list recursion uses continuation loops and indexed internal tails.
+Observable tails remain real shallow lists; unsupported forms keep the ordinary
+call-depth limit. Native scripts are unchanged.
 Omitted defaults run per call, left to right, with earlier parameters in scope.
 Optional handlers come first: on error EXPR or { STATEMENTS }; on exit EXPR or { STATEMENTS }.
 Errors return the error handler value; exit cleanup runs after success or failure
@@ -83,7 +85,8 @@ the failed iteration. Cleanup runs first. Limits and cancellation cannot be reco
 Each call has fresh parameters and locals and returns its final statement value;
 an empty body returns null. Captures use the definition's lexical environment.
 Aliases retain their original function after redefinition. Recursive calls use
-the original function. Calls share execution limits and a maximum depth of 64.
+the original function. Calls share execution limits; ordinary recursion has a maximum
+depth of 64. Supported direct list recursion uses bounded continuation loops.
 Callee and argument counts are checked before arguments run, once left to right.
 Assigned calls suppress body output; effects and explicit file writes still run.
 Foreground batches snapshot plain captures per group and inspect reachable calls.
