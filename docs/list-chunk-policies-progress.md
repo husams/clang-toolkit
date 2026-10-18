@@ -1,6 +1,7 @@
 # Per-operation list chunk policies
 
-Implementation base: main `52a7daf`; branch `codex/list-chunk-policies`.
+PR integration base: main `64d382d`; branch `codex/list-chunk-policies`.
+Implementation and benchmark baseline: main `52a7daf`.
 
 - [x] Add failing checks for policy selection and a branch-light shared loop.
 - [x] Select setup, checkpoint, settlement and finish policies once per invocation.
@@ -115,3 +116,11 @@ not claim a speedup; these local timings are not portable guarantees.
 
 Evidence: `/tmp/ctk-policies-benchmark.log`,
 `/tmp/ctk-policies-runner-benchmark.log` and their corresponding scripts.
+
+## PR integration
+
+Rebased onto main `64d382d` without conflicts. Runtime and regression-test sources
+are byte-for-byte unchanged from the reviewed implementation. On that integration
+base, all **416 focused list tests** and all **four compiled/tree real-terminal
+acceptance scenarios** passed again (`/tmp/ctk-policies-pr-focused.log`,
+`/tmp/ctk-policies-pr-e2e.log`). The console scenarios completed in 35.37s.
