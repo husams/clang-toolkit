@@ -55,3 +55,11 @@ A second normal quit/restart (98641 → 6009), with no test driver and no reopen
 
 Five new storage tests cover fresh-instance recovery of 302 expansions and cameras, overlapping saves, separate graph kinds, damaged storage and invalid payloads. The native large call graph/CFG host regression passed and closed its owned processes; type checking, lint, and the complete extension suite passed. Lint keeps one existing informational template suggestion.
 Final verification: 130 extension tests passed, 24 optional live tests skipped. The additional Inspector regression confirms that restoring a saved graph cannot revive expired native AST handles. The rebuilt 0.3.0 VSIX packaged successfully (5.44 MB).
+
+## PR integration and review
+
+Integrated current main, preserving the retained-search and validated-input changes. Independent review found and fixed an outgoing-camera reset in Full graph and quadratic ancestor-path storage; a 10,001-function deep-chain regression now passes. The 8,000-function review probe dropped from about 966 ms / 486 MiB to 2 ms / 14 MiB for one reachability walk.
+
+Final integrated checks: 141 extension tests passed (28 optional live cases skipped); type checking, lint and 0.3.0 VSIX packaging passed (5.45 MB). Both native graph integration cases passed. All 507 native cases passed across the complete run and seven isolated cache/fixture retries; 3,262 Python units passed across the complete run and one isolated subprocess-timeout retry. The actual native VS Code host passed both small and 302-function graph/CFG cases after startup timeouts during the concurrent suites; the large case retained all expanded functions, breadcrumbs and cameras and closed its owned test processes. Temporary tracing was removed after verification.
+
+Closed the four older preview instances left by repeated fresh-profile launches. The preview launcher now uses one stable isolated profile and reuses its existing development window. No further VS Code instances are needed for PR completion.

@@ -117,20 +117,23 @@ writeFileSync(
 );
 const line = source.slice(0, source.indexOf("int submit(")).split("\n").length;
 const codeLog = openSync(join(output, "preview-code.log"), "a");
+// A stable profile lets repeated previews reuse the same development window.
+processInfo.profile ??= join(dirname(processInfo.config), "profile");
+writeFileSync(stateFile, JSON.stringify(processInfo));
 const code = spawn(
   process.env.VSCODE_EXECUTABLE_PATH ||
     (process.platform === "darwin"
       ? "/Applications/Visual Studio Code.app/Contents/MacOS/Code"
       : "code"),
   [
-    "--new-window",
+    "--reuse-window",
     "--disable-extensions",
     "--disable-workspace-trust",
     "--skip-welcome",
     "--skip-release-notes",
     "--disable-updates",
     "--user-data-dir",
-    mkdtempSync(join(dirname(processInfo.config), "profile-")),
+    processInfo.profile,
     "--extensions-dir",
     join(dirname(processInfo.config), "extensions"),
     `--extensionDevelopmentPath=${extension}`,
