@@ -96,7 +96,8 @@ def test_project_symbol_lookup_routes_without_parsing(tmp_path):
 
 @pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
 @pytest.mark.parametrize("target", ["ctk-lab", "/remote/ctk-lab", "./ctk-lab", "../ctk-lab"])
-def test_index_status_resolves_listed_names_and_preserves_paths(tmp_path, engine, target):
+@pytest.mark.parametrize("command", ["status", "find"])
+def test_index_commands_resolve_listed_names_and_preserve_paths(tmp_path, engine, target, command):
     from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
     from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
 
@@ -108,11 +109,21 @@ def test_index_status_resolves_listed_names_and_preserves_paths(tmp_path, engine
     expected = ("/remote/ctk-lab" if target in {"ctk-lab", "/remote/ctk-lab"}
                 else str((tmp_path / target).resolve()))
     client.project_index_status.return_value = pb.ProjectIndexStatus(project_root=expected)
+    client.find_symbols.return_value = pb.FindSymbolsResponse(symbols=[
+        pb.Symbol(name="clamp", qualified_name="flow::clamp", file_path=expected + "/flow.cc"),
+    ])
     runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
                else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
     try:
-        assert expected in runtime.execute(f'index status "{target}"')
-        client.project_index_status.assert_called_once_with(expected)
+        source = (f'index status "{target}"' if command == "status"
+                  else f'index find "flow::clamp" in "{target}"')
+        output = runtime.execute(source)
+        assert expected in output
+        if command == "find":
+            assert "flow::clamp" in output
+            client.find_symbols.assert_called_once_with(expected, "flow::clamp")
+        else:
+            client.project_index_status.assert_called_once_with(expected)
         assert client.list_project_indexes.call_count == (1 if target == "ctk-lab" else 0)
     finally:
         runtime.close()
@@ -123,7 +134,8 @@ def test_index_status_resolves_listed_names_and_preserves_paths(tmp_path, engine
     (["/one/ctk-lab", "/two/ctk-lab"], "Ambiguous project name"),
     (["/one/other"], "No indexed project named"),
 ])
-def test_index_status_rejects_ambiguous_or_unknown_names(tmp_path, engine, roots, message):
+@pytest.mark.parametrize("command", ["status", "find"])
+def test_index_commands_reject_ambiguous_or_unknown_names(tmp_path, engine, roots, message, command):
     from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
     from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
 
@@ -136,9 +148,12 @@ def test_index_status_rejects_ambiguous_or_unknown_names(tmp_path, engine, roots
                else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
     try:
         with pytest.raises(Exception, match=message) as error:
-            runtime.execute('index status "ctk-lab"')
+            source = ('index status "ctk-lab"' if command == "status"
+                      else 'index find "flow::clamp" in "ctk-lab"')
+            runtime.execute(source)
         if len(roots) > 1:
             assert all(root in str(error.value) for root in roots)
         client.project_index_status.assert_not_called()
+        client.find_symbols.assert_not_called()
     finally:
         runtime.close()

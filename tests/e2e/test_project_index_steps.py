@@ -45,7 +45,9 @@ def project(tmp_path, request, monkeypatch):
     for name in ("one", "two"):
         (root / f"{name}.cc").write_text(
             f'#include "shared.hpp"\nint {name}() {{return 1;}}\n', encoding="utf-8")
-    (root / "unrelated.cc").write_text("int unrelated() {return 0;}\n", encoding="utf-8")
+    (root / "unrelated.cc").write_text(
+        "int unrelated() {return 0;}\nnamespace flow { int clamp(int x) {return x;} }\n",
+        encoding="utf-8")
     compiler = os.environ.get("CTK_TEST_CLANG", "clang++")
     (root / "compile_commands.json").write_text(json.dumps([
         {"directory": str(root), "file": str(root / f"{name}.cc"),
@@ -122,6 +124,8 @@ def console_index_inventory(indexed_project):
         output = _console(indexed_project, 'index status "project"', engine)
         assert str(indexed_project["root"]) in output
         assert "PAUSED" in output and "Indexed  3/3" in output
+        output = _console(indexed_project, 'index find "flow::clamp" in "project"', engine)
+        assert "flow::clamp" in output and str(indexed_project["root"]) in output
 
 
 @then("symbol lookup remains available and foreground parsing still works")
