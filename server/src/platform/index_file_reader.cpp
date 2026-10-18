@@ -37,17 +37,26 @@ std::optional<IndexFileIdentity> from_stat(const struct stat &value) {
 }
 } // namespace
 
-IndexFileReader::IndexFileReader(const std::filesystem::path &path)
-    : descriptor_(open(path.c_str(), O_RDONLY | O_CLOEXEC)) {}
+IndexFileReader::IndexFileReader(const std::filesystem::path &path) {
+  cache_reserved_ = reserve_index_descriptor();
+  descriptor_ = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+  if (descriptor_ < 0 && cache_reserved_) {
+    release_index_descriptor();
+    cache_reserved_ = false;
+  }
+}
 
 IndexFileReader::~IndexFileReader() {
   if (descriptor_ >= 0)
     close(descriptor_);
+  if (cache_reserved_)
+    release_index_descriptor();
 }
 
 bool IndexFileReader::valid() const { return descriptor_ >= 0; }
 bool IndexFileReader::cacheable() const {
-  return descriptor_ >= 0 && supports_index_input_reuse(descriptor_);
+  return descriptor_ >= 0 && cache_reserved_ &&
+         supports_index_input_reuse(descriptor_);
 }
 
 std::optional<IndexFileIdentity> IndexFileReader::identity() const {

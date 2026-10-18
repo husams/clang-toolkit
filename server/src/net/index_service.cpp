@@ -1885,13 +1885,15 @@ private:
           return true;
         };
         auto arm_inputs = [&] {
-          std::set<std::string> paths{
-              (fs::path(job.commands) / "compile_commands.json").string(),
-              executable_.string()};
+          arm_input((fs::path(job.commands) / "compile_commands.json").string());
+          arm_input(executable_.string());
+          std::set<std::string> paths;
           Statement rows(db, "SELECT main_file,dependencies_json FROM "
                              "translation_unit WHERE indexed_at>0");
           while (rows.step()) {
-            paths.insert(rows.text(0));
+            // Prioritize every source before spending the remaining watch
+            // allowance on shared/system headers.
+            arm_input(rows.text(0));
             try {
               for (const auto &[path, digest] : dependencies(rows.text(1)))
                 if (!path.starts_with("@include-tree:"))

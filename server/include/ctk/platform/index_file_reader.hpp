@@ -32,6 +32,8 @@ public:
   IndexFileReader &operator=(const IndexFileReader &) = delete;
 
   bool valid() const;
+  // A valid reader may lack a retained-descriptor allowance. Such a reader
+  // still supports reads, but callers must not retain it as a cache entry.
   bool cacheable() const;
   std::optional<IndexFileIdentity> identity() const;
   std::ptrdiff_t read_at(void *buffer, std::size_t size,
@@ -43,6 +45,7 @@ public:
 
 private:
   int descriptor_ = -1;
+  bool cache_reserved_ = false;
 };
 
 } // namespace ctk::platform

@@ -7,6 +7,8 @@
 #include <deque>
 #include <fcntl.h>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -18,9 +20,62 @@
 #endif
 
 namespace ctk::platform {
+#ifdef __APPLE__
+namespace {
+struct WatchDescriptor {
+  WatchDescriptor() = default;
+  WatchDescriptor(const WatchDescriptor &) = delete;
+  WatchDescriptor &operator=(const WatchDescriptor &) = delete;
+  int fd = -1;
+  bool reserved = false;
+  ~WatchDescriptor() {
+    if (fd >= 0)
+      close(fd);
+    if (reserved)
+      release_index_descriptor();
+  }
+};
+struct WatchDescriptors {
+  std::mutex mutex;
+  std::map<std::filesystem::path, std::weak_ptr<WatchDescriptor>> paths;
+};
+std::shared_ptr<WatchDescriptor>
+watch_descriptor(const std::filesystem::path &path) {
+  static WatchDescriptors pool;
+  std::lock_guard lock(pool.mutex);
+  if (auto existing = pool.paths.find(path); existing != pool.paths.end()) {
+    if (auto handle = existing->second.lock()) {
+      struct stat current{}, opened{};
+      if (stat(path.c_str(), &current) == 0 &&
+          fstat(handle->fd, &opened) == 0 && current.st_dev == opened.st_dev &&
+          current.st_ino == opened.st_ino)
+        return handle;
+    }
+  }
+  auto handle = std::make_shared<WatchDescriptor>();
+  if (!reserve_index_descriptor())
+    return {};
+  handle->reserved = true;
+  handle->fd = open(path.c_str(), O_EVTONLY | O_CLOEXEC);
+  if (handle->fd < 0 || !supports_index_input_reuse(handle->fd))
+    return {};
+  if (pool.paths.size() > 12288)
+    std::erase_if(pool.paths,
+                  [](const auto &entry) { return entry.second.expired(); });
+  pool.paths[path] = handle;
+  return handle;
+}
+} // namespace
+#endif
+
 struct DirectoryWatch::Impl {
   int queue = -1;
+#ifdef __APPLE__
+  std::map<std::filesystem::path, std::shared_ptr<WatchDescriptor>> directories;
+  std::size_t files = 0;
+#else
   std::map<std::filesystem::path, int> directories;
+#endif
   std::size_t budget = 1024;
   bool add(const std::filesystem::path &resolved, bool file = false,
            bool metadata = true);
@@ -53,10 +108,6 @@ struct DirectoryWatch::Impl {
 #endif
   }
   ~Impl() {
-#ifdef __APPLE__
-    for (const auto &[path, descriptor] : directories)
-      close(descriptor);
-#endif
     if (queue >= 0)
       close(queue);
   }
@@ -139,21 +190,24 @@ bool DirectoryWatch::Impl::add(const std::filesystem::path &path, bool file,
   if (directories.size() >= budget)
     return false;
 #ifdef __APPLE__
-  const int descriptor = open(path.c_str(), O_EVTONLY | O_CLOEXEC);
-  if (descriptor < 0 || !supports_index_input_reuse(descriptor)) {
-    if (descriptor >= 0)
-      close(descriptor);
+  // Directory inventories must retain capacity even for projects with many
+  // thousands of header inputs. Missing file coverage uses the safety sweep.
+  if (file && files >= 1024)
     return false;
-  }
+  auto handle = watch_descriptor(path);
+  if (!handle)
+    return false;
+  const int descriptor = handle->fd;
   struct kevent event;
   EV_SET(&event, descriptor, EVFILT_VNODE, EV_ADD | EV_CLEAR,
          NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE |
              (metadata ? NOTE_ATTRIB : 0) | NOTE_LINK,
          0, nullptr);
-  if (kevent(queue, &event, 1, nullptr, 0, nullptr) < 0) {
-    close(descriptor);
+  if (kevent(queue, &event, 1, nullptr, 0, nullptr) < 0)
     return false;
-  }
+  directories.emplace(path, std::move(handle));
+  if (file)
+    ++files;
 #else
   const int filesystem_descriptor =
       open(path.c_str(), O_RDONLY | (file ? 0 : O_DIRECTORY) | O_CLOEXEC);
@@ -171,7 +225,9 @@ bool DirectoryWatch::Impl::add(const std::filesystem::path &path, bool file,
   if (descriptor < 0)
     return false;
 #endif
+#ifndef __APPLE__
   directories.emplace(path, descriptor);
+#endif
   return true;
 }
 bool DirectoryWatch::changed() {
