@@ -27,6 +27,7 @@ class RunnableBlock:
     default_nodes: tuple[Any, ...] = ()
     definition: str = ""
     recursion: Any = None
+    direct_loop: Any = None
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(_format_pattern(item) for item in self.parameters)})"
@@ -109,6 +110,9 @@ class MultiClauseBlock(RunnableBlock):
         if self.optimized is not None and allowed:
             return super().invoke(context, node, arguments, _bound={},
                                   _executable=lambda ctx: self.optimized(ctx, arguments, node))
+        if self.direct_loop is not None and allowed:
+            return super().invoke(context, node, arguments, _bound={},
+                                  _executable=lambda ctx: self.direct_loop(ctx, arguments, self, node))
         if self.recursion is not None and allowed:
             return super().invoke(context, node, arguments, _bound={},
                                   _executable=lambda ctx: self.recursion.run(ctx, arguments, self, node))
@@ -123,6 +127,7 @@ class MultiClauseBlock(RunnableBlock):
 def create_clause_runnable(context: Context, node: Any,
                            executables: tuple[Callable[[Context], Any], ...]) -> MultiClauseBlock:
     from .folds import compile_right_fold
+    from .list_loops import compile_direct_loop
     from .list_recursion import compile_list_recursion
 
     parameters = node.children[0].value[1]
@@ -133,6 +138,7 @@ def create_clause_runnable(context: Context, node: Any,
         definition=context.source[slice(*node.source_span)] if node.source_span else "",
         matchers=tuple(compile_matcher(clause.value[1]) for clause in node.children),
         executables=executables, optimized=compile_right_fold(node), recursion=compile_list_recursion(node, context),
+        direct_loop=compile_direct_loop(node, context),
     )
 
 
