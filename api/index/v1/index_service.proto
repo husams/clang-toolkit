@@ -63,6 +63,15 @@ message FindSymbolsRequest {
     MATCH_MODE_PREFIX = 1;
   }
   MatchMode match_mode = 4;
+  // Optional category filter, applied before limiting results. Raw Clang kind
+  // remains available in every Symbol.kind field.
+  enum Kind {
+    KIND_ANY = 0;
+    KIND_FUNCTION = 1;
+    KIND_CLASS = 2;
+    KIND_VARIABLE = 3;
+  }
+  Kind kind = 5;
 }
 message LookupSymbolRequest { string project_root = 1; string usr = 2; }
 message Symbol {

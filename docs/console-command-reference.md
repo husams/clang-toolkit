@@ -864,7 +864,7 @@ index status "PROJECT"
 index pause "PROJECT"
 index resume "PROJECT"
 index cancel "PROJECT"
-index find "PREFIX[*]" [exact] [in "PROJECT"]
+index find "PREFIX[*]" [exact] [kind function|class|variable] [in "PROJECT"]
 index lookup "USR" in "PROJECT"
 ```
 
@@ -872,7 +872,7 @@ index lookup "USR" in "PROJECT"
 - Start discovers compile_commands.json; Python start_project_index accepts an explicit path.
 - Status and controls return immediately; indexing runs independently in the background.
 - List shows saved indexes and current work with a total count. Saved indexes without a current job are IDLE until started again.
-- Find matches short or qualified name prefixes (case-insensitive); optional trailing * is supported. Add exact for case-sensitive literal matching. Omit in to search every listed project, or use a wildcard project scope. Global results retain each project path and revision; errors are reported per project. Searches return at most 100 matches per project; truncation is shown. Leading/internal wildcards and regex are not supported.
+- Find matches short or qualified name prefixes (case-insensitive); optional trailing * is supported. Add exact for case-sensitive literal matching. Omit in to search every listed project, or use a wildcard project scope. The kind filter is optional and runs before the result limit; results include raw Clang kind. Global results retain each project path and revision; errors are reported per project. Searches return at most 100 matches per project; truncation is shown. Leading/internal wildcards and regex are not supported.
 - List, status and lookup responses can be assigned to variables.
 
 ```text

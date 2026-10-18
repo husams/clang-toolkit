@@ -2477,5 +2477,93 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_LT(std::chrono::steady_clock::now() - stopping,
             std::chrono::seconds(2));
 }
+
+TEST_F(ProjectIndexServiceTest, KindFilterPrecedesLimitAndPreservesRawKinds) {
+  std::string source;
+  for (int i = 0; i < 120; ++i)
+    source += "int kind" + std::to_string(i) + " = 0;\n";
+  source += R"cpp(
+struct kindClass {
+  int field;
+  kindClass() {}
+  ~kindClass() {}
+  int method() { return 1; }
+  operator bool() { return true; }
+};
+template<class T> struct kindBox {};
+template<> struct kindBox<int> {};
+int kindZFunction() { return 1; }
+)cpp";
+  write("one.cpp", source);
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto indexed = start_and_wait(service);
+  ASSERT_GT(indexed.revision(), 0u);
+  const auto search = [&](FindSymbolsRequest::Kind kind, bool prefix,
+                          const std::string &query, unsigned limit) {
+    FindSymbolsRequest request;
+    request.set_project_root(project.string());
+    request.set_query(query);
+    request.set_kind(kind);
+    request.set_limit(limit);
+    request.set_match_mode(prefix ? FindSymbolsRequest::MATCH_MODE_PREFIX
+                                  : FindSymbolsRequest::MATCH_MODE_EXACT);
+    grpc::ServerContext context;
+    FindSymbolsResponse response;
+    EXPECT_TRUE(service.FindSymbols(&context, &request, &response).ok());
+    return response;
+  };
+  const auto unfiltered = search(FindSymbolsRequest::KIND_ANY, true, "kind", 1);
+  ASSERT_EQ(unfiltered.symbols_size(), 1);
+  EXPECT_EQ(unfiltered.symbols(0).kind(), "Var");
+  EXPECT_TRUE(unfiltered.truncated());
+  for (const auto kind :
+       {FindSymbolsRequest::KIND_FUNCTION, FindSymbolsRequest::KIND_CLASS,
+        FindSymbolsRequest::KIND_VARIABLE}) {
+    const auto result = search(kind, true, "kind", 1);
+    ASSERT_EQ(result.symbols_size(), 1);
+    const auto &raw = result.symbols(0).kind();
+    if (kind == FindSymbolsRequest::KIND_FUNCTION)
+      EXPECT_TRUE(raw == "Function" || raw == "CXXMethod" ||
+                  raw == "CXXConstructor" || raw == "CXXDestructor" ||
+                  raw == "CXXConversion");
+    else if (kind == FindSymbolsRequest::KIND_CLASS)
+      EXPECT_TRUE(raw == "CXXRecord" || raw == "ClassTemplateSpecialization");
+    else
+      EXPECT_EQ(raw, "Var");
+    EXPECT_EQ(result.revision(), indexed.revision());
+  }
+  const auto methods = search(FindSymbolsRequest::KIND_FUNCTION, false,
+                              "kindClass::method", 100);
+  ASSERT_GT(methods.symbols_size(), 0);
+  EXPECT_EQ(methods.symbols(0).kind(), "CXXMethod");
+  EXPECT_TRUE(
+      search(FindSymbolsRequest::KIND_VARIABLE, false, "kindClass::method", 100)
+          .symbols()
+          .empty());
+  EXPECT_GT(
+      search(FindSymbolsRequest::KIND_VARIABLE, false, "kindClass::field", 100)
+          .symbols_size(),
+      0);
+  const auto constructors =
+      search(FindSymbolsRequest::KIND_FUNCTION, false, "kindClass", 100);
+  ASSERT_GT(constructors.symbols_size(), 0);
+  for (const auto &symbol : constructors.symbols())
+    EXPECT_EQ(symbol.kind(), "CXXConstructor");
+}
+
+TEST_F(ProjectIndexServiceTest,
+       RejectsUnknownSymbolKindWithoutCreatingAnIndex) {
+  IndexServiceAdapter service(storage);
+  FindSymbolsRequest request;
+  request.set_project_root(project.string());
+  request.set_query("kind");
+  request.set_kind(static_cast<FindSymbolsRequest::Kind>(999));
+  grpc::ServerContext context;
+  FindSymbolsResponse response;
+  EXPECT_EQ(service.FindSymbols(&context, &request, &response).error_code(),
+            grpc::StatusCode::INVALID_ARGUMENT);
+  EXPECT_FALSE(fs::exists(storage));
+}
+
 } // namespace
 } // namespace ctk::net

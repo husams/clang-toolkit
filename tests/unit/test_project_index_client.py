@@ -65,3 +65,33 @@ def test_sync_index_controls_use_existing_client_loop(monkeypatch):
     assert client.list_project_indexes() is expected
     assert calls[-1] == ("list_project_indexes", (), {})
     client.close()
+
+
+@pytest.mark.parametrize("kind, expected", [("", pb.FindSymbolsRequest.KIND_ANY),
+    ("function", pb.FindSymbolsRequest.KIND_FUNCTION),
+    ("class", pb.FindSymbolsRequest.KIND_CLASS),
+    ("variable", pb.FindSymbolsRequest.KIND_VARIABLE)])
+def test_optional_kind_filter_is_sent_before_server_limit(kind, expected):
+    async def exercise():
+        client = AsyncClient("unix:///tmp/not-connected-index-test.sock")
+        client._index_call = AsyncMock(return_value=pb.FindSymbolsResponse())
+        try:
+            await client.find_symbols("/project", "demo", kind=kind, prefix=True, limit=1)
+            request = client._index_call.call_args.args[1]
+            assert request.kind == expected and request.limit == 1
+        finally:
+            await client.aclose()
+    asyncio.run(exercise())
+
+
+def test_unknown_kind_fails_before_rpc():
+    async def exercise():
+        client = AsyncClient("unix:///tmp/not-connected-index-test.sock")
+        client._index_call = AsyncMock()
+        try:
+            with pytest.raises(ValueError, match="kind"):
+                await client.find_symbols("/project", "name", kind="unknown")
+            client._index_call.assert_not_called()
+        finally:
+            await client.aclose()
+    asyncio.run(exercise())

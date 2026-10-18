@@ -326,3 +326,31 @@ def console_global_prefix_search(indexed_project):
         assert "flow::clamp" in global_output and "flow::clampOther" in global_output
         exact = _console(indexed_project, 'index find "flow::clamp" exact', engine)
         assert "flow::clamp" in exact and "clampOther" not in exact
+
+
+@then("kind filtering works in scoped and global console searches with kinds in results")
+def console_optional_kind_filter(indexed_project):
+    root = indexed_project["root"]
+    source = root / "unrelated.cc"
+    source.write_text(source.read_text() +
+        "\nstruct FilterClass {};\n"
+        "int FilterVariable = 1; int FilterFunction() {return 1;}\n", encoding="utf-8")
+    with Client(indexed_project["server"].endpoint) as client:
+        client.resume_project_index(root)
+        _until(lambda: client.find_symbols(root, "FilterFunction").symbols)
+        client.pause_project_index(root)
+    for engine in ("legacy", "tree", "compiled"):
+        for scope in (' in "project"', ""):
+            for category, name, raw in [
+                ("function", "FilterFunction", "Function"),
+                ("class", "FilterClass", "CXXRecord"),
+                ("variable", "FilterVariable", "Var"),
+            ]:
+                output = _console(indexed_project, f'index find "Filter" kind {category}' + scope, engine)
+                assert name in output and f"[{raw}]" in output
+                for other in {"FilterFunction", "FilterClass", "FilterVariable"} - {name}:
+                    assert other not in output
+        unfiltered = _console(indexed_project, 'index find "Filter" in "project"', engine)
+        assert all(name in unfiltered for name in ["FilterClass", "FilterVariable", "FilterFunction"])
+        exact = _console(indexed_project, 'index find "FilterFunction" exact kind function in "project"', engine)
+        assert "FilterFunction" in exact and "[Function]" in exact

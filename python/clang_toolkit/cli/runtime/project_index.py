@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 def _symbol_lines(result: pb.FindSymbolsResponse) -> list[str]:
     lines = [f"Symbol index revision {result.revision}" +
              (" (stale)" if result.stale else "")]
-    lines.extend(f"{symbol.qualified_name}  {symbol.file_path}:{symbol.line}:{symbol.column}"
+    lines.extend(f"{symbol.qualified_name}  [{symbol.kind}]  {symbol.file_path}:{symbol.line}:{symbol.column}"
                  for symbol in result.symbols)
     if not result.symbols:
         lines.append("No symbols in the indexed coverage.")
@@ -54,6 +54,11 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     kind = str(node.data)
     if kind == "index_find":
         query = strings[0]
+        symbol_kind = next((str(child) for child in node.children
+                            if isinstance(child, Token) and child.type == "NAME"), "")
+        if symbol_kind not in {"", "function", "class", "variable"}:
+            raise ValueError("kind must be function, class, or variable")
+        options = {"kind": symbol_kind} if symbol_kind else {}
         exact = any(isinstance(child, Token) and child.type == "EXACT" for child in node.children)
         if not exact:
             query = query.removesuffix("*")
@@ -69,7 +74,7 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
             for root in roots:
                 lines.append(f"Project  {root}")
                 try:
-                    result = runtime.client.find_symbols(root, query, prefix=not exact)
+                    result = runtime.client.find_symbols(root, query, prefix=not exact, **options)
                 except CursorError as error:
                     values.append({"project_root": root, "result": None, "error": str(error)})
                     lines.append(f"Search failed: {error}")
@@ -100,7 +105,7 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     if kind in {"index_find", "index_lookup"}:
         operation = (runtime.client.find_symbols if kind == "index_find"
                      else runtime.client.lookup_symbol)
-        result = (operation(project, query, prefix=not exact) if kind == "index_find"
+        result = (operation(project, query, prefix=not exact, **options) if kind == "index_find"
                   else operation(project, strings[0]))
         lines = _symbol_lines(result)
     else:

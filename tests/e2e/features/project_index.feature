@@ -32,3 +32,8 @@ Feature: Background project symbol lookup
     Given an isolated server and three translation units with a shared header
     When I index the project and pause background refresh through gRPC
     Then the console searches partial names globally and within a project
+
+  Scenario: Console optionally filters symbol kinds before limiting results
+    Given an isolated server and three translation units with a shared header
+    When I index the project and pause background refresh through gRPC
+    Then kind filtering works in scoped and global console searches with kinds in results
