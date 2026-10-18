@@ -6,6 +6,7 @@
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/DeclTemplate.h>
 #include <clang/AST/RecursiveASTVisitor.h>
+#include <clang/AST/Stmt.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/Version.h>
@@ -99,11 +100,41 @@ bool is_symbol_definition(const clang::NamedDecl *decl) {
                    clang::NamespaceDecl, clang::NamespaceAliasDecl,
                    clang::BindingDecl>(decl);
 }
+
+bool is_external_definition(const clang::NamedDecl *decl) {
+  // Function bodies can still be parsed when Clang needs them for constexpr
+  // evaluation or return type deduction. Their declarations do not belong in
+  // the project-wide definition locator.
+  for (const clang::DeclContext *scope = decl->getDeclContext(); scope;
+       scope = scope->getParent()) {
+    if (scope->isFunctionOrMethod())
+      return false;
+    if (const auto *named_scope = llvm::dyn_cast<clang::NamedDecl>(scope)) {
+      if (named_scope->getFormalLinkage() == clang::Linkage::Internal ||
+          named_scope->getFormalLinkage() == clang::Linkage::UniqueExternal)
+        return false;
+      if (const auto *ns = llvm::dyn_cast<clang::NamespaceDecl>(named_scope);
+          ns && ns->isAnonymousNamespace())
+        return false;
+    }
+  }
+
+  const auto linkage = decl->getFormalLinkage();
+  return linkage != clang::Linkage::Internal &&
+         linkage != clang::Linkage::UniqueExternal;
+}
+
 class Visitor : public clang::RecursiveASTVisitor<Visitor> {
 public:
   Visitor(clang::ASTContext &c, ProjectIndexExtraction &r,
           HeaderDefinitionReuse &reuse)
       : context(c), output(r), reuse(reuse) {}
+  bool TraverseStmt(clang::Stmt *) {
+    // PCHs can materialize bodies even when the parser was asked to skip
+    // them. A definition locator needs declaration metadata, never statements
+    // or expressions (including bodies Clang had to parse for type deduction).
+    return true;
+  }
   bool TraverseDecl(clang::Decl *d) {
     // Parse system headers for semantic correctness, but do not enumerate their
     // declarations or repeatedly publish the standard library for every TU.
@@ -116,7 +147,8 @@ public:
     if (reuse.skip(d))
       return true;
     if (d->isImplicit() || !is_symbol_definition(d) ||
-        d->getNameAsString().empty() || !d->getLocation().isValid())
+        !is_external_definition(d) || d->getNameAsString().empty() ||
+        !d->getLocation().isValid())
       return true;
     auto &sm = context.getSourceManager();
     auto loc = sm.getSpellingLoc(d->getLocation());
@@ -148,12 +180,6 @@ public:
     s.column = sm.getSpellingColumnNumber(loc);
     s.byte_offset = sm.getFileOffset(loc);
     s.is_definition = true;
-    if (auto *f = llvm::dyn_cast<clang::FunctionDecl>(d)) {
-      s.signature = f->getType().getAsString();
-    } else if (auto *v = llvm::dyn_cast<clang::VarDecl>(d)) {
-      s.signature = v->getType().getAsString();
-    } else if (auto *field = llvm::dyn_cast<clang::FieldDecl>(d))
-      s.signature = field->getType().getAsString();
     reuse.record(d, s);
     output.symbols.push_back(std::move(s));
     return true;
@@ -186,6 +212,10 @@ class Action final : public clang::ASTFrontendAction {
 public:
   Action(ProjectIndexExtraction &r, std::string cache, bool enabled)
       : result(r), cache(std::move(cache)), enabled(enabled) {}
+  bool BeginSourceFileAction(clang::CompilerInstance &ci) override {
+    ci.getFrontendOpts().SkipFunctionBodies = true;
+    return clang::ASTFrontendAction::BeginSourceFileAction(ci);
+  }
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &, llvm::StringRef) override {
     reuse = std::make_unique<HeaderDefinitionReuse>(getCompilerInstance(),

@@ -4,13 +4,17 @@
 #include "project_index_store.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <fstream>
+#include <future>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <thread>
+#include <utility>
 
 namespace ctk::net {
 namespace {
@@ -306,6 +310,49 @@ public:
   }
 
 private:
+  class PendingExtraction {
+  public:
+    PendingExtraction(BackgroundSymbolIndexer &owner, Job job,
+                      IndexWorkerRequest request, fs::path directory)
+        : owner_(owner), job_(std::move(job)), result_(promise_.get_future()),
+          thread_([this, request = std::move(request),
+                   directory = std::move(directory)]() mutable {
+            platform::lower_index_thread_priority();
+            try {
+              promise_.set_value(
+                  owner_.execute(job_, std::move(request), directory, [this] {
+                    return stopped_.load(std::memory_order_acquire) ||
+                           !owner_.admitted(job_);
+                  }));
+            } catch (...) {
+              promise_.set_exception(std::current_exception());
+            }
+          }) {}
+    PendingExtraction(const PendingExtraction &) = delete;
+    PendingExtraction &operator=(const PendingExtraction &) = delete;
+    ~PendingExtraction() { stop_and_join(); }
+
+    IndexWorkerResponse get() {
+      auto response = result_.get();
+      stop_and_join();
+      return response;
+    }
+
+  private:
+    void stop_and_join() {
+      stopped_.store(true, std::memory_order_release);
+      if (thread_.joinable())
+        thread_.join();
+    }
+
+    BackgroundSymbolIndexer &owner_;
+    Job job_;
+    std::promise<IndexWorkerResponse> promise_;
+    std::future<IndexWorkerResponse> result_;
+    std::atomic<bool> stopped_{false};
+    std::thread thread_;
+  };
+
   void require_project(const std::string &key) const {
     if (job_.root.empty() || key != job_.root)
       throw std::logic_error("project has not been started on this server");
@@ -318,9 +365,11 @@ private:
     std::lock_guard lock(mutex_);
     return !stopping_ && !cancelled_ && !paused_ && job.epoch == job_.epoch;
   }
-  bool await_admission(const Job &job) {
+  bool await_admission(const Job &job, const std::function<bool()> &stop = {}) {
     bool waited = false;
     for (;;) {
+      if (stop && stop())
+        throw Interrupted();
       {
         std::unique_lock lock(mutex_);
         if (stopping_ || cancelled_ || job.epoch != job_.epoch)
@@ -339,8 +388,10 @@ private:
     }
   }
   IndexWorkerResponse execute(const Job &job, IndexWorkerRequest request,
-                              const fs::path &directory) {
-    await_admission(job);
+                              const fs::path &directory,
+                              const std::function<bool()> &stop = {}) {
+    await_admission(job, stop);
+    fs::create_directories(directory);
     const auto request_path = directory / "worker.request";
     const auto result_path = directory / "worker.result";
     struct Cleanup {
@@ -360,7 +411,7 @@ private:
     auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(120);
     for (;;) {
-      if (!admitted(job))
+      if ((stop && stop()) || !admitted(job))
         throw Interrupted();
       if (foreground_busy_ && foreground_busy_()) {
         // Retain the AST and current reconciliation position while giving
@@ -368,7 +419,7 @@ private:
         // wrapper children; cancellation still kills and reaps it immediately.
         const auto yielded_at = std::chrono::steady_clock::now();
         worker.suspend();
-        await_admission(job);
+        await_admission(job, stop);
         worker.resume();
         deadline += std::chrono::steady_clock::now() - yielded_at;
         continue;
@@ -378,6 +429,8 @@ private:
         throw std::runtime_error("index worker exceeded 1.5 GiB memory budget");
       const auto exit = worker.poll();
       if (exit) {
+        if ((stop && stop()) || !admitted(job))
+          throw Interrupted();
         IndexWorkerResponse response;
         std::ifstream input(result_path, std::ios::binary);
         if (!input || !response.ParseFromIstream(&input))
@@ -388,6 +441,8 @@ private:
           throw std::runtime_error(response.error().empty()
                                        ? "index extraction failed"
                                        : response.error());
+        if ((stop && stop()) || !admitted(job))
+          throw Interrupted();
         return response;
       }
       if (std::chrono::steady_clock::now() >= deadline)
@@ -797,7 +852,7 @@ private:
     const auto commands_digest = digest_file(
         (fs::path(job.commands) / "compile_commands.json").string());
     const auto worker_time = fs::last_write_time(executable_);
-    auto listing_result = execute(job, listing, directory);
+    auto listing_result = execute(job, listing, directory / "listing");
     if (worker_time != fs::last_write_time(executable_) ||
         commands_digest.empty() ||
         commands_digest !=
@@ -829,28 +884,74 @@ private:
       const auto command_hash = digest_text(unit.compile_context());
       active.insert(digest_text(unit.source() + '\n' + command_hash));
     }
-    for (const auto &unit : listing_result.translation_units()) {
+    struct UnitPlan {
+      const IndexWorkerTranslationUnit *unit;
+      std::string command_hash, id, previous_manifest;
+      bool unchanged = false, migrate = false;
+    };
+    const auto plan_unit = [&](const IndexWorkerTranslationUnit &unit) {
       await_admission(job);
-      const auto command_hash = digest_text(unit.compile_context());
-      const auto id = digest_text(unit.source() + '\n' + command_hash);
+      UnitPlan plan{&unit};
+      plan.command_hash = digest_text(unit.compile_context());
+      plan.id = digest_text(unit.source() + '\n' + plan.command_hash);
+      Statement prior(
+          db, "SELECT dependencies_json FROM translation_unit WHERE id=?");
+      prior.bind(1, plan.id);
+      if (prior.step()) {
+        plan.previous_manifest = prior.text(0);
+        plan.unchanged = manifest_current(
+            job, dependencies(plan.previous_manifest), digest_cache);
+      }
+      plan.migrate =
+          plan.unchanged && plan.previous_manifest.find("\"@symbol-layout\"") ==
+                                std::string::npos;
+      return plan;
+    };
+    const auto needs_worker = [](const UnitPlan &plan) {
+      return !(plan.unchanged && !plan.migrate) &&
+             !(plan.migrate && symbol_groups(plan.previous_manifest).empty());
+    };
+    const auto make_request = [&](const IndexWorkerTranslationUnit &unit) {
+      IndexWorkerRequest request;
+      request.set_source(unit.source());
+      request.set_header_cache_directory(
+          (directory / "header-definitions").string());
+      request.set_compile_commands_directory(job.commands);
+      request.set_working_directory(unit.working_directory());
+      *request.mutable_compile_arguments() = unit.compile_arguments();
+      return request;
+    };
+    std::optional<UnitPlan> next_plan;
+    std::exception_ptr next_plan_error;
+    std::unique_ptr<PendingExtraction> pending;
+    std::string pending_id;
+    const auto &units = listing_result.translation_units();
+    for (int unit_index = 0; unit_index < units.size(); ++unit_index) {
+      const auto &unit = units.Get(unit_index);
+      await_admission(job);
+      UnitPlan plan{&unit};
+      const bool was_preplanned = next_plan.has_value();
+      if (next_plan_error) {
+        plan.command_hash = digest_text(unit.compile_context());
+        plan.id = digest_text(unit.source() + '\n' + plan.command_hash);
+      } else {
+        plan = next_plan ? std::move(*next_plan) : plan_unit(unit);
+      }
+      next_plan.reset();
+      if (was_preplanned && plan.unchanged) {
+        // A lookahead skip is only a hint: the current TU's publication may
+        // span edits to this TU's inputs. Drop its cached manifest digests
+        // and re-read the manifest on the controller immediately before use.
+        for (const auto &[path, hash] : dependencies(plan.previous_manifest)) {
+          (void)hash;
+          digest_cache.erase(path);
+        }
+        plan = plan_unit(unit);
+      }
+      const auto &id = plan.id;
       progress(job,
                [&](auto &s) { s.set_current_translation_unit(unit.source()); });
-      bool unchanged = false;
-      std::string previous_manifest;
-      {
-        Statement prior(
-            db, "SELECT dependencies_json FROM translation_unit WHERE id=?");
-        prior.bind(1, id);
-        if (prior.step()) {
-          previous_manifest = prior.text(0);
-          unchanged = manifest_current(job, dependencies(previous_manifest),
-                                       digest_cache);
-        }
-      }
-      const bool migrate =
-          unchanged &&
-          previous_manifest.find("\"@symbol-layout\"") == std::string::npos;
-      if (unchanged && !migrate) {
+      if (plan.unchanged && !plan.migrate) {
         Transaction transaction(db);
         Statement ready(
             db, "UPDATE translation_unit SET status='ready',last_error='' "
@@ -862,25 +963,49 @@ private:
         ++completed;
       } else {
         try {
+          if (next_plan_error) {
+            auto error = std::exchange(next_plan_error, {});
+            std::rethrow_exception(error);
+          }
           IndexWorkerResponse response;
-          if (migrate && symbol_groups(previous_manifest).empty())
-            response = stored_response(job, db, id, previous_manifest);
+          if (plan.migrate && symbol_groups(plan.previous_manifest).empty())
+            response = stored_response(job, db, id, plan.previous_manifest);
           else {
-            IndexWorkerRequest request;
-            request.set_source(unit.source());
-            request.set_header_cache_directory(
-                (directory / "header-definitions").string());
-            request.set_compile_commands_directory(job.commands);
-            request.set_working_directory(unit.working_directory());
-            *request.mutable_compile_arguments() = unit.compile_arguments();
-            response = execute(job, std::move(request), directory);
+            if (pending && pending_id == id) {
+              auto extraction = std::move(pending);
+              response = extraction->get();
+              pending_id.clear();
+            } else {
+              response =
+                  execute(job, make_request(unit), directory / "units" / id);
+            }
+          }
+          // The next TU's manifest read and input checks stay on this thread
+          // and happen before the current TU opens its publication transaction.
+          if (unit_index + 1 < units.size()) {
+            try {
+              next_plan = plan_unit(units.Get(unit_index + 1));
+              if (needs_worker(*next_plan)) {
+                pending_id = next_plan->id;
+                pending = std::make_unique<PendingExtraction>(
+                    *this, job, make_request(*next_plan->unit),
+                    directory / "units" / pending_id);
+              }
+            } catch (const Interrupted &) {
+              throw;
+            } catch (...) {
+              // A lookahead failure belongs to the next TU; it must not
+              // discard the current TU's already completed extraction.
+              next_plan.reset();
+              next_plan_error = std::current_exception();
+            }
           }
           if (commands_digest !=
               digest_file(
                   (fs::path(job.commands) / "compile_commands.json").string()))
             throw Interrupted();
-          replace(job, db, unit, id, command_hash, response, commands_digest,
-                  worker_time);
+          replace(job, db, unit, id, plan.command_hash, response,
+                  commands_digest, worker_time);
           ++completed;
         } catch (const Interrupted &) {
           throw;
@@ -901,7 +1026,7 @@ private:
         s.set_revision(saved_revision);
         s.set_translation_units_indexed(saved_count);
       });
-      if (!unchanged || migrate)
+      if (!plan.unchanged || plan.migrate)
         checkpoint(job, db);
     }
     await_admission(job);
