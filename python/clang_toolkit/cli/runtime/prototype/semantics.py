@@ -191,6 +191,33 @@ class Context:
         if self.steps > self.max_steps:
             raise _error(self, node, "execution step limit exceeded", ExecutionLimitError)
 
+    def tick_many(self, nodes: tuple[Any, ...], _standard_tick: Any = tick) -> None:
+        """Account adjacent pure steps, retaining the precise first failure.
+
+        Hooks and cleanup must still see every individual step. The default
+        argument retains the original method even when Context.tick is patched.
+        """
+        if (
+            type(self) is not Context
+            or getattr(self.tick, "__func__", None) is not _standard_tick
+            or self.cancel_hook is not None
+            or self.cleanup_depth
+        ):
+            for node in nodes:
+                self.tick(node)
+            return
+        if not nodes:
+            return
+        steps = self.steps + len(nodes)
+        if steps > self.max_steps:
+            for node in nodes:
+                _standard_tick(self, node)
+            return
+        self.steps = self.step_count = steps
+        last = nodes[-1]
+        self.current_location = (last.line, last.column)
+        self.location = self.current_location
+
     def consume_step(self, node: Any = None) -> None:
         """Consume one bounded step for filter callbacks and iterator items."""
         self.tick(node)

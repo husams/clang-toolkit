@@ -540,3 +540,61 @@ def test_nested_collection_errors_keep_console_diagnostics(
         assert context.call_depth == context.consume_depth == 0
         assert context.scopes == (context.bindings,)
     assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("target", ["map_into", "filter_into", "reverse_list"])
+def test_generated_loops_keep_bookkeeping_out_of_the_traversal(console, target):
+    _client, runtime = console
+    source = runtime.bindings[target].direct_loop.__ctk_source__
+    module = ast.parse(source)
+    loops = [node for node in ast.walk(module) if isinstance(node, ast.For)]
+    assert loops
+    assert len(source.splitlines()) <= 30
+    assert not any(
+        isinstance(child, (ast.For, ast.While))
+        for loop in loops
+        for statement in loop.body
+        for child in ast.walk(statement)
+    )
+    assert (
+        sum(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "append"
+            for node in ast.walk(module)
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "target, expression",
+    [
+        ("map_into", "map_into(xs, (x) x * 2, out)"),
+        ("filter_into", "filter_into(xs, (x) x % 2 == 0, out)"),
+        ("reverse_list", "reverse_list(xs)"),
+    ],
+)
+def test_batched_accounting_preserves_every_uninstrumented_budget(
+    execute, target, expression
+):
+    from clang_toolkit.cli.runtime.prototype.semantics import PrototypeError
+
+    def run(enabled, limit):
+        context = Context(bindings={"xs": [1, 2, 3], "out": []})
+        execute(DEFINITIONS, context)
+        if not enabled:
+            object.__setattr__(context.lookup(target), "direct_loop", None)
+        context.steps = context.step_count = 0
+        context.max_steps = limit
+        try:
+            result = ("ok", execute(expression, context))
+        except PrototypeError as error:
+            result = (type(error).__name__, str(error))
+        assert context.scopes == (context.bindings,)
+        assert context.call_depth == context.consume_depth == 0
+        return result, context.steps, context.current_location, context.bindings["out"]
+
+    total = run(False, 1000)[1]
+    for budget in range(total + 2):
+        assert run(True, budget) == run(False, budget), budget
