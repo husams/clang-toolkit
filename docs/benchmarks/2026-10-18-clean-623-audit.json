@@ -1,0 +1,266 @@
+{
+  "verdict": "PASS",
+  "scope": "Requested clean uninterrupted 623-TU timed run and foreground responsiveness during indexing and after completion",
+  "raw_harness": {
+    "success": false,
+    "exit_status_reported": 1,
+    "global_harness_pass": false,
+    "reason": "Final all-phases assertion includes 8 pre-index symbol-query database-open errors; original result is preserved unchanged",
+    "failures": [
+      {
+        "phase": "before",
+        "kind": "exact",
+        "burst": 0,
+        "error": "CursorError('unable to open database file')"
+      },
+      {
+        "phase": "before",
+        "kind": "out_of_line_definition",
+        "burst": 0,
+        "error": "CursorError('unable to open database file')"
+      },
+      {
+        "phase": "before",
+        "kind": "exact",
+        "burst": 1,
+        "error": "CursorError('unable to open database file')"
+      },
+      {
+        "phase": "before",
+        "kind": "out_of_line_definition",
+        "burst": 1,
+        "error": "CursorError('unable to open database file')"
+      },
+      {
+        "phase": "before",
+        "kind": "exact",
+        "burst": 2,
+        "error": "CursorError('unable to open database file')"
+      },
+      {
+        "phase": "before",
+        "kind": "out_of_line_definition",
+        "burst": 2,
+        "error": "CursorError('unable to open database file')"
+      },
+      {
+        "phase": "before",
+        "kind": "exact",
+        "burst": 3,
+        "error": "CursorError('unable to open database file')"
+      },
+      {
+        "phase": "before",
+        "kind": "out_of_line_definition",
+        "burst": 3,
+        "error": "CursorError('unable to open database file')"
+      }
+    ],
+    "all_failures_before_start": true
+  },
+  "index_run": {
+    "elapsed_seconds": 891.1285002920777,
+    "elapsed_display": "14m 51.129s",
+    "completion_bracket_seconds": [
+      890.6248650420457,
+      891.1285002920777
+    ],
+    "completion_bracket_width_seconds": 0.5036352500319481,
+    "progress_rows": 1765,
+    "max_poll_gap_seconds": 0.6019937091041356,
+    "states": [
+      "INDEX_STATE_QUEUED",
+      "INDEX_STATE_INDEXING",
+      "INDEX_STATE_COMPLETE"
+    ],
+    "total": 623,
+    "completed": 623,
+    "indexed": 623,
+    "failed": 0,
+    "skipped": 0,
+    "control_calls": [
+      {
+        "method": "StartProjectIndex",
+        "at": "2026-10-18T04:38:40.327+01:00",
+        "status": {
+          "project_root": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse",
+          "state": "INDEX_STATE_QUEUED"
+        }
+      }
+    ],
+    "interruptions": [],
+    "storage_absent_before_launch": true,
+    "one_listening_line": true,
+    "server_uptime_samples": 77,
+    "server_uptime_decreases": 0,
+    "shutdown_after_completion": true
+  },
+  "foreground": {
+    "active_samples": 411,
+    "active_errors": 0,
+    "active_metrics": {
+      "index_status": {
+        "count": 59,
+        "errors": 0,
+        "mean_ms": 1.2244745762711866,
+        "p95_ms": 2.711,
+        "max_ms": 3.542
+      },
+      "server_status": {
+        "count": 59,
+        "errors": 0,
+        "mean_ms": 8.101338983050846,
+        "p95_ms": 13.999,
+        "max_ms": 18.515
+      },
+      "exact": {
+        "count": 59,
+        "errors": 0,
+        "mean_ms": 10.887677966101696,
+        "p95_ms": 25.244,
+        "max_ms": 38.854
+      },
+      "out_of_line_definition": {
+        "count": 59,
+        "errors": 0,
+        "mean_ms": 4.1000000000000005,
+        "p95_ms": 7.857,
+        "max_ms": 13.382
+      },
+      "fresh_parse_and_match": {
+        "count": 59,
+        "errors": 0,
+        "mean_ms": 45.13306779661017,
+        "p95_ms": 59.172,
+        "max_ms": 89.001
+      },
+      "prefix": {
+        "count": 58,
+        "errors": 0,
+        "mean_ms": 10.083775862068967,
+        "p95_ms": 21.231,
+        "max_ms": 33.573
+      },
+      "usr": {
+        "count": 58,
+        "errors": 0,
+        "mean_ms": 5.483344827586206,
+        "p95_ms": 10.424,
+        "max_ms": 13.188
+      }
+    },
+    "after_samples": 98,
+    "after_errors": 0,
+    "after_metrics": {
+      "exact": {
+        "count": 14,
+        "errors": 0,
+        "mean_ms": 7.188,
+        "p95_ms": 13.529,
+        "max_ms": 13.529
+      },
+      "fresh_parse_and_match": {
+        "count": 14,
+        "errors": 0,
+        "mean_ms": 54.379,
+        "p95_ms": 61.204,
+        "max_ms": 61.204
+      },
+      "index_status": {
+        "count": 14,
+        "errors": 0,
+        "mean_ms": 1.566,
+        "p95_ms": 2.748,
+        "max_ms": 2.748
+      },
+      "out_of_line_definition": {
+        "count": 14,
+        "errors": 0,
+        "mean_ms": 4.825,
+        "p95_ms": 5.535,
+        "max_ms": 5.535
+      },
+      "prefix": {
+        "count": 14,
+        "errors": 0,
+        "mean_ms": 8.171,
+        "p95_ms": 10.044,
+        "max_ms": 10.044
+      },
+      "server_status": {
+        "count": 14,
+        "errors": 0,
+        "mean_ms": 11.588,
+        "p95_ms": 16.057,
+        "max_ms": 16.057
+      },
+      "usr": {
+        "count": 14,
+        "errors": 0,
+        "mean_ms": 4.926,
+        "p95_ms": 6.34,
+        "max_ms": 6.34
+      }
+    },
+    "all_active_samples_ended_before_previous_nonterminal_poll": true,
+    "real_cross_tu_active_checks": 174,
+    "real_cross_tu_active_indexed_tus_range": [
+      4,
+      616
+    ],
+    "published_out_of_line_active_checks": 23,
+    "published_out_of_line_active_indexed_tus_range": [
+      431,
+      616
+    ]
+  },
+  "database": {
+    "direct_read_mode": "immutable read-only; no WAL file present",
+    "tables": [
+      "metadata",
+      "symbol",
+      "translation_unit"
+    ],
+    "main_tus": 623,
+    "header_groups": 1601,
+    "symbols": 145259,
+    "non_definitions": 0,
+    "nonempty_signatures": 0,
+    "standard_header_paths": 0,
+    "anonymous_namespace_names": 0,
+    "std_namespace_rows": 19,
+    "std_member_rows": 39,
+    "std_qualified_rows": 58,
+    "std_qualified_distinct_paths": 21,
+    "all_std_qualified_paths_outside_standard_cpp_and_clang_resource_dirs": true,
+    "std_qualified_path_samples": [
+      "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/atn/ATNConfig.h",
+      "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/atn/ATNConfigSet.h",
+      "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/atn/LexerAction.h",
+      "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/atn/LexerActionExecutor.h",
+      "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/atn/PredictionContext.h",
+      "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/atn/SemanticContext.h"
+    ],
+    "interpretation": "0 standard-library/resource-header-path records does not imply 0 std namespace or std-qualified records; LLVM and ANTLR headers define std customizations"
+  },
+  "integrity": {
+    "input_hashes_directly_rechecked": 1978,
+    "changed_inputs": [],
+    "binary_sha256": {
+      "ctk-server": "6e4ba3f0898af39b1475e914f8b06a7a880c6c8c77743d3f6ecb0d600452a8e2",
+      "ctk-index-worker": "01691f5eae7ebcd12dff65ddfa689fab14c8947e1ced9c9408530e3eb4cdef83"
+    },
+    "binary_hashes_match": true,
+    "raw_evidence_sha256": {
+      "result.json": "518088c6de5bf38fdf7a00de50e42d8f827b3ba8527b07dd022721dbbf6cd08d",
+      "index-complete.json": "7845f76835652e78f5a38c852925e200d51ebfcfe58d467c0eac55868a51b069",
+      "request-samples-final.json": "ab64a6bafcca110b92232aa62b270a7d7d3302d5d970fff41079bbfeeceb86b7",
+      "progress.jsonl": "7ca7b098ef7d45a58b8042dcce99cc18434776d99c4997c9e7f205c93879d71d"
+    },
+    "raw_files_edited": false
+  },
+  "limitations": [
+    "Recorded controls, continuous status, monotonic server uptime, and one listening line support no interruption; no independent OS process trace was collected.",
+    "No blanket exclusion of all std-qualified names is claimed."
+  ]
+}
