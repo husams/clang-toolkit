@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <fstream>
 #include <future>
 #include <map>
@@ -48,12 +49,16 @@ std::uint64_t count_units(Database &db) {
 class BackgroundSymbolIndexer {
 public:
   BackgroundSymbolIndexer(fs::path root, std::function<bool()> foreground_busy,
-                          fs::path executable)
+                          fs::path executable, std::size_t max_workers)
       : storage_(std::move(root) / "symbol-index"),
         executable_(executable.empty() ? platform::current_executable_sibling(
                                              "ctk-index-worker")
                                        : std::move(executable)),
         foreground_busy_(std::move(foreground_busy)),
+        max_workers_(std::clamp<std::size_t>(
+            max_workers ? max_workers
+                        : platform::index_worker_parallelism_limit(),
+            1, 4)),
         thread_([this] { loop(); }) {}
   ~BackgroundSymbolIndexer() {
     {
@@ -81,6 +86,7 @@ public:
         request.poll_interval_seconds() ? request.poll_interval_seconds() : 2u,
         1u, 3600u);
     ++job_.epoch;
+    ++generation_;
     cancelled_ = false;
     paused_ = false;
     status_.Clear();
@@ -107,17 +113,20 @@ public:
     if (action == 2) {
       cancelled_ = true;
       paused_ = false;
+      ++generation_;
       status_.set_state(INDEX_STATE_CANCELLED);
       status_.clear_paused_reason();
     } else if (cancelled_) {
       throw std::logic_error("cancelled index must be started before resuming");
     } else if (action == 0) {
       paused_ = true;
+      ++generation_;
       status_.set_state(INDEX_STATE_PAUSED);
       status_.set_paused_reason(
           "paused by client; uncommitted extraction will be retried");
     } else {
       paused_ = false;
+      ++generation_;
       status_.set_state(INDEX_STATE_QUEUED);
       status_.clear_paused_reason();
     }
@@ -313,8 +322,10 @@ private:
   class PendingExtraction {
   public:
     PendingExtraction(BackgroundSymbolIndexer &owner, Job job,
-                      IndexWorkerRequest request, fs::path directory)
-        : owner_(owner), job_(std::move(job)), result_(promise_.get_future()),
+                      IndexWorkerRequest request, fs::path directory,
+                      std::uint64_t generation)
+        : owner_(owner), job_(std::move(job)), generation_(generation),
+          result_(promise_.get_future()),
           thread_([this, request = std::move(request),
                    directory = std::move(directory)]() mutable {
             platform::lower_index_thread_priority();
@@ -322,7 +333,7 @@ private:
               promise_.set_value(
                   owner_.execute(job_, std::move(request), directory, [this] {
                     return stopped_.load(std::memory_order_acquire) ||
-                           !owner_.admitted(job_);
+                           !owner_.admitted(job_, generation_);
                   }));
             } catch (...) {
               promise_.set_exception(std::current_exception());
@@ -333,20 +344,30 @@ private:
     ~PendingExtraction() { stop_and_join(); }
 
     IndexWorkerResponse get() {
-      auto response = result_.get();
-      stop_and_join();
-      return response;
+      try {
+        auto response = result_.get();
+        stop_and_join();
+        return response;
+      } catch (...) {
+        stop_and_join();
+        throw;
+      }
     }
-
-  private:
-    void stop_and_join() {
-      stopped_.store(true, std::memory_order_release);
+    void request_stop() { stopped_.store(true, std::memory_order_release); }
+    void join() {
       if (thread_.joinable())
         thread_.join();
     }
 
+  private:
+    void stop_and_join() {
+      request_stop();
+      join();
+    }
+
     BackgroundSymbolIndexer &owner_;
     Job job_;
+    std::uint64_t generation_;
     std::promise<IndexWorkerResponse> promise_;
     std::future<IndexWorkerResponse> result_;
     std::atomic<bool> stopped_{false};
@@ -365,6 +386,21 @@ private:
     std::lock_guard lock(mutex_);
     return !stopping_ && !cancelled_ && !paused_ && job.epoch == job_.epoch;
   }
+  bool admitted(const Job &job, std::uint64_t generation) {
+    std::lock_guard lock(mutex_);
+    return !stopping_ && !cancelled_ && !paused_ && job.epoch == job_.epoch &&
+           generation == generation_;
+  }
+  bool foreground_busy() {
+    if (!foreground_busy_)
+      return false;
+    std::lock_guard lock(foreground_mutex_);
+    return foreground_busy_();
+  }
+  std::uint64_t generation() {
+    std::lock_guard lock(mutex_);
+    return generation_;
+  }
   bool await_admission(const Job &job, const std::function<bool()> &stop = {}) {
     bool waited = false;
     for (;;) {
@@ -380,7 +416,7 @@ private:
           continue;
         }
       }
-      if (!foreground_busy_ || !foreground_busy_())
+      if (!foreground_busy())
         return waited;
       waited = true;
       std::unique_lock lock(mutex_);
@@ -413,7 +449,7 @@ private:
     for (;;) {
       if ((stop && stop()) || !admitted(job))
         throw Interrupted();
-      if (foreground_busy_ && foreground_busy_()) {
+      if (foreground_busy()) {
         // Retain the AST and current reconciliation position while giving
         // foreground requests the CPU and disk. The process group includes
         // wrapper children; cancellation still kills and reaps it immediately.
@@ -475,7 +511,7 @@ private:
           try {
             found = cache.emplace(path, digest_file(path, allowed)).first;
           } catch (...) {
-            if (!admitted(job) || (foreground_busy_ && foreground_busy_()))
+            if (!admitted(job) || foreground_busy())
               throw Interrupted();
             throw;
           }
@@ -506,7 +542,8 @@ private:
     metadata(db, "updated_at", std::to_string(timestamp()));
   }
   void commit(const Job &job, Transaction &transaction,
-              const std::function<void()> &validate = {}) {
+              const std::function<void()> &validate = {},
+              std::uint64_t expected_generation = 0) {
     // Only commit needs this gate. Parsing, hashing and inserts never hold the
     // status mutex. Revalidate after any foreground or pause wait, and again
     // whenever new foreground work wins admission before the commit lock.
@@ -517,7 +554,9 @@ private:
       std::lock_guard lock(mutex_);
       if (stopping_ || cancelled_ || paused_ || job.epoch != job_.epoch)
         throw Interrupted();
-      if (foreground_busy_ && foreground_busy_())
+      if (expected_generation && expected_generation != generation_)
+        throw Interrupted();
+      if (foreground_busy())
         continue;
       transaction.commit();
       return;
@@ -561,9 +600,7 @@ private:
         db.handle, 1000,
         [](void *raw) {
           auto &b = *static_cast<Budget *>(raw);
-          b.interrupted =
-              !b.owner.admitted(b.job) ||
-              (b.owner.foreground_busy_ && b.owner.foreground_busy_());
+          b.interrupted = !b.owner.admitted(b.job) || b.owner.foreground_busy();
           return b.interrupted ? 1 : 0;
         },
         &budget);
@@ -639,7 +676,8 @@ private:
                const std::string &command_hash,
                const IndexWorkerResponse &response,
                const std::string &commands_digest,
-               fs::file_time_type worker_time) {
+               fs::file_time_type worker_time,
+               std::uint64_t expected_generation) {
     std::map<std::string, std::vector<const Symbol *>> files, owners;
     std::map<std::string, std::string> header_files;
     for (const auto &symbol : response.symbols())
@@ -791,30 +829,35 @@ private:
     // Input validation belongs after commit admission: a foreground burst or
     // pause may otherwise change an input while the staged writer waits.
     std::map<std::string, std::string> fresh;
-    commit(job, transaction, [&] {
-      for (;;) {
-        fresh.clear();
-        if (!manifest_current(job, dependencies(encoded), fresh))
-          throw Interrupted();
-        bool waited = await_admission(job);
-        const auto current_commands = digest_file(
-            (fs::path(job.commands) / "compile_commands.json").string(), [&] {
-              waited = await_admission(job) || waited;
-              return true;
-            });
-        if (waited)
-          continue;
-        if (commands_digest != current_commands ||
-            worker_time != fs::last_write_time(executable_))
-          throw Interrupted();
-        return;
-      }
-    });
+    commit(
+        job, transaction,
+        [&] {
+          for (;;) {
+            fresh.clear();
+            if (!manifest_current(job, dependencies(encoded), fresh))
+              throw Interrupted();
+            bool waited = await_admission(job);
+            const auto current_commands = digest_file(
+                (fs::path(job.commands) / "compile_commands.json").string(),
+                [&] {
+                  waited = await_admission(job) || waited;
+                  return true;
+                });
+            if (waited)
+              continue;
+            if (commands_digest != current_commands ||
+                worker_time != fs::last_write_time(executable_))
+              throw Interrupted();
+            return;
+          }
+        },
+        expected_generation);
   }
   void mark_failed(const Job &job, Database &db, const std::string &id,
                    const std::string &source,
                    const std::set<std::string> &active,
-                   const std::string &error) {
+                   const std::string &error,
+                   std::uint64_t expected_generation = 0) {
     await_admission(job);
     Transaction transaction(db);
     Statement row(
@@ -841,7 +884,7 @@ private:
       stale.step();
       stale.reset();
     }
-    commit(job, transaction);
+    commit(job, transaction, {}, expected_generation);
   }
   void reconcile(const Job &job, Database &db, const fs::path &directory) {
     IndexWorkerRequest listing;
@@ -919,27 +962,67 @@ private:
       *request.mutable_compile_arguments() = unit.compile_arguments();
       return request;
     };
-    std::optional<UnitPlan> next_plan;
-    std::exception_ptr next_plan_error;
-    std::unique_ptr<PendingExtraction> pending;
-    std::string pending_id;
     const auto &units = listing_result.translation_units();
-    for (int unit_index = 0; unit_index < units.size(); ++unit_index) {
-      const auto &unit = units.Get(unit_index);
-      await_admission(job);
-      UnitPlan plan{&unit};
-      const bool was_preplanned = next_plan.has_value();
-      if (next_plan_error) {
-        plan.command_hash = digest_text(unit.compile_context());
-        plan.id = digest_text(unit.source() + '\n' + plan.command_hash);
-      } else {
-        plan = next_plan ? std::move(*next_plan) : plan_unit(unit);
+    struct ScheduledUnit {
+      UnitPlan plan;
+      std::exception_ptr planning_error;
+      std::unique_ptr<PendingExtraction> extraction;
+      std::uint64_t generation = 0;
+    };
+    struct SchedulerWindow {
+      std::deque<ScheduledUnit> items;
+      ~SchedulerWindow() {
+        for (auto &item : items)
+          if (item.extraction)
+            item.extraction->request_stop();
+        for (auto &item : items)
+          if (item.extraction)
+            item.extraction->join();
       }
-      next_plan.reset();
-      if (was_preplanned && plan.unchanged) {
-        // A lookahead skip is only a hint: the current TU's publication may
-        // span edits to this TU's inputs. Drop its cached manifest digests
-        // and re-read the manifest on the controller immediately before use.
+    } scheduled;
+    int next_unit = 0;
+    const auto enqueue_next = [&] {
+      await_admission(job);
+      const auto &candidate = units.Get(next_unit++);
+      try {
+        auto plan = plan_unit(candidate);
+        ScheduledUnit item{std::move(plan)};
+        item.generation = generation();
+        if (needs_worker(item.plan))
+          item.extraction = std::make_unique<PendingExtraction>(
+              *this, job, make_request(candidate),
+              directory / "units" / item.plan.id /
+                  std::to_string(item.generation),
+              item.generation);
+        scheduled.items.push_back(std::move(item));
+      } catch (const Interrupted &) {
+        throw;
+      } catch (...) {
+        ScheduledUnit item{UnitPlan{&candidate}};
+        item.plan.command_hash = digest_text(candidate.compile_context());
+        item.plan.id =
+            digest_text(candidate.source() + '\n' + item.plan.command_hash);
+        item.planning_error = std::current_exception();
+        item.generation = generation();
+        scheduled.items.push_back(std::move(item));
+      }
+    };
+    for (int unit_index = 0; unit_index < units.size(); ++unit_index) {
+      // Plan on the controller, and keep the database and digest caches out of
+      // worker threads. Fill a bounded ordered window before publishing rows.
+      while (next_unit < units.size() &&
+             scheduled.items.size() < max_workers_) {
+        enqueue_next();
+      }
+      if (scheduled.items.empty())
+        throw Interrupted();
+      auto &item = scheduled.items.front();
+      if (!admitted(job, item.generation))
+        throw Interrupted();
+      const auto &unit = *item.plan.unit;
+      auto plan = std::move(item.plan);
+      if (plan.unchanged) {
+        // Revalidate each preplanned skip immediately before consumption.
         for (const auto &[path, hash] : dependencies(plan.previous_manifest)) {
           (void)hash;
           digest_cache.erase(path);
@@ -956,59 +1039,50 @@ private:
                 "WHERE id=? AND status!='ready'");
         ready.bind(1, id);
         ready.step();
-        commit(job, transaction);
+        commit(job, transaction, {}, item.generation);
         ++skipped;
         ++completed;
       } else {
         try {
-          if (next_plan_error) {
-            auto error = std::exchange(next_plan_error, {});
+          if (item.planning_error) {
+            auto error = std::exchange(item.planning_error, {});
             std::rethrow_exception(error);
           }
           IndexWorkerResponse response;
           if (plan.migrate && symbol_groups(plan.previous_manifest).empty())
             response = stored_response(job, db, id, plan.previous_manifest);
           else {
-            if (pending && pending_id == id) {
-              auto extraction = std::move(pending);
-              response = extraction->get();
-              pending_id.clear();
+            if (item.extraction) {
+              response = item.extraction->get();
             } else {
               response =
                   execute(job, make_request(unit), directory / "units" / id);
             }
           }
-          // The next TU's manifest read and input checks stay on this thread
-          // and happen before the current TU opens its publication transaction.
-          if (unit_index + 1 < units.size()) {
-            try {
-              next_plan = plan_unit(units.Get(unit_index + 1));
-              if (needs_worker(*next_plan)) {
-                pending_id = next_plan->id;
-                pending = std::make_unique<PendingExtraction>(
-                    *this, job, make_request(*next_plan->unit),
-                    directory / "units" / pending_id);
-              }
-            } catch (const Interrupted &) {
-              throw;
-            } catch (...) {
-              // A lookahead failure belongs to the next TU; it must not
-              // discard the current TU's already completed extraction.
-              next_plan.reset();
-              next_plan_error = std::current_exception();
-            }
+          // Replace the consumed head before publication, so extraction
+          // capacity stays full while the controller writes this TU. The
+          // completed head remains in the deque until publication finishes,
+          // so one extra deque entry still respects the live-worker limit.
+          if (next_unit < units.size() &&
+              scheduled.items.size() <= max_workers_) {
+            enqueue_next();
           }
           if (commands_digest !=
               digest_file(
                   (fs::path(job.commands) / "compile_commands.json").string()))
             throw Interrupted();
+          if (!admitted(job, item.generation))
+            throw Interrupted();
           replace(job, db, unit, id, plan.command_hash, response,
-                  commands_digest, worker_time);
+                  commands_digest, worker_time, item.generation);
           ++completed;
         } catch (const Interrupted &) {
           throw;
         } catch (const std::exception &error) {
-          mark_failed(job, db, id, unit.source(), active, error.what());
+          if (!admitted(job, item.generation))
+            throw Interrupted();
+          mark_failed(job, db, id, unit.source(), active, error.what(),
+                      item.generation);
           failed_sources.insert(unit.source());
           ++failed;
           progress(job, [&](auto &s) { s.set_error(error.what()); });
@@ -1026,6 +1100,7 @@ private:
       });
       if (!plan.unchanged || plan.migrate)
         checkpoint(job, db);
+      scheduled.items.pop_front();
     }
     await_admission(job);
     std::vector<std::string> obsolete;
@@ -1204,12 +1279,15 @@ private:
   }
   fs::path storage_, executable_;
   std::function<bool()> foreground_busy_;
+  std::size_t max_workers_;
+  std::mutex foreground_mutex_;
   IncludeInventoryCache inventories_;
   std::mutex mutex_;
   std::condition_variable changed_;
   Job job_;
   ProjectIndexStatus status_;
   bool stopping_ = false, cancelled_ = true, paused_ = false;
+  std::uint64_t generation_ = 0;
   std::thread thread_;
 };
 
@@ -1234,10 +1312,11 @@ template <class Function> grpc::Status rpc(Function &&function) {
 } // namespace
 IndexServiceAdapter::IndexServiceAdapter(fs::path root,
                                          std::function<bool()> foreground_busy,
-                                         fs::path executable)
+                                         fs::path executable,
+                                         std::size_t max_workers)
     : indexer_(std::make_shared<BackgroundSymbolIndexer>(
-          std::move(root), std::move(foreground_busy), std::move(executable))) {
-}
+          std::move(root), std::move(foreground_busy), std::move(executable),
+          max_workers)) {}
 IndexServiceAdapter::~IndexServiceAdapter() = default;
 grpc::Status
 IndexServiceAdapter::StartProjectIndex(grpc::ServerContext *,

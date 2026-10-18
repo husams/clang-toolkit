@@ -1,0 +1,15 @@
+{
+  "verdict": "PASS",
+  "baseline_variants": 623,
+  "parallel_variants": 623,
+  "mismatched_tu_contributions": 0,
+  "excluded_modified_source_files": [
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/include/ctk/net/index_service.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/include/ctk/platform/index_worker.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/net/index_service.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_worker.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_worker.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_project_index_service.cpp"
+  ],
+  "differences": []
+}

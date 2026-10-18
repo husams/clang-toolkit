@@ -1,0 +1,99 @@
+{
+  "verdict": "PASS",
+  "elapsed_seconds": 285.1974919589702,
+  "completion_bracket_seconds": [
+    284.69114324986003,
+    285.1974919589702
+  ],
+  "baseline_seconds": 891.1285002920777,
+  "speedup": 3.1246014618539473,
+  "time_reduction_percent": 67.99591844885519,
+  "final_status": {
+    "project_root": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse",
+    "state": "INDEX_STATE_COMPLETE",
+    "translation_units_total": "623",
+    "translation_units_completed": "623",
+    "last_reconciled_unix_seconds": "1792298816",
+    "revision": "623",
+    "translation_units_indexed": "623"
+  },
+  "controls": [
+    {
+      "method": "StartProjectIndex",
+      "at": "2026-10-18T05:42:11.238+01:00",
+      "status": {
+        "project_root": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse",
+        "state": "INDEX_STATE_QUEUED"
+      }
+    }
+  ],
+  "poll_errors": 0,
+  "probe_errors": 0,
+  "active_requests": 397,
+  "active_cross_tu_requests": 168,
+  "positive_out_of_line_requests": 28,
+  "positive_out_of_line_max_ms": 10.897,
+  "metrics": {
+    "fresh_parse_and_match": {
+      "count": 57,
+      "max_ms": 87.401
+    },
+    "exact": {
+      "count": 57,
+      "max_ms": 60.847
+    },
+    "prefix": {
+      "count": 56,
+      "max_ms": 33.578
+    },
+    "index_status": {
+      "count": 57,
+      "max_ms": 12.279
+    },
+    "server_status": {
+      "count": 57,
+      "max_ms": 43.157
+    },
+    "usr": {
+      "count": 56,
+      "max_ms": 15.953
+    },
+    "out_of_line_definition": {
+      "count": 57,
+      "max_ms": 10.897
+    }
+  },
+  "max_live_workers": 4,
+  "server_pids": [
+    50617
+  ],
+  "peak_worker_rss_mib": 608.296875,
+  "peak_aggregate_rss_mib": 1507.46875,
+  "peak_server_rss_mib": 374.921875,
+  "input_hashes": 1978,
+  "inputs_changed": 0,
+  "cohort_sha256": "2b1a78fa8475cd79d45a74997caf94a205e0f5028811a44d79733c7e9ba11ec9",
+  "audit": {
+    "tables": [
+      "metadata",
+      "symbol",
+      "translation_unit"
+    ],
+    "counts": {
+      "main_tus": 623,
+      "header_groups": 1601,
+      "symbols": 145283,
+      "non_definitions": 0,
+      "nonempty_signatures": 0,
+      "standard_header_paths": 0,
+      "anonymous_namespace_names": 0
+    }
+  },
+  "unchanged_file_definition_identities": 141930,
+  "missing_unchanged_definitions": [],
+  "extra_unchanged_definitions": [],
+  "binary_sha256": {
+    "ctk-server": "96735895a9dca80d1e9b0536fb631e5244866a2c917e983e0c9226167c52e7cc",
+    "ctk-index-worker": "ec2d29cc9a99e50813d78f8615d7f7bdbc45667eb849d57a09cb0b616542530e"
+  }
+}

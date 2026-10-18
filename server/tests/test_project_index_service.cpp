@@ -1,6 +1,7 @@
 #include "../src/net/project_index_store.hpp"
 #include "ctk/net/index_service.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -267,6 +268,29 @@ protected:
     fs::permissions(path, fs::perms::owner_all);
     return path;
   }
+  fs::path worker_wrapper_with_release_barrier(const fs::path &counter,
+                                               const fs::path &started,
+                                               const fs::path &release) {
+    const auto shell_word = [](const std::string &value) {
+      std::string out = "'";
+      for (char c : value)
+        out += c == '\'' ? "'\"'\"'" : std::string(1, c);
+      return out + "'";
+    };
+    const auto path = root / "index-worker-barrier-wrapper";
+    const auto count_file = shell_word(counter.string());
+    std::ofstream(path) << "#!/bin/sh\nprintf . >> " << count_file << '\n'
+                        << "starts=$(wc -c < " << count_file << ")\n"
+                        << "if [ \"$starts\" -gt 1 ]; then\n"
+                        << "  touch " << shell_word(started.string()) << "/$$\n"
+                        << "  while [ ! -e " << shell_word(release.string())
+                        << " ]; do sleep 0.01; done\nfi\n"
+                        << "exec " << shell_word(CTK_TEST_INDEX_WORKER)
+                        << " \"$@\"\n";
+    fs::permissions(path, fs::perms::owner_all);
+    fs::create_directories(started);
+    return path;
+  }
   fs::path worker_wrapper_with_lock(const fs::path &counter,
                                     const fs::path &lock,
                                     const fs::path &overlap,
@@ -443,7 +467,7 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_EQ(status.translation_units_failed(), 0);
   EXPECT_TRUE(trace.publication_started.load(std::memory_order_acquire));
   EXPECT_TRUE(trace.overlapped.load(std::memory_order_acquire));
-  EXPECT_FALSE(fs::exists(overlap));
+  EXPECT_TRUE(fs::exists(overlap));
 }
 
 TEST_F(ProjectIndexServiceTest,
@@ -581,7 +605,7 @@ TEST_F(ProjectIndexServiceTest,
   const auto wrapper =
       worker_wrapper_with_lock(counter, lock, overlap, pids, "sleep 4\n");
   IndexServiceAdapter service(
-      storage, [&] { return foreground_busy.load(); }, wrapper);
+      storage, [&] { return foreground_busy.load(); }, wrapper, 2);
   ReleaseFileGuard release_on_exit(release_file);
   StartProjectIndexRequest start;
   start.set_project_root(project.string());
@@ -622,16 +646,19 @@ TEST_F(ProjectIndexServiceTest,
   long value = 0;
   while (pid_input >> value)
     worker_pids.push_back(value);
-  ASSERT_EQ(worker_pids.size(), 3u);
-  const long pending_pid = worker_pids.back();
-  ASSERT_GT(pending_pid, 0);
-  ASSERT_EQ(::kill(static_cast<pid_t>(pending_pid), 0), 0);
+  ASSERT_GE(worker_pids.size(), 3u);
+  for (const auto pid : worker_pids)
+    ASSERT_GT(pid, 0);
   const auto reap_deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(2);
-  while (::kill(static_cast<pid_t>(pending_pid), 0) == 0 &&
-         std::chrono::steady_clock::now() < reap_deadline)
+  const auto any_worker_alive = [&] {
+    return std::any_of(worker_pids.begin(), worker_pids.end(), [](long pid) {
+      return ::kill(static_cast<pid_t>(pid), 0) == 0;
+    });
+  };
+  while (any_worker_alive() && std::chrono::steady_clock::now() < reap_deadline)
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  EXPECT_NE(::kill(static_cast<pid_t>(pending_pid), 0), 0);
+  EXPECT_FALSE(any_worker_alive());
 
   std::ofstream(release_file) << "continue\n";
   foreground_busy.store(false);
@@ -912,7 +939,7 @@ TEST_F(ProjectIndexServiceTest,
         }
         return std::chrono::steady_clock::now() < busy_until;
       },
-      wrapper);
+      wrapper, 1);
   const auto status = start_and_wait(service);
   EXPECT_TRUE(yielded);
   EXPECT_EQ(status.translation_units_failed(), 0);
@@ -920,6 +947,155 @@ TEST_F(ProjectIndexServiceTest,
   std::ifstream launches(counter);
   EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(),
             4);
+}
+
+TEST_F(ProjectIndexServiceTest, ExtractsTranslationUnitsInParallelWithinCap) {
+  const auto counter = root / "worker-starts";
+  const auto started = root / "worker-started";
+  const auto release = root / "worker-release";
+  const auto wrapper =
+      worker_wrapper_with_release_barrier(counter, started, release);
+  IndexServiceAdapter service(storage, {}, wrapper, 2);
+  ReleaseFileGuard release_on_exit(release);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+
+  const auto barrier_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (std::distance(fs::directory_iterator(started),
+                       fs::directory_iterator{}) < 2 &&
+         std::chrono::steady_clock::now() < barrier_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_EQ(
+      std::distance(fs::directory_iterator(started), fs::directory_iterator{}),
+      2);
+  ASSERT_EQ(fs::file_size(counter), 3u); // Listing plus the two held workers.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_EQ(fs::file_size(counter),
+            3u); // The third extraction is still queued.
+  std::ofstream(release) << "continue\n";
+
+  ProjectIndexRequest project_request;
+  project_request.set_project_root(project.string());
+  const auto completion_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  do {
+    grpc::ServerContext status_context;
+    ASSERT_TRUE(
+        service
+            .GetProjectIndexStatus(&status_context, &project_request, &status)
+            .ok());
+    if (status.state() == INDEX_STATE_COMPLETE ||
+        status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  } while (std::chrono::steady_clock::now() < completion_deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_EQ(fs::file_size(counter), 4u);
+  EXPECT_EQ(status.translation_units_total(), 3u);
+  EXPECT_EQ(status.translation_units_completed(), 3u);
+  EXPECT_EQ(status.state(), INDEX_STATE_COMPLETE);
+}
+
+TEST_F(ProjectIndexServiceTest, CancelReapsEveryParallelExtractionWorker) {
+  const auto pids = root / "worker-pids";
+  const auto counter = root / "worker-starts";
+  const auto lock = root / "worker-lock";
+  const auto overlap = root / "worker-overlap";
+  const auto wrapper =
+      worker_wrapper_with_lock(counter, lock, overlap, pids, "sleep 4\n");
+  IndexServiceAdapter service(storage, {}, wrapper, 3);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+
+  const auto launch_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while ((!fs::exists(overlap) || !fs::exists(counter) ||
+          fs::file_size(counter) < 4) &&
+         std::chrono::steady_clock::now() < launch_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_TRUE(fs::exists(overlap));
+  const auto read_pids = [&] {
+    std::ifstream pid_input(pids);
+    std::vector<long> worker_pids;
+    long pid = 0;
+    while (pid_input >> pid)
+      worker_pids.push_back(pid);
+    return worker_pids;
+  };
+  ASSERT_EQ(fs::file_size(counter), 4u); // Listing plus all three workers.
+  auto worker_pids = read_pids();
+  ASSERT_EQ(worker_pids.size(), 4u);
+
+  ProjectIndexRequest control;
+  control.set_project_root(project.string());
+  grpc::ServerContext cancel_context;
+  ASSERT_TRUE(
+      service.CancelProjectIndex(&cancel_context, &control, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_CANCELLED);
+  worker_pids = read_pids();
+  ASSERT_EQ(worker_pids.size(), 4u);
+  const auto reap_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  const auto any_worker_alive = [&] {
+    return std::any_of(worker_pids.begin(), worker_pids.end(), [](long value) {
+      return ::kill(static_cast<pid_t>(value), 0) == 0;
+    });
+  };
+  while (any_worker_alive() && std::chrono::steady_clock::now() < reap_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  EXPECT_FALSE(any_worker_alive());
+  EXPECT_EQ(fs::file_size(counter), 4u);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       RapidPauseResumeDiscardsResultsFromPriorGeneration) {
+  const auto counter = root / "worker-starts";
+  const auto wrapper = worker_wrapper(counter, "sleep 0.3\n");
+  IndexServiceAdapter service(storage, {}, wrapper, 2);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+
+  const auto launch_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while ((!fs::exists(counter) || fs::file_size(counter) < 2) &&
+         std::chrono::steady_clock::now() < launch_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_TRUE(fs::exists(counter));
+  ASSERT_GE(fs::file_size(counter), 2u);
+
+  ProjectIndexRequest control;
+  control.set_project_root(project.string());
+  grpc::ServerContext pause_context;
+  ASSERT_TRUE(
+      service.PauseProjectIndex(&pause_context, &control, &status).ok());
+  write("one.cpp", "int newestOnly(){return 7;}\n");
+  grpc::ServerContext resume_context;
+  ASSERT_TRUE(
+      service.ResumeProjectIndex(&resume_context, &control, &status).ok());
+
+  const auto completion_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  do {
+    grpc::ServerContext status_context;
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&status_context, &control, &status).ok());
+    if (status.state() == INDEX_STATE_COMPLETE ||
+        status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  } while (std::chrono::steady_clock::now() < completion_deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_GT(find(service, "newestOnly", false).symbols_size(), 0);
 }
 
 TEST_F(ProjectIndexServiceTest,
