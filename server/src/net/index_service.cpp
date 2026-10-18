@@ -1,5 +1,6 @@
 #include "ctk/net/index_service.hpp"
 #include "ctk/platform/index_worker.hpp"
+#include "file_digest_cache.hpp"
 #include "include_inventory_cache.hpp"
 #include "project_index_store.hpp"
 
@@ -488,44 +489,45 @@ private:
     }
   }
   bool manifest_current(const Job &job,
-                        const std::map<std::string, std::string> &manifest,
-                        std::map<std::string, std::string> &cache) {
+                        const std::map<std::string, std::string> &manifest) {
     if (manifest.empty())
       return false;
     for (;;) {
+      inventories_.refresh();
+      const auto inventory_generation = inventories_.generation();
       bool waited = false;
       bool matches = true;
       for (const auto &[path, hash] : manifest) {
         waited = await_admission(job) || waited;
-        auto found = cache.find(path);
+        std::string current;
         const auto allowed = [&] {
           waited = await_admission(job) || waited;
           return true;
         };
         if (path.starts_with("@include-tree:")) {
-          found = cache
-                      .insert_or_assign(
-                          path, inventories_.digest(path.substr(14), allowed))
-                      .first;
-        } else if (found == cache.end()) {
+          current = inventories_.digest(path.substr(14), allowed);
+        } else {
           try {
-            found = cache.emplace(path, digest_file(path, allowed)).first;
+            current = files_.digest(path, allowed);
           } catch (...) {
             if (!admitted(job) || foreground_busy())
               throw Interrupted();
             throw;
           }
         }
-        if (found->second != hash) {
+        if (current != hash) {
           matches = false;
           break;
         }
       }
-      if (!waited)
+      // Include names can change while later file contents are being read.
+      // Content hashes are always fresh, including for memory-mapped writes.
+      const bool trees_changed =
+          inventories_.refresh() ||
+          inventory_generation != inventories_.generation();
+      if (!waited && !trees_changed)
         return matches;
-      // A wait can separate earlier digests from later ones. Discard all
-      // cached values and validate the complete manifest in one fresh pass.
-      cache.clear();
+      // A wait or directory event requires another complete validation pass.
     }
   }
   void progress(const Job &job,
@@ -828,13 +830,12 @@ private:
     bump(db);
     // Input validation belongs after commit admission: a foreground burst or
     // pause may otherwise change an input while the staged writer waits.
-    std::map<std::string, std::string> fresh;
+    const auto input_manifest = dependencies(encoded);
     commit(
         job, transaction,
         [&] {
           for (;;) {
-            fresh.clear();
-            if (!manifest_current(job, dependencies(encoded), fresh))
+            if (!manifest_current(job, input_manifest))
               throw Interrupted();
             bool waited = await_admission(job);
             const auto current_commands = digest_file(
@@ -905,7 +906,6 @@ private:
     std::set<std::string> active;
     std::uint64_t completed = 0, skipped = 0, failed = 0;
     std::set<std::string> failed_sources;
-    std::map<std::string, std::string> digest_cache;
     // The worker context includes its extraction-source fingerprint, Clang
     // version, compiler, arguments and environment. Executable bytes also
     // contain unrelated build metadata and must not invalidate every TU.
@@ -928,6 +928,7 @@ private:
     struct UnitPlan {
       const IndexWorkerTranslationUnit *unit;
       std::string command_hash, id, previous_manifest;
+      std::map<std::string, std::string> manifest;
       bool unchanged = false, migrate = false;
     };
     const auto plan_unit = [&](const IndexWorkerTranslationUnit &unit) {
@@ -940,8 +941,8 @@ private:
       prior.bind(1, plan.id);
       if (prior.step()) {
         plan.previous_manifest = prior.text(0);
-        plan.unchanged = manifest_current(
-            job, dependencies(plan.previous_manifest), digest_cache);
+        plan.manifest = dependencies(plan.previous_manifest);
+        plan.unchanged = manifest_current(job, plan.manifest);
       }
       plan.migrate =
           plan.unchanged && plan.previous_manifest.find("\"@symbol-layout\"") ==
@@ -960,6 +961,17 @@ private:
       request.set_compile_commands_directory(job.commands);
       request.set_working_directory(unit.working_directory());
       *request.mutable_compile_arguments() = unit.compile_arguments();
+      const std::vector<std::string> arguments(unit.compile_arguments().begin(),
+                                               unit.compile_arguments().end());
+      for (const auto &root : cache::include_roots(
+               unit.source(), unit.working_directory(), arguments)) {
+        auto *inventory = request.add_precomputed_include_inventories();
+        inventory->set_path(root);
+        inventory->set_sha256(inventories_.digest(root, [&] {
+          await_admission(job);
+          return true;
+        }));
+      }
       return request;
     };
     const auto &units = listing_result.translation_units();
@@ -1023,11 +1035,10 @@ private:
       auto plan = std::move(item.plan);
       if (plan.unchanged) {
         // Revalidate each preplanned skip immediately before consumption.
-        for (const auto &[path, hash] : dependencies(plan.previous_manifest)) {
-          (void)hash;
-          digest_cache.erase(path);
-        }
-        plan = plan_unit(unit);
+        // The controller owns the row, so reuse its decoded manifest only.
+        plan.unchanged = manifest_current(job, plan.manifest);
+        if (!plan.unchanged)
+          plan.migrate = false;
       }
       const auto &id = plan.id;
       progress(job,
@@ -1282,6 +1293,7 @@ private:
   std::size_t max_workers_;
   std::mutex foreground_mutex_;
   IncludeInventoryCache inventories_;
+  FileDigestCache files_;
   std::mutex mutex_;
   std::condition_variable changed_;
   Job job_;

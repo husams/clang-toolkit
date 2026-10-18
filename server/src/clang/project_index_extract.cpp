@@ -51,6 +51,13 @@ std::string digest_buffer(llvm::StringRef buffer) {
   hash.update(buffer);
   return llvm::toHex(llvm::ArrayRef<uint8_t>(hash.final()), true);
 }
+bool is_sha256_hex(llvm::StringRef value) {
+  return value.size() == 64 &&
+         std::all_of(value.begin(), value.end(), [](char c) {
+           return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') ||
+                  (c >= 'a' && c <= 'f');
+         });
+}
 std::string json_string(const std::string &value) {
   std::string out = "\"";
   for (unsigned char c : value) {
@@ -348,46 +355,31 @@ serialize_project_index_context(const std::string &directory,
   return out;
 }
 
-bool extract_project_index(const std::string &source,
-                           const std::string &directory,
-                           const std::string &working_directory,
-                           const std::vector<std::string> &arguments,
-                           ProjectIndexExtraction &result, std::string &error,
-                           const std::string &header_cache_directory) {
+bool extract_project_index(
+    const std::string &source, const std::string &directory,
+    const std::string &working_directory,
+    const std::vector<std::string> &arguments, ProjectIndexExtraction &result,
+    std::string &error, const std::string &header_cache_directory,
+    const std::map<std::string, std::string> *precomputed_include_inventories) {
   (void)directory;
   result.compile_context =
       serialize_project_index_context(working_directory, arguments);
-  std::set<std::string> include_roots{
-      canonical(fs::path(source).parent_path().string())};
-  for (std::size_t i = 0; i < arguments.size(); ++i) {
-    const auto &argument = arguments[i];
-    std::string path;
-    if ((argument == "-I" || argument == "-iquote" || argument == "-isystem" ||
-         argument == "-idirafter" || argument == "-F" ||
-         argument == "-iframework") &&
-        i + 1 < arguments.size())
-      path = arguments[++i];
-    else if (argument.starts_with("-I") && argument.size() > 2)
-      path = argument.substr(2);
-    else {
-      for (const char *option :
-           {"-iquote", "-isystem", "-idirafter", "-F", "-iframework"}) {
-        const std::string_view prefix(option);
-        if (argument.starts_with(prefix) && argument.size() > prefix.size()) {
-          path = argument.substr(prefix.size());
-          break;
-        }
+  for (const auto &root :
+       cache::include_roots(source, working_directory, arguments)) {
+    const auto key = "@include-tree:" + root;
+    bool supplied = false;
+    if (precomputed_include_inventories) {
+      const auto found = precomputed_include_inventories->find(root);
+      if (found != precomputed_include_inventories->end() &&
+          is_sha256_hex(found->second)) {
+        result.dependencies.insert_or_assign(key, found->second);
+        supplied = true;
       }
     }
-    if (!path.empty())
-      include_roots.insert(canonical((fs::path(path).is_absolute()
-                                          ? fs::path(path)
-                                          : fs::path(working_directory) / path)
-                                         .string()));
+    if (!supplied)
+      result.dependencies.insert_or_assign(
+          key, digest_buffer(cache::include_inventory(root)));
   }
-  for (const auto &root : include_roots)
-    result.dependencies.insert_or_assign(
-        "@include-tree:" + root, digest_buffer(cache::include_inventory(root)));
   for (std::size_t i = 0; i < arguments.size(); ++i) {
     std::string input;
     const auto &arg = arguments[i];

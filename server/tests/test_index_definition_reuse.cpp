@@ -1,9 +1,11 @@
+#include "ctk/cache/include_inventory.hpp"
 #include "ctk/clang/project_index_extract.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <set>
 #include <tuple>
 
 namespace ctk::clang_layer {
@@ -16,15 +18,16 @@ protected:
   void write(const char *name, const std::string &text) {
     std::ofstream(root / name) << text;
   }
-  ProjectIndexExtraction extract(const char *name,
-                                 std::vector<std::string> args = {},
-                                 bool cache = true) {
+  ProjectIndexExtraction
+  extract(const char *name, std::vector<std::string> args = {},
+          bool cache = true,
+          const std::map<std::string, std::string> *inventories = nullptr) {
     ProjectIndexExtraction result;
     std::string error;
     args.insert(args.begin(), {"-std=c++20", "-I" + root.string()});
     EXPECT_TRUE(extract_project_index(
         (root / name).string(), root.string(), root.string(), args, result,
-        error, cache ? cache_directory.path().string() : ""))
+        error, cache ? cache_directory.path().string() : "", inventories))
         << error;
     return result;
   }
@@ -127,6 +130,57 @@ TEST_F(DefinitionIndex, SkippedFunctionBodiesDoNotRequireBodyDiagnostics) {
   const auto result = extract("one.cpp");
   EXPECT_TRUE(has(result, "indexed_function"));
 }
+TEST_F(DefinitionIndex,
+       UsesPrecomputedIncludeInventoriesWithoutChangingDependencies) {
+  common();
+  const auto cold = extract("one.cpp", {}, false);
+  std::map<std::string, std::string> inventories;
+  for (const auto &[path, hash] : cold.dependencies)
+    if (path.starts_with("@include-tree:"))
+      inventories.emplace(path.substr(14), hash);
+  ASSERT_FALSE(inventories.empty());
+  EXPECT_EQ(ctk::cache::include_roots((root / "one.cpp").string(),
+                                      root.string(),
+                                      {"-std=c++20", "-I" + root.string()}),
+            std::vector<std::string>{
+                std::filesystem::weakly_canonical(root).string()});
+
+  const auto supplied = extract("one.cpp", {}, false, &inventories);
+  EXPECT_EQ(supplied.dependencies, cold.dependencies);
+  EXPECT_EQ(rows(supplied), rows(cold));
+
+  // Missing or malformed precomputed values must retain the safe full walk.
+  const std::map<std::string, std::string> missing;
+  const auto fallback = extract("one.cpp", {}, false, &missing);
+  EXPECT_EQ(fallback.dependencies, cold.dependencies);
+  auto malformed = inventories;
+  malformed.begin()->second = "not-a-sha256";
+  const auto invalid = extract("one.cpp", {}, false, &malformed);
+  EXPECT_EQ(invalid.dependencies, cold.dependencies);
+}
+
+TEST_F(DefinitionIndex, IncludeRootsPreserveAllSearchPathOptionForms) {
+  std::vector<std::string> arguments;
+  std::set<std::string> expected{
+      std::filesystem::weakly_canonical(root).string()};
+  const std::vector<std::string> options{
+      "-I", "-iquote", "-isystem", "-idirafter", "-F", "-iframework"};
+  for (std::size_t i = 0; i < options.size(); ++i) {
+    const auto separated = root / ("separated-" + std::to_string(i));
+    const auto attached = root / ("attached-" + std::to_string(i));
+    std::filesystem::create_directories(separated);
+    std::filesystem::create_directories(attached);
+    arguments.push_back(options[i]);
+    arguments.push_back(separated.string());
+    arguments.push_back(options[i] + attached.string());
+    expected.insert(std::filesystem::weakly_canonical(separated).string());
+    expected.insert(std::filesystem::weakly_canonical(attached).string());
+  }
+  const auto roots = ctk::cache::include_roots((root / "one.cpp").string(),
+                                               root.string(), arguments);
+  EXPECT_EQ(roots, std::vector<std::string>(expected.begin(), expected.end()));
+}
+
 TEST_F(DefinitionIndex,
        ReusesExactHeaderDefinitionsAcrossTusWithoutChangingResults) {
   common();

@@ -31,12 +31,13 @@ serialize_project_index_context(const std::string &working_directory,
 
 // Runs an independent one-translation-unit Clang frontend using the selected
 // compile database. No foreground AST, cache, or executor state is shared.
-bool extract_project_index(const std::string &source,
-                           const std::string &compile_commands_directory,
-                           const std::string &working_directory,
-                           const std::vector<std::string> &arguments,
-                           ProjectIndexExtraction &result, std::string &error,
-                           const std::string &header_cache_directory = {});
+bool extract_project_index(
+    const std::string &source, const std::string &compile_commands_directory,
+    const std::string &working_directory,
+    const std::vector<std::string> &arguments, ProjectIndexExtraction &result,
+    std::string &error, const std::string &header_cache_directory = {},
+    const std::map<std::string, std::string> *precomputed_include_inventories =
+        nullptr);
 bool list_project_translation_units(
     const std::string &compile_commands_directory,
     std::vector<ProjectIndexCommand> &translation_units, std::string &error);

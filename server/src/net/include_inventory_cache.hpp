@@ -12,8 +12,7 @@ public:
   std::string digest(const fs::path &root,
                      const std::function<bool()> &allowed = {}) {
     for (unsigned retry = 0; retry != 3; ++retry) {
-      if (watch_.changed())
-        invalidate();
+      refresh();
       const auto before = platform::DirectoryWatch::identity(root);
       auto found = entries_.find(root);
       if (before && found != entries_.end() &&
@@ -31,9 +30,7 @@ public:
         continue;
       }
       if (before && monitored) {
-        if (entries_.size() >= 128)
-          invalidate();
-        else
+        if (entries_.size() < 128)
           entries_.insert_or_assign(root, Entry{*before, value});
       }
       return value;
@@ -43,8 +40,17 @@ public:
     return {};
   }
 
+  bool refresh() {
+    if (!watch_.changed())
+      return false;
+    invalidate();
+    return true;
+  }
+  std::uint64_t generation() const { return generation_; }
+
 private:
   void invalidate() {
+    ++generation_;
     entries_.clear();
     watch_.reset();
   }
@@ -53,6 +59,7 @@ private:
     std::string digest;
   };
   platform::DirectoryWatch watch_;
+  std::uint64_t generation_ = 0;
   std::map<fs::path, Entry> entries_;
 };
 } // namespace ctk::net::index_detail

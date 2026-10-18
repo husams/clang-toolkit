@@ -47,10 +47,13 @@ int main(int argc, char **argv) {
   std::string error;
   std::vector<std::string> arguments(request.compile_arguments().begin(),
                                      request.compile_arguments().end());
+  std::map<std::string, std::string> include_inventories;
+  for (const auto &inventory : request.precomputed_include_inventories())
+    include_inventories.insert_or_assign(inventory.path(), inventory.sha256());
   response.set_success(ctk::clang_layer::extract_project_index(
       request.source(), request.compile_commands_directory(),
       request.working_directory(), arguments, extraction, error,
-      request.header_cache_directory()));
+      request.header_cache_directory(), &include_inventories));
   response.set_error(error);
   response.set_compile_context(extraction.compile_context);
   response.set_reused_header_symbols(extraction.reused_header_symbols);
