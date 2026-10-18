@@ -365,7 +365,36 @@ protected:
         return entry.path();
     return {};
   }
+  fs::path second_project() {
+    const auto first = project;
+    const auto second = root / "second-project";
+    fs::copy(first, second, fs::copy_options::recursive);
+    project = second;
+    write_commands();
+    project = first;
+    return second;
+  }
+  ProjectIndexStatus wait_for_revision(IndexServiceAdapter &service,
+                                       std::uint64_t minimum_revision) {
+    ProjectIndexRequest request;
+    request.set_project_root(project.string());
+    ProjectIndexStatus status;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    do {
+      grpc::ServerContext context;
+      EXPECT_TRUE(
+          service.GetProjectIndexStatus(&context, &request, &status).ok());
+      if (status.state() == INDEX_STATE_COMPLETE &&
+          status.revision() >= minimum_revision)
+        return status;
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    } while (std::chrono::steady_clock::now() < deadline);
+    ADD_FAILURE() << status.DebugString();
+    return status;
+  }
   ProjectIndexStatus start_and_wait(IndexServiceAdapter &service) {
+
     StartProjectIndexRequest request;
     request.set_project_root(project.string());
     request.set_poll_interval_seconds(1);
@@ -2088,6 +2117,135 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_EQ(status.revision(), initial.revision() + 2);
   EXPECT_EQ(find(service, "NewChoice", false).symbols_size(), 2);
   EXPECT_EQ(find(service, "OldChoice", false).symbols_size(), 0);
+}
+TEST_F(ProjectIndexServiceTest, MonitorsProjectsAndControlsThemIndependently) {
+  const auto first = project;
+  const auto second = second_project();
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER, 2);
+  const auto first_status = start_and_wait(service);
+  project = second;
+  const auto second_status = start_and_wait(service);
+  EXPECT_FALSE(find(service, "alphaOnly", false).stale());
+  project = first;
+  EXPECT_FALSE(find(service, "alphaOnly", false).stale());
+
+  ProjectIndexRequest control;
+  control.set_project_root(first.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext pause_context;
+  ASSERT_TRUE(
+      service.PauseProjectIndex(&pause_context, &control, &status).ok());
+  write("one.cpp", "int firstChanged(){return 1;}\n");
+  project = second;
+  write("one.cpp", "int secondChanged(){return 2;}\n");
+  wait_for_revision(service, second_status.revision() + 2);
+  EXPECT_EQ(find(service, "secondChanged", false).symbols_size(), 2);
+  project = first;
+  EXPECT_EQ(find(service, "firstChanged", false).symbols_size(), 0);
+  grpc::ServerContext status_context;
+  ASSERT_TRUE(
+      service.GetProjectIndexStatus(&status_context, &control, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_PAUSED);
+  EXPECT_EQ(status.revision(), first_status.revision());
+
+  grpc::ServerContext resume_context;
+  ASSERT_TRUE(
+      service.ResumeProjectIndex(&resume_context, &control, &status).ok());
+  wait_for_revision(service, first_status.revision() + 2);
+  EXPECT_EQ(find(service, "firstChanged", false).symbols_size(), 2);
+  // An equivalent project path must reuse the same monitor and revision.
+  StartProjectIndexRequest duplicate;
+  duplicate.set_project_root((first / ".").string());
+  grpc::ServerContext duplicate_context;
+  ASSERT_TRUE(
+      service.StartProjectIndex(&duplicate_context, &duplicate, &status).ok());
+  EXPECT_EQ(status.revision(), first_status.revision() + 2);
+
+  grpc::ServerContext cancel_context;
+  ASSERT_TRUE(
+      service.CancelProjectIndex(&cancel_context, &control, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_CANCELLED);
+  EXPECT_TRUE(find(service, "firstChanged", false).stale());
+  project = second;
+  write("two.cpp", "int stillMonitored(){return 3;}\n");
+  wait_for_revision(service, second_status.revision() + 3);
+  EXPECT_EQ(find(service, "stillMonitored", false).symbols_size(), 1);
+  EXPECT_FALSE(find(service, "stillMonitored", false).stale());
+  project = first;
+  EXPECT_EQ(start_and_wait(service).translation_units_failed(), 0);
+}
+
+TEST_F(ProjectIndexServiceTest, SharesWorkerLimitAcrossConcurrentProjects) {
+  const auto first = project;
+  const auto second = second_project();
+  const auto overlap = root / "worker-overlap";
+  const auto wrapper = worker_wrapper_with_lock(
+      root / "counter", root / "worker-lock", overlap, {}, "sleep 0.05\n");
+  IndexServiceAdapter service(storage, {}, wrapper, 1);
+  for (const auto &path : {first, second}) {
+    StartProjectIndexRequest request;
+    request.set_project_root(path.string());
+    request.set_poll_interval_seconds(1);
+    grpc::ServerContext context;
+    ProjectIndexStatus status;
+    ASSERT_TRUE(service.StartProjectIndex(&context, &request, &status).ok());
+  }
+  EXPECT_EQ(wait_for_revision(service, 3).translation_units_indexed(), 3);
+  project = second;
+  EXPECT_EQ(wait_for_revision(service, 3).translation_units_indexed(), 3);
+  EXPECT_FALSE(fs::exists(overlap));
+}
+
+TEST_F(ProjectIndexServiceTest,
+       CancellingQueuedProjectLeavesOtherMonitorRunning) {
+  const auto second = second_project();
+  IndexServiceAdapter service(
+      storage, [] { return true; }, CTK_TEST_INDEX_WORKER, 1);
+  for (const auto &path : {project, second}) {
+    StartProjectIndexRequest request;
+    request.set_project_root(path.string());
+    grpc::ServerContext context;
+    ProjectIndexStatus status;
+    ASSERT_TRUE(service.StartProjectIndex(&context, &request, &status).ok());
+  }
+  ProjectIndexRequest request;
+  request.set_project_root(second.string());
+  grpc::ServerContext context;
+  ProjectIndexStatus status;
+  ASSERT_TRUE(service.CancelProjectIndex(&context, &request, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_CANCELLED);
+  request.set_project_root(project.string());
+  grpc::ServerContext first_context;
+  ASSERT_TRUE(
+      service.GetProjectIndexStatus(&first_context, &request, &status).ok());
+  EXPECT_NE(status.state(), INDEX_STATE_CANCELLED);
+  // Destruction must wake and join both monitors even while foreground work
+  // prevents their admission.
+}
+
+TEST_F(ProjectIndexServiceTest,
+       ShutdownReapsWorkersAndWakesOtherProjectsWaitingForSlots) {
+  const auto second = second_project();
+  const auto counter = root / "blocked-worker";
+  const auto wrapper = worker_wrapper(counter, "sleep 10\n");
+  auto service = std::make_unique<IndexServiceAdapter>(
+      storage, std::function<bool()>{}, wrapper, 1);
+  for (const auto &path : {project, second}) {
+    StartProjectIndexRequest request;
+    request.set_project_root(path.string());
+    grpc::ServerContext context;
+    ProjectIndexStatus status;
+    ASSERT_TRUE(service->StartProjectIndex(&context, &request, &status).ok());
+  }
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (!fs::exists(counter) && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_TRUE(fs::exists(counter));
+  const auto stopping = std::chrono::steady_clock::now();
+  service.reset();
+  EXPECT_LT(std::chrono::steady_clock::now() - stopping,
+            std::chrono::seconds(2));
 }
 } // namespace
 } // namespace ctk::net

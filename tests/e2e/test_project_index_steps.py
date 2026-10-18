@@ -175,3 +175,57 @@ def foreground_during_indexing(indexed_project):
             stub.PauseProjectIndex(query, timeout=0.5)
             assert stub.GetProjectIndexStatus(query, timeout=0.5).state == pb.INDEX_STATE_PAUSED
             client.cancel_project_index(root)
+
+
+@when("I start monitoring two projects through the console")
+def monitor_two_projects(indexed_project) -> None:
+    first = indexed_project["root"]
+    second = first.parent / "second-project"
+    second.mkdir()
+    source = second / "second.cc"
+    source.write_text("int secondBefore() {return 2;}\n", encoding="utf-8")
+    compiler = os.environ.get("CTK_TEST_CLANG", "clang++")
+    (second / "compile_commands.json").write_text(json.dumps([
+        {"directory": str(second), "file": str(source),
+         "arguments": [compiler, "-std=c++20", "-c", str(source)]}
+    ]), encoding="utf-8")
+    indexed_project["second"] = second
+    # Use the actual console command path against this scenario's server.
+    libraries = first.parent / "empty-libraries"
+    libraries.mkdir()
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server",
+         indexed_project["server"].endpoint, "--lib-dir", str(libraries),
+         "--script-engine", "compiled", "--execute",
+         f'index start {json.dumps(str(first))}; '
+         f'index start {json.dumps(str(second))}'],
+        text=True, capture_output=True, cwd=first, timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    with Client(indexed_project["server"].endpoint) as client:
+        for root in (first, second):
+            _until(lambda: client.project_index_status(root).state == pb.INDEX_STATE_COMPLETE)
+
+
+@then("both projects refresh and cancelling one leaves the other monitored")
+def verify_independent_monitors(indexed_project) -> None:
+    first = indexed_project["root"]
+    second = indexed_project["second"]
+    with Client(indexed_project["server"].endpoint) as client:
+        assert not client.find_symbols(first, "SharedBefore").stale
+        assert not client.find_symbols(second, "secondBefore").stale
+        client.pause_project_index(first)
+        (first / "shared.hpp").write_text("struct SharedAfter {};\n", encoding="utf-8")
+        (second / "second.cc").write_text("int secondAfter() {return 3;}\n", encoding="utf-8")
+        _until(lambda: client.find_symbols(second, "secondAfter").symbols)
+        assert client.project_index_status(first).state == pb.INDEX_STATE_PAUSED
+        assert not client.find_symbols(first, "SharedAfter").symbols
+        client.resume_project_index(first)
+        _until(lambda: len(client.find_symbols(first, "SharedAfter").symbols) >= 2)
+        client.cancel_project_index(first)
+        assert client.project_index_status(first).state == pb.INDEX_STATE_CANCELLED
+        assert client.find_symbols(first, "SharedAfter").symbols
+        (second / "second.cc").write_text("int stillMonitored() {return 4;}\n", encoding="utf-8")
+        _until(lambda: client.find_symbols(second, "stillMonitored").symbols)
+        _until(lambda: client.project_index_status(second).state == pb.INDEX_STATE_COMPLETE)
+        assert not client.find_symbols(second, "stillMonitored").stale

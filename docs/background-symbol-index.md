@@ -68,8 +68,11 @@ the entries whose manifests include that header. Reconciliation checks command
 changes and removed entries as well as file changes. Shared header declarations
 may appear under several TUs so their compilation context is preserved.
 
-The server currently schedules one active project at a time; cancel that job
-before starting another project. Persisted indexes remain queryable. After a
+The server monitors multiple projects independently. Start each project with
+`index start`; pause, resume, and cancel affect only the named project. All
+projects share the server's extraction worker limit (at most four processes),
+and yield to foreground requests. Starting an already monitored project returns
+its current status. Persisted indexes remain queryable. After a
 server restart, call start again to revalidate a project's saved manifests;
 unchanged TUs are skipped. Paused, cancelled, or unrevalidated indexes are marked
 stale. Response files are expanded when reading compilation commands so changing
