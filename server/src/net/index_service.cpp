@@ -1149,12 +1149,17 @@ private:
       const auto &unit = *item.plan.unit;
       if (!item.plan.unchanged && !item.planning_error) {
         std::vector<ScheduledUnit *> batch;
-        const auto limit = std::min(max_workers_, scheduled.items.size());
-        for (std::size_t i = 0; i < limit; ++i) {
+        constexpr std::size_t max_batch_units = 16;
+        for (std::size_t i = 0; i < max_batch_units; ++i) {
+          while (i >= scheduled.items.size() && next_unit < units.size())
+            enqueue_next();
+          if (i >= scheduled.items.size())
+            break;
           auto &candidate = scheduled.items[i];
           if (candidate.plan.unchanged || candidate.planning_error ||
               candidate.generation != item.generation)
             break;
+          const bool response_was_cached = candidate.response.has_value();
           try {
             ensure_response(candidate);
           } catch (const Interrupted &) {
@@ -1163,13 +1168,12 @@ private:
             break;
           }
           batch.push_back(&candidate);
+          // ensure_response joined this unit's worker. Refill just that slot
+          // now; completed batch entries remain queued, while at most the
+          // configured worker count can still be extracting concurrently.
+          if (!response_was_cached && next_unit < units.size())
+            enqueue_next();
         }
-        // The batch's extraction workers have joined. Refill their slots
-        // before opening the writer transaction so parsing overlaps with
-        // publication, while the bounded window still caps live workers.
-        while (batch.size() > 1 && next_unit < units.size() &&
-               scheduled.items.size() < max_workers_ + batch.size())
-          enqueue_next();
         if (batch.size() > 1 && publish_batch(batch)) {
           completed += batch.size();
           saved_revision = revision(db);

@@ -37,6 +37,7 @@ struct PipelineTrace {
   std::atomic<bool> publication_started{false};
   std::atomic<bool> publication_gate_entered{false};
   std::atomic<bool> overlapped{false};
+  std::atomic<bool> fail_publication_once{false};
 };
 PipelineTrace *active_pipeline_trace = nullptr;
 
@@ -123,6 +124,18 @@ int install_revision_trace(sqlite3 *database, char **,
           if (!trace.edit_file.empty())
             std::ofstream(trace.edit_file) << trace.edit_contents;
           sqlite3_result_int(context, 0);
+        },
+        nullptr, nullptr);
+    sqlite3_create_function(
+        database, "fail_index_publication", 0, SQLITE_UTF8,
+        active_pipeline_trace,
+        [](sqlite3_context *context, int, sqlite3_value **) {
+          auto &trace =
+              *static_cast<PipelineTrace *>(sqlite3_user_data(context));
+          sqlite3_result_int(
+              context,
+              trace.fail_publication_once.exchange(false,
+                                                    std::memory_order_acq_rel));
         },
         nullptr, nullptr);
   }
@@ -464,7 +477,7 @@ TEST_F(ProjectIndexServiceTest,
   const auto database = database_file();
   ASSERT_FALSE(database.empty());
   const auto counter = root / "batch-worker-counter";
-  std::ofstream(counter);
+  std::ofstream{counter}.close();
   const auto release_file = root / "release-batch-publication";
   PipelineTrace trace;
   trace.database = database;
@@ -540,6 +553,113 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_EQ(sqlite3_column_int(tables, 0), 3);
   sqlite3_finalize(tables);
   sqlite3_close(db);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       BatchedResponseFallbackDoesNotRefillCachedWorkerSlots) {
+  const auto lock = root / "worker-count-lock";
+  const auto active_file = root / "worker-active-count";
+  const auto maximum_file = root / "worker-maximum-count";
+  std::ofstream(active_file) << "0\n";
+  std::ofstream(maximum_file) << "0\n";
+  const auto shell_word = [](const std::string &value) {
+    std::string out = "'";
+    for (char c : value)
+      out += c == '\'' ? "'\"'\"'" : std::string(1, c);
+    return out + "'";
+  };
+  const auto wrapper = root / "worker-active-wrapper";
+  const auto lock_word = shell_word(lock.string());
+  const auto active_word = shell_word(active_file.string());
+  const auto maximum_word = shell_word(maximum_file.string());
+  std::ofstream(wrapper)
+      << "#!/bin/sh\n"
+      << "while ! mkdir " << lock_word << " 2>/dev/null; do sleep 0.001; done\n"
+      << "active=$(cat " << active_word << ")\n"
+      << "active=$((active + 1))\necho $active > " << active_word << "\n"
+      << "maximum=$(cat " << maximum_word << ")\n"
+      << "if [ $active -gt $maximum ]; then echo $active > " << maximum_word
+      << "; fi\nrmdir " << lock_word << "\nsleep 0.05\n"
+      << shell_word(CTK_TEST_INDEX_WORKER) << " \"$@\"\nstatus=$?\n"
+      << "while ! mkdir " << lock_word << " 2>/dev/null; do sleep 0.001; done\n"
+      << "active=$(cat " << active_word << ")\n"
+      << "active=$((active - 1))\necho $active > " << active_word << "\n"
+      << "rmdir " << lock_word << "\nexit $status\n";
+  fs::permissions(wrapper, fs::perms::owner_all);
+
+  {
+    IndexServiceAdapter initial(storage, {}, wrapper, 4);
+    start_and_wait(initial);
+  }
+  const auto database = database_file();
+  ASSERT_FALSE(database.empty());
+  std::ofstream(maximum_file, std::ios::trunc) << "0\n";
+  PipelineTrace trace;
+  trace.database = database;
+  trace.fail_publication_once.store(true, std::memory_order_release);
+  PipelineTraceRegistration registration(trace);
+  ASSERT_TRUE(registration.registered());
+
+  // More than one batch window ensures cached responses are revisited while
+  // later units are still being extracted after the first batch rolls back.
+  const auto compiler = quote(CTK_TEST_CLANG_TOOL_PATH);
+  const auto directory = quote(project.string());
+  const auto source = quote((project / "one.cpp").string());
+  std::ofstream commands(project / "compile_commands.json");
+  commands << '[';
+  constexpr int translation_units = 40;
+  for (int i = 0; i < translation_units; ++i) {
+    if (i)
+      commands << ',';
+    commands << "{\"directory\":" << directory << ",\"file\":" << source
+             << ",\"arguments\":[" << compiler
+             << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-DVAR="
+             << i << "\",\"-c\"," << source << "]}";
+  }
+  commands << ']';
+  commands.close();
+
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
+  const auto trigger = "CREATE TRIGGER reject_first_batch_symbol BEFORE "
+                       "INSERT ON symbol WHEN NEW.file_path='" +
+                       (project / "one.cpp").string() +
+                       "' AND fail_index_publication()=1 BEGIN SELECT "
+                       "RAISE(FAIL,'force single fallback'); END;";
+  char *error = nullptr;
+  const auto trigger_status =
+      sqlite3_exec(db, trigger.c_str(), nullptr, nullptr, &error);
+  const std::string trigger_error = error ? error : "";
+  sqlite3_free(error);
+  sqlite3_close(db);
+  ASSERT_EQ(trigger_status, SQLITE_OK) << trigger_error;
+
+  IndexServiceAdapter service(storage, {}, wrapper, 4);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+  ProjectIndexRequest status_request;
+  status_request.set_project_root(project.string());
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(90);
+  do {
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &status_request, &status)
+                    .ok());
+    if (status.state() == INDEX_STATE_COMPLETE ||
+        status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  } while (std::chrono::steady_clock::now() < deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_FALSE(trace.fail_publication_once.load(std::memory_order_acquire));
+  std::ifstream maximum_input(maximum_file);
+  std::size_t maximum_workers = 0;
+  maximum_input >> maximum_workers;
+  EXPECT_LE(maximum_workers, 4u);
 }
 
 TEST_F(ProjectIndexServiceTest,
