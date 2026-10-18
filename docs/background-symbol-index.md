@@ -35,7 +35,8 @@ console working directory. No VS Code extension code is needed to use the wire
 contract; an extension can call the same service directly.
 
 `index list` lists all saved project indexes in this server's storage plus its
-current monitors, sorted by project path, with state, indexed/total translation units
+current monitors, sorted by project path, with the folder name and full path in
+separate columns, state, indexed/total translation units
 and a total project count. It includes paused, failed and cancelled jobs. Saved
 indexes without a current monitor (including after restart) show `IDLE`; start them
 again to revalidate their coverage. Listing never parses project sources.
@@ -126,3 +127,26 @@ CPU, memory bandwidth, and storage are still shared physical resources. The
 implementation prevents waiting for extraction; it does not promise zero latency
 change under every machine load. Test latency with representative projects before
 choosing operational budgets. Install `ctk-index-worker` alongside `ctk-server`.
+
+## Reusing indexes across updates
+
+The extractor identity hashes extraction sources, the selected compiler/resource
+directory, and the worker request/result messages (including `Symbol`). Inventory
+RPCs, status messages, protocol comments and formatting do not invalidate saved
+translation units. A compatibility anchor preserves the deployed v1 identity for
+the unchanged worker contract; changing worker fields still invalidates it.
+
+On macOS, a fresh build caches its native architecture; subsequent configurations
+preserve the selected value, including explicit empty and universal settings.
+Deploy a built `ctk-server`/`ctk-index-worker` pair without reconfiguring the indexed
+project or regenerating its compilation database. Compiler arguments remain part
+of the context because changing target architecture can change extracted symbols.
+
+`scripts/server.sh` manages a persistent launchd job on macOS and a detached
+process on Linux. The macOS job label is recorded beside `server.pid`, scoped to
+the state directory, and removed before stopping the child process. Restarts
+therefore cannot resurrect an older build through its supervisor. Compiler-input
+environment variables (including empty values) are forwarded explicitly; unrelated
+environment values are not copied into launch arguments. The lifecycle
+helper does not configure builds, rewrite compilation databases, or delete saved
+indexes; restart the desired project monitors through the indexing API afterward.

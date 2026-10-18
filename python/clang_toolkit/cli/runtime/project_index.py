@@ -20,10 +20,15 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     if str(node.data) == "index_list":
         result = runtime.client.list_project_indexes()
         lines = ["Indexed projects"]
+        rows = [("Project", "Path", "State", "Indexed")]
         for project in result.projects:
             state = pb.IndexState.Name(project.state).removeprefix("INDEX_STATE_")
-            lines.append(f"{project.project_root}  {state}  "
-                         f"{project.translation_units_indexed}/{project.translation_units_total} indexed")
+            rows.append((Path(project.project_root).name or project.project_root,
+                         project.project_root, state,
+                         f"{project.translation_units_indexed}/{project.translation_units_total} indexed"))
+        widths = [max(len(row[column]) for row in rows) for column in range(4)]
+        lines.extend("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip()
+                     for row in rows)
         if not result.projects:
             lines.append("No indexed projects.")
         lines.append(f"Total projects: {result.total_count}")

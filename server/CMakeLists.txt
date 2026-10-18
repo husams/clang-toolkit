@@ -165,6 +165,7 @@ if(CTK_WITH_CLANG)
     CTK_CLANG_TOOL_PATH="${CMAKE_CXX_COMPILER}")
   # Identify extractor behavior, not the linked executable's build UUID or the
   # server Git revision. Unrelated rebuilds must keep valid TU contributions.
+  include("${PROJECT_SOURCE_DIR}/cmake/IndexProtocolFingerprint.cmake")
   set(_index_identity_inputs
     src/clang/project_index_extract.cpp src/clang/project_index_header_reuse.hpp
     include/ctk/clang/project_index_extract.hpp
@@ -176,7 +177,11 @@ if(CTK_WITH_CLANG)
   foreach(_input IN LISTS _index_identity_inputs)
     set(_path "${CMAKE_CURRENT_SOURCE_DIR}/${_input}")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_path}")
-    file(SHA256 "${_path}" _hash)
+    if(_input STREQUAL "../api/index/v1/index_service.proto")
+      ctk_index_protocol_fingerprint("${_path}" _hash)
+    else()
+      file(SHA256 "${_path}" _hash)
+    endif()
     string(APPEND _index_identity "\n${_input}:${_hash}")
   endforeach()
   string(SHA256 CTK_INDEX_EXTRACTOR_FINGERPRINT "${_index_identity}")
