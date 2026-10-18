@@ -509,7 +509,7 @@ export class DetailsView
     if (message.type === "related") {
       if (this.running) return;
       if (!this.relatedNode(message.id))
-        throw new Error("This base class is no longer available.");
+        throw new Error("This declaration is no longer available.");
       const reference = this.reference(message.id);
       const refreshed = reference
         ? await this.refreshRelated(reference)

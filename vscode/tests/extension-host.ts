@@ -68,6 +68,56 @@ export async function run(): Promise<void> {
       `File AST did not load automatically: ${JSON.stringify(astState())}`,
     );
   }
+  if (process.env.CTK_TEST_REFERENCE_ONLY === "1") {
+    const referenceFile = vscode.Uri.joinPath(folder.uri, "references.cpp");
+    const text =
+      "int read() { int BaseRD = 1; { int BaseRD = 2; if (BaseRD) return BaseRD; } return BaseRD; }\n";
+    await vscode.workspace.fs.writeFile(referenceFile, Buffer.from(text));
+    const editor = await vscode.window.showTextDocument(
+      await vscode.workspace.openTextDocument(referenceFile),
+    );
+    await automaticFile("references.cpp");
+    await inspectorTab("properties");
+    const position = editor.document.positionAt(text.indexOf("BaseRD)"));
+    editor.selection = new vscode.Selection(position, position);
+    const deadline = Date.now() + 45000;
+    while (Date.now() < deadline && astState().node?.kind !== "DeclRefExpr")
+      await new Promise((done) => setTimeout(done, 40));
+    assert.equal(astState().node?.kind, "DeclRefExpr");
+    assert.equal(astState().tab, "properties");
+    assert.match(
+      (await inspectorTab("properties")).text,
+      /Referenced declaration/,
+    );
+    assert.ok(
+      astState().tree.some((row) => row.selected && row.kind === "DeclRefExpr"),
+    );
+    const declaration = astState().semantics?.referencedDeclaration;
+    assert.ok(declaration);
+    await api.details.receive({ type: "related", id: declaration.nodeId });
+    assert.equal(astState().node?.kind, "VarDecl");
+    assert.equal(astState().node?.id, declaration.nodeId);
+    assert.equal(astState().node?.column, text.indexOf("int BaseRD = 2") + 1);
+    const highlighted = vscode.window.activeTextEditor;
+    assert.ok(highlighted);
+    assert.equal(
+      await realpath(highlighted.document.uri.fsPath),
+      await realpath(referenceFile.fsPath),
+    );
+    assert.match(
+      highlighted.document.getText(highlighted.selection),
+      /^int BaseRD = 2/,
+    );
+    assert.ok(
+      astState().tree.some(
+        (row) => row.id === declaration.nodeId && row.selected,
+      ),
+    );
+    console.log(
+      "CTK_REFERENCE_HOST_PASS: editor reference selection, Properties declaration link, exact native declaration and source highlight",
+    );
+    return;
+  }
   if (process.env.CTK_TEST_LARGE_AST_ONLY === "1") {
     const largeFile = vscode.Uri.joinPath(folder.uri, "large-ast.cpp");
     await vscode.workspace.fs.writeFile(
@@ -1734,7 +1784,7 @@ export async function run(): Promise<void> {
   await api.details.receive({ type: "back" });
   await assert.rejects(
     api.details.receive({ type: "related", id: check.id }),
-    /base class is no longer available/,
+    /declaration is no longer available/,
   );
   await api.details.receive({ type: "related", id: rootBaseId });
   const baseActionUri = vscode.Uri.joinPath(
