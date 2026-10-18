@@ -150,8 +150,23 @@ do_start() {
     # launchd owns the process across tool/terminal sessions. Remove the job
     # before stopping its child so KeepAlive cannot resurrect an older build.
     remove_launch_job
+    # Match the inputs recorded by clang/snapshot/compilation_environment.cpp;
+    # forward only compiler settings, never the unrestricted process environment.
+    local name compiler_env=() unset_env=()
+    for name in CPATH CPLUS_INCLUDE_PATH C_INCLUDE_PATH OBJC_INCLUDE_PATH \
+        SDKROOT MACOSX_DEPLOYMENT_TARGET CLANG_MODULE_CACHE_PATH SOURCE_DATE_EPOCH \
+        CCC_OVERRIDE_OPTIONS CLANG_CONFIG_PATH CLANG_NO_DEFAULT_CONFIG COMPILER_PATH \
+        CLANG_TOOLCHAIN_PROGRAM_TIMEOUT IPHONEOS_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET \
+        WATCHOS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET \
+        LIBCLANG_DISABLE_PCH_VALIDATION INCLUDE LIBRARY_PATH HOME XDG_CONFIG_HOME TMPDIR TEMP TMP; do
+      if [[ "${!name+x}" == x ]]; then
+        compiler_env+=("$name=${!name}")
+      else
+        unset_env+=(-u "$name")
+      fi
+    done
     launchctl submit -l "$label" -o "$log_file" -e "$log_file" -- \
-      /usr/bin/env "CTK_STORAGE_ROOT=${CTK_STORAGE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/clang-toolkit/storage}" \
+      /usr/bin/env ${unset_env[@]+"${unset_env[@]}"} ${compiler_env[@]+"${compiler_env[@]}"} "CTK_STORAGE_ROOT=${CTK_STORAGE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/clang-toolkit/storage}" \
       "$server_binary" ${config_args[@]+"${config_args[@]}"}
     printf '%s\n' "$label" > "$label_file"
     launched_pid="$(managed_pid "$label")"

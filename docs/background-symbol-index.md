@@ -145,6 +145,8 @@ of the context because changing target architecture can change extracted symbols
 `scripts/server.sh` manages a persistent launchd job on macOS and a detached
 process on Linux. The macOS job label is recorded beside `server.pid`, scoped to
 the state directory, and removed before stopping the child process. Restarts
-therefore cannot resurrect an older build through its supervisor. The lifecycle
+therefore cannot resurrect an older build through its supervisor. Compiler-input
+environment variables (including empty values) are forwarded explicitly; unrelated
+environment values are not copied into launch arguments. The lifecycle
 helper does not configure builds, rewrite compilation databases, or delete saved
 indexes; restart the desired project monitors through the indexing API afterward.

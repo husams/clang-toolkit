@@ -23,6 +23,7 @@ def test_managed_restart_replaces_launch_job_and_preserves_build_settings(
     server.write_text("""#!/usr/bin/env bash
 if [[ "${1:-}" == --print-config ]]; then echo unix:///tmp/ctk-test.sock; exit; fi
 printf 'ctk-server listening on unix:///tmp/ctk-test.sock\n'
+printf '%s\n' "${CPATH-<unset>}|${SDKROOT-<unset>}" > "$CTK_SERVER_STATE_DIR/compiler-env"
 trap 'exit 0' TERM
 while :; do sleep 0.1; done
 """)
@@ -37,7 +38,7 @@ submit)
     shift 2
   done
   shift
-  "$@" </dev/null >>"$output" 2>>"$error" &
+  /usr/bin/env -u CPATH -u SDKROOT "$@" </dev/null >>"$output" 2>>"$error" &
   printf '%s %s\n' "$!" "$label" > "$CTK_SERVER_STATE_DIR/job"
   echo submit >> "$CTK_SERVER_STATE_DIR/actions"
   ;;
@@ -65,6 +66,8 @@ esac
         "CTK_SERVER_BINARY": str(server),
         "CTK_SERVER_STATE_DIR": str(state),
         "CTK_STORAGE_ROOT": str(tmp_path / "storage"),
+        "CPATH": str(tmp_path / "headers with spaces"),
+        "SDKROOT": "",
     }
     commands = tmp_path / "compile_commands.json"
     commands.write_text('[{"arguments":["clang++","-arch","arm64"]}]')
@@ -93,6 +96,7 @@ esac
                 timeout=30,
             )
             assert result.returncode == 0, result.stdout + result.stderr
+            assert (state / "compiler-env").read_text().strip() == f"{env['CPATH']}|"
             if platform_name == "Darwin" and operation in {
                 "start",
                 "restart",
