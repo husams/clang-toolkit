@@ -638,7 +638,7 @@ def test_plain_loops_avoid_per_item_runtime_guards(
     plan = context.lookup(target).direct_loop.__ctk_plan__
     assert plan.last_plain is not None
     source = plan.last_plain.__ctk_source__
-    assert "output.append(" in source and "context.steps +=" in source
+    assert "output.append(" in source and "context.steps" not in source
     assert "loop." not in source
 
 
@@ -835,25 +835,15 @@ def test_plain_loop_detected_cancellation_is_not_polled_twice(
     def prepare_then_cancel(loop):
         result = prepare(loop)
         assert result is not None
-        function = result[0]
-        prepared["code"] = function.__code__
+        prepared["code"] = plain_list_loops._cancelled.__code__
         prepared["steps"] = context.steps
-        prepared["line"] = next(
-            index
-            for index, line in enumerate(function.__ctk_source__.splitlines(), start=1)
-            if "context.tick(" in line or "cancelled(" in line
-        )
         event.set()
         return result
 
     monkeypatch.setitem(direct.__globals__, "prepare_plain", prepare_then_cancel)
 
     def clear_after_detection(frame, action, argument):
-        if (
-            action == "line"
-            and frame.f_code is prepared.get("code")
-            and frame.f_lineno == prepared.get("line")
-        ):
+        if action == "call" and frame.f_code is prepared.get("code"):
             event.clear()
         return clear_after_detection
 
