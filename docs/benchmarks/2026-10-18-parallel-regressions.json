@@ -1,0 +1,50 @@
+{
+  "verdict": "PASS",
+  "total_tests": 3510,
+  "cpp": {
+    "passed": 486,
+    "seconds": 70.77,
+    "log": "/tmp/ctk-parallel-native-final.log",
+    "sha256": "f50896b6ab96ba146da6c14d16a6e37cde801a77eb6ff1671606d7509d8f8f0c"
+  },
+  "python_unit": {
+    "passed": 2817,
+    "seconds": 232.28,
+    "log": "/tmp/ctk-parallel-python-unit.log",
+    "sha256": "71a9a059d642e3fe5a87da06cf2e3cff4c73705f2d2d916977138c6c72b38811"
+  },
+  "python_e2e": {
+    "passed": 207,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "groups": [
+      {
+        "group": 1,
+        "counts": {
+          "tests": 104,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0
+        },
+        "seconds": 759.769,
+        "junit_sha256": "c8a7ccd58f67cb19ec547d1478945be7f2f86fea2b4e1dba84084301b24f181f",
+        "log_sha256": "0ac895f2994ccf2dd221a5df8bd717e2a87facf2fcdb81429a7d0d4523f83aa4"
+      },
+      {
+        "group": 2,
+        "counts": {
+          "tests": 103,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0
+        },
+        "seconds": 822.073,
+        "junit_sha256": "57b55c78be22d5d9a2e3a241bdca19a0bb19488ef1256b7dac452c54c097ee6e",
+        "log_sha256": "2bd24eea7c12c4bd5ab50d10269ce8c986acf109b4b84a2e075c2cfe96d5692b"
+      }
+    ],
+    "raw_artifacts": "/tmp/ctk-parallel-e2e-20261018-054820-t9dc1sp2",
+    "commands_sha256": "810edbd88e14171f4dfdc65a92a571f1d1018a8e6cc7fa89ef22bf21de365372"
+  }
+}
