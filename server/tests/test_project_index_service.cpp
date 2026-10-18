@@ -468,11 +468,23 @@ TEST_F(ProjectIndexServiceTest,
 TEST_F(ProjectIndexServiceTest,
        ReadyUnitsPublishAtomicallyAfterSharedDependencyValidation) {
   ProjectIndexStatus first;
+  std::string worker_one_path, worker_two_path;
   {
     IndexServiceAdapter initial(storage, {}, CTK_TEST_INDEX_WORKER);
     first = start_and_wait(initial);
+    const auto symbols = find(initial, "alphaOnly", false);
+    for (const auto &symbol : symbols.symbols()) {
+      std::error_code path_error;
+      if (fs::equivalent(symbol.file_path(), project / "one.cpp", path_error))
+        worker_one_path = symbol.file_path();
+      path_error.clear();
+      if (fs::equivalent(symbol.file_path(), project / "two.cpp", path_error))
+        worker_two_path = symbol.file_path();
+    }
   }
   ASSERT_EQ(first.translation_units_total(), 3);
+  ASSERT_FALSE(worker_one_path.empty());
+  ASSERT_FALSE(worker_two_path.empty());
 
   const auto database = database_file();
   ASSERT_FALSE(database.empty());
@@ -492,7 +504,7 @@ TEST_F(ProjectIndexServiceTest,
   const auto trigger =
       "CREATE TRIGGER block_last_batch_unit BEFORE INSERT ON symbol WHEN "
       "NEW.file_path='" +
-      (project / "two.cpp").string() +
+      worker_two_path +
       "' BEGIN SELECT block_index_publication(); END;";
   char *error = nullptr;
   const auto trigger_status =
@@ -587,10 +599,18 @@ TEST_F(ProjectIndexServiceTest,
       << "rmdir " << lock_word << "\nexit $status\n";
   fs::permissions(wrapper, fs::perms::owner_all);
 
+  std::string worker_source_path;
   {
     IndexServiceAdapter initial(storage, {}, wrapper, 4);
     start_and_wait(initial);
+    const auto symbols = find(initial, "alphaOnly", false);
+    for (const auto &symbol : symbols.symbols()) {
+      std::error_code path_error;
+      if (fs::equivalent(symbol.file_path(), project / "one.cpp", path_error))
+        worker_source_path = symbol.file_path();
+    }
   }
+  ASSERT_FALSE(worker_source_path.empty());
   const auto database = database_file();
   ASSERT_FALSE(database.empty());
   std::ofstream(maximum_file, std::ios::trunc) << "0\n";
@@ -623,7 +643,7 @@ TEST_F(ProjectIndexServiceTest,
   ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
   const auto trigger = "CREATE TRIGGER reject_first_batch_symbol BEFORE "
                        "INSERT ON symbol WHEN NEW.file_path='" +
-                       (project / "one.cpp").string() +
+                       worker_source_path +
                        "' AND fail_index_publication()=1 BEGIN SELECT "
                        "RAISE(FAIL,'force single fallback'); END;";
   char *error = nullptr;
@@ -654,11 +674,14 @@ TEST_F(ProjectIndexServiceTest,
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   } while (std::chrono::steady_clock::now() < deadline);
   ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_EQ(status.translation_units_total(), translation_units);
+  EXPECT_EQ(status.translation_units_completed(), translation_units);
   EXPECT_EQ(status.translation_units_failed(), 0);
   EXPECT_FALSE(trace.fail_publication_once.load(std::memory_order_acquire));
   std::ifstream maximum_input(maximum_file);
   std::size_t maximum_workers = 0;
   maximum_input >> maximum_workers;
+  EXPECT_GT(maximum_workers, 0u);
   EXPECT_LE(maximum_workers, 4u);
 }
 
