@@ -300,11 +300,20 @@ def graph_terminal(pipe_console, tmp_path):
         'print graph | pretty()',
         'let formatted = graph | pretty()',
         f'print formatted to {json.dumps(str(pretty))}',
+        'print "BEGIN_GRAPH_INSPECTION"',
         'inspect graph',
+        'print "END_GRAPH_INSPECTION"',
         'let functions = graph.nodes | filter((n) = not n.is_virtual_root)',
         'let selected = functions | filter((n) = n.function.qualified_name == "project::work")',
         'let work = selected.one("work function")',
+        'print "BEGIN_NODE_INSPECTION"',
         'inspect work',
+        'print "END_NODE_INSPECTION"',
+        'let declarations = match functionDecl(hasName("project::work")).bind("function") in work',
+        'print "BEGIN_DECLARATION_INSPECTION"',
+        'inspect declarations[0].function.location',
+        'print "END_DECLARATION_INSPECTION"',
+        'print "DECLARATIONS_{declarations.length}"',
         f'print work to {json.dumps(str(node_display))}',
         'let offset = work.location.offset',
         'print "OFFSET_{offset + 1}"',
@@ -314,7 +323,9 @@ def graph_terminal(pipe_console, tmp_path):
         'let calls = match callExpr(callee(functionDecl(hasName("leaf")))).bind("call") in work',
         'print calls',
         f'print calls to {json.dumps(str(matcher_display))}',
+        'print "BEGIN_MATCHER_INSPECTION"',
         'inspect calls',
+        'print "END_MATCHER_INSPECTION"',
         'print "BEGIN_GRAPH_POINT"',
         'inspect graph.call_sites[0].location',
         'print "END_GRAPH_POINT"',
@@ -363,6 +374,24 @@ def verify_graph_terminal(graph_terminal):
         return json.loads(body)
 
     assert inspected_point("GRAPH") == inspected_point("MATCHER")
+
+    def inspected_section(kind):
+        body = transcript.split(f"BEGIN_{kind}_INSPECTION\r\n", 1)[1]
+        body = body.split(f"\r\nEND_{kind}_INSPECTION", 1)[0]
+        return json.loads(body)
+
+    graph_schema = inspected_section("GRAPH")["value"]
+    node_schema = inspected_section("NODE")["value"]
+    declaration_location = inspected_section("DECLARATION")
+    graph_node = next(n for n in graph_schema["fields"]["nodes"]
+                      if n.get("fields", {}).get("node_index") == int(node["node_index"]))
+    assert graph_node == node_schema
+    fields = graph_node["fields"]
+    assert fields["function"]["fields"]["qualified_name"] == "project::work"
+    assert fields["function"]["fields"]["type"]["fields"]["spelling"] == "int ()"
+    assert fields["function"]["fields"]["type"]["fields"]["qualifiers"]["truncated"] is True
+    assert fields["location"] == declaration_location
+    assert "DECLARATIONS_1" in transcript
     assert displayed["is_complete"] is True
     assert len(displayed["nodes"]) == len(saved["nodes"]) == 3
     assert {n["function"]["qualified_name"] for n in displayed["nodes"] if "function" in n} == {

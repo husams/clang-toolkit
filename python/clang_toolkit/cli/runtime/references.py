@@ -558,6 +558,16 @@ def inspect_value(value: Any) -> Any:
             "value": _inspect_message(value.proto),
         }
     if isinstance(value, CallGraph):
+        response_inspection = _inspect_message(value.response)
+        node_count = len(value.response.nodes)
+        node_limit = 20
+        nodes = [
+            _inspect_message(node)
+            for node in islice(value.response.nodes, node_limit)
+        ]
+        if node_count > len(nodes):
+            nodes.append({"truncated": node_count - len(nodes)})
+        response_inspection["fields"]["nodes"] = nodes
         return {
             "type": "CallGraph",
             "node_count": len(value.response.nodes),
@@ -567,7 +577,7 @@ def inspect_value(value: Any) -> Any:
             "source_file": value.response.source_file,
             "retained": value._owner is not None and not value._owner.closed,
             "methods": list(_CALL_GRAPH_METHODS),
-            "value": _inspect_message(value.response),
+            "value": response_inspection,
         }
     if isinstance(value, FileSet):
         return {

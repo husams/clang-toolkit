@@ -160,11 +160,13 @@ Assigned graphs and nodes use the same bounded protobuf preview as matcher rows:
 `print graph` preserves availability records, enum names and string-encoded 64-bit
 integers, and `print graph | pretty()` adds readable indentation. Typed field
 access still returns native values, so offsets remain integers in expressions.
-`inspect graph` and `inspect graph.nodes[i]` use the same schema inspector and
-default depth as matcher bindings, with graph operations and ownership metadata
-alongside the schema fields. Inspection's `retained` flag reports local ownership
-state; it does not check server expiry. These previews do not change the graph
-or its retained matching references.
+`inspect graph` gives each previewed node its own default schema inspection depth
+budget, as matcher inspection does for each binding. `inspect graph.nodes[i]`
+uses the same node-root budget. Graph operations and ownership metadata remain
+alongside the schema fields, and collection and total output limits still bound
+the preview. Inspection's `retained` flag reports local ownership state; it does
+not check server expiry. These previews do not change the graph or its retained
+matching references.
 Use the existing `save graph to "graph.json" as json` for a detached export.
 
 ## System headers and custom callable boundaries
