@@ -9,9 +9,29 @@
 #include <sys/vfs.h>
 #endif
 
+#include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <sys/resource.h>
 
 namespace ctk::platform {
+namespace {
+std::atomic<std::size_t> retained_descriptors{0};
+}
+bool reserve_index_descriptor() {
+  rlimit limit{};
+  if (getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_cur <= 256)
+    return false;
+  const auto maximum = std::min<rlim_t>(
+      6144, limit.rlim_cur - std::min<rlim_t>(2048, limit.rlim_cur / 2));
+  auto current = retained_descriptors.load();
+  while (current < maximum)
+    if (retained_descriptors.compare_exchange_weak(current, current + 1))
+      return true;
+  return false;
+}
+void release_index_descriptor() { retained_descriptors.fetch_sub(1); }
+
 bool supports_index_input_reuse(int descriptor) {
 #ifdef __APPLE__
   struct statfs filesystem{};

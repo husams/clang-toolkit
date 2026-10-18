@@ -106,7 +106,12 @@ requests a full scan every tick. Unchanged projects keep their completed status
 and last-pass counts. A five-minute safety reconciliation covers missed events;
 if any watch cannot be installed, the fallback runs every minute. New dependencies
 receive one additional guarded validation pass after watches are installed.
-Pause/resume and cancellation remain interruptible.
+Pause/resume and cancellation remain interruptible. On macOS, watch queues
+share inode-validated descriptors. Persistent watches and digest readers use
+one process-wide allowance, leaving capacity for traversal, databases, and
+foreground requests.
+Each monitor prioritizes source files before spending its 1,024 content-watch
+allowance on headers; incomplete coverage uses the one-minute safety fallback.
 
 The server monitors multiple projects independently. Start each project with
 `index start`; pause, resume, and cancel affect only the named project. All
