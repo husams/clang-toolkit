@@ -1,6 +1,7 @@
 # Single-call list chunk policies
 
-Implementation base: main `4351794`; branch `codex/single-call-list-policies`.
+PR integration base: main `4b3ded8`; branch `codex/single-call-list-policies`.
+Implementation and benchmark baseline: main `4351794`.
 
 - [x] Prove the old policies fail the one-policy-call contract.
 - [x] Move first checkpoint preparation into setup and subsequent preparation into settlement.
@@ -137,3 +138,13 @@ failures or skipped cases.
 The broader E2E suite was not repeated; both execution engines passed the four
 list acceptance scenarios recorded above. The final runtime source hash still
 matches the exact implementation used in the captured real-console run.
+
+## PR integration
+
+Rebased onto main `4b3ded8` without conflicts. Runtime and regression-test files
+are byte-for-byte unchanged from the reviewed and console-verified implementation.
+All **440 focused list tests passed** again in 118.12s, and all **four compiled/tree
+real-terminal acceptance scenarios passed** again in 66.06s on the integration
+base (`/tmp/ctk-single-policy-pr-focused.log`,
+`/tmp/ctk-single-policy-pr-e2e.log`). Upstream changes since the implementation
+base do not alter native sources.
