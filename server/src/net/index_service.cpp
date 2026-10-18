@@ -670,9 +670,6 @@ private:
           owner);
     }
     const auto encoded = json(manifest);
-    std::map<std::string, std::string> fresh;
-    if (!manifest_current(job, dependencies(encoded), fresh))
-      throw Interrupted();
     await_admission(job);
     Transaction transaction(db);
     std::set<std::string> previous_groups;
@@ -793,6 +790,7 @@ private:
     bump(db);
     // Input validation belongs after commit admission: a foreground burst or
     // pause may otherwise change an input while the staged writer waits.
+    std::map<std::string, std::string> fresh;
     commit(job, transaction, [&] {
       for (;;) {
         fresh.clear();
