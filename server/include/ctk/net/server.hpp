@@ -30,6 +30,7 @@ private:
   std::shared_ptr<ctk::clang_layer::IQueryEngine> native_engine_;
   std::shared_ptr<application::ResourceManager> resources_;
   application::MatchController matches_;
+  IndexServiceAdapter index_service_;
   MatchServiceAdapter match_service_;
   application::TraversalController traversals_;
   application::CfgController cfg_;
@@ -37,7 +38,6 @@ private:
   application::ScriptController scripts_;
   application::BatchRegistry batches_;
   AnalysisServiceAdapter analysis_service_;
-  IndexServiceAdapter index_service_;
   std::unique_ptr<platform::EndpointLease> lease_;
   std::unique_ptr<grpc::Server> server_;
 };

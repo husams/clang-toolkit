@@ -78,6 +78,62 @@ public:
   fs::path database_path(const std::string &root) const {
     return storage_ / digest_text(root) / "symbols.sqlite3";
   }
+  ListProjectIndexesResponse list(grpc::ServerContext &context) {
+    std::map<std::string, ProjectIndexStatus> projects;
+    // Only index metadata is read; never hold the controller mutex during I/O.
+    // A database may still be being initialized by the background worker.
+    if (fs::exists(storage_)) {
+      for (const auto &entry : fs::directory_iterator(storage_)) {
+        if (context.IsCancelled())
+          throw std::runtime_error("project index listing cancelled");
+        const auto path = entry.path() / "symbols.sqlite3";
+        if (!entry.is_directory() || !fs::is_regular_file(path))
+          continue;
+        Database db(path, false);
+        db.exec("BEGIN");
+        Statement schema(db, "SELECT count(*) FROM sqlite_master WHERE "
+                             "type='table' AND name IN "
+                             "('metadata','translation_unit')");
+        schema.step();
+        if (schema.number(0) != 2)
+          continue;
+        Statement root(db, "SELECT value FROM metadata WHERE key='project_root'");
+        if (!root.step() || root.text(0).empty())
+          continue;
+        const auto key = root_key(root.text(0));
+        if (path != database_path(key))
+          continue;
+        ProjectIndexStatus saved;
+        saved.set_project_root(key);
+        saved.set_state(INDEX_STATE_IDLE);
+        saved.set_revision(revision(db));
+        saved.set_translation_units_indexed(count_units(db));
+        Statement total(db, "SELECT value FROM metadata WHERE key='total'");
+        if (total.step())
+          saved.set_translation_units_total(std::stoull(total.text(0)));
+        Statement failed(db, "SELECT count(*) FROM translation_unit "
+                             "WHERE indexed_at>0 AND status='failed'");
+        failed.step();
+        saved.set_translation_units_failed(failed.number(0));
+        if (saved.translation_units_total() > saved.translation_units_indexed())
+          saved.set_translation_units_pending(saved.translation_units_total() -
+                                              saved.translation_units_indexed());
+        projects.emplace(key, std::move(saved));
+      }
+    }
+    {
+      std::lock_guard lock(mutex_);
+      // Include queued work before its database exists, without duplicating
+      // the saved row; live progress takes precedence over persisted coverage.
+      if (!job_.root.empty())
+        projects[job_.root] = status_;
+    }
+    ListProjectIndexesResponse response;
+    for (auto &[key, status] : projects)
+      *response.add_projects() = std::move(status);
+    response.set_total_count(response.projects_size());
+    return response;
+  }
   ProjectIndexStatus start(const StartProjectIndexRequest &request) {
     const auto key = root_key(request.project_root());
     std::lock_guard lock(mutex_);
@@ -1729,6 +1785,29 @@ public:
       monitor->stop();
     monitors_.clear();
   }
+  ListProjectIndexesResponse list(grpc::ServerContext &context) {
+    auto saved = reader_.list(context);
+    std::map<std::string, ProjectIndexStatus> projects;
+    for (const auto &status : saved.projects())
+      projects[status.project_root()] = status;
+    std::map<std::string, std::shared_ptr<ProjectSymbolMonitor>> monitors;
+    {
+      std::lock_guard lock(mutex_);
+      monitors = monitors_;
+    }
+    // Do not hold the registry mutex during filesystem reads or while taking
+    // individual monitor locks. Include queued monitors before their DB exists.
+    for (const auto &[root, monitor] : monitors) {
+      if (context.IsCancelled())
+        throw std::runtime_error("project index listing cancelled");
+      projects[root] = monitor->status(root);
+    }
+    ListProjectIndexesResponse response;
+    for (const auto &[root, status] : projects)
+      *response.add_projects() = status;
+    response.set_total_count(response.projects_size());
+    return response;
+  }
   ProjectIndexStatus start(const StartProjectIndexRequest &request) {
     const auto key = root_key(request.project_root());
     std::lock_guard lock(mutex_);
@@ -1808,6 +1887,18 @@ IndexServiceAdapter::IndexServiceAdapter(fs::path root,
           std::move(root), std::move(foreground_busy), std::move(executable),
           max_workers)) {}
 IndexServiceAdapter::~IndexServiceAdapter() = default;
+grpc::Status IndexServiceAdapter::ListProjectIndexes(
+    grpc::ServerContext *context, const ListProjectIndexesRequest *,
+    ListProjectIndexesResponse *out) {
+  // Inventory reads do not require the native extraction backend. In
+  // particular, ServerStatus must remain available in builds without Clang.
+  try {
+    *out = indexer_->list(*context);
+    return grpc::Status::OK;
+  } catch (const std::exception &error) {
+    return {grpc::StatusCode::UNAVAILABLE, error.what()};
+  }
+}
 grpc::Status
 IndexServiceAdapter::StartProjectIndex(grpc::ServerContext *,
                                        const StartProjectIndexRequest *request,

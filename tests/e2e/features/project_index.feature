@@ -1,4 +1,10 @@
 Feature: Background project symbol lookup
+  Scenario: Console lists indexed projects and server status includes their progress
+    Given an isolated server and three translation units with a shared header
+    Then the console lists zero indexed projects
+    When I index the project and pause background refresh through gRPC
+    Then the console lists the indexed project and server status shows its coverage
+
   Scenario: UI clients control selective indexing without blocking native work
     Given an isolated server and three translation units with a shared header
     When I index the project and pause background refresh through gRPC

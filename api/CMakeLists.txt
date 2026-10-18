@@ -59,7 +59,7 @@ add_library(ctk_match_api STATIC ${_parse_sources}
   "${_match_generated_dir}/match/v1/match_result.pb.h"
   "${_match_generated_dir}/match/v1/match_service.pb.cc")
 target_include_directories(ctk_match_api PUBLIC "${_match_generated_dir}")
-target_link_libraries(ctk_match_api PUBLIC ctk_ast_api protobuf::libprotobuf)
+target_link_libraries(ctk_match_api PUBLIC ctk_ast_api ctk_index_api protobuf::libprotobuf)
 
 set(_analysis_protos)
 set(_analysis_sources)

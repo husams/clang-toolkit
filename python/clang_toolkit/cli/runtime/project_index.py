@@ -17,6 +17,18 @@ if TYPE_CHECKING:
 def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     from .semantic import view
 
+    if str(node.data) == "index_list":
+        result = runtime.client.list_project_indexes()
+        lines = ["Indexed projects"]
+        for project in result.projects:
+            state = pb.IndexState.Name(project.state).removeprefix("INDEX_STATE_")
+            lines.append(f"{project.project_root}  {state}  "
+                         f"{project.translation_units_indexed}/{project.translation_units_total} indexed")
+        if not result.projects:
+            lines.append("No indexed projects.")
+        lines.append(f"Total projects: {result.total_count}")
+        return view(result), "\n".join(lines)
+
     strings = [runtime._string(str(child)) for child in node.children
                if isinstance(child, Token) and child.type == "STRING"]
     root = Path(strings[-1]).expanduser()

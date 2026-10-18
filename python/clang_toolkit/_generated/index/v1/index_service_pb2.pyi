@@ -42,6 +42,18 @@ class ProjectIndexRequest(_message.Message):
     project_root: str
     def __init__(self, project_root: _Optional[str] = ...) -> None: ...
 
+class ListProjectIndexesRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ListProjectIndexesResponse(_message.Message):
+    __slots__ = ("projects", "total_count")
+    PROJECTS_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_COUNT_FIELD_NUMBER: _ClassVar[int]
+    projects: _containers.RepeatedCompositeFieldContainer[ProjectIndexStatus]
+    total_count: int
+    def __init__(self, projects: _Optional[_Iterable[_Union[ProjectIndexStatus, _Mapping]]] = ..., total_count: _Optional[int] = ...) -> None: ...
+
 class ProjectIndexStatus(_message.Message):
     __slots__ = ("project_root", "state", "translation_units_total", "translation_units_completed", "translation_units_skipped", "translation_units_failed", "current_translation_unit", "error", "last_reconciled_unix_seconds", "revision", "translation_units_pending", "paused_reason", "translation_units_indexed")
     PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]

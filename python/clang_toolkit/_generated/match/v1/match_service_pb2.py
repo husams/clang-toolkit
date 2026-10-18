@@ -28,51 +28,52 @@ from . import match_stream_pb2 as match_dot_v1_dot_match__stream__pb2
 from . import parse_request_pb2 as match_dot_v1_dot_parse__request__pb2
 from . import parse_response_pb2 as match_dot_v1_dot_parse__response__pb2
 from . import resources_pb2 as match_dot_v1_dot_resources__pb2
+from ...index.v1 import index_service_pb2 as index_dot_v1_dot_index__service__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1cmatch/v1/match_service.proto\x12\x0c\x63tk.match.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bmatch/v1/match_result.proto\x1a\x1bmatch/v1/match_stream.proto\x1a\x1cmatch/v1/parse_request.proto\x1a\x1dmatch/v1/parse_response.proto\x1a\x18match/v1/resources.proto\"\xd8\x03\n\x0cMatchRequest\x12\r\n\x05query\x18\x01 \x01(\t\x12-\n\x04\x66ile\x18\x02 \x01(\x0b\x32\x1d.ctk.match.v1.FileMatchTargetH\x00\x12\x33\n\x07session\x18\x03 \x01(\x0b\x32 .ctk.match.v1.SessionMatchTargetH\x00\x12\x33\n\x07\x62inding\x18\x04 \x01(\x0b\x32 .ctk.match.v1.BindingMatchTargetH\x00\x12\x35\n\x0b\x66ile_handle\x18\x07 \x01(\x0b\x32\x1e.ctk.match.v1.FileHandleTargetH\x00\x12\x38\n\x0etraversal_mode\x18\x05 \x01(\x0e\x32 .ctk.match.v1.MatchTraversalMode\x12\x17\n\x0fpreserve_source\x18\x06 \x01(\x08\x12\x19\n\x11resource_scope_id\x18\x08 \x01(\t\x12\x35\n\x0fnavigation_axis\x18\t \x01(\x0e\x32\x1c.ctk.match.v1.NavigationAxis\x12!\n\x14navigation_max_nodes\x18\n \x01(\x04H\x01\x88\x01\x01\x42\x08\n\x06targetB\x17\n\x15_navigation_max_nodes\"\xad\x01\n\x0f\x46ileMatchTarget\x12\x11\n\tfile_path\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\t\x12\x1c\n\x14\x63ompilation_database\x18\x04 \x01(\t\x12\x1b\n\x13\x65xpected_profile_id\x18\x05 \x01(\t\x12\x16\n\x0e\x66rozen_profile\x18\x06 \x01(\x08\"l\n\x12SessionMatchTarget\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12%\n\x18\x65xpected_result_revision\x18\x02 \x01(\x04H\x00\x88\x01\x01\x42\x1b\n\x19_expected_result_revision\"\xd4\x01\n\x12\x42indingMatchTarget\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0c\n\x04\x62ind\x18\x02 \x01(\t\x12\x18\n\x0bmatch_index\x18\x03 \x01(\x04H\x00\x88\x01\x01\x12.\n\x05scope\x18\x04 \x01(\x0e\x32\x1f.ctk.match.v1.BindingMatchScope\x12%\n\x18\x65xpected_result_revision\x18\x05 \x01(\x04H\x01\x88\x01\x01\x42\x0e\n\x0c_match_indexB\x1b\n\x19_expected_result_revision\"\x98\x01\n\rMatchResponse\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x17\n\x0fresult_revision\x18\x02 \x01(\x04\x12*\n\x07results\x18\x03 \x03(\x0b\x32\x19.ctk.match.v1.MatchResult\x12.\n\nexpires_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\")\n\x13\x43loseSessionRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\"\x16\n\x14\x43loseSessionResponse\"\x15\n\x13ListSessionsRequest\"C\n\x14ListSessionsResponse\x12+\n\x08sessions\x18\x01 \x03(\x0b\x32\x19.ctk.match.v1.SessionInfo\"*\n\x14\x41ttachSessionRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\"\xa7\x01\n\x0bSessionInfo\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x17\n\x0fresult_revision\x18\x02 \x01(\x04\x12\x11\n\tfile_path\x18\x03 \x01(\t\x12\x11\n\trow_count\x18\x04 \x01(\x04\x12\x15\n\rbinding_names\x18\x05 \x03(\t\x12.\n\nexpires_at\x18\x06 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\x15\n\x13ServerStatusRequest\"\x97\x02\n\x0e\x43\x61\x63heResources\x12\x18\n\x10memory_available\x18\x01 \x01(\x08\x12\x1a\n\x12reusable_snapshots\x18\x02 \x01(\x04\x12\x1d\n\x15reusable_memory_bytes\x18\x03 \x01(\x04\x12\x16\n\x0epending_builds\x18\x04 \x01(\x04\x12\x19\n\x11storage_available\x18\x05 \x01(\x08\x12\x1b\n\x13\x61rtifact_disk_bytes\x18\x06 \x01(\x04\x12\x17\n\x0fready_snapshots\x18\x07 \x01(\x04\x12\x17\n\x0fstale_snapshots\x18\x08 \x01(\x04\x12\x18\n\x10leased_snapshots\x18\t \x01(\x04\x12\x14\n\x0cstorage_root\x18\n \x01(\t\"\x85\x02\n\x14ServerStatusResponse\x12\x11\n\tuptime_ms\x18\x01 \x01(\x04\x12\"\n\x15resident_memory_bytes\x18\x02 \x01(\x04H\x00\x88\x01\x01\x12\x17\n\x0f\x61\x63tive_sessions\x18\x03 \x01(\x04\x12\x1d\n\x15retained_memory_bytes\x18\x04 \x01(\x04\x12\x14\n\x0cmax_sessions\x18\x05 \x01(\x04\x12!\n\x19max_retained_memory_bytes\x18\x06 \x01(\x04\x12+\n\x05\x63\x61\x63he\x18\x07 \x01(\x0b\x32\x1c.ctk.match.v1.CacheResourcesB\x18\n\x16_resident_memory_bytes\"2\n\x12PruneCachesRequest\x12\x0e\n\x06memory\x18\x01 \x01(\x08\x12\x0c\n\x04\x64isk\x18\x02 \x01(\x08\"p\n\x13PruneCachesResponse\x12,\n\x06\x62\x65\x66ore\x18\x01 \x01(\x0b\x32\x1c.ctk.match.v1.CacheResources\x12+\n\x05\x61\x66ter\x18\x02 \x01(\x0b\x32\x1c.ctk.match.v1.CacheResources*\x94\x01\n\x12MatchTraversalMode\x12$\n MATCH_TRAVERSAL_MODE_UNSPECIFIED\x10\x00\x12\x1e\n\x1aMATCH_TRAVERSAL_MODE_AS_IS\x10\x01\x12\x38\n4MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE\x10\x02*l\n\x0eNavigationAxis\x12\x1f\n\x1bNAVIGATION_AXIS_UNSPECIFIED\x10\x00\x12\x1c\n\x18NAVIGATION_AXIS_CHILDREN\x10\x01\x12\x1b\n\x17NAVIGATION_AXIS_PARENTS\x10\x02\x32\xcd\r\n\x0cMatchService\x12X\n\rDiscoverFiles\x12\".ctk.match.v1.DiscoverFilesRequest\x1a#.ctk.match.v1.DiscoverFilesResponse\x12\x41\n\x08OpenFile\x12\x1d.ctk.match.v1.OpenFileRequest\x1a\x16.ctk.match.v1.FileInfo\x12L\n\tListFiles\x12\x1e.ctk.match.v1.ListFilesRequest\x1a\x1f.ctk.match.v1.ListFilesResponse\x12I\n\x0c\x44\x65scribeFile\x12!.ctk.match.v1.DescribeFileRequest\x1a\x16.ctk.match.v1.FileInfo\x12L\n\tCloseFile\x12\x1e.ctk.match.v1.CloseFileRequest\x1a\x1f.ctk.match.v1.CloseFileResponse\x12T\n\rCloseAllFiles\x12\".ctk.match.v1.CloseAllFilesRequest\x1a\x1f.ctk.match.v1.CloseFileResponse\x12G\n\x0bRefreshFile\x12 .ctk.match.v1.RefreshFileRequest\x1a\x16.ctk.match.v1.FileInfo\x12\\\n\x11OpenResourceScope\x12&.ctk.match.v1.OpenResourceScopeRequest\x1a\x1f.ctk.match.v1.ResourceScopeInfo\x12\\\n\x15\x44\x65scribeResourceScope\x12\".ctk.match.v1.ResourceScopeRequest\x1a\x1f.ctk.match.v1.ResourceScopeInfo\x12Z\n\x13\x43\x61ncelResourceScope\x12\".ctk.match.v1.ResourceScopeRequest\x1a\x1f.ctk.match.v1.ResourceScopeInfo\x12[\n\x14ReleaseResourceScope\x12\".ctk.match.v1.ResourceScopeRequest\x1a\x1f.ctk.match.v1.ResourceScopeInfo\x12[\n\x0eResourceStatus\x12#.ctk.match.v1.ResourceStatusRequest\x1a$.ctk.match.v1.ResourceStatusResponse\x12@\n\x05Parse\x12\x1a.ctk.match.v1.ParseRequest\x1a\x1b.ctk.match.v1.ParseResponse\x12@\n\x05Match\x12\x1a.ctk.match.v1.MatchRequest\x1a\x1b.ctk.match.v1.MatchResponse\x12K\n\x0bStreamMatch\x12\x1a.ctk.match.v1.MatchRequest\x1a\x1e.ctk.match.v1.MatchStreamEvent0\x01\x12N\n\x0eStreamNavigate\x12\x1a.ctk.match.v1.MatchRequest\x1a\x1e.ctk.match.v1.MatchStreamEvent0\x01\x12U\n\x0c\x43loseSession\x12!.ctk.match.v1.CloseSessionRequest\x1a\".ctk.match.v1.CloseSessionResponse\x12U\n\x0cListSessions\x12!.ctk.match.v1.ListSessionsRequest\x1a\".ctk.match.v1.ListSessionsResponse\x12N\n\rAttachSession\x12\".ctk.match.v1.AttachSessionRequest\x1a\x19.ctk.match.v1.SessionInfo\x12U\n\x0cServerStatus\x12!.ctk.match.v1.ServerStatusRequest\x1a\".ctk.match.v1.ServerStatusResponse\x12R\n\x0bPruneCaches\x12 .ctk.match.v1.PruneCachesRequest\x1a!.ctk.match.v1.PruneCachesResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1cmatch/v1/match_service.proto\x12\x0c\x63tk.match.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bmatch/v1/match_result.proto\x1a\x1bmatch/v1/match_stream.proto\x1a\x1cmatch/v1/parse_request.proto\x1a\x1dmatch/v1/parse_response.proto\x1a\x18match/v1/resources.proto\x1a\x1cindex/v1/index_service.proto\"\xd8\x03\n\x0cMatchRequest\x12\r\n\x05query\x18\x01 \x01(\t\x12-\n\x04\x66ile\x18\x02 \x01(\x0b\x32\x1d.ctk.match.v1.FileMatchTargetH\x00\x12\x33\n\x07session\x18\x03 \x01(\x0b\x32 .ctk.match.v1.SessionMatchTargetH\x00\x12\x33\n\x07\x62inding\x18\x04 \x01(\x0b\x32 .ctk.match.v1.BindingMatchTargetH\x00\x12\x35\n\x0b\x66ile_handle\x18\x07 \x01(\x0b\x32\x1e.ctk.match.v1.FileHandleTargetH\x00\x12\x38\n\x0etraversal_mode\x18\x05 \x01(\x0e\x32 .ctk.match.v1.MatchTraversalMode\x12\x17\n\x0fpreserve_source\x18\x06 \x01(\x08\x12\x19\n\x11resource_scope_id\x18\x08 \x01(\t\x12\x35\n\x0fnavigation_axis\x18\t \x01(\x0e\x32\x1c.ctk.match.v1.NavigationAxis\x12!\n\x14navigation_max_nodes\x18\n \x01(\x04H\x01\x88\x01\x01\x42\x08\n\x06targetB\x17\n\x15_navigation_max_nodes\"\xad\x01\n\x0f\x46ileMatchTarget\x12\x11\n\tfile_path\x18\x01 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x02 \x03(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\t\x12\x1c\n\x14\x63ompilation_database\x18\x04 \x01(\t\x12\x1b\n\x13\x65xpected_profile_id\x18\x05 \x01(\t\x12\x16\n\x0e\x66rozen_profile\x18\x06 \x01(\x08\"l\n\x12SessionMatchTarget\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12%\n\x18\x65xpected_result_revision\x18\x02 \x01(\x04H\x00\x88\x01\x01\x42\x1b\n\x19_expected_result_revision\"\xd4\x01\n\x12\x42indingMatchTarget\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0c\n\x04\x62ind\x18\x02 \x01(\t\x12\x18\n\x0bmatch_index\x18\x03 \x01(\x04H\x00\x88\x01\x01\x12.\n\x05scope\x18\x04 \x01(\x0e\x32\x1f.ctk.match.v1.BindingMatchScope\x12%\n\x18\x65xpected_result_revision\x18\x05 \x01(\x04H\x01\x88\x01\x01\x42\x0e\n\x0c_match_indexB\x1b\n\x19_expected_result_revision\"\x98\x01\n\rMatchResponse\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x17\n\x0fresult_revision\x18\x02 \x01(\x04\x12*\n\x07results\x18\x03 \x03(\x0b\x32\x19.ctk.match.v1.MatchResult\x12.\n\nexpires_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\")\n\x13\x43loseSessionRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\"\x16\n\x14\x43loseSessionResponse\"\x15\n\x13ListSessionsRequest\"C\n\x14ListSessionsResponse\x12+\n\x08sessions\x18\x01 \x03(\x0b\x32\x19.ctk.match.v1.SessionInfo\"*\n\x14\x41ttachSessionRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\"\xa7\x01\n\x0bSessionInfo\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x17\n\x0fresult_revision\x18\x02 \x01(\x04\x12\x11\n\tfile_path\x18\x03 \x01(\t\x12\x11\n\trow_count\x18\x04 \x01(\x04\x12\x15\n\rbinding_names\x18\x05 \x03(\t\x12.\n\nexpires_at\x18\x06 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\x15\n\x13ServerStatusRequest\"\x97\x02\n\x0e\x43\x61\x63heResources\x12\x18\n\x10memory_available\x18\x01 \x01(\x08\x12\x1a\n\x12reusable_snapshots\x18\x02 \x01(\x04\x12\x1d\n\x15reusable_memory_bytes\x18\x03 \x01(\x04\x12\x16\n\x0epending_builds\x18\x04 \x01(\x04\x12\x19\n\x11storage_available\x18\x05 \x01(\x08\x12\x1b\n\x13\x61rtifact_disk_bytes\x18\x06 \x01(\x04\x12\x17\n\x0fready_snapshots\x18\x07 \x01(\x04\x12\x17\n\x0fstale_snapshots\x18\x08 \x01(\x04\x12\x18\n\x10leased_snapshots\x18\t \x01(\x04\x12\x14\n\x0cstorage_root\x18\n \x01(\t\"\xc8\x02\n\x14ServerStatusResponse\x12\x11\n\tuptime_ms\x18\x01 \x01(\x04\x12\"\n\x15resident_memory_bytes\x18\x02 \x01(\x04H\x00\x88\x01\x01\x12\x17\n\x0f\x61\x63tive_sessions\x18\x03 \x01(\x04\x12\x1d\n\x15retained_memory_bytes\x18\x04 \x01(\x04\x12\x14\n\x0cmax_sessions\x18\x05 \x01(\x04\x12!\n\x19max_retained_memory_bytes\x18\x06 \x01(\x04\x12+\n\x05\x63\x61\x63he\x18\x07 \x01(\x0b\x32\x1c.ctk.match.v1.CacheResources\x12\x41\n\x0fproject_indexes\x18\x08 \x01(\x0b\x32(.ctk.index.v1.ListProjectIndexesResponseB\x18\n\x16_resident_memory_bytes\"2\n\x12PruneCachesRequest\x12\x0e\n\x06memory\x18\x01 \x01(\x08\x12\x0c\n\x04\x64isk\x18\x02 \x01(\x08\"p\n\x13PruneCachesResponse\x12,\n\x06\x62\x65\x66ore\x18\x01 \x01(\x0b\x32\x1c.ctk.match.v1.CacheResources\x12+\n\x05\x61\x66ter\x18\x02 \x01(\x0b\x32\x1c.ctk.match.v1.CacheResources*\x94\x01\n\x12MatchTraversalMode\x12$\n MATCH_TRAVERSAL_MODE_UNSPECIFIED\x10\x00\x12\x1e\n\x1aMATCH_TRAVERSAL_MODE_AS_IS\x10\x01\x12\x38\n4MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE\x10\x02*l\n\x0eNavigationAxis\x12\x1f\n\x1bNAVIGATION_AXIS_UNSPECIFIED\x10\x00\x12\x1c\n\x18NAVIGATION_AXIS_CHILDREN\x10\x01\x12\x1b\n\x17NAVIGATION_AXIS_PARENTS\x10\x02\x32\xcd\r\n\x0cMatchService\x12X\n\rDiscoverFiles\x12\".ctk.match.v1.DiscoverFilesRequest\x1a#.ctk.match.v1.DiscoverFilesResponse\x12\x41\n\x08OpenFile\x12\x1d.ctk.match.v1.OpenFileRequest\x1a\x16.ctk.match.v1.FileInfo\x12L\n\tListFiles\x12\x1e.ctk.match.v1.ListFilesRequest\x1a\x1f.ctk.match.v1.ListFilesResponse\x12I\n\x0c\x44\x65scribeFile\x12!.ctk.match.v1.DescribeFileRequest\x1a\x16.ctk.match.v1.FileInfo\x12L\n\tCloseFile\x12\x1e.ctk.match.v1.CloseFileRequest\x1a\x1f.ctk.match.v1.CloseFileResponse\x12T\n\rCloseAllFiles\x12\".ctk.match.v1.CloseAllFilesRequest\x1a\x1f.ctk.match.v1.CloseFileResponse\x12G\n\x0bRefreshFile\x12 .ctk.match.v1.RefreshFileRequest\x1a\x16.ctk.match.v1.FileInfo\x12\\\n\x11OpenResourceScope\x12&.ctk.match.v1.OpenResourceScopeRequest\x1a\x1f.ctk.match.v1.ResourceScopeInfo\x12\\\n\x15\x44\x65scribeResourceScope\x12\".ctk.match.v1.ResourceScopeRequest\x1a\x1f.ctk.match.v1.ResourceScopeInfo\x12Z\n\x13\x43\x61ncelResourceScope\x12\".ctk.match.v1.ResourceScopeRequest\x1a\x1f.ctk.match.v1.ResourceScopeInfo\x12[\n\x14ReleaseResourceScope\x12\".ctk.match.v1.ResourceScopeRequest\x1a\x1f.ctk.match.v1.ResourceScopeInfo\x12[\n\x0eResourceStatus\x12#.ctk.match.v1.ResourceStatusRequest\x1a$.ctk.match.v1.ResourceStatusResponse\x12@\n\x05Parse\x12\x1a.ctk.match.v1.ParseRequest\x1a\x1b.ctk.match.v1.ParseResponse\x12@\n\x05Match\x12\x1a.ctk.match.v1.MatchRequest\x1a\x1b.ctk.match.v1.MatchResponse\x12K\n\x0bStreamMatch\x12\x1a.ctk.match.v1.MatchRequest\x1a\x1e.ctk.match.v1.MatchStreamEvent0\x01\x12N\n\x0eStreamNavigate\x12\x1a.ctk.match.v1.MatchRequest\x1a\x1e.ctk.match.v1.MatchStreamEvent0\x01\x12U\n\x0c\x43loseSession\x12!.ctk.match.v1.CloseSessionRequest\x1a\".ctk.match.v1.CloseSessionResponse\x12U\n\x0cListSessions\x12!.ctk.match.v1.ListSessionsRequest\x1a\".ctk.match.v1.ListSessionsResponse\x12N\n\rAttachSession\x12\".ctk.match.v1.AttachSessionRequest\x1a\x19.ctk.match.v1.SessionInfo\x12U\n\x0cServerStatus\x12!.ctk.match.v1.ServerStatusRequest\x1a\".ctk.match.v1.ServerStatusResponse\x12R\n\x0bPruneCaches\x12 .ctk.match.v1.PruneCachesRequest\x1a!.ctk.match.v1.PruneCachesResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'match.v1.match_service_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_MATCHTRAVERSALMODE']._serialized_start=2464
-  _globals['_MATCHTRAVERSALMODE']._serialized_end=2612
-  _globals['_NAVIGATIONAXIS']._serialized_start=2614
-  _globals['_NAVIGATIONAXIS']._serialized_end=2722
-  _globals['_MATCHREQUEST']._serialized_start=225
-  _globals['_MATCHREQUEST']._serialized_end=697
-  _globals['_FILEMATCHTARGET']._serialized_start=700
-  _globals['_FILEMATCHTARGET']._serialized_end=873
-  _globals['_SESSIONMATCHTARGET']._serialized_start=875
-  _globals['_SESSIONMATCHTARGET']._serialized_end=983
-  _globals['_BINDINGMATCHTARGET']._serialized_start=986
-  _globals['_BINDINGMATCHTARGET']._serialized_end=1198
-  _globals['_MATCHRESPONSE']._serialized_start=1201
-  _globals['_MATCHRESPONSE']._serialized_end=1353
-  _globals['_CLOSESESSIONREQUEST']._serialized_start=1355
-  _globals['_CLOSESESSIONREQUEST']._serialized_end=1396
-  _globals['_CLOSESESSIONRESPONSE']._serialized_start=1398
-  _globals['_CLOSESESSIONRESPONSE']._serialized_end=1420
-  _globals['_LISTSESSIONSREQUEST']._serialized_start=1422
-  _globals['_LISTSESSIONSREQUEST']._serialized_end=1443
-  _globals['_LISTSESSIONSRESPONSE']._serialized_start=1445
-  _globals['_LISTSESSIONSRESPONSE']._serialized_end=1512
-  _globals['_ATTACHSESSIONREQUEST']._serialized_start=1514
-  _globals['_ATTACHSESSIONREQUEST']._serialized_end=1556
-  _globals['_SESSIONINFO']._serialized_start=1559
-  _globals['_SESSIONINFO']._serialized_end=1726
-  _globals['_SERVERSTATUSREQUEST']._serialized_start=1728
-  _globals['_SERVERSTATUSREQUEST']._serialized_end=1749
-  _globals['_CACHERESOURCES']._serialized_start=1752
-  _globals['_CACHERESOURCES']._serialized_end=2031
-  _globals['_SERVERSTATUSRESPONSE']._serialized_start=2034
-  _globals['_SERVERSTATUSRESPONSE']._serialized_end=2295
-  _globals['_PRUNECACHESREQUEST']._serialized_start=2297
-  _globals['_PRUNECACHESREQUEST']._serialized_end=2347
-  _globals['_PRUNECACHESRESPONSE']._serialized_start=2349
-  _globals['_PRUNECACHESRESPONSE']._serialized_end=2461
-  _globals['_MATCHSERVICE']._serialized_start=2725
-  _globals['_MATCHSERVICE']._serialized_end=4466
+  _globals['_MATCHTRAVERSALMODE']._serialized_start=2561
+  _globals['_MATCHTRAVERSALMODE']._serialized_end=2709
+  _globals['_NAVIGATIONAXIS']._serialized_start=2711
+  _globals['_NAVIGATIONAXIS']._serialized_end=2819
+  _globals['_MATCHREQUEST']._serialized_start=255
+  _globals['_MATCHREQUEST']._serialized_end=727
+  _globals['_FILEMATCHTARGET']._serialized_start=730
+  _globals['_FILEMATCHTARGET']._serialized_end=903
+  _globals['_SESSIONMATCHTARGET']._serialized_start=905
+  _globals['_SESSIONMATCHTARGET']._serialized_end=1013
+  _globals['_BINDINGMATCHTARGET']._serialized_start=1016
+  _globals['_BINDINGMATCHTARGET']._serialized_end=1228
+  _globals['_MATCHRESPONSE']._serialized_start=1231
+  _globals['_MATCHRESPONSE']._serialized_end=1383
+  _globals['_CLOSESESSIONREQUEST']._serialized_start=1385
+  _globals['_CLOSESESSIONREQUEST']._serialized_end=1426
+  _globals['_CLOSESESSIONRESPONSE']._serialized_start=1428
+  _globals['_CLOSESESSIONRESPONSE']._serialized_end=1450
+  _globals['_LISTSESSIONSREQUEST']._serialized_start=1452
+  _globals['_LISTSESSIONSREQUEST']._serialized_end=1473
+  _globals['_LISTSESSIONSRESPONSE']._serialized_start=1475
+  _globals['_LISTSESSIONSRESPONSE']._serialized_end=1542
+  _globals['_ATTACHSESSIONREQUEST']._serialized_start=1544
+  _globals['_ATTACHSESSIONREQUEST']._serialized_end=1586
+  _globals['_SESSIONINFO']._serialized_start=1589
+  _globals['_SESSIONINFO']._serialized_end=1756
+  _globals['_SERVERSTATUSREQUEST']._serialized_start=1758
+  _globals['_SERVERSTATUSREQUEST']._serialized_end=1779
+  _globals['_CACHERESOURCES']._serialized_start=1782
+  _globals['_CACHERESOURCES']._serialized_end=2061
+  _globals['_SERVERSTATUSRESPONSE']._serialized_start=2064
+  _globals['_SERVERSTATUSRESPONSE']._serialized_end=2392
+  _globals['_PRUNECACHESREQUEST']._serialized_start=2394
+  _globals['_PRUNECACHESREQUEST']._serialized_end=2444
+  _globals['_PRUNECACHESRESPONSE']._serialized_start=2446
+  _globals['_PRUNECACHESRESPONSE']._serialized_end=2558
+  _globals['_MATCHSERVICE']._serialized_start=2822
+  _globals['_MATCHSERVICE']._serialized_end=4563
 # @@protoc_insertion_point(module_scope)
