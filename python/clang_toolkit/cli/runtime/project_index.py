@@ -39,7 +39,20 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
 
     strings = [runtime._string(str(child)) for child in node.children
                if isinstance(child, Token) and child.type == "STRING"]
-    root = Path(strings[-1]).expanduser()
+    target = strings[-1]
+    if (str(node.data) == "index_status" and target not in {"", ".", "..", "~"}
+            and "/" not in target and not target.startswith("~")):
+        projects = runtime.client.list_project_indexes().projects
+        matches = sorted({item.project_root for item in projects
+                          if Path(item.project_root).name == target})
+        if len(matches) > 1:
+            raise ValueError(
+                f"Ambiguous project name {target!r}; use a full path: " + ", ".join(matches))
+        if not matches:
+            raise ValueError(
+                f"No indexed project named {target!r}; use index list or an explicit path.")
+        target = matches[0]
+    root = Path(target).expanduser()
     project = str(root if root.is_absolute() else runtime.cwd / root)
     # Normalize local console paths lexically without requiring them to exist.
     project = os.path.normpath(project)

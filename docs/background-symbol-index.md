@@ -156,3 +156,7 @@ environment variables (including empty values) are forwarded explicitly; unrelat
 environment values are not copied into launch arguments. The lifecycle
 helper does not configure builds, rewrite compilation databases, or delete saved
 indexes; restart the desired project monitors through the indexing API afterward.
+
+`index status "ctk-lab"` resolves the Project name shown by `index list`.
+Duplicate names report all matching paths; use the full path to select one.
+Unknown names report an error. Explicit paths (including `./ctk-lab`) retain path semantics.

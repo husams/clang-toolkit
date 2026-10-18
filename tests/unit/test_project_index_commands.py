@@ -92,3 +92,53 @@ def test_project_symbol_lookup_routes_without_parsing(tmp_path):
         client.parse.assert_not_called()
     finally:
         runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+@pytest.mark.parametrize("target", ["ctk-lab", "/remote/ctk-lab", "./ctk-lab", "../ctk-lab"])
+def test_index_status_resolves_listed_names_and_preserves_paths(tmp_path, engine, target):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(projects=[
+        pb.ProjectIndexStatus(project_root="/remote/ctk-lab"),
+    ])
+    expected = ("/remote/ctk-lab" if target in {"ctk-lab", "/remote/ctk-lab"}
+                else str((tmp_path / target).resolve()))
+    client.project_index_status.return_value = pb.ProjectIndexStatus(project_root=expected)
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        assert expected in runtime.execute(f'index status "{target}"')
+        client.project_index_status.assert_called_once_with(expected)
+        assert client.list_project_indexes.call_count == (1 if target == "ctk-lab" else 0)
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+@pytest.mark.parametrize("roots, message", [
+    (["/one/ctk-lab", "/two/ctk-lab"], "Ambiguous project name"),
+    (["/one/other"], "No indexed project named"),
+])
+def test_index_status_rejects_ambiguous_or_unknown_names(tmp_path, engine, roots, message):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(projects=[
+        pb.ProjectIndexStatus(project_root=root) for root in roots
+    ])
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        with pytest.raises(Exception, match=message) as error:
+            runtime.execute('index status "ctk-lab"')
+        if len(roots) > 1:
+            assert all(root in str(error.value) for root in roots)
+        client.project_index_status.assert_not_called()
+    finally:
+        runtime.close()

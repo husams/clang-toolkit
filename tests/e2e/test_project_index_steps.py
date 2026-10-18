@@ -119,6 +119,9 @@ def console_index_inventory(indexed_project):
         assert "Currently indexing" in output
         output = _console(indexed_project, "let projects = index list; print $projects.total_count", engine)
         assert output.strip() == "1"
+        output = _console(indexed_project, 'index status "project"', engine)
+        assert str(indexed_project["root"]) in output
+        assert "PAUSED" in output and "Indexed  3/3" in output
 
 
 @then("symbol lookup remains available and foreground parsing still works")
