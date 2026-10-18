@@ -86,7 +86,7 @@ def test_project_symbol_lookup_routes_without_parsing(tmp_path):
     runtime = Runtime(client, cwd=tmp_path, environment={})
     try:
         assert "leaf" in runtime.execute('index find "leaf" in "."')
-        client.find_symbols.assert_called_once_with(str(tmp_path), "leaf")
+        client.find_symbols.assert_called_once_with(str(tmp_path), "leaf", prefix=True)
         runtime.execute('index lookup "c:@F@leaf#" in "."')
         client.lookup_symbol.assert_called_once_with(str(tmp_path), "c:@F@leaf#")
         client.parse.assert_not_called()
@@ -121,7 +121,7 @@ def test_index_commands_resolve_listed_names_and_preserve_paths(tmp_path, engine
         assert expected in output
         if command == "find":
             assert "flow::clamp" in output
-            client.find_symbols.assert_called_once_with(expected, "flow::clamp")
+            client.find_symbols.assert_called_once_with(expected, "flow::clamp", prefix=True)
         else:
             client.project_index_status.assert_called_once_with(expected)
         assert client.list_project_indexes.call_count == (1 if target == "ctk-lab" else 0)
@@ -155,5 +155,110 @@ def test_index_commands_reject_ambiguous_or_unknown_names(tmp_path, engine, root
             assert all(root in str(error.value) for root in roots)
         client.project_index_status.assert_not_called()
         client.find_symbols.assert_not_called()
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+@pytest.mark.parametrize("pattern, exact, query", [
+    ("cla", False, "cla"), ("flow::cl*", False, "flow::cl"),
+    ("flow::clamp", True, "flow::clamp"), ("operator*", True, "operator*"),
+    ("name_%", False, "name_%"),
+])
+def test_index_find_global_modes_keep_project_identity(tmp_path, engine, pattern, exact, query):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(projects=[
+        pb.ProjectIndexStatus(project_root="/one/demo"),
+        pb.ProjectIndexStatus(project_root="/two/demo"),
+    ])
+    client.find_symbols.return_value = pb.FindSymbolsResponse(symbols=[
+        pb.Symbol(name="clamp", qualified_name="flow::clamp", file_path="/fixture/flow.cc"),
+    ], truncated=True)
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        source = f'index find "{pattern}"' + (" exact" if exact else "")
+        output = runtime.execute(source)
+        assert "across 2 projects" in output
+        assert "/one/demo" in output and "/two/demo" in output
+        assert "Results truncated" in output
+        assert [call.args for call in client.find_symbols.call_args_list] == [
+            ("/one/demo", query), ("/two/demo", query)]
+        assert all(call.kwargs == {"prefix": not exact}
+                   for call in client.find_symbols.call_args_list)
+        runtime.execute("let hits = " + source)
+        assert runtime.evaluate("$hits[0].project_root") == "/one/demo"
+        assert runtime.evaluate("$hits[0].result.symbols[0].qualified_name") == "flow::clamp"
+        client.parse.assert_not_called()
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+@pytest.mark.parametrize("pattern", ["", "*", "*clamp", "cl*mp", "cl?mp", "[Cc]lamp"])
+def test_index_find_rejects_scan_patterns_before_any_rpc(tmp_path, engine, pattern):
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        with pytest.raises(Exception, match="nonempty name prefix"):
+            runtime.execute(f'index find "{pattern}"')
+        client.list_project_indexes.assert_not_called()
+        client.find_symbols.assert_not_called()
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+def test_index_find_global_empty_and_failed_projects_are_explicit(tmp_path, engine):
+    import grpc
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+    from clang_toolkit.cursors import CursorError
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse()
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        assert "No indexed projects" in runtime.execute('index find "cla" in "*"')
+        client.find_symbols.assert_not_called()
+        client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(projects=[
+            pb.ProjectIndexStatus(project_root="/one/broken"),
+            pb.ProjectIndexStatus(project_root="/two/good"),
+        ])
+        client.find_symbols.side_effect = [
+            CursorError(grpc.StatusCode.UNAVAILABLE, "unavailable test project"),
+            pb.FindSymbolsResponse(symbols=[pb.Symbol(qualified_name="clamp")]),
+        ]
+        output = runtime.execute('index find "cla"')
+        assert "Search failed: unavailable test project" in output
+        assert "clamp" in output and "/two/good" in output
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+def test_index_find_scoped_exact_preserves_literal_query(tmp_path, engine):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.find_symbols.return_value = pb.FindSymbolsResponse()
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        runtime.execute('index find "operator*" exact in "."')
+        client.find_symbols.assert_called_once_with(str(tmp_path), "operator*", prefix=False)
+        client.list_project_indexes.assert_not_called()
     finally:
         runtime.close()

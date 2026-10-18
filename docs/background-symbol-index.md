@@ -69,7 +69,7 @@ with Client("unix:///tmp/ctk.sock") as client:
 ```
 
 `AsyncClient` exposes the same methods as awaitables. Results are protobuf values.
-Exact lookup is the default; prefix search is explicit. A symbol result includes
+Python API lookup remains exact by default; pass `prefix=True` for prefix search. The console `index find` now defaults to case-insensitive prefix matching; add `exact` for case-sensitive literal matching. A symbol result includes
 its USR, declaration or definition location, owning TU, and compilation context.
 It is detached index data, not a native AST pointer.
 
@@ -162,3 +162,31 @@ Duplicate names report all matching paths; use the full path to select one.
 Unknown names report an error. Explicit paths (including `./ctk-lab`) retain path semantics.
 
 `index find "flow::clamp" in "ctk-lab"` uses the same project-name resolution and ambiguity checks as `index status`; explicit paths remain supported.
+
+### Partial and global console search
+
+```ctk
+index find "cla" in "ctk-lab"
+index find "flow::cl*" in "ctk-lab"
+index find "flow::clamp" exact in "ctk-lab"
+index find "flow::cl*"
+index find "flow::cl*" in "*"
+let hits = index find "flow::cl*"
+print $hits[0].project_root
+print $hits[0].result.symbols
+```
+
+Omitting `in` (or using `in "*"`) searches every project returned by `index list`.
+Results are grouped by full project path, with per-project revision, stale and
+truncated indicators; a failed project is reported without hiding other results.
+Global values are a list of `{project_root, result, error}` records; `result` is
+null for a failed project. Scoped searches keep their existing response shape.
+
+Prefixes use the server's existing indexed name/qualified-name searches and
+retain its 100-result limit per project. A trailing `*` is shorthand for the
+same prefix lookup, not a scan. Empty prefixes, leading/internal `*`, `?`, and
+character classes are rejected. Strings are literal prefixes, not regular
+expressions; unrestricted glob/regex searches would require scanning and are
+not provided. Use `exact` to search literal operator names containing `*`, `?`,
+or brackets. Global searches perform one bounded lookup per listed project,
+so their cost grows with the number of projects.

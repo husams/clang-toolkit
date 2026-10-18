@@ -14,6 +14,18 @@ if TYPE_CHECKING:
     from .evaluator import Runtime
 
 
+def _symbol_lines(result: pb.FindSymbolsResponse) -> list[str]:
+    lines = [f"Symbol index revision {result.revision}" +
+             (" (stale)" if result.stale else "")]
+    lines.extend(f"{symbol.qualified_name}  {symbol.file_path}:{symbol.line}:{symbol.column}"
+                 for symbol in result.symbols)
+    if not result.symbols:
+        lines.append("No symbols in the indexed coverage.")
+    if result.truncated:
+        lines.append("Results truncated at 100 matches; narrow the name prefix.")
+    return lines
+
+
 def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     from .semantic import view
 
@@ -39,6 +51,34 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
 
     strings = [runtime._string(str(child)) for child in node.children
                if isinstance(child, Token) and child.type == "STRING"]
+    kind = str(node.data)
+    if kind == "index_find":
+        query = strings[0]
+        exact = any(isinstance(child, Token) and child.type == "EXACT" for child in node.children)
+        if not exact:
+            query = query.removesuffix("*")
+            if not query or any(char in query for char in "*?[]"):
+                raise ValueError("Use a nonempty name prefix with an optional trailing *; "
+                                 "other wildcard patterns are not supported. Use exact for literal names.")
+        if len(strings) == 1 or strings[1] == "*":
+            from clang_toolkit.cursors import CursorError
+
+            roots = sorted({item.project_root for item in runtime.client.list_project_indexes().projects})
+            values = []
+            lines = [f"Symbol search across {len(roots)} projects"]
+            for root in roots:
+                lines.append(f"Project  {root}")
+                try:
+                    result = runtime.client.find_symbols(root, query, prefix=not exact)
+                except CursorError as error:
+                    values.append({"project_root": root, "result": None, "error": str(error)})
+                    lines.append(f"Search failed: {error}")
+                    continue
+                values.append({"project_root": root, "result": view(result), "error": ""})
+                lines.extend(_symbol_lines(result))
+            if not roots:
+                lines.append("No indexed projects.")
+            return values, "\n".join(lines)
     target = strings[-1]
     if (str(node.data) in {"index_status", "index_find"} and target not in {"", ".", "..", "~"}
             and "/" not in target and not target.startswith("~")):
@@ -60,13 +100,9 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     if kind in {"index_find", "index_lookup"}:
         operation = (runtime.client.find_symbols if kind == "index_find"
                      else runtime.client.lookup_symbol)
-        result = operation(project, strings[0])
-        lines = [f"Symbol index revision {result.revision}" +
-                 (" (stale)" if result.stale else "")]
-        lines.extend(f"{symbol.qualified_name}  {symbol.file_path}:{symbol.line}:{symbol.column}"
-                     for symbol in result.symbols)
-        if not result.symbols:
-            lines.append("No symbols in the indexed coverage.")
+        result = (operation(project, query, prefix=not exact) if kind == "index_find"
+                  else operation(project, strings[0]))
+        lines = _symbol_lines(result)
     else:
         method = {
             "index_start": "start_project_index", "index_status": "project_index_status",
