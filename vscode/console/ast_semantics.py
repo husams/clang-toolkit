@@ -18,8 +18,11 @@ BASE_QUERY = ('cxxBaseSpecifier(optionally(hasType(qualType('
 
 def reference_declaration(inspector: AstInspector, target: Any, file: str) -> str:
     """Follow Clang's reference edge, never a name or a serialized declaration."""
+    query = ('memberExpr(member(namedDecl().bind("declaration")))'
+             if target.value.node.WhichOneof('payload') == 'member_expr'
+             else 'declRefExpr(to(namedDecl().bind("declaration")))')
     rows = inspector.host.client.match_in(
-        'declRefExpr(to(namedDecl().bind("declaration")))',
+        query,
         replace(target, scope=BINDING_MATCH_SCOPE_ROOT_ONLY))
     try:
         if len(rows) != 1:

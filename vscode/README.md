@@ -134,7 +134,7 @@ Base links also work with **unsaved C++ edits**. If edits made the displayed AST
 
 In AST, base specifiers show their written type names. Expanding a resolved base or its TypeLoc children offers **Base declaration** to open the actual class, highlight its definition and run actions there. Properties includes the same link. These are explicit declaration references; the tree keeps Clang's actual child relationships. Aliases resolve to their underlying class through retained native bindings.
 
-Selecting a declaration reference (`DeclRefExpr`) offers **Referenced declaration** in Properties and **Declaration** in AST. Follow it to select the exact native declaration, expand its file ancestry and highlight its source. Local variables with the same name remain distinct, and navigation reuses the parsed context.
+Selecting a declaration or member reference (`DeclRefExpr` or `MemberExpr`) offers **Referenced declaration** in Properties and **Declaration** in AST. Follow it to select the exact native declaration, expand its file ancestry and highlight its source, including methods and fields in headers. Local variables and overloaded methods remain distinct, and navigation reuses the parsed context.
 
 Within Properties, **Source**, **Inheritance**, member groups, **Parameters**, **Properties** and **Source range** also have full-width collapsible headers. Click a header, or focus it and press Enter/Space, to fold it. These open/closed choices persist across node/tab changes and webview reloads. The AST tree appears directly in its tab, without an extra enclosing disclosure.
 

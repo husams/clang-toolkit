@@ -24,7 +24,7 @@ export function renderSemantics(host, node, semantics, context, navigate) {
   if (semantics?.referencedDeclaration) {
     const reference = semantics.referencedDeclaration,
       details = group(
-        node.kind === "DeclRefExpr"
+        node.kind === "DeclRefExpr" || node.kind === "MemberExpr"
           ? "Referenced declaration"
           : "Base declaration",
       ),

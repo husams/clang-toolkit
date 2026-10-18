@@ -167,7 +167,7 @@ class AstInspector:
                      for key in ('functionDecl', 'cxxMethodDecl', 'cxxConstructorDecl',
                                  'cxxDestructorDecl', 'cxxConversionDecl', 'cxxDeductionGuideDecl')):
                 response['semantics'] = dict(parameters=parameters(self.host, target))
-            if target.value.node.WhichOneof('payload') == 'decl_ref_expr':
+            if target.value.node.WhichOneof('payload') in ('decl_ref_expr', 'member_expr'):
                 self.references[identifier] = reference_declaration(self, target, file)
             if identifier in self.references:
                 declaration = self.references[identifier]

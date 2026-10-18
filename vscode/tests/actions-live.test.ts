@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Client } from "@clang-toolkit/sdk";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ActionService, type ActionSettings } from "../src/action-service.js";
 import { parseNodeAction, resolveArguments } from "../src/actions.js";
 import { astDisplay } from "../src/ast-model.js";
@@ -65,6 +65,16 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         timeoutMs: 30000,
         compileArguments: ["-std=c++20"],
       };
+    }, 20000);
+    afterEach(async () => {
+      // Release each test's native cursors before the next test uses the server.
+      for (const service of services.splice(0)) {
+        try {
+          await service.reset();
+        } finally {
+          service.dispose();
+        }
+      }
     }, 20000);
     afterAll(async () => {
       for (const service of services) service.dispose();
@@ -369,6 +379,59 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       await host.reset();
       await expect(host.inspect(settings, baseId!)).rejects.toThrow(/expired/);
     }, 60000);
+    it("follows member references to exact overloaded methods and fields in a header", async () => {
+      const host = service();
+      const source = resolve(directory, "member-references.cpp");
+      const header = resolve(directory, "member-references.hpp");
+      await writeFile(
+        header,
+        [
+          "namespace vendor { struct Base {",
+          "int value;",
+          "int getType() const { return value; }",
+          "int getType(int) const { return value; }",
+          "}; struct Other { int getType() const { return 0; } }; }",
+        ].join("\n"),
+      );
+      const text =
+        '#include "member-references.hpp"\nint read(const vendor::Base &Base) { return Base.getType() + Base.getType(1) + Base.value; }\n';
+      await writeFile(source, text);
+      const root = await host.inspect(settings, { translationUnit: source });
+      const references = [];
+      for (const [token, kind, line] of [
+        ["getType()", "CXXMethodDecl", 3],
+        ["getType(1)", "CXXMethodDecl", 4],
+        ["value;", "FieldDecl", 2],
+      ] as const) {
+        const offset = text.indexOf(token);
+        const selected = await host.selectSource(settings, root.node.id, {
+          file: source,
+          start: offset,
+          end: offset,
+        });
+        expect(astDisplay(selected!.node).kind).toBe("MemberExpr");
+        const reference = selected?.semantics?.referencedDeclaration;
+        expect(reference?.symbol).toBeTruthy();
+        const target = await host.inspect(settings, reference!.nodeId);
+        expect(astDisplay(target.node).kind).toBe(kind);
+        expect(target.node.file).toBe(await realpath(header));
+        expect(target.node.line).toBe(line);
+        expect(target.path?.at(-1)?.node.id).toBe(reference!.nodeId);
+        expect(target.path?.[0]?.node.id).toBe(root.node.id);
+        expect(target.parseCount).toBe(1);
+        references.push(reference!);
+      }
+      expect(references[0]!.symbol).not.toBe(references[1]!.symbol);
+      const refreshed = await service().inspect(settings, {
+        translationUnit: source,
+        reference: {
+          name: references[1]!.name,
+          symbol: references[1]!.symbol!,
+        },
+      });
+      expect(refreshed.node.line).toBe(4);
+      expect(refreshed.node.file).toBe(await realpath(header));
+    }, 90000);
     it("follows a variable reference to its exact declaration through the file AST", async () => {
       const host = service();
       const source = resolve(directory, "references.cpp");

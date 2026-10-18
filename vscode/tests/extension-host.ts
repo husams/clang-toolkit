@@ -68,45 +68,62 @@ export async function run(): Promise<void> {
       `File AST did not load automatically: ${JSON.stringify(astState())}`,
     );
   }
-  if (process.env.CTK_TEST_REFERENCE_ONLY === "1") {
+  if (
+    process.env.CTK_TEST_REFERENCE_ONLY === "1" ||
+    process.env.CTK_TEST_MEMBER_REFERENCE_ONLY === "1"
+  ) {
+    const member = process.env.CTK_TEST_MEMBER_REFERENCE_ONLY === "1";
     const referenceFile = vscode.Uri.joinPath(folder.uri, "references.cpp");
-    const text =
-      "int read() { int BaseRD = 1; { int BaseRD = 2; if (BaseRD) return BaseRD; } return BaseRD; }\n";
+    const referenceHeader = vscode.Uri.joinPath(folder.uri, "references.hpp");
+    if (member)
+      await vscode.workspace.fs.writeFile(
+        referenceHeader,
+        Buffer.from(
+          "namespace vendor { struct Base {\nint getType() const { return 1; }\nint getType(int) const { return 2; }\n}; }\n",
+        ),
+      );
+    const text = member
+      ? '#include "references.hpp"\nint read(const vendor::Base &Base) { return Base.getType(); }\n'
+      : "int read() { int BaseRD = 1; { int BaseRD = 2; if (BaseRD) return BaseRD; } return BaseRD; }\n";
+    const kind = member ? "MemberExpr" : "DeclRefExpr";
     await vscode.workspace.fs.writeFile(referenceFile, Buffer.from(text));
     const editor = await vscode.window.showTextDocument(
       await vscode.workspace.openTextDocument(referenceFile),
     );
     await automaticFile("references.cpp");
     await inspectorTab("properties");
-    const position = editor.document.positionAt(text.indexOf("BaseRD)"));
+    const position = editor.document.positionAt(
+      text.indexOf(member ? "getType()" : "BaseRD)"),
+    );
     editor.selection = new vscode.Selection(position, position);
     const deadline = Date.now() + 45000;
-    while (Date.now() < deadline && astState().node?.kind !== "DeclRefExpr")
+    while (Date.now() < deadline && astState().node?.kind !== kind)
       await new Promise((done) => setTimeout(done, 40));
-    assert.equal(astState().node?.kind, "DeclRefExpr");
+    assert.equal(astState().node?.kind, kind);
     assert.equal(astState().tab, "properties");
     assert.match(
       (await inspectorTab("properties")).text,
       /Referenced declaration/,
     );
-    assert.ok(
-      astState().tree.some((row) => row.selected && row.kind === "DeclRefExpr"),
-    );
+    assert.ok(astState().tree.some((row) => row.selected && row.kind === kind));
     const declaration = astState().semantics?.referencedDeclaration;
     assert.ok(declaration);
     await api.details.receive({ type: "related", id: declaration.nodeId });
-    assert.equal(astState().node?.kind, "VarDecl");
+    assert.equal(astState().node?.kind, member ? "CXXMethodDecl" : "VarDecl");
     assert.equal(astState().node?.id, declaration.nodeId);
-    assert.equal(astState().node?.column, text.indexOf("int BaseRD = 2") + 1);
+    assert.equal(
+      astState().node?.column,
+      member ? 1 : text.indexOf("int BaseRD = 2") + 1,
+    );
     const highlighted = vscode.window.activeTextEditor;
     assert.ok(highlighted);
     assert.equal(
       await realpath(highlighted.document.uri.fsPath),
-      await realpath(referenceFile.fsPath),
+      await realpath((member ? referenceHeader : referenceFile).fsPath),
     );
     assert.match(
       highlighted.document.getText(highlighted.selection),
-      /^int BaseRD = 2/,
+      member ? /^int getType\(\) const/ : /^int BaseRD = 2/,
     );
     assert.ok(
       astState().tree.some(
@@ -114,7 +131,7 @@ export async function run(): Promise<void> {
       ),
     );
     console.log(
-      "CTK_REFERENCE_HOST_PASS: editor reference selection, Properties declaration link, exact native declaration and source highlight",
+      `${member ? "CTK_MEMBER_REFERENCE_HOST_PASS" : "CTK_REFERENCE_HOST_PASS"}: editor reference selection, Properties declaration link, exact native declaration and source highlight`,
     );
     return;
   }

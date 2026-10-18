@@ -1871,3 +1871,36 @@ Validation:
   declaration in the original LLVM editor. No LLVM source changes were made.
 
 Focused evidence: vscode/artifacts/validation/reference-declaration-20261018/.
+
+## 2026-10-18 — v0.2.39: member declarations in headers
+
+MemberExpr inspection now follows Clang's native `member()` edge using the
+same retained-declaration navigation as DeclRefExpr. Properties and AST expose
+the declaration link for methods and fields, preserving exact overload identity
+and expanding the header's lexical ancestry without reparsing.
+
+Validation:
+
+- The new live regression fails before the fix with no declaration link. It
+  now follows two overloaded methods and a field to exact header declarations,
+  distinguishes an unrelated class's same-named method, checks native tree IDs
+  and parseCount=1, and resolves an overload in a fresh context.
+- 116 extension unit tests and 20 console tests pass. All 21 live integration
+  tests pass on a serial run (one opt-in personal-library test is skipped).
+  The first combined run accumulated earlier tests' native cursors until suite
+  teardown and exhausted the server limit; tests now reset and dispose their
+  services after each case. A concurrent console-helper timeout also passes
+  the serial run with its unchanged deadline. Native resource limits are unchanged.
+- CTK_TEST_MEMBER_REFERENCE_ONLY=1 pnpm test:host passes in isolated actual
+  VS Code: editor selection produces MemberExpr Properties, the declaration
+  link selects the exact overloaded CXXMethodDecl in its header, the tree
+  selects the retained ID and the editor highlights its source.
+- In LLVM SemaDecl.cpp, getType() at line 190 resolves to
+  clang::CXXBaseSpecifier::getType in clang/include/clang/AST/DeclCXX.h:249.
+  The native probe reports four ancestry pages and parseCount=1.
+- Installed v0.2.39 and reloaded the user's VS Code window. Following the
+  MemberExpr Properties link opens DeclCXX.h, updates Properties to CXXMethodDecl
+  with signature `QualType clang::CXXBaseSpecifier::getType() const`, and
+  highlights its 87-character source range on lines 249–251. LLVM files are unchanged.
+
+Focused evidence: vscode/artifacts/validation/member-declaration-20261018/.
