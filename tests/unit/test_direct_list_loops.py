@@ -508,3 +508,35 @@ def test_callbacks_can_replace_host_evaluation_mid_loop(
             outcome = (type(error), str(error))
         outcomes.append((outcome, context.bindings["out"], seen, context.steps))
     assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("error_type", [ValueError, IndexError, KeyError, RuntimeError])
+@pytest.mark.parametrize(
+    "target,expression",
+    [
+        ("map_into", "map_list(xs, (x) x)"),
+        ("filter_into", "filter_list(xs, (x) true)"),
+        ("reverse_list", "reverse_list(xs)"),
+    ],
+)
+def test_nested_collection_errors_keep_console_diagnostics(
+    execute, error_type, target, expression
+):
+    from clang_toolkit.cli.runtime.prototype.semantics import PrototypeError
+
+    class BrokenList(list):
+        def __iter__(self):
+            raise error_type("nested iterator failed")
+
+    outcomes = []
+    for enabled in (True, False):
+        context = Context(bindings={"xs": [BrokenList([1])]})
+        execute(DEFINITIONS, context)
+        if not enabled:
+            object.__setattr__(context.lookup(target), "direct_loop", None)
+        with pytest.raises(PrototypeError) as caught:
+            execute(expression, context)
+        outcomes.append((type(caught.value), str(caught.value), context.steps))
+        assert context.call_depth == context.consume_depth == 0
+        assert context.scopes == (context.bindings,)
+    assert outcomes[0] == outcomes[1]

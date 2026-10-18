@@ -299,12 +299,15 @@ def _scope(
 
 
 def _insertable(context: Any, node: Any, output: list[Any], value: Any) -> None:
+    from clang_toolkit.match_values import MatchValueError
+
     from ..collections import ensure_insertable
+    from ..references import ReferenceError
     from .semantics import PrototypeError
 
     try:
         ensure_insertable(output, value)
-    except ValueError as error:
+    except (ReferenceError, MatchValueError, IndexError, KeyError) as error:
         method = node.value[0].children[3]
         raise PrototypeError(
             f"{error} at .push(...) (line {method.meta.line}, column {method.meta.column})"
