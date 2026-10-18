@@ -116,6 +116,42 @@ TEST_F(MatchCursors, ChildrenScopeMatchesOnlyDirectCandidatesWithNormalBindings)
   EXPECT_EQ(fork(binding(source.response, "f", "callExpr()")).response.results_size(), 2);
 }
 
+TEST_F(MatchCursors, LargeMatchesAndNavigationUseMemoryBudgetWithoutRowCeiling) {
+  constexpr std::size_t count = 100005;
+  std::ofstream source(directory.path() / "fixture.cc");
+  source << "namespace Large {\n";
+  for (std::size_t index = 0; index < count; ++index)
+    source << "int item_" << index << ";\n";
+  source << "}\n";
+  source.close();
+  const auto root = run(file("namespaceDecl(hasName(\"Large\")).bind(\"ns\")"));
+  ASSERT_EQ(root.code, MatchCode::Ok) << root.message;
+  auto verify = [&](MatchRequest request) {
+    std::size_t rows = 0;
+    std::uint64_t completed = 0;
+    const auto result = stream(request, [&](const MatchStreamEvent &event, std::string &) {
+      rows += event.has_row();
+      if (event.has_completed())
+        completed = event.completed().row_count();
+      return MatchCode::Ok;
+    });
+    EXPECT_EQ(result.code, MatchCode::Ok) << result.message;
+    EXPECT_EQ(rows, count);
+    EXPECT_EQ(completed, count);
+    if (!result.response.session_id().empty())
+      controller->close("owner", result.response.session_id());
+  };
+  auto matches = binding(root.response, "ns", "varDecl()");
+  matches.set_preserve_source(true);
+  verify(matches);
+  auto children = navigation(root.response, "ns", NAVIGATION_AXIS_CHILDREN, "varDecl()");
+  verify(children);
+  children.set_navigation_max_nodes(count + 1);
+  verify(children);
+  children.set_navigation_max_nodes(0);
+  verify(children);
+}
+
 TEST_F(MatchCursors, ChildrenScopeRetainsAuxiliaryParentForEachCandidateAlias) {
   const auto source = run(file(
       "functionDecl(hasName(\"alpha\")).bind(\"f\")"));
@@ -712,14 +748,14 @@ TEST_F(MatchCursors, ForkFailuresPreserveSourceAndEnforceCallerOwnership) {
 
 TEST_F(MatchCursors, ForkResultLimitsLeaveSourceSelectable) {
   CursorSettings settings;
-  settings.results.max_rows = 1;
+  settings.results.max_bytes = 128;
   reset(settings);
-  const auto source = run(file("functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  const auto source = controller->parse("owner", parse_request(), [] { return true; });
   ASSERT_EQ(source.code, MatchCode::Ok) << source.message;
-  EXPECT_EQ(fork(binding(source.response, "f", "callExpr()")).code,
+  const auto tree = tree_response(source.response);
+  EXPECT_EQ(fork(session(tree, "callExpr()")).code,
             MatchCode::ResourceExhausted);
-  auto root = binding(source.response, "f", "functionDecl()");
-  root.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_ROOT_ONLY);
+  auto root = session(tree, "functionDecl(hasName(\"absent\"))");
   EXPECT_EQ(fork(root).code, MatchCode::Ok);
   EXPECT_EQ(fork(root).code, MatchCode::Ok);
 }
@@ -1026,17 +1062,17 @@ TEST_F(MatchCursors, QualifiedTypesPermitRootOnlyAndRejectSubtree) {
 
 TEST_F(MatchCursors, CancellationAndResultLimitsCommitNothing) {
   CursorSettings settings;
-  settings.results.max_rows = 1;
+  settings.results.max_bytes = 128;
   reset(settings);
-  auto first = run(file("functionDecl(hasName(\"alpha\")).bind(\"f\")"));
+  const auto first = controller->parse("owner", parse_request(), [] { return true; });
   ASSERT_EQ(first.code, MatchCode::Ok) << first.message;
+  const auto tree = tree_response(first.response);
   auto cancelled = controller->match(
-      "owner", session(first.response, "callExpr()"), [] { return false; });
+      "owner", session(tree, "callExpr()"), [] { return false; });
   EXPECT_EQ(cancelled.code, MatchCode::Cancelled);
-  EXPECT_EQ(run(binding(first.response, "f", "callExpr()")).code,
+  EXPECT_EQ(run(session(tree, "callExpr()")).code,
             MatchCode::ResourceExhausted);
-  auto request = binding(first.response, "f", "functionDecl()");
-  request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_ROOT_ONLY);
+  auto request = session(tree, "functionDecl(hasName(\"absent\"))");
   auto valid = run(request);
   EXPECT_EQ(valid.code, MatchCode::Ok) << valid.message;
   EXPECT_EQ(valid.response.result_revision(), 2U);

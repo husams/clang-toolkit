@@ -2017,3 +2017,70 @@ local large LLVM source and the header-heavy reproduction. The package is
 prepared locally and has not been installed on that remote extension host.
 
 Focused evidence: vscode/artifacts/validation/retained-search-20261018/.
+
+## 2026-10-18 — v0.2.42: remove fixed AST count ceilings
+
+Removed the server's 100,000-result-row ceiling and the hard navigation maximum,
+including the internal child visitor's 100,001-node bound. Navigation defaults
+to unlimited counts in the server, sync/async SDK and console; an explicit
+caller-selected uint64 budget remains available, with zero meaning unlimited.
+The wire-compatible max_result_rows status field now reports zero. Configured
+memory and message budgets, cancellation and publication checks remain intact.
+
+The inspector no longer caps direct children, retained handles, inspected pages,
+source-selection files/depth/visits, inheritance edges/depth or parameters.
+Response validation accepts complete large pages and connected source paths.
+Saved action subtrees can also be located beyond 64 levels and 128 pages;
+visited-node tracking prevents repeated traversal. Search continues to inspect
+the exact retained native binding without another lookup or parse.
+
+Validation:
+
+- All 126 extension unit tests and 28 console adapter tests pass. The SDK's
+  19 focused navigation cases pass, including unlimited defaults, zero and
+  budgets above 100,000 through the public API and console syntax.
+- Red/green tests cover pages with 100,005 children, more than 128 inspections,
+  retention beyond 200,000 handles and restoration through 130 nested scopes.
+- All 57 native cursor/script checks pass. The large native regression matches
+  100,005 variables and navigates all 100,005 direct children with omitted,
+  explicit-large and zero budgets. Existing memory/byte rejection, cancellation
+  and source-preserving recovery cases pass with count ceilings removed.
+- The complete live adapter stress case expands 100,005 actual namespace
+  children, inspects the last retained child and reports parseCount=1. It uses
+  an explicit five-minute RPC budget and ten-minute test budget; earlier attempts
+  encountered request deadlines. This exposed redundant full-source hashing
+  per child: the host now fingerprints each touched file once on first use
+  and again before publishing the response. Three regressions prove boundary
+  reuse and rejection of edits before or during a request.
+- Final real VS Code smoke passes on SemaDecl.cpp: TypeNameValidatorCCC at
+  line 92 retains the identical search/inspector ID, updates Properties and
+  editor highlighting, transfers to Actions and reports parseCount=1. The
+  isolated LLVM fixture uses a 120-second configured RPC deadline.
+- Build, type checks and scoped lint pass apart from six existing client.py
+  Ruff diagnostics, independently confirmed against its unchanged HEAD version.
+  The local Homebrew Protobuf package requires config targets to be loaded
+  before CMake's module finder; an ignored build-directory preload resolves
+  that installed-package conflict without changing project build sources.
+- The v0.2.42 VSIX is built and its production payload compared with the source.
+  The updated native server and SDK/extension must be deployed together;
+  an older server still enforces its old navigation request contract and limits.
+- The full Python unit run reports 3,069 passes and five timing failures.
+  Four prompt-modified-enter cases pass a focused retry, resolving the two
+  additional prompt failures; the remaining three are the previously recorded
+  batch/compiled-workspace timeouts from v0.2.40. Their assertions and deadlines
+  remain unchanged, and the full suite is not claimed green.
+- All 466 C++ cases are exercised across the focused cursor run, isolated
+  per-case runs and a final combined run of the remaining 202 cases. 465 pass;
+  BatchRegistry.PersistsOwnerGuardIdempotencyRevisionAndExports still fails its
+  terminal-state wait, including isolated retries. Several other initial
+  timeout/shared-temp-file failures pass when rerun with an isolated TMPDIR.
+- Of the other 24 live extension checks, 22 pass initially. The source-symbol
+  case passes its serial retry; the existing two-worker parser-diagnostic case
+  still exceeds its unchanged 30-second overall test deadline. The resulting
+  teardown reports an already-running action. These timing failures are recorded
+  without relaxing their deadlines or claiming the entire live suite green.
+
+The original remote source remains inaccessible. Local validation uses LLVM's
+SemaDecl.cpp and a source with 100,005 actual AST children.
+
+Focused evidence: vscode/artifacts/validation/unlimited-counts-20261018/.

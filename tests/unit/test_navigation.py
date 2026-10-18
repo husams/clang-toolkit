@@ -56,6 +56,19 @@ def test_peek_and_step_preserve_source_and_return_live_target(selected_client):
     assert requests[-1].navigation_axis == pb.NAVIGATION_AXIS_PARENTS
 
 
+@pytest.mark.parametrize("maximum", [0, 100001, (1 << 64) - 1])
+def test_navigation_has_no_fixed_candidate_ceiling(selected_client, maximum):
+    client, source, requests, _ = selected_client
+    client.peek(source, max_nodes=maximum)
+    assert requests[-1].navigation_max_nodes == maximum
+
+
+def test_navigation_default_is_unlimited(selected_client):
+    client, source, requests, _ = selected_client
+    client.peek(source)
+    assert requests[-1].navigation_max_nodes == 0
+
+
 @pytest.mark.parametrize("count,at,message", [
     (0, None, "no candidates"), (2, None, "ambiguous"),
     (1, 2, "outside"), (1, -1, "zero-based"), (1, True, "zero-based")])
@@ -74,7 +87,8 @@ def test_indexed_selection_and_binding_ownership_validation(selected_client):
     assert client.step(source, at=1)._index == 1
     with pytest.raises(MatchValueError, match="another client"):
         Client().peek(source)
-    for options in [{"axis": "ancestors"}, {"max_nodes": 0}, {"max_nodes": True}]:
+    for options in [{"axis": "ancestors"}, {"max_nodes": -1},
+                    {"max_nodes": 1 << 64}, {"max_nodes": True}]:
         with pytest.raises(ValueError):
             client.peek(source, **options)
     assert len(requests) == 1
@@ -92,7 +106,11 @@ def test_console_navigation_assignment_filter_index_and_stream(selected_client, 
     runtime.execute("let up = step parents at 0 in $body")
     assert requests[-1].navigation_axis == pb.NAVIGATION_AXIS_PARENTS
     assert runtime.bindings["node"] is source
-    for source_text in ["peek ancestors in $node", "peek children in $node nodes 0",
+    runtime.execute("let unlimited = peek children in $node nodes 0")
+    assert requests[-1].navigation_max_nodes == 0
+    runtime.execute("let wide = peek children in $node nodes 100001")
+    assert requests[-1].navigation_max_nodes == 100001
+    for source_text in ["peek ancestors in $node", "peek children in $node nodes 18446744073709551616",
                         "peek children in $node nodes 2 nodes 3",
                         "step children at 1.5 in $node"]:
         with pytest.raises(EvaluationError):

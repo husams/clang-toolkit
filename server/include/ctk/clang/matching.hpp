@@ -20,7 +20,6 @@ enum class MatchCode {
   Internal
 };
 struct MatchLimits {
-  std::size_t max_rows{100000};
   std::size_t max_bytes{2147483648ULL};
 };
 // Native wrapper values remain opaque; callers independently pin the snapshot.

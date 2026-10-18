@@ -26,7 +26,7 @@ peek children|parents [MATCHER] in TARGET [nodes NUMBER]
 - Filters test each neighbour itself; children never searches grandchildren.
 - Standalone output streams rows; assignment retains an independent collection.
 - Rows expose .target and explicit matcher bindings. No current command is needed.
-- nodes counts examined candidates before filtering: default 10000, range 1..100000.
+- nodes optionally bounds examined candidates before filtering; default 0 is unlimited (uint64).
 - Native visitor children include implicit and type-location edges.
 - Parents preserve shared Decl/Stmt occurrences; auxiliary children retain their exact navigation parent.
 - MATCHER may be an inline expression or a saved matcher reference such as $base_edges.

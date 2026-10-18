@@ -529,6 +529,29 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         /expired/,
       );
     }, 180000);
+    it("expands over 100,000 actual children without a row or inspector cap", async () => {
+      const host = service();
+      const wideSettings = { ...settings, timeoutMs: 300000 };
+      const source = resolve(directory, "wide-namespace.cpp");
+      await writeFile(
+        source,
+        `namespace Wide {\n${Array.from({ length: 100005 }, (_, i) => `int item_${i};`).join("\n")}\n}\n`,
+      );
+      const root = await host.inspect(wideSettings, {
+        translationUnit: source,
+      });
+      const namespace = root.children.find((node) => node.name === "Wide");
+      expect(namespace).toBeTruthy();
+      const expanded = await host.inspect(wideSettings, namespace!.id);
+      expect(expanded.children).toHaveLength(100005);
+      expect(expanded.children[0]?.name).toBe("Wide::item_0");
+      expect(expanded.children.at(-1)?.name).toBe("Wide::item_100004");
+      expect(expanded.parseCount).toBe(1);
+      expect(
+        (await host.inspect(wideSettings, expanded.children.at(-1)!.id)).node
+          .id,
+      ).toBe(expanded.children.at(-1)!.id);
+    }, 600000);
     it("locates a search result without collecting 100,000 unrelated header declarations", async () => {
       const host = service();
       const source = resolve(directory, "header-heavy[+].cpp");

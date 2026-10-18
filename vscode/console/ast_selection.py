@@ -6,7 +6,6 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from clang_toolkit import Matcher
-from ast_limits import MAX_AST_CHILDREN
 
 if TYPE_CHECKING:
     from ast_inspector import AstInspector
@@ -29,8 +28,6 @@ class AstSelection:
         key = (root_file, file)
         if key in self.files:
             return page
-        if len(self.files) >= 16:
-            raise ValueError('Source selection file limit reached; refresh analysis.')
         if file != root_file:
             # Header declarations remain real TU children, fetched only when needed.
             target, _, _ = host.check_input(root_id)
@@ -39,8 +36,6 @@ class AstSelection:
             pending = {}
             children = []
             try:
-                if len(page['children']) + len(rows) > MAX_AST_CHILDREN:
-                    raise ValueError('AST child limit reached; refresh or narrow the file context.')
                 for row in rows:
                     existing = len(host.nodes)
                     identifier = self.inspector.retain(row.binding('target'), root_file, 'AST child')
@@ -105,8 +100,6 @@ class AstSelection:
             current_id, depth, parents = pending.pop()
             if current_id in visited:
                 continue
-            if depth > 64 or len(visited) >= 128:
-                raise ValueError('Source selection traversal limit reached; narrow the selection or refresh analysis.')
             visited.add(current_id)
             page = self.inspector.inspect(dict(settings=host.settings, nodeId=current_id,
                                                resolveRelated=False))

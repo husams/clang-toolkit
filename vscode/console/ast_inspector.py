@@ -14,7 +14,6 @@ from clang_toolkit._generated.match.v1.match_result_pb2 import BINDING_MATCH_SCO
 from run_service import Results
 from ast_selection import AstSelection
 from ast_semantics import inheritance, parameters, reference_declaration
-from ast_limits import MAX_AST_CHILDREN, MAX_RETAINED_NODES
 
 if TYPE_CHECKING:
     from action_service import ActionHost
@@ -48,8 +47,6 @@ class AstInspector:
             previous = self.declarations.get(key)
             if previous in self.host.nodes:
                 return previous
-        if len(self.host.nodes) >= MAX_RETAINED_NODES:
-            raise ValueError('AST retention limit reached; refresh analysis.')
         identifier = str(uuid4())
         self.host.nodes[identifier] = (target, file, label)
         if key is not None:
@@ -136,12 +133,12 @@ class AstInspector:
     def children(self, target: Any, query: Matcher | None = None) -> Any:
         if target.value.node.WhichOneof('payload') == 'translation_unit_decl':
             # Match direct TU declarations at the root, applying the file
-            # predicate before collecting rows. Unrelated header children must
-            # not consume the navigation visitor's candidate budget.
+            # predicate before collecting rows to avoid retaining unrelated
+            # header declarations for a file-local page.
             query = Matcher('translationUnitDecl', Matcher('forEach',
                 (query or Matcher('decl')).bind('target')))
             return self.host.client.match_in(query, replace(target, scope=BINDING_MATCH_SCOPE_ROOT_ONLY))
-        return self.host.client.peek(target, axis='children', query=query, max_nodes=MAX_AST_CHILDREN)
+        return self.host.client.peek(target, axis='children', query=query, max_nodes=0)
 
     def inspect(self, request: dict[str, Any]) -> dict[str, Any]:
         if request.get('settings') != self.host.settings:
@@ -154,8 +151,6 @@ class AstInspector:
             return self.selection.related(identifier)
         if identifier in self.cache:
             return self.cache[identifier]
-        if len(self.cache) >= 128 or len(self.host.nodes) >= MAX_RETAINED_NODES:
-            raise ValueError('AST inspection limit reached; refresh analysis to release inspected nodes.')
         query = Matcher('decl', Matcher('isExpansionInMainFile')) if identifier == self.file_nodes.get(file) else None
         rows = self.children(target, query)
         pending: dict[str, tuple[Any, str, str]] = {}

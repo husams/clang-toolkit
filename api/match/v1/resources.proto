@@ -138,6 +138,7 @@ message ResourceStatusResponse {
   optional uint64 resident_memory_bytes = 11;
   uint64 max_inputs = 12;
   uint64 max_memory_bytes = 13;
+  // Compatibility field: always zero; result rows are memory-bounded only.
   uint64 max_result_rows = 14;
   uint64 max_result_bytes = 15;
   uint64 max_manifest_inputs = 16;

@@ -27,6 +27,40 @@ class SearchRows(list):
         self.close = Mock()
 
 
+class InputValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.host = ActionHost.__new__(ActionHost)
+        self.host._fingerprints = None
+        self.host.nodes = {'first': (None, '/source.cpp', 'First'),
+                           'second': (None, '/source.cpp', 'Second')}
+        self.host.roots = {'/source.cpp': ('root', 'original')}
+        self.host.buffers = SimpleNamespace(fingerprint=Mock(return_value='original'))
+
+    def test_checks_source_once_at_each_request_boundary_not_for_each_node(self):
+        with self.host.validated_inputs():
+            for _ in range(130):
+                self.host.check_input('first')
+                self.host.check_input('second')
+        self.assertEqual(self.host.buffers.fingerprint.call_count, 2)
+        self.assertIsNone(self.host._fingerprints)
+
+    def test_rejects_edits_during_inspection_before_publishing(self):
+        self.host.buffers.fingerprint.side_effect = ['original', 'changed']
+        with self.assertRaisesRegex(ActionError, 'Source changed'):
+            with self.host.validated_inputs():
+                self.host.check_input('first')
+        self.assertIsNone(self.host._fingerprints)
+
+    def test_each_new_request_rechecks_the_file_and_rejects_stale_nodes(self):
+        with self.host.validated_inputs():
+            self.host.check_input('first')
+        self.host.buffers.fingerprint.return_value = 'changed'
+        with self.assertRaisesRegex(ActionError, 'Source changed'):
+            with self.host.validated_inputs():
+                self.host.check_input('second')
+        self.assertIsNone(self.host._fingerprints)
+
+
 class SearchRetentionTests(unittest.TestCase):
     def setUp(self):
         self.file = str(Path('/tmp/ctk-search-retention.cpp').resolve())
@@ -59,6 +93,26 @@ class SearchRetentionTests(unittest.TestCase):
     def request(self, files=None, maximum=10):
         return dict(settings={}, files=files or [self.file],
                     queries=['cxxRecordDecl().bind("symbol")'], maximum=maximum)
+
+    def test_inspects_more_than_128_nodes_without_a_count_ceiling(self):
+        self.host.root(self.file)
+        self.host.client.peek.return_value = SearchRows([])
+        for index in range(130):
+            value = MatchBinding(symbol_identity=str(index))
+            value.node.var_decl.SetInParent()
+            node = self.host.inspector.retain(SimpleNamespace(value=value), self.file, str(index))
+            page = self.host.inspector.inspect(dict(settings={}, nodeId=node))
+            self.assertEqual(page['node']['id'], node)
+        self.assertEqual(len(self.host.inspector.cache), 130)
+
+    def test_retains_nodes_beyond_the_old_200000_handle_ceiling(self):
+        value = MatchBinding(symbol_identity='after-limit')
+        value.node.var_decl.SetInParent()
+        target = SimpleNamespace(value=value)
+        self.host.nodes.update((str(index), (target, self.file, 'Earlier node'))
+                               for index in range(200001))
+        node = self.host.inspector.retain(target, self.file, 'New node')
+        self.assertIs(self.host.nodes[node][0], target)
 
     def test_retains_the_exact_native_binding_and_reports_display_truncation(self):
         row = self.row('A')

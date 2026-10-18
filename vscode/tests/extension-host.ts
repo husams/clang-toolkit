@@ -145,6 +145,11 @@ export async function run(): Promise<void> {
       assert.ok(process.env.CTK_TEST_LLVM_DATABASE);
       const config = vscode.workspace.getConfiguration("ctk");
       await config.update(
+        "rpcTimeoutMs",
+        120000,
+        vscode.ConfigurationTarget.Workspace,
+      );
+      await config.update(
         "compilationDatabase",
         process.env.CTK_TEST_LLVM_DATABASE,
         vscode.ConfigurationTarget.Workspace,

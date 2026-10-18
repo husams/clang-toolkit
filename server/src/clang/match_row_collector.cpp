@@ -38,13 +38,6 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
                         clang::ASTContext &ast) {
   if (result_.code != MatchCode::Ok || !checkpoint_())
     return;
-  if (state_.rows.size() >= limits_.max_rows) {
-    result_.code = MatchCode::ResourceExhausted;
-    result_.message = "match row limit exceeded (limit " +
-                      std::to_string(limits_.max_rows) +
-                      " rows); no cursor state committed";
-    return;
-  }
   MatchResult row;
   CapturedBindingState::Row native;
   CapturedBindingState::Row parents;
