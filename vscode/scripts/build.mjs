@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 
@@ -93,6 +93,13 @@ await writeFile(
 );
 
 await mkdir("dist", { recursive: true });
+await cp("node_modules/elkjs/lib/elk-api.js", "media/elk-api.js");
+await writeFile(
+  "media/elk-worker-source.js",
+  `export default ${JSON.stringify(await readFile("node_modules/elkjs/lib/elk-worker.min.js", "utf8"))};\n`,
+);
+await rm("media/elk.bundled.js", { force: true });
+await cp("node_modules/elkjs/LICENSE.md", "media/elk.LICENSE.md");
 await mkdir("artifacts", { recursive: true });
 await cp("../typescript/schema", "schema", { recursive: true });
 await cp("../python/clang_toolkit", "console/clang_toolkit", {

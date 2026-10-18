@@ -218,3 +218,42 @@ it("refreshes a base link into a fresh buffer context even when the previous nat
   );
   details.dispose();
 });
+
+it("restores a saved graph presentation without reviving native AST handles", async () => {
+  const details = view(),
+    previous = state("old-native-session");
+  await details.restore(previous, () => true);
+  const model = {
+      key: "saved-native-graph",
+      kind: "callgraph" as const,
+      root: "submit",
+      name: "submit",
+      complete: true,
+      warnings: [],
+      nodes: [
+        {
+          id: "submit",
+          name: "submit",
+          file: "/orders.cpp",
+          line: 10,
+          column: 1,
+          detail: "int submit()",
+        },
+      ],
+      edges: [],
+    },
+    uiState = JSON.stringify({
+      trail: [model.root],
+      expanded: { out: [model.root], in: [] },
+      view: { scale: 0.4, ax: 0.25, ay: 0.5 },
+    });
+  details.showSavedGraph(model, uiState);
+  expect(details.snapshot()).toMatchObject({
+    tab: "callgraph",
+    canRunAction: false,
+    node: { name: "submit" },
+    graph: { model, uiState },
+  });
+  expect(previous.load).not.toHaveBeenCalled();
+  await expect(details.actionTarget()).rejects.toThrow();
+});

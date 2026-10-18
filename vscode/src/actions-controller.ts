@@ -765,6 +765,11 @@ export class ActionsController implements vscode.Disposable {
       service.inspect(settings, id),
     );
   }
+  async graph(id: string, kind: import("./graph-model.js").GraphKind) {
+    return this.inspectNative((service, settings) =>
+      service.graph(settings, id, kind),
+    );
+  }
   async selectSource(id: string, selection: SourceSelection) {
     return this.inspectNative((service, settings) =>
       service.selectSource(settings, id, selection),

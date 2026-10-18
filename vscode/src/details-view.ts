@@ -10,6 +10,9 @@ import {
   astDisplay,
   type SourceSelection,
 } from "./ast-model.js";
+import type { AnalysisGraph, GraphKind, GraphLoad } from "./graph-model.js";
+import { openGraphPanel } from "./graph-panel.js";
+import type { GraphSessions } from "./graph-sessions.js";
 import {
   type BookmarkPage,
   type InspectorBookmark,
@@ -37,7 +40,8 @@ export interface InspectorState {
   prepareAction: ((id: string) => Promise<NodeActionTarget>) | undefined;
   contextId: string;
   rootLabel: string;
-  tab: "ast" | "properties";
+  tab: "ast" | "properties" | "callgraph" | "cfg";
+  graphLoad?: GraphLoad | undefined;
   error: string;
   notice: string;
   operation: Promise<AstInspection | undefined> | undefined;
@@ -51,6 +55,7 @@ export async function refreshedInspectorState(
   text: string,
   file: string,
   current: () => boolean,
+  graphLoad?: GraphLoad,
 ): Promise<InspectorState | undefined> {
   const rebuilt = bookmark
     ? await rebuildTree(
@@ -90,6 +95,7 @@ export async function refreshedInspectorState(
     error: "",
     notice: "",
     operation: undefined,
+    graphLoad,
   };
 }
 const nodeMenuSchema = z.object({
@@ -97,14 +103,39 @@ const nodeMenuSchema = z.object({
   ctkAstNodeId: z.string().min(1),
   ctkAstContext: z.string().min(1),
 });
+const graphRenderedSchema = z.object({
+  type: z.literal("graph-rendered"),
+  key: z.string(),
+  nodeCount: z.number().int().nonnegative(),
+  edgeCount: z.number().int().nonnegative(),
+  visibleCount: z.number().int().nonnegative(),
+  zoom: z.number().finite().positive(),
+  labels: z.array(z.string()),
+  trail: z.array(z.string()),
+});
 const messages = z.discriminatedUnion("type", [
+  graphRenderedSchema,
   z.object({ type: z.literal("ready") }),
   z.object({ type: z.literal("back") }),
   z.object({ type: z.literal("root") }),
   z.object({ type: z.literal("retry") }),
   z.object({ type: z.literal("source") }),
   z.object({ type: z.literal("action") }),
-  z.object({ type: z.literal("tab"), tab: z.enum(["ast", "properties"]) }),
+  z.object({
+    type: z.literal("tab"),
+    tab: z.enum(["ast", "properties", "callgraph", "cfg"]),
+  }),
+  z.object({ type: z.literal("graph-retry") }),
+  z.object({
+    type: z.literal("graph-viewstate"),
+    key: z.string(),
+    state: z.string().max(2000000),
+  }),
+  z.object({
+    type: z.literal("graph-fullscreen"),
+    key: z.string(),
+    state: z.string().max(2000000),
+  }),
   z.object({ type: z.literal("child"), id: z.string() }),
   z.object({ type: z.literal("properties"), id: z.string() }),
   z.object({ type: z.literal("related"), id: z.string() }),
@@ -130,7 +161,7 @@ const messages = z.discriminatedUnion("type", [
       }),
     ),
     text: z.string().max(100000),
-    tab: z.enum(["ast", "properties"]),
+    tab: z.enum(["ast", "properties", "callgraph", "cfg"]),
     panels: z.object({ ast: z.boolean(), properties: z.boolean() }),
     sections: z
       .array(z.object({ title: z.string(), open: z.boolean() }))
@@ -156,7 +187,16 @@ export class DetailsView
   private error = "";
   private notice = "";
   private rootLabel = "Selected result";
-  private tab: "ast" | "properties" = "ast";
+  private tab: InspectorState["tab"] = "ast";
+  private graphLoad: GraphLoad | undefined;
+  private graphData: AnalysisGraph | undefined;
+  private graphRequest = "";
+  private graphLoading = false;
+  private graphError = "";
+  private graphUiState = "";
+  private graphUiRevision = 0;
+  private graphPanel: vscode.WebviewPanel | undefined;
+  private graphRendered: z.infer<typeof graphRenderedSchema> | undefined;
   private contextId = randomBytes(12).toString("hex");
   private rendered: z.infer<typeof messages> | undefined;
   private operation: Promise<AstInspection | undefined> | undefined;
@@ -175,6 +215,7 @@ export class DetailsView
     private readonly refreshRelated: (
       reference: AstReference,
     ) => Promise<string | false | undefined> = async () => undefined,
+    private readonly graphSessions?: GraphSessions,
   ) {
     this.status.name = "CTK AST inspection";
   }
@@ -191,16 +232,22 @@ export class DetailsView
     const js = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.uri, "media", "inspector.js"),
     );
+    const graphCss = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.uri, "media", "graph.css"),
+    );
+    const elk = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.uri, "media", "elk-api.js"),
+    );
     view.webview.html = `<!doctype html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}' ${view.webview.cspSource};">
-<link rel="stylesheet" href="${css}"></head><body><main>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}' ${view.webview.cspSource}; worker-src blob:;">
+<link rel="stylesheet" href="${css}"><link rel="stylesheet" href="${graphCss}"></head><body><main>
 <div class="inspector-body">
 <p id="empty">Open a C++ file or select a match to inspect its AST.</p>
 <section id="inspector" hidden>
 <div class="inspector-toolbar"><div class="inspector-tabs" role="tablist" aria-label="AST inspector">
 <button id="ast-tab" role="tab" aria-controls="ast-panel" aria-selected="true">AST</button>
-<button id="properties-tab" role="tab" aria-controls="properties-panel" aria-selected="false" tabindex="-1">Properties</button></div><button id="action">Run Action</button></div>
+<button id="properties-tab" role="tab" aria-controls="properties-panel" aria-selected="false" tabindex="-1">Properties</button><button id="callgraph-tab" role="tab" aria-controls="callgraph-panel" aria-selected="false" tabindex="-1">Call Graph</button><button id="cfg-tab" role="tab" aria-controls="cfg-panel" aria-selected="false" tabindex="-1">CFG</button></div><button id="action">Run Action</button></div>
 <section id="ast-panel" class="outline" role="tabpanel" aria-labelledby="ast-tab">
 <ul id="tree" role="tree" aria-label="C++ AST"></ul></section>
 <section id="properties-panel" class="node-details" role="tabpanel" aria-labelledby="properties-tab" hidden><header><div class="node-title"><h2 id="name"></h2><span id="kind"></span></div></header>
@@ -209,7 +256,7 @@ export class DetailsView
 <div id="semantics"></div>
 <details id="properties-group" data-section="Properties" open><summary>Properties</summary><div class="section-body"><dl id="properties"></dl></div></details>
 <details id="range-group" data-section="Source range" hidden><summary>Source range</summary><div class="section-body"><dl id="range"></dl></div></details>
-</section></section></div></main><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
+</section><section id="callgraph-panel" class="graph-panel" role="tabpanel" aria-labelledby="callgraph-tab" hidden></section><section id="cfg-panel" class="graph-panel" role="tabpanel" aria-labelledby="cfg-tab" hidden></section></section></div></main><script nonce="${nonce}" src="${elk}"></script><script type="module" nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((message: unknown) => {
       void this.receive(message).catch((error: unknown) => {
         this.error = error instanceof Error ? error.message : String(error);
@@ -255,6 +302,14 @@ export class DetailsView
       },
       visible: this.view?.visible ?? false,
       tab: this.tab,
+      graph: {
+        model: this.graphData,
+        loading: this.graphLoading,
+        error: this.graphError || this.error || this.notice,
+        uiState: this.graphUiState,
+        uiRevision: this.graphUiRevision,
+        rendered: this.graphRendered,
+      },
       contextId: this.contextId,
       treeReveal: this.treeReveal,
       tree: this.tree.rows().map(({ node, ...row }) => {
@@ -276,6 +331,8 @@ export class DetailsView
     };
   }
   private publish(): void {
+    if (!this.running && (this.tab === "callgraph" || this.tab === "cfg"))
+      void this.ensureGraph(this.tab);
     this.status.command = undefined;
     const refreshError =
       [...this.refreshErrors].find(
@@ -313,6 +370,74 @@ export class DetailsView
       state: this.snapshot(),
     });
   }
+  private async ensureGraph(kind: GraphKind): Promise<void> {
+    const id = this.current?.nativeId,
+      load = this.graphLoad;
+    if (!id || !load || !this.load || this.error || this.notice) return;
+    const key = `${this.contextId}:${id}:${kind}`;
+    if (this.graphRequest === key) return;
+    this.graphRequest = key;
+    this.graphUiState = "";
+    this.graphLoading = true;
+    this.graphError = "";
+    this.graphData = undefined;
+    this.publish();
+    try {
+      const graph = await load(kind, id);
+      if (this.graphRequest === key) this.graphData = graph;
+    } catch (error) {
+      if (this.graphRequest === key)
+        this.graphError =
+          error instanceof Error ? error.message : String(error);
+    } finally {
+      if (this.graphRequest === key) {
+        this.graphLoading = false;
+        this.publish();
+      }
+    }
+  }
+  private async openGraphPanel(state: string): Promise<void> {
+    const graph = this.graphData,
+      context = this.contextId;
+    if (!graph) return;
+    this.graphPanel?.dispose();
+    const create = this.graphSessions
+      ? this.graphSessions.open.bind(this.graphSessions)
+      : openGraphPanel.bind(undefined, this.uri);
+    this.graphPanel = await create(
+      graph,
+      state,
+      (returned) => {
+        if (this.contextId !== context || this.graphData?.key !== graph.key)
+          return;
+        this.graphUiState = returned;
+        this.graphUiRevision++;
+        this.publish();
+      },
+      (input) => {
+        const parsed = graphRenderedSchema.safeParse(input);
+        if (
+          parsed.success &&
+          this.contextId === context &&
+          parsed.data.key === this.graphData?.key
+        )
+          this.graphRendered = parsed.data;
+      },
+    );
+  }
+  showSavedGraph(graph: AnalysisGraph, state: string): void {
+    const root = graph.nodes.find((node) => node.id === graph.root);
+    if (!root) return;
+    this.clear();
+    this.current = {
+      node: { ...root, kind: "FunctionDecl", excerpt: "", raw: {} },
+    };
+    this.tab = graph.kind;
+    this.graphData = graph;
+    this.graphUiState = state;
+    this.graphUiRevision++;
+    this.publish();
+  }
   setRefreshError(file: string, error?: string, hasAst = false): void {
     if (error) this.refreshErrors.set(file, { message: error, hasAst });
     else {
@@ -329,6 +454,8 @@ export class DetailsView
     current: () => boolean,
   ): Promise<InspectorState | undefined> {
     if (!current()) return;
+    this.graphPanel?.dispose();
+    this.graphPanel = undefined;
     if (previous) this.applyState(previous);
     else {
       this.clear();
@@ -368,7 +495,11 @@ export class DetailsView
     result: Result,
     load: Load,
     prepareAction: (id: string) => Promise<NodeActionTarget>,
-    options: { preserveEditor?: boolean; current?: () => boolean } = {},
+    options: {
+      preserveEditor?: boolean;
+      current?: () => boolean;
+      graphLoad?: GraphLoad;
+    } = {},
   ): Promise<void> {
     const generation = ++this.generation;
     const current = options.current ?? (() => true);
@@ -382,6 +513,9 @@ export class DetailsView
     this.contextId = randomBytes(12).toString("hex");
     this.retry = undefined;
     this.load = load;
+    this.graphLoad = options.graphLoad;
+    this.graphRequest = "";
+    this.graphData = undefined;
     this.prepareAction = prepareAction;
     this.error = "";
     this.notice = "";
@@ -477,12 +611,33 @@ export class DetailsView
   }
   async receive(input: unknown): Promise<void> {
     const message = messages.parse(input);
+    if (message.type === "graph-viewstate") {
+      if (message.key === this.graphData?.key) {
+        this.graphUiState = message.state;
+        this.graphSessions?.remember(this.graphData, message.state);
+      }
+      return;
+    }
+    if (message.type === "graph-rendered") {
+      if (message.key === this.graphData?.key) this.graphRendered = message;
+      return;
+    }
     if (message.type === "rendered") {
       this.rendered = message;
       return;
     }
     if (message.type === "ready") {
       this.publish();
+      return;
+    }
+    if (message.type === "graph-retry") {
+      this.graphRequest = "";
+      this.publish();
+      return;
+    }
+    if (message.type === "graph-fullscreen") {
+      if (this.graphData?.key === message.key)
+        await this.openGraphPanel(message.state);
       return;
     }
     if (message.type === "tab") {
@@ -652,6 +807,7 @@ export class DetailsView
       cache: this.cache,
       tree: this.tree,
       load: this.load,
+      graphLoad: this.graphLoad,
       prepareAction: this.prepareAction,
       contextId: this.contextId,
       rootLabel: this.rootLabel,
@@ -702,6 +858,7 @@ export class DetailsView
         text,
         file,
         valid,
+        this.graphLoad,
       );
       if (state && valid()) {
         state.tab = this.tab;
@@ -723,8 +880,17 @@ export class DetailsView
     this.cache = state.cache;
     this.tree = state.tree;
     this.load = state.load;
+    this.graphLoad = state.graphLoad;
+    this.graphRequest = "";
+    this.graphData = undefined;
+    this.graphLoading = false;
+    this.graphError = "";
     this.prepareAction = state.prepareAction;
     this.contextId = state.contextId;
+    if (this.graphPanel) {
+      this.graphPanel.dispose();
+      this.graphPanel = undefined;
+    }
     this.rootLabel = state.rootLabel;
     this.tab = state.tab;
     this.error = state.error;
@@ -771,6 +937,11 @@ export class DetailsView
     this.cache = new Map();
     this.tree = new InspectorTree();
     this.load = undefined;
+    this.graphLoad = undefined;
+    this.graphRequest = "";
+    this.graphData = undefined;
+    this.graphLoading = false;
+    this.graphError = "";
     this.prepareAction = undefined;
     this.retry = undefined;
     this.operation = undefined;
@@ -783,6 +954,7 @@ export class DetailsView
   }
   dispose(): void {
     this.generation++;
+    this.graphPanel?.dispose();
     this.status.dispose();
   }
 }

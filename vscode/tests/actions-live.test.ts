@@ -98,6 +98,56 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         `${name}.ctk-action`,
         `---\nname: ${name}\ndescription: Test action\narguments: []\n---\n${body}`,
       );
+    it("builds native call graph and CFG views from the same retained AST", async () => {
+      const host = service(),
+        root = await host.inspect(settings, { translationUnit: file });
+      await expect(
+        host.graph(settings, root.node.id, "callgraph"),
+      ).rejects.toThrow("Select a function");
+      const fn = root.children.find((n) => n.name === "processOrder");
+      expect(fn).toBeDefined();
+      const calls = await host.graph(settings, fn!.id, "callgraph");
+      expect(calls.nodes.find((n) => n.id === calls.root)?.name).toBe(
+        "processOrder",
+      );
+      expect(calls.nodes.some((n) => n.name === "adjust")).toBe(true);
+      expect(
+        calls.edges.some(
+          (e) =>
+            e.from === calls.root &&
+            calls.nodes.find((n) => n.id === e.to)?.name === "adjust",
+        ),
+      ).toBe(true);
+      const cfg = await host.graph(settings, fn!.id, "cfg");
+      expect(cfg.nodes.find((n) => n.id === cfg.root)?.name).toBe("Entry");
+      expect(cfg.nodes.some((n) => n.name === "Exit")).toBe(true);
+      expect(cfg.edges.length).toBeGreaterThan(1);
+      expect((await host.inspect(settings, fn!.id)).parseCount).toBe(1);
+    }, 30000);
+    it("resolves the enclosing callable for a statement and keeps overloads distinct", async () => {
+      const fixture = resolve(directory, "graphs.cpp");
+      await writeFile(
+        fixture,
+        "int leaf(int x) { return x; }\nint submit(int x) { if (x > 0) return leaf(x); return 0; }\nint submit(double x) { return 7; }\n",
+      );
+      const host = service(),
+        root = await host.inspect(settings, { translationUnit: fixture });
+      const fn = root.children.find((n) => n.name === "submit");
+      const page = await host.inspect(settings, fn!.id),
+        body = page.children.find((n) => n.kind === "CompoundStmt");
+      const calls = await host.graph(settings, body!.id, "callgraph");
+      expect(calls.nodes.filter((n) => n.name === "submit")).toHaveLength(2);
+      expect(
+        calls.edges.some(
+          (e) =>
+            e.from === calls.root &&
+            calls.nodes.find((n) => n.id === e.to)?.name === "leaf",
+        ),
+      ).toBe(true);
+      const cfg = await host.graph(settings, body!.id, "cfg");
+      expect(cfg.edges.some((e) => e.label === "True")).toBe(true);
+      expect(cfg.edges.some((e) => e.label === "False")).toBe(true);
+    }, 30000);
     it("preserves native parser file, line and UTF-8 column in worker failures", async () => {
       const broken = resolve(directory, "broken source.cpp"),
         line = "int broken() { /* λ😀 */ return missing_name; }";

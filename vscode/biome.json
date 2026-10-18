@@ -1,6 +1,6 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
-  "files": { "includes": ["src/**", "tests/**", "media/**", "scripts/**", "!media/matchers.json"] },
+  "files": { "includes": ["src/**", "tests/**", "media/**", "scripts/**", "!media/matchers.json", "!media/elk.bundled.js", "!media/elk-api.js", "!media/elk-worker-source.js"] },
   "formatter": { "indentStyle": "space", "indentWidth": 2 },
   "javascript": { "formatter": { "quoteStyle": "double" } },
   "linter": { "enabled": true, "rules": { "recommended": true } },

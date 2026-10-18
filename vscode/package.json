@@ -2,7 +2,7 @@
   "name": "clang-toolkit-prototype",
   "displayName": "Clang Toolkit Prototype",
   "description": "Unified Semantic Analysis and CTK script editing prototype",
-  "version": "0.2.42",
+  "version": "0.3.0",
   "publisher": "clang-toolkit",
   "license": "MIT",
   "type": "module",
@@ -18,6 +18,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onWebviewPanel:ctk.graph",
     "onLanguage:c",
     "onLanguage:cpp",
     "onView:ctk.analysis",
@@ -83,6 +84,9 @@
       ]
     },
     "commands": [
+      {"command":"ctk.reopenGraph","title":"Reopen Last Graph","category":"CTK"},
+      {"command":"ctk.showCallGraph","title":"Show Call Graph","category":"CTK"},
+      {"command":"ctk.showCfg","title":"Show CFG","category":"CTK"},
       {"command":"ctk.reloadFileAst","title":"Reload File AST","category":"CTK"},
       {"command":"ctk.runInspectorNodeAction","title":"Run Action…","category":"CTK"},
       {"command":"ctk.cancelSearch","title":"Cancel Search or Script","category":"CTK"},
@@ -253,6 +257,7 @@
     "@types/vscode": "^1.100.0",
     "@vscode/test-electron": "^2.5.0",
     "@vscode/vsce": "^3.6.0",
+    "elkjs": "0.9.3",
     "esbuild": "^0.25.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

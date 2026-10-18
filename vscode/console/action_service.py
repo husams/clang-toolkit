@@ -19,6 +19,7 @@ from clang_toolkit.match_values import MatchRow, MatchValue, NativeMatchCollecti
 from run_service import Output, Results
 from ast_inspector import AstInspector
 from editor_buffers import EditorBuffers
+from graph_service import graph
 from search_service import search
 
 
@@ -231,6 +232,8 @@ def main() -> None:
                             response = {'inspection': inspection} if inspection else {'notFound': True}
                         elif request['type'] == 'inspect':
                             response = {'inspection': host.inspector.inspect(request)}
+                        elif request['type'] == 'graph':
+                            response = {'graph': graph(host, request)}
                         elif request['type'] == 'search':
                             response = {'searchReport': search(host, request, lambda value: send(identity, value))}
                         else:

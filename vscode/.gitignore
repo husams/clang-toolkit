@@ -3,5 +3,8 @@ dist/
 schema/
 artifacts/
 .vscode-test/
-
 console/clang_toolkit/
+media/elk.bundled.js
+media/elk.LICENSE.md
+media/elk-api.js
+media/elk-worker-source.js

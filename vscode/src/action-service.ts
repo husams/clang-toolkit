@@ -18,6 +18,11 @@ import {
   sourceSelectionSchema,
 } from "./ast-model.js";
 import {
+  type AnalysisGraph,
+  type GraphKind,
+  graphSchema,
+} from "./graph-model.js";
+import {
   type Result,
   type RunReport,
   type RunRequest,
@@ -52,6 +57,7 @@ const responseSchema = z.object({
     .optional(),
   reset: z.boolean().optional(),
   inspection: astInspectionSchema.optional(),
+  graph: graphSchema.optional(),
   notFound: z.boolean().optional(),
   keptAlive: z.number().int().nonnegative().optional(),
 });
@@ -257,6 +263,20 @@ export class ActionService {
     if (!response.inspection)
       throw new Error("Source lookup returned no AST result");
     return response.inspection;
+  }
+  async graph(
+    settings: ActionSettings,
+    nodeId: string,
+    kind: GraphKind,
+  ): Promise<AnalysisGraph> {
+    const response = await this.request(
+      { type: "graph", settings, nodeId, kind },
+      settings.directory,
+      settings.timeoutMs * 3 + 10000,
+      () => {},
+    );
+    if (!response.graph) throw new Error("Graph worker returned no graph");
+    return response.graph;
   }
   private start(directory: string): ChildProcessWithoutNullStreams {
     if (this.child) return this.child;
