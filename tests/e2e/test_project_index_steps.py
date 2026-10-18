@@ -382,3 +382,30 @@ def console_alias_unique_search(indexed_project):
             assert output.count("AliasTemplate  [TypeAlias]") == 1
         output = _console(indexed_project, 'index find "SharedBefore" exact kind class in "project"', engine)
         assert output.count("SharedBefore  [CXXRecord]") == 1
+
+
+@then("unchanged indexing stays complete until a source notification refreshes it")
+def notifications_refresh_idle_project(indexed_project):
+    root = indexed_project["root"]
+    with Client(indexed_project["server"].endpoint) as client:
+        client.start_project_index(root, poll_interval_seconds=1)
+        _until(lambda: client.project_index_status(root).state == pb.INDEX_STATE_COMPLETE)
+        # The first pass discovers and arms dependency files, then validates
+        # those inputs once before becoming idle.
+        def settled():
+            status = client.project_index_status(root)
+            return (status if status.state == pb.INDEX_STATE_COMPLETE
+                    and status.last_completed_pass.reused == 3 else None)
+
+        before = _until(settled)
+        assert before.state == pb.INDEX_STATE_COMPLETE
+        time.sleep(4)
+        after = client.project_index_status(root)
+        assert after.state == pb.INDEX_STATE_COMPLETE
+        assert after.last_completed_pass == before.last_completed_pass
+        assert after.revision == before.revision
+        (root / "unrelated.cc").write_text(
+            "int notificationArrived() {return 7;}\n", encoding="utf-8")
+        _until(lambda: client.project_index_status(root).revision > before.revision)
+        result = client.find_symbols(root, "notificationArrived")
+        assert len(result.symbols) == 1

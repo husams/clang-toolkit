@@ -22,7 +22,8 @@ struct DirectoryWatch::Impl {
   int queue = -1;
   std::map<std::filesystem::path, int> directories;
   std::size_t budget = 1024;
-  bool add(const std::filesystem::path &resolved);
+  bool add(const std::filesystem::path &resolved, bool file = false,
+           bool metadata = true);
   Impl() {
 #ifdef __APPLE__
     rlimit limit{};
@@ -122,7 +123,15 @@ bool DirectoryWatch::add(const std::filesystem::path &directory) {
   }
   return true;
 }
-bool DirectoryWatch::Impl::add(const std::filesystem::path &path) {
+bool DirectoryWatch::add_directory(const std::filesystem::path &directory) {
+  return impl_->add(directory, false, false);
+}
+bool DirectoryWatch::add_file(const std::filesystem::path &file) {
+  return impl_->add(file.parent_path(), false, false) &&
+         impl_->add(file, true, false);
+}
+bool DirectoryWatch::Impl::add(const std::filesystem::path &path, bool file,
+                               bool metadata) {
   if (queue < 0)
     return false;
   if (directories.contains(path))
@@ -138,8 +147,8 @@ bool DirectoryWatch::Impl::add(const std::filesystem::path &path) {
   }
   struct kevent event;
   EV_SET(&event, descriptor, EVFILT_VNODE, EV_ADD | EV_CLEAR,
-         NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE | NOTE_ATTRIB |
-             NOTE_LINK,
+         NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE |
+             (metadata ? NOTE_ATTRIB : 0) | NOTE_LINK,
          0, nullptr);
   if (kevent(queue, &event, 1, nullptr, 0, nullptr) < 0) {
     close(descriptor);
@@ -147,7 +156,7 @@ bool DirectoryWatch::Impl::add(const std::filesystem::path &path) {
   }
 #else
   const int filesystem_descriptor =
-      open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+      open(path.c_str(), O_RDONLY | (file ? 0 : O_DIRECTORY) | O_CLOEXEC);
   if (filesystem_descriptor < 0)
     return false;
   const bool supported = supports_index_input_reuse(filesystem_descriptor);
@@ -156,8 +165,9 @@ bool DirectoryWatch::Impl::add(const std::filesystem::path &path) {
     return false;
   const int descriptor = inotify_add_watch(
       queue, path.c_str(),
-      IN_ONLYDIR | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO |
-          IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB);
+      (file ? IN_MODIFY | IN_CLOSE_WRITE : IN_ONLYDIR) | IN_CREATE | IN_DELETE |
+          IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF |
+          (metadata ? IN_ATTRIB : 0));
   if (descriptor < 0)
     return false;
 #endif

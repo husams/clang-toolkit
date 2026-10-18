@@ -2705,3 +2705,23 @@ template<class T> using AliasTemplate = T;
 
 } // namespace
 } // namespace ctk::net
+
+namespace ctk::net {
+TEST_F(ProjectIndexServiceTest, IdleMonitorWaitsForSourceAndHeaderNotifications) {
+  const auto counter = root / "notification-worker-count";
+  IndexServiceAdapter service(storage, {}, worker_wrapper(counter), 1);
+  const auto first = start_and_wait(service);
+  // Allow the one guarded pass for newly discovered dependency watches.
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  const auto settled = fs::file_size(counter);
+  std::this_thread::sleep_for(std::chrono::seconds(4));
+  EXPECT_EQ(fs::file_size(counter), settled)
+      << "unchanged projects must not launch listing workers every poll";
+  write("one.cpp", "#include \"shared.h\"\nint notificationEdit(){return 1;}\n");
+  const auto edited = wait_for_revision(service, first.revision() + 1);
+  EXPECT_EQ(find(service, "notificationEdit", false).symbols_size(), 2);
+  write("shared.h", "inline int notificationHeader(){return 2;}\n");
+  wait_for_revision(service, edited.revision() + 1);
+  EXPECT_GT(find(service, "notificationHeader", false).symbols_size(), 0);
+}
+} // namespace ctk::net

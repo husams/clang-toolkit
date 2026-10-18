@@ -42,3 +42,7 @@ Feature: Background project symbol lookup
     Given an isolated server and three translation units with a shared header
     When I index the project and pause background refresh through gRPC
     Then alias searches retain kinds and return each shared definition once per project
+
+  Scenario: Idle monitors wait for filesystem changes
+    Given an isolated server and three translation units with a shared header
+    Then unchanged indexing stays complete until a source notification refreshes it

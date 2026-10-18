@@ -98,6 +98,16 @@ the entries whose manifests include that header. Reconciliation checks command
 changes and removed entries as well as file changes. Shared header declarations
 may appear under several TUs so their compilation context is preserved.
 
+After initial reconciliation, monitors wait for kernel filesystem notifications
+(kqueue on macOS, inotify on Linux) for source/header contents, compilation
+databases, the worker executable, and include-directory entries. The poll
+interval controls notification sampling, capped at two seconds; it no longer
+requests a full scan every tick. Unchanged projects keep their completed status
+and last-pass counts. A five-minute safety reconciliation covers missed events;
+if any watch cannot be installed, the fallback runs every minute. New dependencies
+receive one additional guarded validation pass after watches are installed.
+Pause/resume and cancellation remain interruptible.
+
 The server monitors multiple projects independently. Start each project with
 `index start`; pause, resume, and cancel affect only the named project. All
 projects share the server's extraction worker limit (at most four processes),
