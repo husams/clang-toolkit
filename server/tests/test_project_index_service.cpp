@@ -1,17 +1,22 @@
 #include "../src/net/project_index_store.hpp"
 #include "ctk/net/index_service.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <mutex>
 #include <set>
+#include <signal.h>
 #include <sqlite3.h>
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <vector>
 
 struct sqlite3_api_routines;
 
@@ -24,6 +29,16 @@ struct RevisionTrace {
   std::atomic<bool> revision_one{false};
 };
 RevisionTrace *active_revision_trace = nullptr;
+struct PipelineTrace {
+  fs::path database, counter, release_file;
+  fs::path edit_file;
+  std::string edit_contents;
+  std::uintmax_t required_workers = 0;
+  std::atomic<bool> publication_started{false};
+  std::atomic<bool> publication_gate_entered{false};
+  std::atomic<bool> overlapped{false};
+};
+PipelineTrace *active_pipeline_trace = nullptr;
 
 int trace_revision_one(unsigned event, void *context, void *statement, void *) {
   if (event != SQLITE_TRACE_PROFILE)
@@ -53,6 +68,64 @@ int install_revision_trace(sqlite3 *database, char **,
   if (active_revision_trace)
     sqlite3_trace_v2(database, SQLITE_TRACE_PROFILE, trace_revision_one,
                      active_revision_trace);
+  if (active_pipeline_trace) {
+    sqlite3_trace_v2(
+        database, SQLITE_TRACE_STMT,
+        [](unsigned event, void *raw, void *statement, void *) {
+          if (event != SQLITE_TRACE_STMT)
+            return 0;
+          auto &trace = *static_cast<PipelineTrace *>(raw);
+          auto *database =
+              sqlite3_db_handle(static_cast<sqlite3_stmt *>(statement));
+          const char *filename = sqlite3_db_filename(database, "main");
+          if (!filename)
+            return 0;
+          std::error_code path_error;
+          if (!fs::equivalent(filename, trace.database, path_error) ||
+              path_error)
+            return 0;
+          const char *sql = sqlite3_sql(static_cast<sqlite3_stmt *>(statement));
+          if (sql && std::string_view(sql).find("INSERT INTO symbol") !=
+                         std::string_view::npos)
+            trace.publication_started.store(true, std::memory_order_release);
+          return 0;
+        },
+        active_pipeline_trace);
+    sqlite3_create_function(
+        database, "block_index_publication", 0, SQLITE_UTF8,
+        active_pipeline_trace,
+        [](sqlite3_context *context, int, sqlite3_value **) {
+          auto &trace =
+              *static_cast<PipelineTrace *>(sqlite3_user_data(context));
+          if (trace.publication_gate_entered.exchange(
+                  true, std::memory_order_acq_rel)) {
+            sqlite3_result_int(context, 0);
+            return;
+          }
+          const auto deadline =
+              std::chrono::steady_clock::now() + std::chrono::seconds(5);
+          while (std::chrono::steady_clock::now() < deadline) {
+            std::error_code error;
+            if (fs::file_size(trace.counter, error) >= trace.required_workers) {
+              trace.overlapped.store(true, std::memory_order_release);
+              break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+          }
+          if (trace.overlapped.load(std::memory_order_acquire) &&
+              !trace.release_file.empty()) {
+            const auto release_deadline =
+                std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (!fs::exists(trace.release_file) &&
+                   std::chrono::steady_clock::now() < release_deadline)
+              std::this_thread::sleep_for(std::chrono::milliseconds(5));
+          }
+          if (!trace.edit_file.empty())
+            std::ofstream(trace.edit_file) << trace.edit_contents;
+          sqlite3_result_int(context, 0);
+        },
+        nullptr, nullptr);
+  }
   return SQLITE_OK;
 }
 
@@ -73,6 +146,34 @@ public:
 
 private:
   bool registered_ = false;
+};
+
+class PipelineTraceRegistration {
+public:
+  explicit PipelineTraceRegistration(PipelineTrace &trace) {
+    active_pipeline_trace = &trace;
+    registered_ = sqlite3_auto_extension(reinterpret_cast<void (*)(void)>(
+                      install_revision_trace)) == SQLITE_OK;
+  }
+  ~PipelineTraceRegistration() {
+    if (registered_)
+      sqlite3_cancel_auto_extension(
+          reinterpret_cast<void (*)(void)>(install_revision_trace));
+    active_pipeline_trace = nullptr;
+  }
+  bool registered() const { return registered_; }
+
+private:
+  bool registered_ = false;
+};
+
+class ReleaseFileGuard {
+public:
+  explicit ReleaseFileGuard(fs::path path) : path_(std::move(path)) {}
+  ~ReleaseFileGuard() { std::ofstream(path_) << "continue\n"; }
+
+private:
+  fs::path path_;
 };
 
 class ProjectIndexServiceTest : public ::testing::Test {
@@ -135,6 +236,22 @@ protected:
         << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-c\"," << source_two
         << "]}]";
   }
+  void write_single_variant_commands() {
+    std::ofstream out(project / "compile_commands.json");
+    const auto compiler = quote(CTK_TEST_CLANG_TOOL_PATH);
+    const auto directory = quote(project.string());
+    const auto source_one = quote((project / "one.cpp").string());
+    const auto source_two = quote((project / "two.cpp").string());
+    out << "["
+        << "{\"directory\":" << directory << ",\"file\":" << source_one
+        << ",\"arguments\":[" << compiler
+        << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-c\"," << source_one
+        << "]},"
+        << "{\"directory\":" << directory << ",\"file\":" << source_two
+        << ",\"arguments\":[" << compiler
+        << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-c\"," << source_two
+        << "]}]";
+  }
   fs::path worker_wrapper(const fs::path &counter,
                           const std::string &before_exec = {}) {
     const auto shell_word = [](const std::string &value) {
@@ -148,6 +265,55 @@ protected:
                         << shell_word(counter.string()) << '\n'
                         << before_exec << "exec "
                         << shell_word(CTK_TEST_INDEX_WORKER) << " \"$@\"\n";
+    fs::permissions(path, fs::perms::owner_all);
+    return path;
+  }
+  fs::path worker_wrapper_with_release_barrier(const fs::path &counter,
+                                               const fs::path &started,
+                                               const fs::path &release) {
+    const auto shell_word = [](const std::string &value) {
+      std::string out = "'";
+      for (char c : value)
+        out += c == '\'' ? "'\"'\"'" : std::string(1, c);
+      return out + "'";
+    };
+    const auto path = root / "index-worker-barrier-wrapper";
+    const auto count_file = shell_word(counter.string());
+    std::ofstream(path) << "#!/bin/sh\nprintf . >> " << count_file << '\n'
+                        << "starts=$(wc -c < " << count_file << ")\n"
+                        << "if [ \"$starts\" -gt 1 ]; then\n"
+                        << "  touch " << shell_word(started.string()) << "/$$\n"
+                        << "  while [ ! -e " << shell_word(release.string())
+                        << " ]; do sleep 0.01; done\nfi\n"
+                        << "exec " << shell_word(CTK_TEST_INDEX_WORKER)
+                        << " \"$@\"\n";
+    fs::permissions(path, fs::perms::owner_all);
+    fs::create_directories(started);
+    return path;
+  }
+  fs::path worker_wrapper_with_lock(const fs::path &counter,
+                                    const fs::path &lock,
+                                    const fs::path &overlap,
+                                    const fs::path &pids = {},
+                                    const std::string &before_exec = {}) {
+    const auto shell_word = [](const std::string &value) {
+      std::string out = "'";
+      for (char c : value)
+        out += c == '\'' ? "'\"'\"'" : std::string(1, c);
+      return out + "'";
+    };
+    const auto path = root / "index-worker-lock-wrapper";
+    std::ofstream(path)
+        << "#!/bin/sh\n"
+        << (pids.empty() ? ""
+                         : "echo $$ >> " + shell_word(pids.string()) + "\n")
+        << "printf . >> " << shell_word(counter.string()) << '\n'
+        << "if ! mkdir " << shell_word(lock.string()) << " 2>/dev/null; then\n"
+        << "  touch " << shell_word(overlap.string()) << "\nfi\n"
+        << before_exec << shell_word(CTK_TEST_INDEX_WORKER)
+        << " \"$@\"\nstatus=$?\n"
+        << "rmdir " << shell_word(lock.string()) << " 2>/dev/null\n"
+        << "exit $status\n";
     fs::permissions(path, fs::perms::owner_all);
     return path;
   }
@@ -256,6 +422,261 @@ TEST_F(ProjectIndexServiceTest,
   for (const auto &symbol : members.symbols())
     contexts.insert(symbol.compile_context());
   EXPECT_EQ(contexts.size(), 2);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       StartsNextChangedUnitDuringCurrentSymbolPublication) {
+  const auto counter = root / "worker-starts";
+  const auto lock = root / "worker-lock";
+  const auto overlap = root / "worker-overlap";
+  const auto wrapper = worker_wrapper_with_lock(counter, lock, overlap);
+  fs::path database;
+  {
+    IndexServiceAdapter initial(storage, {}, wrapper);
+    start_and_wait(initial);
+    database = database_file();
+  }
+  ASSERT_FALSE(database.empty());
+  std::error_code ec;
+  const auto previous_starts = fs::file_size(counter, ec);
+  ASSERT_FALSE(ec);
+  PipelineTrace trace;
+  trace.database = database;
+  trace.counter = counter;
+  trace.required_workers = previous_starts + 3;
+  PipelineTraceRegistration registration(trace);
+  ASSERT_TRUE(registration.registered());
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
+  char *error = nullptr;
+  const auto trigger_status = sqlite3_exec(
+      db,
+      "CREATE TRIGGER block_symbol_publication BEFORE INSERT ON symbol BEGIN "
+      "SELECT block_index_publication(); END;",
+      nullptr, nullptr, &error);
+  const std::string trigger_error = error ? error : "";
+  sqlite3_free(error);
+  sqlite3_close(db);
+  ASSERT_EQ(trigger_status, SQLITE_OK) << trigger_error;
+
+  write("shared.h", "#if FLAVOR == 1\n#define ALPHA_FEATURE 1\n"
+                    "#else\n#define BETA_FEATURE 1\n#endif\n"
+                    "struct ChangedHeader { int value; };\n");
+  IndexServiceAdapter service(storage, {}, wrapper);
+  const auto status = start_and_wait(service);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_TRUE(trace.publication_started.load(std::memory_order_acquire));
+  EXPECT_TRUE(trace.overlapped.load(std::memory_order_acquire));
+  EXPECT_TRUE(fs::exists(overlap));
+}
+
+TEST_F(ProjectIndexServiceTest,
+       RevalidatesUnchangedLookaheadAfterCurrentPublication) {
+  write_single_variant_commands();
+  {
+    IndexServiceAdapter initial(storage, {}, CTK_TEST_INDEX_WORKER);
+    start_and_wait(initial);
+  }
+  const auto database = database_file();
+  PipelineTrace trace;
+  trace.database = database;
+  trace.counter = root / "worker-starts";
+  trace.edit_file = project / "two.cpp";
+  trace.edit_contents =
+      "#include \"shared.h\"\nint editedDuringPublication(){return 2;}\n";
+  PipelineTraceRegistration registration(trace);
+  ASSERT_TRUE(registration.registered());
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
+  char *error = nullptr;
+  const auto trigger_status = sqlite3_exec(
+      db,
+      "CREATE TRIGGER edit_next_input BEFORE INSERT ON symbol BEGIN "
+      "SELECT block_index_publication(); END;",
+      nullptr, nullptr, &error);
+  const std::string trigger_error = error ? error : "";
+  sqlite3_free(error);
+  sqlite3_close(db);
+  ASSERT_EQ(trigger_status, SQLITE_OK) << trigger_error;
+
+  write("one.cpp", "#include \"shared.h\"\n"
+                   "int changedCurrentUnit(){return 1;}\n");
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto status = start_and_wait(service);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_TRUE(trace.publication_started.load(std::memory_order_acquire));
+  EXPECT_EQ(find(service, "editedDuringPublication", false).symbols_size(), 1);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 0);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       LookaheadManifestErrorDoesNotDiscardCurrentExtraction) {
+  write_single_variant_commands();
+  {
+    IndexServiceAdapter initial(storage, {}, CTK_TEST_INDEX_WORKER);
+    start_and_wait(initial);
+  }
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  sqlite3_stmt *corrupt = nullptr;
+  ASSERT_EQ(sqlite3_prepare_v2(
+                db,
+                "UPDATE translation_unit SET dependencies_json='not-json' "
+                "WHERE main_file LIKE ? AND indexed_at>0",
+                -1, &corrupt, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_bind_text(corrupt, 1, "%two.cpp", -1, SQLITE_STATIC),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(corrupt), SQLITE_DONE);
+  ASSERT_EQ(sqlite3_changes(db), 1) << sqlite3_errmsg(db);
+  sqlite3_finalize(corrupt);
+  sqlite3_close(db);
+
+  write("one.cpp", "#include \"shared.h\"\n"
+                   "int currentSurvivesLookaheadError(){return 1;}\n");
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  start.set_poll_interval_seconds(1);
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+  ProjectIndexRequest request;
+  request.set_project_root(project.string());
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  do {
+    grpc::ServerContext status_context;
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&status_context, &request, &status).ok());
+    if (status.state() == INDEX_STATE_FAILED ||
+        status.state() == INDEX_STATE_COMPLETE)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < deadline);
+  EXPECT_EQ(status.state(), INDEX_STATE_FAILED)
+      << status.error() << " failed=" << status.translation_units_failed()
+      << " completed=" << status.translation_units_completed();
+  EXPECT_EQ(
+      find(service, "currentSurvivesLookaheadError", false).symbols_size(), 1);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       PauseStopsPendingWorkerWhileForegroundLookupRemainsResponsive) {
+  const auto counter = root / "worker-starts";
+  const auto lock = root / "worker-lock";
+  const auto overlap = root / "worker-overlap";
+  const auto pids = root / "worker-pids";
+  fs::path database;
+  {
+    IndexServiceAdapter initial(storage, {}, worker_wrapper(counter));
+    start_and_wait(initial);
+    database = database_file();
+  }
+  ASSERT_FALSE(database.empty());
+  std::error_code ec;
+  const auto previous_starts = fs::file_size(counter, ec);
+  ASSERT_FALSE(ec);
+  const auto release_file = root / "release-publication";
+  PipelineTrace trace;
+  trace.database = database;
+  trace.counter = counter;
+  trace.release_file = release_file;
+  trace.required_workers = previous_starts + 3;
+  PipelineTraceRegistration registration(trace);
+  ASSERT_TRUE(registration.registered());
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
+  char *error = nullptr;
+  const auto trigger_status = sqlite3_exec(
+      db,
+      "CREATE TRIGGER block_symbol_publication BEFORE INSERT ON symbol BEGIN "
+      "SELECT block_index_publication(); END;",
+      nullptr, nullptr, &error);
+  const std::string trigger_error = error ? error : "";
+  sqlite3_free(error);
+  sqlite3_close(db);
+  ASSERT_EQ(trigger_status, SQLITE_OK) << trigger_error;
+  write("shared.h", "#if FLAVOR == 1\n#define ALPHA_FEATURE 1\n"
+                    "#else\n#define BETA_FEATURE 1\n#endif\n"
+                    "struct ChangedHeader { int value; };\n");
+
+  std::atomic<bool> foreground_busy{false};
+  const auto wrapper =
+      worker_wrapper_with_lock(counter, lock, overlap, pids, "sleep 4\n");
+  IndexServiceAdapter service(
+      storage, [&] { return foreground_busy.load(); }, wrapper, 2);
+  ReleaseFileGuard release_on_exit(release_file);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  start.set_poll_interval_seconds(1);
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+
+  const auto overlap_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  while (!trace.overlapped.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < overlap_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_TRUE(trace.publication_started.load(std::memory_order_acquire));
+  ASSERT_TRUE(trace.overlapped.load(std::memory_order_acquire));
+
+  foreground_busy.store(true);
+  FindSymbolsRequest lookup;
+  lookup.set_project_root(project.string());
+  lookup.set_query("alphaOnly");
+  lookup.set_limit(10);
+  FindSymbolsResponse found;
+  grpc::ServerContext lookup_context;
+  const auto lookup_started = std::chrono::steady_clock::now();
+  ASSERT_TRUE(service.FindSymbols(&lookup_context, &lookup, &found).ok());
+  EXPECT_LT(std::chrono::steady_clock::now() - lookup_started,
+            std::chrono::seconds(1));
+  EXPECT_GT(found.symbols_size(), 0);
+
+  ProjectIndexRequest control;
+  control.set_project_root(project.string());
+  grpc::ServerContext pause_context;
+  ASSERT_TRUE(
+      service.PauseProjectIndex(&pause_context, &control, &status).ok());
+  ASSERT_EQ(status.state(), INDEX_STATE_PAUSED);
+  std::ifstream pid_input(pids);
+  std::vector<long> worker_pids;
+  long value = 0;
+  while (pid_input >> value)
+    worker_pids.push_back(value);
+  ASSERT_GE(worker_pids.size(), 3u);
+  for (const auto pid : worker_pids)
+    ASSERT_GT(pid, 0);
+  const auto reap_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  const auto any_worker_alive = [&] {
+    return std::any_of(worker_pids.begin(), worker_pids.end(), [](long pid) {
+      return ::kill(static_cast<pid_t>(pid), 0) == 0;
+    });
+  };
+  while (any_worker_alive() && std::chrono::steady_clock::now() < reap_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  EXPECT_FALSE(any_worker_alive());
+
+  std::ofstream(release_file) << "continue\n";
+  foreground_busy.store(false);
+  grpc::ServerContext resume_context;
+  ASSERT_TRUE(
+      service.ResumeProjectIndex(&resume_context, &control, &status).ok());
+  const auto completion_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  do {
+    grpc::ServerContext status_context;
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&status_context, &control, &status).ok());
+    if (status.state() == INDEX_STATE_COMPLETE ||
+        status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < completion_deadline);
+  EXPECT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
 }
 
 TEST_F(ProjectIndexServiceTest,
@@ -518,7 +939,7 @@ TEST_F(ProjectIndexServiceTest,
         }
         return std::chrono::steady_clock::now() < busy_until;
       },
-      wrapper);
+      wrapper, 1);
   const auto status = start_and_wait(service);
   EXPECT_TRUE(yielded);
   EXPECT_EQ(status.translation_units_failed(), 0);
@@ -526,6 +947,155 @@ TEST_F(ProjectIndexServiceTest,
   std::ifstream launches(counter);
   EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(),
             4);
+}
+
+TEST_F(ProjectIndexServiceTest, ExtractsTranslationUnitsInParallelWithinCap) {
+  const auto counter = root / "worker-starts";
+  const auto started = root / "worker-started";
+  const auto release = root / "worker-release";
+  const auto wrapper =
+      worker_wrapper_with_release_barrier(counter, started, release);
+  IndexServiceAdapter service(storage, {}, wrapper, 2);
+  ReleaseFileGuard release_on_exit(release);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+
+  const auto barrier_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (std::distance(fs::directory_iterator(started),
+                       fs::directory_iterator{}) < 2 &&
+         std::chrono::steady_clock::now() < barrier_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_EQ(
+      std::distance(fs::directory_iterator(started), fs::directory_iterator{}),
+      2);
+  ASSERT_EQ(fs::file_size(counter), 3u); // Listing plus the two held workers.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_EQ(fs::file_size(counter),
+            3u); // The third extraction is still queued.
+  std::ofstream(release) << "continue\n";
+
+  ProjectIndexRequest project_request;
+  project_request.set_project_root(project.string());
+  const auto completion_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  do {
+    grpc::ServerContext status_context;
+    ASSERT_TRUE(
+        service
+            .GetProjectIndexStatus(&status_context, &project_request, &status)
+            .ok());
+    if (status.state() == INDEX_STATE_COMPLETE ||
+        status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  } while (std::chrono::steady_clock::now() < completion_deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_EQ(fs::file_size(counter), 4u);
+  EXPECT_EQ(status.translation_units_total(), 3u);
+  EXPECT_EQ(status.translation_units_completed(), 3u);
+  EXPECT_EQ(status.state(), INDEX_STATE_COMPLETE);
+}
+
+TEST_F(ProjectIndexServiceTest, CancelReapsEveryParallelExtractionWorker) {
+  const auto pids = root / "worker-pids";
+  const auto counter = root / "worker-starts";
+  const auto lock = root / "worker-lock";
+  const auto overlap = root / "worker-overlap";
+  const auto wrapper =
+      worker_wrapper_with_lock(counter, lock, overlap, pids, "sleep 4\n");
+  IndexServiceAdapter service(storage, {}, wrapper, 3);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+
+  const auto launch_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while ((!fs::exists(overlap) || !fs::exists(counter) ||
+          fs::file_size(counter) < 4) &&
+         std::chrono::steady_clock::now() < launch_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_TRUE(fs::exists(overlap));
+  const auto read_pids = [&] {
+    std::ifstream pid_input(pids);
+    std::vector<long> worker_pids;
+    long pid = 0;
+    while (pid_input >> pid)
+      worker_pids.push_back(pid);
+    return worker_pids;
+  };
+  ASSERT_EQ(fs::file_size(counter), 4u); // Listing plus all three workers.
+  auto worker_pids = read_pids();
+  ASSERT_EQ(worker_pids.size(), 4u);
+
+  ProjectIndexRequest control;
+  control.set_project_root(project.string());
+  grpc::ServerContext cancel_context;
+  ASSERT_TRUE(
+      service.CancelProjectIndex(&cancel_context, &control, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_CANCELLED);
+  worker_pids = read_pids();
+  ASSERT_EQ(worker_pids.size(), 4u);
+  const auto reap_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  const auto any_worker_alive = [&] {
+    return std::any_of(worker_pids.begin(), worker_pids.end(), [](long value) {
+      return ::kill(static_cast<pid_t>(value), 0) == 0;
+    });
+  };
+  while (any_worker_alive() && std::chrono::steady_clock::now() < reap_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  EXPECT_FALSE(any_worker_alive());
+  EXPECT_EQ(fs::file_size(counter), 4u);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       RapidPauseResumeDiscardsResultsFromPriorGeneration) {
+  const auto counter = root / "worker-starts";
+  const auto wrapper = worker_wrapper(counter, "sleep 0.3\n");
+  IndexServiceAdapter service(storage, {}, wrapper, 2);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+
+  const auto launch_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while ((!fs::exists(counter) || fs::file_size(counter) < 2) &&
+         std::chrono::steady_clock::now() < launch_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_TRUE(fs::exists(counter));
+  ASSERT_GE(fs::file_size(counter), 2u);
+
+  ProjectIndexRequest control;
+  control.set_project_root(project.string());
+  grpc::ServerContext pause_context;
+  ASSERT_TRUE(
+      service.PauseProjectIndex(&pause_context, &control, &status).ok());
+  write("one.cpp", "int newestOnly(){return 7;}\n");
+  grpc::ServerContext resume_context;
+  ASSERT_TRUE(
+      service.ResumeProjectIndex(&resume_context, &control, &status).ok());
+
+  const auto completion_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  do {
+    grpc::ServerContext status_context;
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&status_context, &control, &status).ok());
+    if (status.state() == INDEX_STATE_COMPLETE ||
+        status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  } while (std::chrono::steady_clock::now() < completion_deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_GT(find(service, "newestOnly", false).symbols_size(), 0);
 }
 
 TEST_F(ProjectIndexServiceTest,

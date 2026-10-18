@@ -1,6 +1,7 @@
 #pragma once
 
 #include "index/v1/index_service.grpc.pb.h"
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -13,7 +14,8 @@ class IndexServiceAdapter final : public ctk::index::v1::IndexService::Service {
 public:
   explicit IndexServiceAdapter(std::filesystem::path storage_root,
                                std::function<bool()> foreground_busy = {},
-                               std::filesystem::path worker_executable = {});
+                               std::filesystem::path worker_executable = {},
+                               std::size_t max_workers = 0);
   ~IndexServiceAdapter() override;
   grpc::Status
   StartProjectIndex(grpc::ServerContext *,

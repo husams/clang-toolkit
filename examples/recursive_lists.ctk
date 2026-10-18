@@ -1,4 +1,4 @@
-// Recognized accumulator functions compile to direct indexed Python loops.
+// Recognized accumulator functions compile to chunked plain Python loops.
 let map_into = {
     ([], f, out) out
     (h : t, f, out) {
@@ -33,4 +33,7 @@ print filter_list(xs, (x) x % 2 == 0) | json
 print reverse_list(xs) | json
 print xs | json
 let large = range(1000)
-print "Large counts: {map_list(large, (x) x * 2).length}, {filter_list(large, (x) x % 2 == 0).length}, {reverse_list(large).length}"
+let large_mapped = map_list(large, (x) x * 2)
+let large_filtered = filter_list(large, (x) x % 2 == 0)
+let large_reversed = reverse_list(large)
+print "Large counts: {large_mapped.length}, {large_filtered.length}, {large_reversed.length}"
