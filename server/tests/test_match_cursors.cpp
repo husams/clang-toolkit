@@ -600,6 +600,51 @@ TEST_F(MatchCursors, StreamUsesPerEventBudgetWhileUnaryKeepsAggregateLimit) {
   EXPECT_EQ(streamed.response.results_size(), 48);
 }
 
+TEST_F(MatchCursors, StreamingStopsAtMemoryBudgetBeforeCollectingAllRows) {
+  constexpr std::size_t count = 2000;
+  std::ofstream source(directory.path() / "fixture.cc");
+  source << "namespace Limited {\n";
+  for (std::size_t index = 0; index < count; ++index)
+    source << "int item_" << index << ";\n";
+  source << "}\n";
+  source.close();
+  const auto baseline =
+      run(file("namespaceDecl(hasName(\"Limited\")).bind(\"ns\")"));
+  ASSERT_EQ(baseline.code, MatchCode::Ok) << baseline.message;
+  CursorSettings settings;
+  settings.max_memory_bytes =
+      controller->server_status().retained_memory_bytes() + 8192;
+  controller = std::make_unique<MatchController>(settings);
+  const auto root =
+      run(file("namespaceDecl(hasName(\"Limited\")).bind(\"ns\")"));
+  ASSERT_EQ(root.code, MatchCode::Ok) << root.message;
+  for (const bool navigate : {false, true}) {
+    auto request = navigate
+                       ? navigation(root.response, "ns", NAVIGATION_AXIS_CHILDREN)
+                       : binding(root.response, "ns", "varDecl()");
+    request.set_preserve_source(true);
+    std::size_t rows = 0;
+    bool completed = false;
+    const auto result =
+        stream(request, [&](const MatchStreamEvent &event, std::string &) {
+          rows += event.has_row();
+          completed |= event.has_completed();
+          return MatchCode::Ok;
+        });
+    EXPECT_EQ(result.code, MatchCode::ResourceExhausted) << result.message;
+    EXPECT_NE(result.message.find("memory"), std::string::npos);
+    EXPECT_GT(rows, 0U);
+    EXPECT_LT(rows, count);
+    EXPECT_FALSE(completed);
+    EXPECT_TRUE(result.response.session_id().empty());
+    EXPECT_EQ(controller->list_sessions("owner").sessions_size(), 1);
+    const auto recovered =
+        fork(binding(root.response, "ns", "varDecl(hasName(\"absent\"))"));
+    ASSERT_EQ(recovered.code, MatchCode::Ok) << recovered.message;
+    controller->close("owner", recovered.response.session_id());
+  }
+}
+
 TEST_F(MatchCursors, LegacyUnaryKeepsFullRowsAndContinuesFromThinRetention) {
   const auto first = run(file("functionDecl(hasName(\"alpha\")).bind(\"f\")"));
   ASSERT_EQ(first.code, MatchCode::Ok) << first.message;

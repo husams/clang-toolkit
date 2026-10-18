@@ -2093,3 +2093,26 @@ The original remote source remains inaccessible. Local validation uses LLVM's
 SemaDecl.cpp and a source with 100,005 actual AST children.
 
 Focused evidence: vscode/artifacts/validation/unlimited-counts-20261018/.
+
+### PR integration review
+
+Integrated current main without conflicts. Independent review found that a
+streamed match could retain all native rows before commit-time memory admission.
+Collection now checks the configured cursor memory budget before delivering each
+prospective row, including the snapshot, response metadata, native bindings and
+navigation parent maps. Aggregate cursor admission remains authoritative at
+commit. Parent-map accounting is incremental, avoiding a quadratic wide-page
+scan. The new regression first reproduced all 2,000 rows being emitted before
+rejection for both matching and navigation; it requires early memory rejection,
+no completion/cursor publication and successful reuse of the original source.
+
+After integration, 126 extension unit tests, 28 console adapter tests and 309
+focused SDK/callgraph/list-loop Python checks pass. All 66 native cursor,
+publication and scoped-script checks pass across the main run and an isolated
+writable-storage retry of the eight publication checks (the sandbox initially
+denied their default compilation-index database). This includes the new early
+memory rejection and the 100,005-row match/navigation cases. The final build
+and VSIX packaging pass. Real VS Code again verifies the identical retained
+node ID and parseCount=1 on LLVM SemaDecl.cpp, and closes its test processes.
+Independent review reports no remaining blocker. Earlier broad-suite timing
+failures remain recorded above; they are not claimed resolved by these fixes.

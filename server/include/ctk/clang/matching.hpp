@@ -2,6 +2,7 @@
 
 #include "ctk/cache/snapshot.hpp"
 #include "match/v1/match_service.pb.h"
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -21,6 +22,8 @@ enum class MatchCode {
 };
 struct MatchLimits {
   std::size_t max_bytes{2147483648ULL};
+  // Derived from the configured cursor memory budget by the controller.
+  std::uint64_t max_memory_bytes{2147483648ULL};
 };
 // Native wrapper values remain opaque; callers independently pin the snapshot.
 class NativeBindingState {

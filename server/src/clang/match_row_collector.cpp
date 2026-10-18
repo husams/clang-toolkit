@@ -27,7 +27,7 @@ RowCollector::RowCollector(MatchExecution &result, CapturedBindingState &state,
                            const MatchLimits &limits,
                            const IMatchBackend::RowSink *sink)
     : result_(result), state_(state), checkpoint_(checkpoint), limits_(limits),
-      sink_(sink) {}
+      sink_(sink), memory_bytes_(state.snapshot()->estimated_bytes) {}
 void RowCollector::run(const MatchFinder::MatchResult &found) {
   CapturedBindingState::Row nodes;
   for (const auto &[name, node] : found.Nodes.getMap())
@@ -88,15 +88,8 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
         "client.grpc.max_receive_message_bytes; no cursor state committed";
     return;
   }
+  MatchResult metadata;
   if (sink_) {
-    std::string message;
-    const auto code = (*sink_)(row, message);
-    if (code != MatchCode::Ok) {
-      result_.code = code;
-      result_.message = std::move(message);
-      return;
-    }
-    MatchResult metadata;
     if (row.has_source_match_index())
       metadata.set_source_match_index(row.source_match_index());
     for (const auto &[name, full] : row.bindings()) {
@@ -105,12 +98,38 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
         thin.add_supported_scopes(
             static_cast<ctk::match::v1::BindingMatchScope>(scope));
     }
+  }
+  // Streaming limits individual wire events, but still retains native rows.
+  // Reject the prospective row before delivery instead of waiting for commit.
+  auto memory = memory_bytes_;
+  for (const auto cost : {
+           (sink_ ? metadata : row).SpaceUsedLong(),
+           CapturedBindingState::row_bytes(native),
+           CapturedBindingState::row_bytes(parents),
+           state_.rows.empty() ? sizeof(CapturedBindingState) : std::size_t{0}}) {
+    if (memory > limits_.max_memory_bytes ||
+        cost > limits_.max_memory_bytes - memory) {
+      result_.code = MatchCode::ResourceExhausted;
+      result_.message =
+          "match collection memory limit exceeded; no cursor state committed";
+      return;
+    }
+    memory += cost;
+  }
+  if (sink_) {
+    std::string message;
+    const auto code = (*sink_)(row, message);
+    if (code != MatchCode::Ok) {
+      result_.code = code;
+      result_.message = std::move(message);
+      return;
+    }
     result_.rows.push_back(std::move(metadata));
   } else {
     bytes_ += size;
     result_.rows.push_back(std::move(row));
   }
-  state_.append(std::move(native));
-  state_.navigation_parents.push_back(std::move(parents));
+  memory_bytes_ = memory;
+  state_.append(std::move(native), std::move(parents));
 }
 } // namespace ctk::clang_layer

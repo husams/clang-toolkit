@@ -566,6 +566,10 @@ MatchController::MatchController(
       settings.idle_ttl.count() <= 0 ||
       settings.results.max_bytes == 0)
     throw std::invalid_argument("cursor limits and TTL must be positive");
+  settings.results.max_memory_bytes =
+      settings.max_memory_bytes > sizeof(detail::ResultCursor)
+          ? settings.max_memory_bytes - sizeof(detail::ResultCursor)
+          : 0;
 #ifdef CTK_WITH_CLANG
   if (!backend)
     backend = ctk::clang_layer::make_match_backend();
