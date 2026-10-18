@@ -369,6 +369,53 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       await host.reset();
       await expect(host.inspect(settings, baseId!)).rejects.toThrow(/expired/);
     }, 60000);
+    it("loads large file and namespace ASTs with included header declarations", async () => {
+      const host = service();
+      const source = resolve(directory, "large.cpp");
+      const header = resolve(directory, "large.h");
+      const largeSettings = settings;
+      const declarations = (prefix: string, count: number) =>
+        Array.from({ length: count }, (_, i) => `int ${prefix}${i};`).join(
+          "\n",
+        );
+      await writeFile(header, declarations("header_", 2000));
+      const text = `#include "large.h"\n${declarations("file_", 10001)}\nnamespace wide {\n${declarations("member_", 1001)}\n}\n`;
+      await writeFile(source, text);
+      const root = await host.inspect(largeSettings, {
+        translationUnit: source,
+      });
+      expect(root.children).toHaveLength(10002);
+      expect(root.children.some((node) => node.name === "file_10000")).toBe(
+        true,
+      );
+      expect(
+        root.children.some((node) => node.name.startsWith("header_")),
+      ).toBe(false);
+      const namespace = root.children.find((node) => node.name === "wide");
+      const page = await host.inspect(largeSettings, namespace!.id);
+      expect(page.children).toHaveLength(1001);
+      const last = page.children.find(
+        (node) => node.name === "wide::member_1000",
+      );
+      expect(last).toBeDefined();
+      const selected = await host.inspect(largeSettings, last!.id);
+      expect(selected.node.id).toBe(last!.id);
+      expect(selected.parseCount).toBe(1);
+      expect(
+        (await host.inspect(largeSettings, root.node.id)).children,
+      ).toEqual(root.children);
+      const headerText = await readFile(header, "utf8");
+      const offset = headerText.indexOf("header_1999");
+      const headerNode = await host.selectSource(largeSettings, root.node.id, {
+        file: header,
+        start: offset,
+        end: offset,
+      });
+      expect(headerNode?.node.name).toBe("header_1999");
+      expect(headerNode?.path?.[0]?.children).toHaveLength(12002);
+      expect(headerNode?.parseCount).toBe(1);
+      await host.reset();
+    }, 240000);
     it("opens a file AST without running an action and fetches unvisited children lazily", async () => {
       const host = service();
       const root = await host.inspect(settings, { translationUnit: file });

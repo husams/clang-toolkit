@@ -1768,3 +1768,72 @@ Verification:
   preserved.
 
 Logs: `vscode/artifacts/validation/user-level-deploy-20261017/`.
+
+
+## 2026-10-17 — v0.2.37: large file AST loading
+
+The AST browser requested only 1,000 navigation candidates, including header
+candidates rejected later by the main-file matcher. The exact diagnostic fixture
+at /tmp/ctk-ast-limit-1001.cpp failed with "navigation node limit exceeded" before
+this change and loads all 1,001 declarations after it. The original user file was
+not supplied; the fixtures below are synthetic reproductions.
+
+Inspection and header source selection now use the SDK ceiling of 100,000
+candidates. Child-response validation accepts the same bound; native-handle
+retention and rendered-tree validation allow 200,000 nodes per context. Existing
+128-page inspection and source-selection depth/visit bounds remain. This is a
+bounded increase, not unlimited navigation. Initial file inspection has enough
+worker time for its parse, root lookup and child RPCs, each retaining its own
+configured deadline; the former single-RPC worker budget timed out on the larger
+regression fixture.
+
+Validation:
+
+- Regression failed before the fix with the original navigation error.
+- Live worker regression passes with normal 30-second RPC settings: 10,001 file
+  declarations, a namespace with 1,001 members and 2,000 header declarations.
+  Expansion, the final member's live handle, cached revisits and selection of
+  header_1999 all work without reparsing; the header-inclusive root has 12,002
+  children.
+- Full isolated VS Code host workflow passes, including automatic loading and
+  rendering of 1,001 source declarations plus 2,000 header declarations.
+- CTK_TEST_LARGE_AST_ONLY=1 pnpm test:host passes with default RPC settings:
+  all 10,001 declarations and 10,002 tree rows are actually rendered.
+- Extension: 116 unit tests, 20 console tests, 19 live integration tests,
+  type checks, changed-file lint, build and VSIX archive checks pass.
+- Python: 2,815 unit tests passed initially; the single compiled workspace TUI
+  traversal test timed out, then passed in isolation (2,816 cases covered).
+- C++: 433/440 passed initially. All seven storage cases pass on a combined
+  rerun with a fresh explicit CTK_STORAGE_ROOT (440 cases covered).
+- Python E2E: 207 cases covered across isolated runs. Five console timeout cases
+  passed on quiet retries; the last TCP traversal case passed with its unchanged
+  30-second budget (19.52 seconds for the complete test). The PCH case passed
+  with CTK_TEST_CLANG=/opt/homebrew/opt/llvm/bin/clang++, the server's compiler.
+  No unrelated test assertions or deadlines were changed. Coverage maps record
+  the completed prefixes and uncompleted cases when long groups were split.
+- Installed clang-toolkit.clang-toolkit-prototype@0.2.37 in the normal profile;
+  reload the user's VS Code window to activate it. Test windows closed cleanly.
+
+Logs: vscode/artifacts/validation/large-ast-20261017/.
+
+## 2026-10-18 — real LLVM source validation
+
+Tested the existing llvm-project checkout at revision be8255a29 using its
+build/compile_commands.json and clang/lib/Sema/SemaDecl.cpp (21,332 lines,
+859,393 bytes). No source or build configuration in that checkout was changed.
+
+- The extension's actual Python action host, with only its navigation bound
+  temporarily restored to 1,000 in a separate process, reproduces
+  "navigation node limit exceeded" (12.508 seconds).
+- The unchanged fixed action host loads 323 main-file declarations in 5.566
+  seconds with the default 30-second RPC deadline. Expanding the retained
+  lookupUnqualifiedTypeNameInBase function returns two children; parseCount
+  remains one. Header candidates explain why the old bound failed despite
+  fewer than 1,000 displayed declarations.
+- An isolated actual VS Code extension host opens the original LLVM source
+  and renders all 323 children, 324 tree rows, in 4.826 seconds. Assertions
+  check the exact source path, child count and rendered row count. The test
+  window and its processes close successfully.
+
+Focused scripts, results and host log:
+vscode/artifacts/validation/real-llvm-ast-20261018/.
