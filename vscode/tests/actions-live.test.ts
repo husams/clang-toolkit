@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Client } from "@clang-toolkit/sdk";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ActionService, type ActionSettings } from "../src/action-service.js";
 import { parseNodeAction, resolveArguments } from "../src/actions.js";
 import { astDisplay } from "../src/ast-model.js";
@@ -65,6 +65,16 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         timeoutMs: 30000,
         compileArguments: ["-std=c++20"],
       };
+    }, 20000);
+    afterEach(async () => {
+      // Release each test's native cursors before the next test uses the server.
+      for (const service of services.splice(0)) {
+        try {
+          await service.reset();
+        } finally {
+          service.dispose();
+        }
+      }
     }, 20000);
     afterAll(async () => {
       for (const service of services) service.dispose();
@@ -369,6 +379,143 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       await host.reset();
       await expect(host.inspect(settings, baseId!)).rejects.toThrow(/expired/);
     }, 60000);
+    it("follows member references to exact overloaded methods and fields in a header", async () => {
+      const host = service();
+      const source = resolve(directory, "member-references.cpp");
+      const header = resolve(directory, "member-references.hpp");
+      await writeFile(
+        header,
+        [
+          "namespace vendor { struct Base {",
+          "int value;",
+          "int getType() const { return value; }",
+          "int getType(int) const { return value; }",
+          "}; struct Other { int getType() const { return 0; } }; }",
+        ].join("\n"),
+      );
+      const text =
+        '#include "member-references.hpp"\nint read(const vendor::Base &Base) { return Base.getType() + Base.getType(1) + Base.value; }\n';
+      await writeFile(source, text);
+      const root = await host.inspect(settings, { translationUnit: source });
+      const references = [];
+      for (const [token, kind, line] of [
+        ["getType()", "CXXMethodDecl", 3],
+        ["getType(1)", "CXXMethodDecl", 4],
+        ["value;", "FieldDecl", 2],
+      ] as const) {
+        const offset = text.indexOf(token);
+        const selected = await host.selectSource(settings, root.node.id, {
+          file: source,
+          start: offset,
+          end: offset,
+        });
+        expect(astDisplay(selected!.node).kind).toBe("MemberExpr");
+        const reference = selected?.semantics?.referencedDeclaration;
+        expect(reference?.symbol).toBeTruthy();
+        const target = await host.inspect(settings, reference!.nodeId);
+        expect(astDisplay(target.node).kind).toBe(kind);
+        expect(target.node.file).toBe(await realpath(header));
+        expect(target.node.line).toBe(line);
+        expect(target.path?.at(-1)?.node.id).toBe(reference!.nodeId);
+        expect(target.path?.[0]?.node.id).toBe(root.node.id);
+        expect(target.parseCount).toBe(1);
+        references.push(reference!);
+      }
+      expect(references[0]!.symbol).not.toBe(references[1]!.symbol);
+      const refreshed = await service().inspect(settings, {
+        translationUnit: source,
+        reference: {
+          name: references[1]!.name,
+          symbol: references[1]!.symbol!,
+        },
+      });
+      expect(refreshed.node.line).toBe(4);
+      expect(refreshed.node.file).toBe(await realpath(header));
+    }, 90000);
+    it("follows a variable reference to its exact declaration through the file AST", async () => {
+      const host = service();
+      const source = resolve(directory, "references.cpp");
+      const text =
+        "int read() { int BaseRD = 1; { int BaseRD = 2; if (BaseRD) return BaseRD; } return BaseRD; }\n";
+      await writeFile(source, text);
+      const root = await host.inspect(settings, { translationUnit: source });
+      const offset = text.indexOf("BaseRD)");
+      const selected = await host.selectSource(settings, root.node.id, {
+        file: source,
+        start: offset,
+        end: offset,
+      });
+      expect(astDisplay(selected!.node).kind).toBe("DeclRefExpr");
+      const reference = selected?.semantics?.referencedDeclaration;
+      expect(reference?.name).toBe("BaseRD");
+      expect(reference?.symbol).toBeTruthy();
+      const declaration = await host.inspect(settings, reference!.nodeId);
+      expect(astDisplay(declaration.node).kind).toBe("VarDecl");
+      expect(declaration.node.column).toBe(text.indexOf("int BaseRD = 2") + 1);
+      expect(declaration.path?.at(-1)?.node.id).toBe(reference!.nodeId);
+      expect(declaration.path?.[0]?.node.id).toBe(root.node.id);
+      expect(declaration.parseCount).toBe(1);
+      const cached = await host.inspect(settings, selected!.node.id);
+      expect(cached.semantics?.referencedDeclaration).toEqual(reference);
+      // A refreshed context must resolve by native identity, including shadows.
+      const refreshed = await service().inspect(settings, {
+        translationUnit: source,
+        reference: { name: reference!.name, symbol: reference!.symbol! },
+      });
+      expect(refreshed.node.column).toBe(declaration.node.column);
+      expect(refreshed.path?.at(-1)?.node.id).toBe(refreshed.node.id);
+      await host.reset();
+      await expect(host.inspect(settings, reference!.nodeId)).rejects.toThrow(
+        /expired/,
+      );
+    }, 60000);
+    it("loads large file and namespace ASTs with included header declarations", async () => {
+      const host = service();
+      const source = resolve(directory, "large.cpp");
+      const header = resolve(directory, "large.h");
+      const largeSettings = settings;
+      const declarations = (prefix: string, count: number) =>
+        Array.from({ length: count }, (_, i) => `int ${prefix}${i};`).join(
+          "\n",
+        );
+      await writeFile(header, declarations("header_", 2000));
+      const text = `#include "large.h"\n${declarations("file_", 10001)}\nnamespace wide {\n${declarations("member_", 1001)}\n}\n`;
+      await writeFile(source, text);
+      const root = await host.inspect(largeSettings, {
+        translationUnit: source,
+      });
+      expect(root.children).toHaveLength(10002);
+      expect(root.children.some((node) => node.name === "file_10000")).toBe(
+        true,
+      );
+      expect(
+        root.children.some((node) => node.name.startsWith("header_")),
+      ).toBe(false);
+      const namespace = root.children.find((node) => node.name === "wide");
+      const page = await host.inspect(largeSettings, namespace!.id);
+      expect(page.children).toHaveLength(1001);
+      const last = page.children.find(
+        (node) => node.name === "wide::member_1000",
+      );
+      expect(last).toBeDefined();
+      const selected = await host.inspect(largeSettings, last!.id);
+      expect(selected.node.id).toBe(last!.id);
+      expect(selected.parseCount).toBe(1);
+      expect(
+        (await host.inspect(largeSettings, root.node.id)).children,
+      ).toEqual(root.children);
+      const headerText = await readFile(header, "utf8");
+      const offset = headerText.indexOf("header_1999");
+      const headerNode = await host.selectSource(largeSettings, root.node.id, {
+        file: header,
+        start: offset,
+        end: offset,
+      });
+      expect(headerNode?.node.name).toBe("header_1999");
+      expect(headerNode?.path?.[0]?.children).toHaveLength(12002);
+      expect(headerNode?.parseCount).toBe(1);
+      await host.reset();
+    }, 240000);
     it("opens a file AST without running an action and fetches unvisited children lazily", async () => {
       const host = service();
       const root = await host.inspect(settings, { translationUnit: file });

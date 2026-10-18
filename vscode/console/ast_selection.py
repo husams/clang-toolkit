@@ -6,6 +6,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from clang_toolkit import Matcher
+from ast_limits import MAX_AST_CHILDREN
 
 if TYPE_CHECKING:
     from ast_inspector import AstInspector
@@ -34,11 +35,12 @@ class AstSelection:
             # Header declarations remain real TU children, fetched only when needed.
             target, _, _ = host.check_input(root_id)
             query = Matcher('decl', Matcher('isExpansionInFileMatching', re.escape(file) + '$'))
-            rows = host.client.peek(target, axis='children', query=query, max_nodes=1000)
+            rows = host.client.peek(
+                target, axis='children', query=query, max_nodes=MAX_AST_CHILDREN)
             pending = {}
             children = []
             try:
-                if len(page['children']) + len(rows) > 1000:
+                if len(page['children']) + len(rows) > MAX_AST_CHILDREN:
                     raise ValueError('AST child limit reached; refresh or narrow the file context.')
                 for row in rows:
                     existing = len(host.nodes)
@@ -137,16 +139,16 @@ class AstSelection:
         target, _, _ = host.check_input(identifier)
         file = target.value.location.file
         if not file:
-            raise ValueError('This base declaration has no source location.')
+            raise ValueError('This declaration has no source location.')
         file = str(Path(file).resolve())
         span = self.span(target.value, file)
         if span is None:
-            raise ValueError('This base declaration has no usable source range.')
+            raise ValueError('This declaration has no usable source range.')
         page = self.locate(dict(settings=host.settings, nodeId=identifier,
                                 expectedId=identifier,
                                 selection=dict(file=file, start=span[0], end=span[1])))
         if page is None:
-            raise ValueError('Could not reveal the exact base declaration in the file AST.')
+            raise ValueError('Could not reveal the exact declaration in the file AST.')
         return page
 
     def clear(self) -> None:

@@ -64,6 +64,18 @@ async function open() {
   worker.reply({ inspection });
   await pending;
 }
+it("allows initial file inspection to finish its parse, root lookup and child RPCs", async () => {
+  const pending = host
+    .inspect(settings, { translationUnit: "/large.cpp" })
+    .then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+  await vi.advanceTimersByTimeAsync(45000);
+  expect(worker.kill).not.toHaveBeenCalled();
+  worker.reply({ inspection });
+  expect(await pending).toEqual({ value: inspection });
+});
 it("renews retained sessions each minute and stops when disposed", async () => {
   await open();
   await vi.advanceTimersByTimeAsync(60000);

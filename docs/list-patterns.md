@@ -52,10 +52,10 @@ The exact pure numeric right-fold form shown for `total` compiles to an indexed
 loop. It uses linear time and constant additional space, with no recursive
 Python frames or list-tail copies. Arithmetic still runs from right to left,
 preserving floating-point order and checked integer overflow. Execution steps
-and cancellation checks remain enforced. Other functions retain the existing
-call-depth limit; this optimization does not apply to bodies with handlers,
-side effects, extra clauses or unproven recursion. Ordinary escaping tails
-remain independent lists, so arbitrary recursive functions may still copy them.
+and cancellation checks remain enforced. Other direct self-recursive list
+functions can use generated continuation loops and internal indexed tails; see
+[recursive list functions](recursive-lists.md) for supported forms and semantic
+fallbacks. Escaping tails remain independent shallow lists.
 
 Run [the complete example](../examples/list_patterns.ctk) in the console. Paste
 the whole script and press Ctrl+J; Ctrl+Enter or macOS Option+Enter inserts lines

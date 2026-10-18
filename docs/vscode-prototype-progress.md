@@ -1768,3 +1768,139 @@ Verification:
   preserved.
 
 Logs: `vscode/artifacts/validation/user-level-deploy-20261017/`.
+
+
+## 2026-10-17 — v0.2.37: large file AST loading
+
+The AST browser requested only 1,000 navigation candidates, including header
+candidates rejected later by the main-file matcher. The exact diagnostic fixture
+at /tmp/ctk-ast-limit-1001.cpp failed with "navigation node limit exceeded" before
+this change and loads all 1,001 declarations after it. The original user file was
+not supplied; the fixtures below are synthetic reproductions.
+
+Inspection and header source selection now use the SDK ceiling of 100,000
+candidates. Child-response validation accepts the same bound; native-handle
+retention and rendered-tree validation allow 200,000 nodes per context. Existing
+128-page inspection and source-selection depth/visit bounds remain. This is a
+bounded increase, not unlimited navigation. Initial file inspection has enough
+worker time for its parse, root lookup and child RPCs, each retaining its own
+configured deadline; the former single-RPC worker budget timed out on the larger
+regression fixture.
+
+Validation:
+
+- Regression failed before the fix with the original navigation error.
+- Live worker regression passes with normal 30-second RPC settings: 10,001 file
+  declarations, a namespace with 1,001 members and 2,000 header declarations.
+  Expansion, the final member's live handle, cached revisits and selection of
+  header_1999 all work without reparsing; the header-inclusive root has 12,002
+  children.
+- Full isolated VS Code host workflow passes, including automatic loading and
+  rendering of 1,001 source declarations plus 2,000 header declarations.
+- CTK_TEST_LARGE_AST_ONLY=1 pnpm test:host passes with default RPC settings:
+  all 10,001 declarations and 10,002 tree rows are actually rendered.
+- Extension: 116 unit tests, 20 console tests, 19 live integration tests,
+  type checks, changed-file lint, build and VSIX archive checks pass.
+- Python: 2,815 unit tests passed initially; the single compiled workspace TUI
+  traversal test timed out, then passed in isolation (2,816 cases covered).
+- C++: 433/440 passed initially. All seven storage cases pass on a combined
+  rerun with a fresh explicit CTK_STORAGE_ROOT (440 cases covered).
+- Python E2E: 207 cases covered across isolated runs. Five console timeout cases
+  passed on quiet retries; the last TCP traversal case passed with its unchanged
+  30-second budget (19.52 seconds for the complete test). The PCH case passed
+  with CTK_TEST_CLANG=/opt/homebrew/opt/llvm/bin/clang++, the server's compiler.
+  No unrelated test assertions or deadlines were changed. Coverage maps record
+  the completed prefixes and uncompleted cases when long groups were split.
+- Installed clang-toolkit.clang-toolkit-prototype@0.2.37 in the normal profile;
+  reload the user's VS Code window to activate it. Test windows closed cleanly.
+
+Logs: vscode/artifacts/validation/large-ast-20261017/.
+
+## 2026-10-18 — real LLVM source validation
+
+Tested the existing llvm-project checkout at revision be8255a29 using its
+build/compile_commands.json and clang/lib/Sema/SemaDecl.cpp (21,332 lines,
+859,393 bytes). No source or build configuration in that checkout was changed.
+
+- The extension's actual Python action host, with only its navigation bound
+  temporarily restored to 1,000 in a separate process, reproduces
+  "navigation node limit exceeded" (12.508 seconds).
+- The unchanged fixed action host loads 323 main-file declarations in 5.566
+  seconds with the default 30-second RPC deadline. Expanding the retained
+  lookupUnqualifiedTypeNameInBase function returns two children; parseCount
+  remains one. Header candidates explain why the old bound failed despite
+  fewer than 1,000 displayed declarations.
+- An isolated actual VS Code extension host opens the original LLVM source
+  and renders all 323 children, 324 tree rows, in 4.826 seconds. Assertions
+  check the exact source path, child count and rendered row count. The test
+  window and its processes close successfully.
+
+Focused scripts, results and host log:
+vscode/artifacts/validation/real-llvm-ast-20261018/.
+
+## 2026-10-18 — v0.2.38: reference declaration navigation
+
+DeclRefExpr inspection previously omitted a declaration link. Inspection now
+follows Clang's native `to()` edge with root-only candidate scope, retains the
+exact declaration and exposes it in Properties and AST. Declaration IDs are
+reused when the lexical tree reaches the same node, so navigation expands the
+real ancestry and preserves live handles. Refresh resolves links by native
+symbol identity; ambiguous or missing declarations fail explicitly. Existing
+base-class navigation remains supported.
+
+Validation:
+
+- A live shadowed-variable regression failed before the change with an absent
+  referencedDeclaration. It now selects the inner BaseRD declaration, reuses
+  its exact tree ID, preserves parseCount=1, resolves its identity in a fresh
+  context and rejects the expired handle after reset.
+- 116 extension unit tests, 20 console tests and 20 live integration tests pass
+  (one opt-in personal-library live test remains skipped). Type checking,
+  changed-file lint, Python lint, build and VSIX packaging pass.
+- CTK_TEST_REFERENCE_ONLY=1 pnpm test:host passes in actual isolated VS Code:
+  cursor selection updates Properties, the declaration link selects the exact
+  shadowed VarDecl, the tree selects its retained ID, and source highlighting
+  selects the declaration. Test assertions normalize macOS filesystem aliases
+  and inspect the active editor returned by source navigation.
+- The original LLVM SemaDecl.cpp reference at line 191 resolves to BaseRD's
+  VarDecl at line 190 through seven native ancestry pages without reparsing.
+- Installed v0.2.38 in the normal VS Code profile and verified installed payloads
+  against the VSIX. After reloading the user's window, clicking BaseRD selects
+  DeclRefExpr and Properties shows Referenced declaration. Clicking its BaseRD
+  link opens VarDecl Properties at 190:5 and highlights the 66-character
+  declaration in the original LLVM editor. No LLVM source changes were made.
+
+Focused evidence: vscode/artifacts/validation/reference-declaration-20261018/.
+
+## 2026-10-18 — v0.2.39: member declarations in headers
+
+MemberExpr inspection now follows Clang's native `member()` edge using the
+same retained-declaration navigation as DeclRefExpr. Properties and AST expose
+the declaration link for methods and fields, preserving exact overload identity
+and expanding the header's lexical ancestry without reparsing.
+
+Validation:
+
+- The new live regression fails before the fix with no declaration link. It
+  now follows two overloaded methods and a field to exact header declarations,
+  distinguishes an unrelated class's same-named method, checks native tree IDs
+  and parseCount=1, and resolves an overload in a fresh context.
+- 116 extension unit tests and 20 console tests pass. All 21 live integration
+  tests pass on a serial run (one opt-in personal-library test is skipped).
+  The first combined run accumulated earlier tests' native cursors until suite
+  teardown and exhausted the server limit; tests now reset and dispose their
+  services after each case. A concurrent console-helper timeout also passes
+  the serial run with its unchanged deadline. Native resource limits are unchanged.
+- CTK_TEST_MEMBER_REFERENCE_ONLY=1 pnpm test:host passes in isolated actual
+  VS Code: editor selection produces MemberExpr Properties, the declaration
+  link selects the exact overloaded CXXMethodDecl in its header, the tree
+  selects the retained ID and the editor highlights its source.
+- In LLVM SemaDecl.cpp, getType() at line 190 resolves to
+  clang::CXXBaseSpecifier::getType in clang/include/clang/AST/DeclCXX.h:249.
+  The native probe reports four ancestry pages and parseCount=1.
+- Installed v0.2.39 and reloaded the user's VS Code window. Following the
+  MemberExpr Properties link opens DeclCXX.h, updates Properties to CXXMethodDecl
+  with signature `QualType clang::CXXBaseSpecifier::getType() const`, and
+  highlights its 87-character source range on lines 249–251. LLVM files are unchanged.
+
+Focused evidence: vscode/artifacts/validation/member-declaration-20261018/.

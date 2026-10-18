@@ -44,7 +44,7 @@ def format_pattern(pattern: Any) -> str:
 
 
 @lru_cache(maxsize=256)
-def compile_matcher(patterns: tuple[Any, ...]) -> Callable[[list[Any]], dict[str, Any] | None]:
+def compile_matcher(patterns: tuple[Any, ...], internal: bool = False) -> Callable[[list[Any]], dict[str, Any] | None]:
     """Check every shape before binding; only successful, named tails copy."""
     checks: list[ast.stmt] = []
     bindings: dict[str, ast.expr] = {}
@@ -55,17 +55,20 @@ def compile_matcher(patterns: tuple[Any, ...]) -> Callable[[list[Any]], dict[str
     def check(condition: ast.expr) -> None:
         checks.append(ast.If(ast.UnaryOp(ast.Not(), condition), [ast.Return(ast.Constant(None))], []))
 
+    def safe(value: ast.expr) -> ast.expr:
+        return call("_pattern_value", value, ast.Name("arena", ast.Load())) if internal else value
+
     def index(value: ast.expr, ordinal: int) -> ast.expr:
-        return ast.Subscript(value, ast.Constant(ordinal), ast.Load())
+        return ast.Subscript(safe(value), ast.Constant(ordinal), ast.Load())
 
     def emit(pattern: Any, value: ast.expr, offset: int = 0, region: bool = False) -> None:
         if isinstance(pattern, str):
             if pattern != "_":
-                bindings[pattern] = ast.Subscript(value, ast.Slice(ast.Constant(offset), None, None), ast.Load()) if region else value
+                bindings[pattern] = (call("_tail", value, ast.Constant(offset), ast.Name("arena", ast.Load())) if internal else ast.Subscript(value, ast.Slice(ast.Constant(offset), None, None), ast.Load())) if region else value
             return
         if isinstance(pattern, ConsPattern):
-            check(call("isinstance", value, ast.Name("list", ast.Load())))
-            check(ast.Compare(call("len", value), [ast.Gt()], [ast.Constant(offset)]))
+            check(call("_is_list", safe(value)) if internal else call("isinstance", value, ast.Name("list", ast.Load())))
+            check(ast.Compare(call("len", safe(value)), [ast.Gt()], [ast.Constant(offset)]))
             emit(pattern.head, index(value, offset))
             emit(pattern.tail, value, offset + 1, True)
             return
@@ -74,8 +77,8 @@ def compile_matcher(patterns: tuple[Any, ...]) -> Callable[[list[Any]], dict[str
         if region and not is_list:
             check(ast.Constant(False))
             return
-        check(call("isinstance", value, ast.Name("list" if is_list else "tuple", ast.Load())))
-        check(ast.Compare(call("len", value), [ast.Eq()], [ast.Constant(offset + len(elements))]))
+        check(call("_is_list", safe(value)) if internal and is_list else call("isinstance", safe(value), ast.Name("list" if is_list else "tuple", ast.Load())))
+        check(ast.Compare(call("len", safe(value)), [ast.Eq()], [ast.Constant(offset + len(elements))]))
         for ordinal, item in enumerate(elements, offset):
             emit(item, index(value, ordinal))
 
@@ -84,9 +87,12 @@ def compile_matcher(patterns: tuple[Any, ...]) -> Callable[[list[Any]], dict[str
         emit(pattern, index(ast.Name("values", ast.Load()), ordinal))
     body = [*checks, ast.Return(ast.Dict([ast.Constant(name) for name in bindings], list(bindings.values())))]
     module = ast.fix_missing_locations(ast.Module([
-        ast.FunctionDef("match", ast.arguments([], [ast.arg("values")], None, [], [], None, []), body, [])
+        ast.FunctionDef("match", ast.arguments([], [ast.arg(name) for name in (("values", "arena") if internal else ("values",))], None, [], [], None, []), body, [])
     ], []))
     namespace = {"__builtins__": {}, "len": len, "isinstance": isinstance, "list": list, "tuple": tuple}
+    if internal:
+        from .list_recursion import _is_list, _pattern_value, _tail
+        namespace.update(_is_list=_is_list, _pattern_value=_pattern_value, _tail=_tail)
     exec(compile(module, "<ctk-pattern>", "exec"), namespace)
     function = namespace["match"]
     function.__ctk_source__ = ast.unparse(module)

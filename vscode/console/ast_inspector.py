@@ -10,7 +10,8 @@ from clang_toolkit import Matcher
 
 from run_service import Results
 from ast_selection import AstSelection
-from ast_semantics import inheritance, parameters
+from ast_semantics import inheritance, parameters, reference_declaration
+from ast_limits import MAX_AST_CHILDREN, MAX_RETAINED_NODES
 
 if TYPE_CHECKING:
     from action_service import ActionHost
@@ -32,8 +33,7 @@ class AstInspector:
         value = target.value
         kind = value.node.WhichOneof('payload')
         key = None
-        if kind in ('cxx_record_decl', 'class_template_specialization_decl',
-                    'class_template_partial_specialization_decl'):
+        if kind and kind.endswith('_decl'):
             key = (file, value.symbol_identity, value.node.SerializeToString(deterministic=True),
                    value.range.SerializeToString(deterministic=True))
             previous = self.declarations.get(key)
@@ -45,7 +45,7 @@ class AstInspector:
             previous = self.declarations.get(key)
             if previous in self.host.nodes:
                 return previous
-        if len(self.host.nodes) >= 10000:
+        if len(self.host.nodes) >= MAX_RETAINED_NODES:
             raise ValueError('AST retention limit reached; refresh analysis.')
         identifier = str(uuid4())
         self.host.nodes[identifier] = (target, file, label)
@@ -136,10 +136,11 @@ class AstInspector:
             return self.selection.related(identifier)
         if identifier in self.cache:
             return self.cache[identifier]
-        if len(self.cache) >= 128 or len(self.host.nodes) >= 10000:
+        if len(self.cache) >= 128 or len(self.host.nodes) >= MAX_RETAINED_NODES:
             raise ValueError('AST inspection limit reached; refresh analysis to release inspected nodes.')
         query = 'decl(isExpansionInMainFile())' if identifier == self.file_nodes.get(file) else None
-        rows = self.host.client.peek(target, axis='children', query=query, max_nodes=1000)
+        rows = self.host.client.peek(
+            target, axis='children', query=query, max_nodes=MAX_AST_CHILDREN)
         pending: dict[str, tuple[Any, str, str]] = {}
         children = []
         try:
@@ -166,6 +167,8 @@ class AstInspector:
                      for key in ('functionDecl', 'cxxMethodDecl', 'cxxConstructorDecl',
                                  'cxxDestructorDecl', 'cxxConversionDecl', 'cxxDeductionGuideDecl')):
                 response['semantics'] = dict(parameters=parameters(self.host, target))
+            if target.value.node.WhichOneof('payload') in ('decl_ref_expr', 'member_expr'):
+                self.references[identifier] = reference_declaration(self, target, file)
             if identifier in self.references:
                 declaration = self.references[identifier]
                 response.setdefault('semantics', {})['referencedDeclaration'] = dict(
@@ -181,19 +184,20 @@ class AstInspector:
         return response
 
     def resolve_reference(self, request: dict[str, Any]) -> str:
-        """Resolve an old base link to an exact declaration in a fresh buffer AST."""
+        """Resolve a link by native symbol identity in a fresh buffer AST."""
         reference = request['reference']
         root_id = self.host.root(request['translationUnit'])
         tree, file, _ = self.host.check_input(root_id)
-        query = Matcher('cxxRecordDecl', Matcher('hasName', reference['name']),
-                        Matcher('isDefinition')).bind('base')
+        query = Matcher('namedDecl', Matcher('hasName', reference['name']),
+                        Matcher('anyOf', Matcher('unless', Matcher('cxxRecordDecl')),
+                                Matcher('cxxRecordDecl', Matcher('isDefinition')))).bind('base')
         rows = self.host.client.match_in(query, tree)
         try:
             matches = [row.binding('base') for row in rows
                        if row.bindings['base'].symbol_identity == reference['symbol']]
             if len(matches) != 1:
-                raise ValueError('This base class changed or was removed; select a base from the updated Properties.')
-            identifier = self.retain(matches[0], file, 'Base class')
+                raise ValueError('This declaration changed or was removed; select a reference from the updated Properties.')
+            identifier = self.retain(matches[0], file, 'Referenced declaration')
         except BaseException:
             rows.close()
             raise

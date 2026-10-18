@@ -8,6 +8,7 @@ import {
   type AstReference,
   type AstSemantics,
   astDisplay,
+  MAX_RETAINED_NODES,
   type SourceSelection,
 } from "./ast-model.js";
 import {
@@ -130,7 +131,7 @@ const messages = z.discriminatedUnion("type", [
           context: nodeMenuSchema,
         }),
       )
-      .max(10000),
+      .max(MAX_RETAINED_NODES),
     text: z.string().max(100000),
     tab: z.enum(["ast", "properties"]),
     panels: z.object({ ast: z.boolean(), properties: z.boolean() }),
@@ -508,7 +509,7 @@ export class DetailsView
     if (message.type === "related") {
       if (this.running) return;
       if (!this.relatedNode(message.id))
-        throw new Error("This base class is no longer available.");
+        throw new Error("This declaration is no longer available.");
       const reference = this.reference(message.id);
       const refreshed = reference
         ? await this.refreshRelated(reference)
