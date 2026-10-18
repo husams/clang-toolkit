@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,21 +27,34 @@ def _symbol_lines(result: pb.FindSymbolsResponse) -> list[str]:
     return lines
 
 
+def _pass_progress(status: pb.ProjectIndexStatus) -> str:
+    if status.state == pb.INDEX_STATE_IDLE:
+        return "-"
+    checked = status.translation_units_completed + status.translation_units_failed
+    return f"{checked}/{status.translation_units_total}"
+
+
+def _last_pass_counts(status: pb.ProjectIndexStatus) -> tuple[str, str, str]:
+    if not status.HasField("last_completed_pass"):
+        return ("-", "-", "-")
+    summary = status.last_completed_pass
+    return (str(summary.reused), str(summary.newly_indexed), str(summary.failed))
+
+
 def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     from .semantic import view
 
     if str(node.data) == "index_list":
         result = runtime.client.list_project_indexes()
         lines = ["Indexed projects"]
-        rows = [("Project", "Path", "State", "Indexed", "Reused", "Newly indexed", "Indexing")]
+        rows = [("Project", "Path", "State", "Saved files", "Pass checked",
+                 "Extracting", "Last reused", "Last newly indexed", "Last failed")]
         for project in result.projects:
             state = pb.IndexState.Name(project.state).removeprefix("INDEX_STATE_")
             rows.append((Path(project.project_root).name or project.project_root,
                          project.project_root, state,
-                         f"{project.translation_units_indexed}/{project.translation_units_total} indexed",
-                         str(project.translation_units_skipped),
-                         str(max(0, project.translation_units_completed - project.translation_units_skipped)),
-                         str(project.translation_units_indexing)))
+                         str(project.translation_units_indexed), _pass_progress(project),
+                         str(project.translation_units_indexing), *_last_pass_counts(project)))
         widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
         lines.extend("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip()
                      for row in rows)
@@ -123,13 +137,29 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
             result = getattr(runtime.client, method)(project)
         state = pb.IndexState.Name(result.state).removeprefix("INDEX_STATE_")
         lines = [f"Project index {state}", f"Project  {result.project_root}",
-                 f"Indexed  {result.translation_units_indexed}/{result.translation_units_total}",
-                 f"Reused   {result.translation_units_skipped}",
-                 f"Newly indexed {max(0, result.translation_units_completed - result.translation_units_skipped)}",
-                 f"Indexing {result.translation_units_indexing}",
-                 f"Pending  {result.translation_units_pending}",
-                 f"Failed   {result.translation_units_failed}",
+                 f"Saved index  {result.translation_units_indexed} files",
                  f"Revision {result.revision}"]
+        if result.state == pb.INDEX_STATE_IDLE:
+            lines.append("Current pass  Not running")
+        else:
+            lines.extend([
+                f"Current pass checked  {_pass_progress(result)}",
+                f"Current pass reused   {result.translation_units_skipped}",
+                f"Current pass newly indexed {max(0, result.translation_units_completed - result.translation_units_skipped)}",
+                f"Current pass extracting {result.translation_units_indexing}",
+                f"Current pass remaining  {result.translation_units_pending}",
+                f"Current pass failed   {result.translation_units_failed}",
+            ])
+        if result.HasField("last_completed_pass"):
+            summary = result.last_completed_pass
+            finished = datetime.fromtimestamp(summary.finished_unix_seconds, timezone.utc)
+            lines.extend([
+                f"Last completed pass  {finished:%Y-%m-%d %H:%M:%S UTC}",
+                f"Last pass total {summary.total}; reused {summary.reused}; "
+                f"newly indexed {summary.newly_indexed}; failed {summary.failed}",
+            ])
+        else:
+            lines.append("Last completed pass  Not recorded")
         if result.current_translation_unit:
             lines.append(f"Current  {result.current_translation_unit}")
         if result.paused_reason:
