@@ -146,11 +146,20 @@ def _bounded_proto_element(value: Any, field: Any, budget: list[int], depth: int
     return value
 
 
-def _bounded_row_dict(value: MatchRow) -> dict[str, Any]:
-    """Preserve MatchResult JSON fields while bounding nested semantic payloads."""
-    message = value._message()
+def _bounded_message_dict(message: Any) -> dict[str, Any]:
+    """Preserve protobuf JSON fields while bounding nested semantic payloads."""
     preview = _bounded_proto_dict(message, [16_000])
     return preview if isinstance(preview, dict) else {}
+
+
+def _render_message_preview(message: Any) -> str:
+    """Render a bounded protobuf preview shared by matcher and graph values."""
+    import json
+
+    rendered = json.dumps(_bounded_message_dict(message), sort_keys=True, ensure_ascii=False)
+    if len(rendered) <= _MAX_RENDER_CHARS:
+        return rendered
+    return rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
 
 
 def _bounded_inspection(value: Any, *, max_chars: int = 16_000) -> Any:
@@ -270,8 +279,7 @@ def render(value: Any) -> str:
     """Return a stable, human-readable result for the REPL output sink."""
     from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
     if isinstance(value, CallGraph | CallGraphNodeValue):
-        from .semantic import view
-        return render(view(value.proto))
+        return _render_message_preview(value.proto)
     from clang_toolkit.resources import FileBatch, FileHandle, FileSet, InputDescriptor
     from .semantic import EnumValue, is_semantic_view, display_value
 
@@ -301,9 +309,7 @@ def render(value: Any) -> str:
     if isinstance(value, NativeMatchCollection):
         return _render_sequence(value)
     if isinstance(value, MatchRow):
-        import json
-        rendered = json.dumps(_bounded_row_dict(value), sort_keys=True, ensure_ascii=False)
-        return rendered if len(rendered) <= _MAX_RENDER_CHARS else rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
+        return _render_message_preview(value._message())
     if isinstance(value, ParsedTree):
         return f"parsed {value.path}"
     if isinstance(value, BindingSelection):

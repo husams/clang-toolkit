@@ -291,6 +291,8 @@ def graph_terminal(pipe_console, tmp_path):
     display = tmp_path / "graph-display.json"
     pretty = tmp_path / "graph-pretty.txt"
     exported = tmp_path / "graph-export.json"
+    node_display = tmp_path / "node-display.json"
+    matcher_display = tmp_path / "matcher-display.json"
     script = '\n'.join([
         f'let graph = callgraph {json.dumps(str(source))} main-file true',
         'print graph',
@@ -303,21 +305,33 @@ def graph_terminal(pipe_console, tmp_path):
         'let selected = functions | filter((n) = n.function.qualified_name == "project::work")',
         'let work = selected.one("work function")',
         'inspect work',
+        f'print work to {json.dumps(str(node_display))}',
+        'let offset = work.location.offset',
+        'print "OFFSET_{offset + 1}"',
         'inspect graph.nodes',
         f'save graph to {json.dumps(str(exported))} as json',
         f'load {json.dumps(str(exported))} into restored',
         'let calls = match callExpr(callee(functionDecl(hasName("leaf")))).bind("call") in work',
+        'print calls',
+        f'print calls to {json.dumps(str(matcher_display))}',
+        'inspect calls',
+        'print "BEGIN_GRAPH_POINT"',
+        'inspect graph.call_sites[0].location',
+        'print "END_GRAPH_POINT"',
+        'print "BEGIN_MATCHER_POINT"',
+        'inspect calls[0].call.location',
+        'print "END_MATCHER_POINT"',
         'print "GRAPH_PTY_{graph.nodes.length}_{calls.length}_{restored.nodes.length}"',
     ])
     visible, transcript = _terminal_script(
         pipe_console, tmp_path, script, "GRAPH_PTY_{graph", "GRAPH_PTY_3_1_3",
     )
-    return visible, transcript, display, pretty, exported
+    return visible, transcript, display, pretty, exported, node_display, matcher_display
 
 
 @then("graph previews expose structured values and the filtered node still matches")
 def verify_graph_terminal(graph_terminal):
-    visible, transcript, display, pretty, exported = graph_terminal
+    visible, transcript, display, pretty, exported, node_display, matcher_display = graph_terminal
     assert "GRAPH_PTY_3_1_3" in visible
     assert "error:" not in transcript.lower()
     assert "object at 0x" not in transcript
@@ -326,6 +340,29 @@ def verify_graph_terminal(graph_terminal):
     assert '"methods":' in transcript and '"fields":' in transcript
     displayed = json.loads(display.read_text())
     saved = json.loads(exported.read_text())
+    node = json.loads(node_display.read_text())
+    matcher = json.loads(matcher_display.read_text())
+    binding = matcher["bindings"]["call"]
+    call_site = displayed["call_sites"][0]
+    assert call_site["location"] == binding["location"]
+    assert call_site["range"] == binding["range"]
+    assert isinstance(call_site["location"]["offset"], str)
+    leaf = next(n for n in displayed["nodes"]
+                if n.get("function", {}).get("qualified_name") == "project::leaf")
+    assert leaf["function"] == binding["node"]["call_expr"]["call"]["direct_callee"]
+    assert node == next(n for n in displayed["nodes"]
+                        if n.get("function", {}).get("qualified_name") == "project::work")
+    assert node["availability"]
+    assert isinstance(node["availability"][0]["state"], str)
+    assert f'OFFSET_{int(node["location"]["offset"]) + 1}' in transcript
+    assert '"type": "MatchValue"' in transcript
+
+    def inspected_point(kind):
+        body = transcript.split(f"BEGIN_{kind}_POINT\r\n", 1)[1]
+        body = body.split(f"\r\nEND_{kind}_POINT", 1)[0]
+        return json.loads(body)
+
+    assert inspected_point("GRAPH") == inspected_point("MATCHER")
     assert displayed["is_complete"] is True
     assert len(displayed["nodes"]) == len(saved["nodes"]) == 3
     assert {n["function"]["qualified_name"] for n in displayed["nodes"] if "function" in n} == {
