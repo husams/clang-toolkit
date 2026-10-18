@@ -303,7 +303,6 @@ export class GraphView {
     else this.canvas.fit(id);
     this.canvas.paint();
     this.save();
-    this.notice.textContent = `Viewing ${this.state.nodes.get(id).name}. Expanded branches kept.`;
   }
   async render(restore) {
     if (!this.plot?.clientWidth || !this.plot.clientHeight) return;

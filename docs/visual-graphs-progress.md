@@ -29,3 +29,9 @@ From `vscode/`, run `node scripts/preview-graphs.mjs`. It discovers the shared n
 The preview server uses a short private `/tmp/ctk-vscode-graphs-*` socket/profile directory to stay below macOS IPC path limits. Process metadata, launch logs and the C++ fixture are in ignored `vscode/artifacts/graph-preview/`. Stop only that server with `node scripts/preview-graphs.mjs --stop`.
 
 Installable package: `vscode/artifacts/clang-toolkit-prototype.vsix` (0.3.0). It includes the pinned local ELK layout engine and needs no webview network access. The graph covers one translation unit and non-system headers, with incomplete native results reported in the view.
+
+## 2026-10-18: native breadcrumb verification
+
+Used macOS UI automation against the isolated VS Code development host, clicked `save_order`, and returned using the `submit` breadcrumb. The original navigation message added a 13-pixel row and shifted the returned graph by 8 pixels. Removed that redundant message; the breadcrumb already identifies the focused function, and native warnings now remain intact during navigation.
+
+Retested against the user's original view: all 302 functions remained expanded, child focus zoomed to 50%, and the breadcrumb restored the original 2% overview. All 27 visible function buttons returned to identical screen coordinates and sizes. The graph was left on `submit` at the original pan and zoom. Evidence is in `vscode/artifacts/graph-preview/breadcrumb-verification.json` and `breadcrumb-verified.png` (local, ignored artifacts).
