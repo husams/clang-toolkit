@@ -300,3 +300,29 @@ def verify_independent_monitors(indexed_project) -> None:
     output = _console(indexed_project, "index list; server status", "compiled")
     assert str(first) in output and str(second) in output
     assert "Total projects: 2" in output
+
+
+@then("the console searches partial names globally and within a project")
+def console_global_prefix_search(indexed_project):
+    root = indexed_project["root"]
+    other = root.parent / "other-project"
+    other.mkdir()
+    source = other / "flow.cc"
+    source.write_text("namespace flow { int clampOther(int x) {return x;} }\n", encoding="utf-8")
+    (other / "compile_commands.json").write_text(json.dumps([{
+        "directory": str(other), "file": str(source),
+        "arguments": [os.environ.get("CTK_TEST_CLANG", "clang++"), "-std=c++20", "-c", str(source)],
+    }]), encoding="utf-8")
+    with Client(indexed_project["server"].endpoint) as client:
+        client.start_project_index(other)
+        _until(lambda: client.project_index_status(other).state == pb.INDEX_STATE_COMPLETE)
+        client.pause_project_index(other)
+    for engine in ("legacy", "tree", "compiled"):
+        scoped = _console(indexed_project, 'index find "flow::cl*" in "project"', engine)
+        assert "flow::clamp" in scoped and "clampOther" not in scoped
+        global_output = _console(indexed_project, 'index find "flow::cl"', engine)
+        assert "across 2 projects" in global_output
+        assert str(root) in global_output and str(other) in global_output
+        assert "flow::clamp" in global_output and "flow::clampOther" in global_output
+        exact = _console(indexed_project, 'index find "flow::clamp" exact', engine)
+        assert "flow::clamp" in exact and "clampOther" not in exact

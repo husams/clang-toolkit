@@ -27,3 +27,8 @@ Feature: Background project symbol lookup
     Given an isolated server and three translation units with a shared header
     When I start monitoring two projects through the console
     Then both projects refresh and cancelling one leaves the other monitored
+
+  Scenario: Console searches name prefixes across every indexed project
+    Given an isolated server and three translation units with a shared header
+    When I index the project and pause background refresh through gRPC
+    Then the console searches partial names globally and within a project
