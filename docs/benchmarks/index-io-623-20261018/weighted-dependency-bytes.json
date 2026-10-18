@@ -1,0 +1,85 @@
+{
+  "source_database": "/tmp/ctk623-parallel-20261018-1mb5plqg/storage/symbol-index/ef6df78512040c5ef1cd3270ac6fec7a489cc3d0376cb03f70fe6756db1d60a5/symbols.sqlite3",
+  "translation_units": 623,
+  "unique_dependency_paths": 4016,
+  "total_dependency_references": 852533,
+  "missing_current_paths": 0,
+  "weighting": "current file size multiplied by dependency reference count",
+  "current_weighted_dependency_bytes": 53675478192,
+  "current_weighted_dependency_gib": 49.989,
+  "top_by_weighted_bytes": [
+    {
+      "path": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/server/CMakeFiles/ctk_clang.dir/cmake_pch.hxx.pch",
+      "current_size_bytes": 121531908,
+      "references": 322,
+      "weighted_bytes": 39133274376
+    },
+    {
+      "path": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/api/generated/ast/v1/semantic.pb.h",
+      "current_size_bytes": 9696554,
+      "references": 422,
+      "weighted_bytes": 4091945788
+    },
+    {
+      "path": "/opt/homebrew/Cellar/llvm/22.1.8/lib/clang/22/include/arm_neon.h",
+      "current_size_bytes": 3195233,
+      "references": 442,
+      "weighted_bytes": 1412292986
+    },
+    {
+      "path": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/api/generated/ast/v1/node.pb.h",
+      "current_size_bytes": 1235035,
+      "references": 399,
+      "weighted_bytes": 492778965
+    },
+    {
+      "path": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.1.sdk/usr/include/AvailabilityInternalLegacy.h",
+      "current_size_bytes": 414503,
+      "references": 623,
+      "weighted_bytes": 258235369
+    },
+    {
+      "path": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/api/query-generated/match/v1/resources.pb.h",
+      "current_size_bytes": 383613,
+      "references": 386,
+      "weighted_bytes": 148074618
+    },
+    {
+      "path": "/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/Frontend/OpenMP/OMP.inc",
+      "current_size_bytes": 404944,
+      "references": 324,
+      "weighted_bytes": 131201856
+    },
+    {
+      "path": "/opt/homebrew/Cellar/llvm/22.1.8/include/c++/v1/string",
+      "current_size_bytes": 187761,
+      "references": 621,
+      "weighted_bytes": 116599581
+    },
+    {
+      "path": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/api/query-generated/match/v1/match_service.pb.h",
+      "current_size_bytes": 297311,
+      "references": 385,
+      "weighted_bytes": 114464735
+    },
+    {
+      "path": "/opt/homebrew/Cellar/llvm/22.1.8/include/clang/AST/TypeBase.h",
+      "current_size_bytes": 324705,
+      "references": 324,
+      "weighted_bytes": 105204420
+    }
+  ],
+  "pch_related": {
+    "unique_paths": 5,
+    "references": 985,
+    "weighted_bytes": 39133412673
+  },
+  "pch_cross_run_digest_comparison": {
+    "prior_manifest": "/tmp/ctk623-parallel-20261018-1mb5plqg/input-manifest-before.json",
+    "current_manifest": "/tmp/ctk623-profile-20261018-2c35m974/input-manifest-before.json",
+    "prior_pch_sha256": "1ca5f287be0049a41b9e57a46afc9b78b24030447d32fb61a80a9e7ebcc01edb",
+    "current_pch_sha256": "1ca5f287be0049a41b9e57a46afc9b78b24030447d32fb61a80a9e7ebcc01edb",
+    "prior_size_recorded": false,
+    "interpretation": "The prior manifest records only content digest, not size. Equal SHA-256 indicates the PCH content did not change between runs; its current size is 121531908 bytes."
+  }
+}

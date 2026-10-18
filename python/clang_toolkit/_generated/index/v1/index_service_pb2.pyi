@@ -147,20 +147,22 @@ class FindSymbolsResponse(_message.Message):
     def __init__(self, symbols: _Optional[_Iterable[_Union[Symbol, _Mapping]]] = ..., revision: _Optional[int] = ..., stale: _Optional[bool] = ..., translation_units_indexed: _Optional[int] = ..., translation_units_total: _Optional[int] = ..., truncated: _Optional[bool] = ...) -> None: ...
 
 class IndexWorkerRequest(_message.Message):
-    __slots__ = ("source", "compile_commands_directory", "list_translation_units", "working_directory", "compile_arguments", "header_cache_directory")
+    __slots__ = ("source", "compile_commands_directory", "list_translation_units", "working_directory", "compile_arguments", "header_cache_directory", "precomputed_include_inventories")
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     COMPILE_COMMANDS_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     LIST_TRANSLATION_UNITS_FIELD_NUMBER: _ClassVar[int]
     WORKING_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     COMPILE_ARGUMENTS_FIELD_NUMBER: _ClassVar[int]
     HEADER_CACHE_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
+    PRECOMPUTED_INCLUDE_INVENTORIES_FIELD_NUMBER: _ClassVar[int]
     source: str
     compile_commands_directory: str
     list_translation_units: bool
     working_directory: str
     compile_arguments: _containers.RepeatedScalarFieldContainer[str]
     header_cache_directory: str
-    def __init__(self, source: _Optional[str] = ..., compile_commands_directory: _Optional[str] = ..., list_translation_units: _Optional[bool] = ..., working_directory: _Optional[str] = ..., compile_arguments: _Optional[_Iterable[str]] = ..., header_cache_directory: _Optional[str] = ...) -> None: ...
+    precomputed_include_inventories: _containers.RepeatedCompositeFieldContainer[IndexWorkerDependency]
+    def __init__(self, source: _Optional[str] = ..., compile_commands_directory: _Optional[str] = ..., list_translation_units: _Optional[bool] = ..., working_directory: _Optional[str] = ..., compile_arguments: _Optional[_Iterable[str]] = ..., header_cache_directory: _Optional[str] = ..., precomputed_include_inventories: _Optional[_Iterable[_Union[IndexWorkerDependency, _Mapping]]] = ...) -> None: ...
 
 class IndexWorkerTranslationUnit(_message.Message):
     __slots__ = ("source", "compile_context", "working_directory", "compile_arguments")

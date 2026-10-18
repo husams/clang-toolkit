@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 #include <sys/wait.h>
 #include <thread>
+#include <vector>
 
 namespace ctk::platform {
 namespace {
@@ -398,6 +399,71 @@ TEST_F(IndexWorkerProcess,
   fs::rename(root / "include", root / "old");
   fs::create_directory(root / "include");
   EXPECT_NE(inventories.digest(root / "include"), existing);
+}
+
+TEST_F(IndexWorkerProcess, DirectoryInventoryRefreshInvalidatesOnNewShadow) {
+  const auto include = root / "include";
+  fs::create_directories(include);
+  std::ofstream(include / "base.hpp") << "int base;";
+  net::index_detail::IncludeInventoryCache inventories;
+  const auto before = inventories.digest(include);
+  ASSERT_FALSE(before.empty());
+  const auto generation = inventories.generation();
+
+  std::ofstream(include / "shadow.hpp") << "int shadow;";
+  bool refreshed = false;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (!refreshed && std::chrono::steady_clock::now() < deadline) {
+    refreshed = inventories.refresh();
+    if (!refreshed)
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  if (!refreshed)
+    GTEST_SKIP() << "Directory notifications unavailable for this filesystem";
+
+  EXPECT_GT(inventories.generation(), generation);
+  const auto after = inventories.digest(include);
+  EXPECT_NE(after, before);
+  EXPECT_EQ(after,
+            net::index_detail::digest_text(cache::include_inventory(include)));
+}
+
+TEST_F(IndexWorkerProcess,
+       DirectoryInventoryCapacityUsesUncachedFallbackWithoutInvalidation) {
+  std::vector<fs::path> roots;
+  for (unsigned i = 0; i < 129; ++i) {
+    const auto path = root / ("include-" + std::to_string(i));
+    fs::create_directories(path);
+    std::ofstream(path / "value.hpp") << "int value;";
+    roots.push_back(path);
+  }
+
+  net::index_detail::IncludeInventoryCache inventories;
+  const auto generation = inventories.generation();
+  for (const auto &path : roots)
+    EXPECT_EQ(inventories.digest(path),
+              net::index_detail::digest_text(cache::include_inventory(path)));
+  EXPECT_EQ(inventories.generation(), generation);
+
+  unsigned cached_scans = 0;
+  inventories.digest(roots.front(), [&] {
+    ++cached_scans;
+    return true;
+  });
+  if (cached_scans != 0)
+    GTEST_SKIP() << "Directory notifications unavailable; "
+                    "cache uses full scans";
+
+  unsigned overflow_scans = 0;
+  inventories.digest(roots.back(), [&] {
+    ++overflow_scans;
+    return true;
+  });
+  EXPECT_GT(overflow_scans, 0u);
+  EXPECT_EQ(inventories.generation(), generation);
+  EXPECT_FALSE(inventories.refresh());
+  EXPECT_EQ(inventories.generation(), generation);
 }
 
 TEST_F(IndexWorkerProcess,

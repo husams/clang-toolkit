@@ -1,0 +1,102 @@
+{
+  "verdict": "PASS",
+  "previous_run": "/private/tmp/ctk623-parallel-20261018-1mb5plqg",
+  "new_run": "/private/tmp/ctk623-profile-20261018-ofgwx7u_",
+  "cohort_sha256": "2b1a78fa8475cd79d45a74997caf94a205e0f5028811a44d79733c7e9ba11ec9",
+  "previous_seconds": 285.1974919589702,
+  "new_seconds": 228.11227166606113,
+  "unchanged_definition_provenance_comparison": "all 623 main-TU contributions matched one-to-one by main file, working directory, compiler/toolchain, full argument list, and environment (excluding only the differing extractor build fingerprint); referenced header-group contributions match after filtering only input files whose pinned hashes differ between these runs",
+  "old_extractor_fingerprints": [
+    "5c1adc1840d307c5e9188ba3594535e140a71900d0ae9a94ecbd9459452da1b4"
+  ],
+  "new_extractor_fingerprints": [
+    "ccb9b1bbe721e4066b1f7f735ec48a7182002784087f1fb4b6246b3cdd5b73e5"
+  ],
+  "extractor_fingerprint_is_the_only_normalized_tu_key_field": true,
+  "changed_input_paths": [
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/api/index/v1/index_service.proto",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/api/index-generated/index/v1/index_service.pb.cc",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/api/index-generated/index/v1/index_service.pb.h",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/include/ctk/cache/include_inventory.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/include/ctk/clang/project_index_extract.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/include/ctk/platform/index_file_reader.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/clang/project_index_extract.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/index_worker_main.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/net/file_digest_cache.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/net/include_inventory_cache.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/net/index_service.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/directory_watch.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_file_reader.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_filesystem.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_filesystem.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_definition_reuse.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_file_digest.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_worker.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_project_index_service.cpp"
+  ],
+  "changed_input_path_count": 19,
+  "excluded_modified_definition_paths": [
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/api/index/v1/index_service.proto",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/api/index-generated/index/v1/index_service.pb.cc",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/api/index-generated/index/v1/index_service.pb.h",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/include/ctk/cache/include_inventory.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/include/ctk/clang/project_index_extract.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/include/ctk/platform/index_file_reader.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/clang/project_index_extract.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/index_worker_main.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/net/file_digest_cache.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/net/include_inventory_cache.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/net/index_service.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/directory_watch.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_file_reader.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_filesystem.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_filesystem.hpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_definition_reuse.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_file_digest.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_worker.cpp",
+    "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_project_index_service.cpp"
+  ],
+  "exclusion_reason": "Only paths present in either run input manifest whose SHA-256 differs between the pinned runs are filtered from definition-row comparison; these source/generated-input changes are separately listed, all other per-TU and referenced header-group rows are compared with USR, qualified name, kind, file, offset, line, column, definition flag, and signature.",
+  "per_tu_contribution_count": 623,
+  "per_tu_mismatches": [],
+  "old_sqlite_counts": {
+    "main_tus": 623,
+    "header_groups": 1601,
+    "symbols": 145283,
+    "non_definitions": 0,
+    "nonempty_signatures": 0,
+    "standard_header_paths": 0,
+    "anonymous_namespace_names": 0
+  },
+  "new_sqlite_counts": {
+    "main_tus": 623,
+    "header_groups": 1603,
+    "symbols": 145344,
+    "non_definitions": 0,
+    "nonempty_signatures": 0,
+    "standard_header_paths": 0,
+    "anonymous_namespace_names": 0
+  },
+  "new_run_max_live_workers": 4,
+  "new_run_worker_nice_min_observed": 0,
+  "new_run_worker_nice_sampled_pid_count": 609,
+  "new_run_worker_nice_first_observation_zero_pids": 77,
+  "new_run_worker_nice_zero_sample_count": 77,
+  "new_run_resource_audit_worker_nice_sample_counts": {
+    "15": 949,
+    "0": 77
+  },
+  "new_run_worker_nice_steady_state_min": 15,
+  "new_run_worker_nice_transitioned_to_background": 68,
+  "worker_priority_audit": "Every worker observed more than once was nice>=15 on all samples after its first observation; some launch-time samples captured nice=0 before reprioritization.",
+  "new_run_server_pids": [
+    76116
+  ],
+  "active_probe_count": 318,
+  "two_second_probe_deadline_passed": true,
+  "unchanged_hashes": 1964,
+  "binary_hashes_pinned": {
+    "ctk-server": "57182f0aeebc9398af2277482b92e1a17590660b624ce4b2e7e7912d9b285b36",
+    "ctk-index-worker": "1f5538d8a2d1f4241c5641f598471a2ccc6e906f0c2f06b2d916055c41b5e93f"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "source_revision": "b9b0a505ee39cda004ec15701c0850af22b4ca9e",
+  "integrated_main": "52a7daf5bb365b7eddd5af647ba9d4b4b20b694a",
+  "native": {
+    "passed": 507,
+    "failed": 0,
+    "seconds": 77.873
+  },
+  "python": {
+    "passed": 3243,
+    "failed": 0,
+    "seconds": 221.4
+  },
+  "focused_e2e": {
+    "passed": 43,
+    "failed": 0,
+    "seconds": 139.85
+  },
+  "memory_fixture_consecutive_passes": 20,
+  "original_native": {
+    "passed": 506,
+    "failed": 1,
+    "failed_test": "MatchCursors.StreamingStopsAtMemoryBudgetBeforeCollectingAllRows"
+  },
+  "baseline_native_binary_sha256": "4f3772f6fa89362b170de8cae15fb3775db7fb2ce16a270e67c7b71c6ce1cbdb",
+  "original_python": {
+    "passed": 3239,
+    "failed": 1,
+    "reason": "Workspace UI timeout; all three parameterizations passed isolated retry, then all 3243 passed full rerun"
+  },
+  "initial_e2e_collection": "Missing repository root in PYTHONPATH when running from /tmp; corrected before the 43-case pass",
+  "repairs": [
+    "Check required SQLite indexes in the same snapshot as tables before serving lookups",
+    "Pin one backend snapshot in upstream memory-budget fixture; production matcher behavior and all original assertions preserved"
+  ],
+  "independent_reviews": "Publication/freshness/worker-bound review and reader/inventory/platform review approved; both review follow-up fixes approved",
+  "benchmark_revision": "1588fd03741a320ee2dd320064d163efb000b5c2",
+  "benchmark_seconds": 228.11227166606113
+}

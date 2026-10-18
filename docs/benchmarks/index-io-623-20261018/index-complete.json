@@ -1,0 +1,65 @@
+{
+  "metadata": {
+    "run": "/tmp/ctk623-profile-20261018-ofgwx7u_",
+    "worktree": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse",
+    "worktree_revision": "1588fd03741a320ee2dd320064d163efb000b5c2",
+    "project_root": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse",
+    "compile_commands": "/tmp/ctk623-profile-20261018-ofgwx7u_/cdb/compile_commands.json",
+    "compile_commands_sha256": "2b1a78fa8475cd79d45a74997caf94a205e0f5028811a44d79733c7e9ba11ec9",
+    "entries": 623,
+    "unique_files": 622,
+    "original_membership": "/tmp/ctk-pr60-managed-verification-20261018/cdb/compile_commands.json",
+    "binary_sha256": {
+      "ctk-server": "57182f0aeebc9398af2277482b92e1a17590660b624ce4b2e7e7912d9b285b36",
+      "ctk-index-worker": "1f5538d8a2d1f4241c5641f598471a2ccc6e906f0c2f06b2d916055c41b5e93f"
+    },
+    "input_hashes": 1984,
+    "external_fetched_tus": 141,
+    "excluded_new_tus": [
+      "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/directory_watch.cpp",
+      "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_file_reader.cpp",
+      "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/src/platform/index_filesystem.cpp",
+      "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_file_digest.cpp",
+      "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/server/tests/test_index_definition_reuse.cpp"
+    ],
+    "source_and_build_inputs_modified": false,
+    "fresh_index_storage": "/tmp/ctk623-profile-20261018-ofgwx7u_/storage",
+    "isolated_probe_client_storage": "/tmp/ctk623-profile-20261018-ofgwx7u_/client-storage",
+    "probe_timeout_ms": 2000,
+    "index_poll_interval_seconds": 3600
+  },
+  "launch_at": "2026-10-18T08:33:42.293+01:00",
+  "control_calls": [
+    {
+      "method": "StartProjectIndex",
+      "at": "2026-10-18T08:33:43.958+01:00",
+      "status": {
+        "project_root": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse",
+        "state": "INDEX_STATE_QUEUED"
+      }
+    }
+  ],
+  "interruptions": [],
+  "server_revision": "1588fd03741a",
+  "ready_at": "2026-10-18T08:33:43.715+01:00",
+  "empty_index_before_start": true,
+  "isolated_probe_client_storage": "/tmp/ctk623-profile-20261018-ofgwx7u_/client-storage",
+  "started_at": "2026-10-18T08:33:43.958+01:00",
+  "started_monotonic": 1941977.8243065,
+  "completed_at": "2026-10-18T08:37:32.070+01:00",
+  "elapsed_seconds": 228.11227166606113,
+  "completion_bracket_seconds": [
+    227.60921583301388,
+    228.11227166606113
+  ],
+  "final_status": {
+    "project_root": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse",
+    "state": "INDEX_STATE_COMPLETE",
+    "translation_units_total": "623",
+    "translation_units_completed": "623",
+    "last_reconciled_unix_seconds": "1792309051",
+    "revision": "623",
+    "translation_units_indexed": "623"
+  },
+  "control_calls_before_completion": 1
+}

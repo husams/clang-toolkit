@@ -608,13 +608,18 @@ TEST_F(MatchCursors, StreamingStopsAtMemoryBudgetBeforeCollectingAllRows) {
     source << "int item_" << index << ";\n";
   source << "}\n";
   source.close();
+  // Pin one parsed snapshot so both budget measurements share acquisition state.
+  const auto backend = ctk::clang_layer::make_match_backend();
+  const auto pinned = backend->parse(parse_request(), [] { return true; }, {});
+  ASSERT_EQ(pinned.code, MatchCode::Ok) << pinned.message;
+  controller = std::make_unique<MatchController>(CursorSettings{}, backend);
   const auto baseline =
       run(file("namespaceDecl(hasName(\"Limited\")).bind(\"ns\")"));
   ASSERT_EQ(baseline.code, MatchCode::Ok) << baseline.message;
   CursorSettings settings;
   settings.max_memory_bytes =
       controller->server_status().retained_memory_bytes() + 8192;
-  controller = std::make_unique<MatchController>(settings);
+  controller = std::make_unique<MatchController>(settings, backend);
   const auto root =
       run(file("namespaceDecl(hasName(\"Limited\")).bind(\"ns\")"));
   ASSERT_EQ(root.code, MatchCode::Ok) << root.message;
