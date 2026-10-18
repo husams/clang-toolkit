@@ -61,13 +61,14 @@ const capture = spawnSync(
   { stdio: "inherit" },
 );
 if (capture.status !== 0) process.exit(capture.status || 1);
-let processInfo;
+let processInfo, profile;
 if (existsSync(stateFile)) {
   const previous = JSON.parse(readFileSync(stateFile, "utf8")),
     command =
       spawnSync("ps", ["-p", String(previous.pid), "-o", "command="], {
         encoding: "utf8",
       }).stdout || "";
+  profile = previous.profile;
   if (command.includes(previous.config)) processInfo = previous;
 }
 if (!processInfo) {
@@ -85,7 +86,12 @@ if (!processInfo) {
       env: { ...process.env, CTK_STORAGE_ROOT: join(directory, "storage") },
     });
   child.unref();
-  processInfo = { pid: child.pid, config, socket };
+  processInfo = {
+    pid: child.pid,
+    config,
+    socket,
+    ...(profile ? { profile } : {}),
+  };
   writeFileSync(stateFile, JSON.stringify(processInfo));
   const end = Date.now() + 15000;
   while (!existsSync(socket)) {
