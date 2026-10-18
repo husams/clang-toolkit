@@ -146,16 +146,25 @@ def _bounded_proto_element(value: Any, field: Any, budget: list[int], depth: int
     return value
 
 
-def _bounded_row_dict(value: MatchRow) -> dict[str, Any]:
-    """Preserve MatchResult JSON fields while bounding nested semantic payloads."""
-    message = value._message()
+def _bounded_message_dict(message: Any) -> dict[str, Any]:
+    """Preserve protobuf JSON fields while bounding nested semantic payloads."""
     preview = _bounded_proto_dict(message, [16_000])
     return preview if isinstance(preview, dict) else {}
 
 
-def _bounded_inspection(value: Any) -> Any:
+def _render_message_preview(message: Any) -> str:
+    """Render a bounded protobuf preview shared by matcher and graph values."""
+    import json
+
+    rendered = json.dumps(_bounded_message_dict(message), sort_keys=True, ensure_ascii=False)
+    if len(rendered) <= _MAX_RENDER_CHARS:
+        return rendered
+    return rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
+
+
+def _bounded_inspection(value: Any, *, max_chars: int = 16_000) -> Any:
     """Limit the total scalar content of an inspect preview before JSON encoding."""
-    budget = [16_000]
+    budget = [max_chars]
 
     def walk(item: Any, depth: int = 0) -> Any:
         if budget[0] <= 0:
@@ -217,7 +226,16 @@ def render_inspection(value: Any) -> str:
         return rendered if len(rendered) <= _MAX_RENDER_CHARS else rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
     import json
 
-    return json.dumps(_bounded_inspection(inspected), sort_keys=True, ensure_ascii=False)
+    # Bound the preview before encoding so its envelope and JSON stay intact.
+    budget = 16_000
+    while True:
+        rendered = json.dumps(
+            _bounded_inspection(inspected, max_chars=budget),
+            sort_keys=True, ensure_ascii=False,
+        )
+        if len(rendered) <= _MAX_RENDER_CHARS:
+            return rendered
+        budget //= 2
 
 
 def _render_sequence(values: Any) -> str:
@@ -259,10 +277,9 @@ class MatchSet:
 
 def render(value: Any) -> str:
     """Return a stable, human-readable result for the REPL output sink."""
-    from clang_toolkit.call_graph_values import CallGraphNodeValue
-    if isinstance(value, CallGraphNodeValue):
-        from .semantic import view
-        return render(view(value.proto))
+    from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
+    if isinstance(value, CallGraph | CallGraphNodeValue):
+        return _render_message_preview(value.proto)
     from clang_toolkit.resources import FileBatch, FileHandle, FileSet, InputDescriptor
     from .semantic import EnumValue, is_semantic_view, display_value
 
@@ -292,9 +309,7 @@ def render(value: Any) -> str:
     if isinstance(value, NativeMatchCollection):
         return _render_sequence(value)
     if isinstance(value, MatchRow):
-        import json
-        rendered = json.dumps(_bounded_row_dict(value), sort_keys=True, ensure_ascii=False)
-        return rendered if len(rendered) <= _MAX_RENDER_CHARS else rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
+        return _render_message_preview(value._message())
     if isinstance(value, ParsedTree):
         return f"parsed {value.path}"
     if isinstance(value, BindingSelection):

@@ -1,14 +1,59 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace ctk::cache {
+inline std::string canonical_include_path(const std::filesystem::path &path) {
+  namespace fs = std::filesystem;
+  std::error_code error;
+  const auto canonical = fs::weakly_canonical(path, error);
+  return (error ? fs::absolute(path).lexically_normal() : canonical).string();
+}
+
+// Keep this argument parser shared by the controller and extraction worker so
+// their inventory keys describe exactly the same include search roots.
+inline std::vector<std::string>
+include_roots(const std::string &source, const std::string &working_directory,
+              const std::vector<std::string> &arguments) {
+  namespace fs = std::filesystem;
+  std::set<std::string> roots{
+      canonical_include_path(fs::path(source).parent_path())};
+  for (std::size_t i = 0; i < arguments.size(); ++i) {
+    const auto &argument = arguments[i];
+    std::string path;
+    if ((argument == "-I" || argument == "-iquote" || argument == "-isystem" ||
+         argument == "-idirafter" || argument == "-F" ||
+         argument == "-iframework") &&
+        i + 1 < arguments.size())
+      path = arguments[++i];
+    else if (argument.starts_with("-I") && argument.size() > 2)
+      path = argument.substr(2);
+    else {
+      for (const char *option :
+           {"-iquote", "-isystem", "-idirafter", "-F", "-iframework"}) {
+        const std::string_view prefix(option);
+        if (argument.starts_with(prefix) && argument.size() > prefix.size()) {
+          path = argument.substr(prefix.size());
+          break;
+        }
+      }
+    }
+    if (!path.empty())
+      roots.insert(canonical_include_path(
+          fs::path(path).is_absolute() ? fs::path(path)
+                                       : fs::path(working_directory) / path));
+  }
+  return {roots.begin(), roots.end()};
+}
 // Names, not contents: ordinary edits use file digests; new/removed files can
 // change include resolution even if no previously consumed file changed.
 inline std::string include_inventory(

@@ -99,7 +99,7 @@ export class GraphView {
     controls.append(this.back);
     controls.append(
       this.button("Full graph", () => {
-        s.trail = [s.model.root];
+        s.visit(s.model.root, this.canvas.camera());
         this.canvas.fit();
         this.canvas.paint();
         this.save();

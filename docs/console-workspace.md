@@ -147,7 +147,7 @@ Rich integration follows its [Markdown](https://rich.readthedocs.io/en/stable/ma
 
 Actions now restores focus only to a panel still visible in the current layout. Switching or hiding Help while the menu is open cannot restore the removed help Window; a current panel or the command editor receives focus instead.
 
-The 100,000-row limit is a server query budget. Display pagination does not bypass it. `unless(isImplicit())` still includes declarations from headers; filtering system headers can leave many third-party declarations. For functions in the selected source file, use:
+The former 100,000-row server ceiling has been removed; configured memory and message budgets still apply. Display pagination affects presentation only. `unless(isImplicit())` still includes declarations from headers; filtering system headers can leave many third-party declarations. To request only functions in the selected source file, use:
 
 ```ctk
 let file = parse "./server/src/net/match_service.cpp"
@@ -158,7 +158,7 @@ let x = functionDecl(
 let y = match $x in $file
 ```
 
-A row-budget failure publishes no partial cursor. The source cursor's independent idle expiry explains why a later retry can report `cursor unavailable`; the screenshot alone does not establish its expiry timestamp. Workspace keepalive prevents ordinary editing pauses from expiring still-owned cursors. Failures now include the relevant narrower-matcher or reparse/Resources recovery guidance.
+A memory-budget failure publishes no partial cursor. The source cursor's independent idle expiry explains why a later retry can report `cursor unavailable`; the screenshot alone does not establish its expiry timestamp. Workspace keepalive prevents ordinary editing pauses from expiring still-owned cursors. Failures include the relevant reparse/Resources recovery guidance.
 
 A private-server check parsed the exact `match_service.cpp` target once, then matched the main-file/nonimplicit expression above: 28 functions returned with the original tree and independent result both retained. This query was verified against a private native server.
 

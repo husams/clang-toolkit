@@ -96,6 +96,18 @@ describe("graph exploration state", () => {
     expect(restored.cameras["out:4"]).toBeUndefined();
     expect(restored.visit("0", camera)).toEqual(camera);
   });
+  it("walks a deeply nested graph without retaining every copied ancestor path", () => {
+    const graph = model(10001);
+    graph.edges = graph.edges.map((edge, i) => ({ ...edge, from: String(i) }));
+    const state = new GraphState(graph);
+    expect(state.reveal("10000")).toBe(true);
+    expect(state.visible().nodes).toHaveLength(10001);
+    expect(state.path("10000")).toEqual(graph.nodes.map((node) => node.id));
+    state.toggle("5000");
+    expect(state.path("10000")).toEqual([]);
+    expect(state.reveal("10000")).toBe(true);
+    expect(state.visible().nodes).toHaveLength(10001);
+  });
   it("defaults to downstream calls and keeps caller expansion separate", () => {
     const graph = model(8);
     graph.edges.push({ id: "caller", from: "7", to: "0" });

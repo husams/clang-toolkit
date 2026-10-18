@@ -56,18 +56,30 @@ export class GraphState {
     return this.adjacency[this.direction].get(id) || [];
   }
   paths(openOnly = true, start = this.model.root) {
-    const paths = new Map([[start, [start]]]),
+    const paths = new Map([[start, undefined]]),
       queue = [start];
     for (let i = 0; i < queue.length; i++) {
       const id = queue[i];
       if (openOnly && !this.expanded[this.direction].has(id)) continue;
       for (const next of this.neighbors(id))
         if (!paths.has(next)) {
-          paths.set(next, [...paths.get(id), next]);
+          paths.set(next, id);
           queue.push(next);
         }
     }
     return paths;
+  }
+  path(id, openOnly = true) {
+    const parents = this.paths(openOnly),
+      path = [];
+    if (!parents.has(id)) return path;
+    for (
+      let current = id;
+      current !== undefined;
+      current = parents.get(current)
+    )
+      path.push(current);
+    return path.reverse();
   }
   visible() {
     const paths = this.paths(),
@@ -83,8 +95,8 @@ export class GraphState {
     return { nodes: [...ids].map((id) => this.nodes.get(id)), edges };
   }
   reveal(id) {
-    const path = this.paths(false).get(id);
-    if (!path) return false;
+    const path = this.path(id, false);
+    if (!path.length) return false;
     for (const parent of path.slice(0, -1))
       this.expanded[this.direction].add(parent);
     return true;

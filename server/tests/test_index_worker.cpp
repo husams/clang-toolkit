@@ -11,10 +11,149 @@
 #include <gtest/gtest.h>
 #include <sys/wait.h>
 #include <thread>
+#include <vector>
 
 namespace ctk::platform {
 namespace {
 namespace fs = std::filesystem;
+
+TEST(IndexWorkerParallelism, ReservesForegroundCpusAndCapsAtFour) {
+  constexpr std::uint64_t memory = 32ULL * 1024 * 1024 * 1024;
+  EXPECT_EQ(index_worker_detail::parallelism_limit(10, memory), 4u);
+  EXPECT_EQ(index_worker_detail::parallelism_limit(3, memory), 1u);
+  EXPECT_EQ(index_worker_detail::parallelism_limit(2, memory), 1u);
+}
+
+TEST(IndexWorkerParallelism, ReducesConcurrencyForConstrainedMemory) {
+  EXPECT_EQ(
+      index_worker_detail::parallelism_limit(16, 8ULL * 1024 * 1024 * 1024),
+      1u);
+  EXPECT_EQ(
+      index_worker_detail::parallelism_limit(16, 12ULL * 1024 * 1024 * 1024),
+      3u);
+}
+
+TEST(IndexWorkerParallelism, UnknownResourcesFailClosedToOneWorker) {
+  EXPECT_EQ(
+      index_worker_detail::parallelism_limit(0, 32ULL * 1024 * 1024 * 1024),
+      1u);
+  EXPECT_EQ(index_worker_detail::parallelism_limit(10, 0), 1u);
+}
+
+TEST(IndexWorkerParallelism, ParsesCgroupMemoryLimits) {
+  EXPECT_EQ(index_worker_detail::parse_memory_limit("2147483648"),
+            2147483648ULL);
+  const auto small_memory =
+      index_worker_detail::parse_memory_limit("1073741824");
+  ASSERT_TRUE(small_memory);
+  EXPECT_EQ(index_worker_detail::parallelism_limit(10, *small_memory), 1u);
+  EXPECT_FALSE(index_worker_detail::parse_memory_limit("max"));
+  EXPECT_FALSE(index_worker_detail::parse_memory_limit("not-a-limit"));
+}
+
+TEST(IndexWorkerParallelism, ParsesFractionalCpuQuotaAndReservesTwoCpus) {
+  const auto quota = index_worker_detail::parse_cpu_quota("550000 100000");
+  ASSERT_TRUE(quota);
+  EXPECT_EQ(*quota, 5u);
+  EXPECT_EQ(index_worker_detail::parallelism_limit(*quota,
+                                                   32ULL * 1024 * 1024 * 1024),
+            3u);
+  EXPECT_FALSE(index_worker_detail::parse_cpu_quota("max 100000"));
+  EXPECT_FALSE(index_worker_detail::parse_cpu_quota("broken"));
+}
+
+TEST(IndexWorkerParallelism, PreservesFullCgroupV2CpuLimitLine) {
+  const auto value =
+      index_worker_detail::cgroup_limit_line("  400000 100000\n");
+  EXPECT_EQ(value, "400000 100000");
+  EXPECT_EQ(index_worker_detail::parse_cpu_quota(value), 4u);
+  EXPECT_EQ(index_worker_detail::cgroup_limit_line("max 100000\n"),
+            "max 100000");
+}
+
+TEST(IndexWorkerParallelism, MissingLimitsAreUnlimitedOnlyAtV2MountRoot) {
+  EXPECT_TRUE(
+      index_worker_detail::missing_cgroup_limit_is_unlimited(true, true));
+  EXPECT_FALSE(
+      index_worker_detail::missing_cgroup_limit_is_unlimited(true, false));
+  EXPECT_FALSE(
+      index_worker_detail::missing_cgroup_limit_is_unlimited(false, true));
+}
+
+TEST(IndexWorkerParallelism, ReadsMinimumOfAllV2AncestorLimits) {
+  TemporaryDirectory temporary{"ctk-cgroup-v2-policy"};
+  const auto mount = temporary.path() / "v2";
+  fs::create_directories(mount / "child");
+  std::ofstream(mount / "memory.max") << 12ULL * 1024 * 1024 * 1024;
+  std::ofstream(mount / "child" / "memory.max") << 20ULL * 1024 * 1024 * 1024;
+  std::ofstream(mount / "cpu.max") << "600000 100000\n";
+  std::ofstream(mount / "child" / "cpu.max") << "400000 100000\n";
+  const std::string membership = "0::/child\n";
+  const std::string mounts =
+      "29 23 0:25 / " + mount.string() + " rw - cgroup2 cgroup rw\n";
+  EXPECT_EQ(index_worker_detail::cgroup_parallelism_limit(
+                10, 32ULL * 1024 * 1024 * 1024, membership, mounts),
+            2u);
+}
+
+TEST(IndexWorkerParallelism, HybridUnlimitedV2RootStillHonorsV1Memory) {
+  TemporaryDirectory temporary{"ctk-cgroup-hybrid-policy"};
+  const auto v2 = temporary.path() / "v2";
+  const auto v1 = temporary.path() / "v1-memory";
+  fs::create_directories(v2 / "child");
+  fs::create_directories(v1 / "legacy");
+  std::ofstream(v2 / "child" / "memory.max") << "max\n";
+  std::ofstream(v2 / "child" / "cpu.max") << "max 100000\n";
+  std::ofstream(v1 / "memory.limit_in_bytes") << 12ULL * 1024 * 1024 * 1024;
+  std::ofstream(v1 / "legacy" / "memory.limit_in_bytes")
+      << 20ULL * 1024 * 1024 * 1024;
+  const std::string membership = "0::/child\n5:memory:/legacy\n";
+  const std::string mounts = "29 23 0:25 / " + v2.string() +
+                             " rw - cgroup2 cgroup rw\n" + "30 23 0:26 / " +
+                             v1.string() + " rw - cgroup cgroup rw,memory\n";
+  EXPECT_EQ(index_worker_detail::cgroup_parallelism_limit(
+                10, 32ULL * 1024 * 1024 * 1024, membership, mounts),
+            3u);
+}
+
+TEST(IndexWorkerParallelism, MissingCgroupLeafLimitFailsClosed) {
+  TemporaryDirectory temporary{"ctk-cgroup-missing-leaf"};
+  const auto mount = temporary.path() / "v2";
+  fs::create_directories(mount / "child");
+  std::ofstream(mount / "memory.max") << "max\n";
+  std::ofstream(mount / "cpu.max") << "max 100000\n";
+  std::ofstream(mount / "child" / "cpu.max") << "400000 100000\n";
+  const std::string membership = "0::/child\n";
+  const std::string mounts =
+      "29 23 0:25 / " + mount.string() + " rw - cgroup2 cgroup rw\n";
+  EXPECT_EQ(index_worker_detail::cgroup_parallelism_limit(
+                10, 32ULL * 1024 * 1024 * 1024, membership, mounts),
+            1u);
+}
+
+TEST(IndexWorkerParallelism, ReadsMinimumOfAllV1CpuAncestorQuotas) {
+  TemporaryDirectory temporary{"ctk-cgroup-v1-cpu-policy"};
+  const auto mount = temporary.path() / "v1-cpu";
+  fs::create_directories(mount / "legacy");
+  std::ofstream(mount / "cpu.cfs_quota_us") << 800000;
+  std::ofstream(mount / "cpu.cfs_period_us") << 100000;
+  std::ofstream(mount / "legacy" / "cpu.cfs_quota_us") << 500000;
+  std::ofstream(mount / "legacy" / "cpu.cfs_period_us") << 100000;
+  const auto memory = 32ULL * 1024 * 1024 * 1024;
+  const auto v1_memory = temporary.path() / "v1-memory";
+  fs::create_directories(v1_memory / "legacy");
+  std::ofstream(v1_memory / "memory.limit_in_bytes") << memory;
+  std::ofstream(v1_memory / "legacy" / "memory.limit_in_bytes") << memory;
+  const std::string membership = "5:cpu,cpuacct:/legacy\n6:memory:/legacy\n";
+  const std::string mounts = "29 23 0:25 / " + mount.string() +
+                             " rw - cgroup cgroup rw,cpu,cpuacct\n" +
+                             "30 23 0:26 / " + v1_memory.string() +
+                             " rw - cgroup cgroup rw,memory\n";
+  EXPECT_EQ(index_worker_detail::cgroup_parallelism_limit(10, memory,
+                                                          membership, mounts),
+            3u);
+}
+
 class IndexWorkerProcess : public ::testing::Test {
 protected:
   std::filesystem::path root;
@@ -260,6 +399,71 @@ TEST_F(IndexWorkerProcess,
   fs::rename(root / "include", root / "old");
   fs::create_directory(root / "include");
   EXPECT_NE(inventories.digest(root / "include"), existing);
+}
+
+TEST_F(IndexWorkerProcess, DirectoryInventoryRefreshInvalidatesOnNewShadow) {
+  const auto include = root / "include";
+  fs::create_directories(include);
+  std::ofstream(include / "base.hpp") << "int base;";
+  net::index_detail::IncludeInventoryCache inventories;
+  const auto before = inventories.digest(include);
+  ASSERT_FALSE(before.empty());
+  const auto generation = inventories.generation();
+
+  std::ofstream(include / "shadow.hpp") << "int shadow;";
+  bool refreshed = false;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (!refreshed && std::chrono::steady_clock::now() < deadline) {
+    refreshed = inventories.refresh();
+    if (!refreshed)
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  if (!refreshed)
+    GTEST_SKIP() << "Directory notifications unavailable for this filesystem";
+
+  EXPECT_GT(inventories.generation(), generation);
+  const auto after = inventories.digest(include);
+  EXPECT_NE(after, before);
+  EXPECT_EQ(after,
+            net::index_detail::digest_text(cache::include_inventory(include)));
+}
+
+TEST_F(IndexWorkerProcess,
+       DirectoryInventoryCapacityUsesUncachedFallbackWithoutInvalidation) {
+  std::vector<fs::path> roots;
+  for (unsigned i = 0; i < 129; ++i) {
+    const auto path = root / ("include-" + std::to_string(i));
+    fs::create_directories(path);
+    std::ofstream(path / "value.hpp") << "int value;";
+    roots.push_back(path);
+  }
+
+  net::index_detail::IncludeInventoryCache inventories;
+  const auto generation = inventories.generation();
+  for (const auto &path : roots)
+    EXPECT_EQ(inventories.digest(path),
+              net::index_detail::digest_text(cache::include_inventory(path)));
+  EXPECT_EQ(inventories.generation(), generation);
+
+  unsigned cached_scans = 0;
+  inventories.digest(roots.front(), [&] {
+    ++cached_scans;
+    return true;
+  });
+  if (cached_scans != 0)
+    GTEST_SKIP() << "Directory notifications unavailable; "
+                    "cache uses full scans";
+
+  unsigned overflow_scans = 0;
+  inventories.digest(roots.back(), [&] {
+    ++overflow_scans;
+    return true;
+  });
+  EXPECT_GT(overflow_scans, 0u);
+  EXPECT_EQ(inventories.generation(), generation);
+  EXPECT_FALSE(inventories.refresh());
+  EXPECT_EQ(inventories.generation(), generation);
 }
 
 TEST_F(IndexWorkerProcess,

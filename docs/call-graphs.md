@@ -156,6 +156,17 @@ the explicit output option:
 callgraph in tree main-file true format json
 ```
 
+Assigned graphs and nodes use the same bounded protobuf preview as matcher rows:
+`print graph` preserves availability records, enum names and string-encoded 64-bit
+integers, and `print graph | pretty()` adds readable indentation. Typed field
+access still returns native values, so offsets remain integers in expressions.
+`inspect graph` and `inspect graph.nodes[i]` use the same schema inspector and
+default depth as matcher bindings, with graph operations and ownership metadata
+alongside the schema fields. Inspection's `retained` flag reports local ownership
+state; it does not check server expiry. These previews do not change the graph
+or its retained matching references.
+Use the existing `save graph to "graph.json" as json` for a detached export.
+
 ## System headers and custom callable boundaries
 
 Use `exclude-system true` to keep your source and user headers while omitting

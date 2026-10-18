@@ -87,6 +87,8 @@ message IndexWorkerRequest {
   string working_directory = 4;
   repeated string compile_arguments = 5;
   string header_cache_directory = 6;
+  // Controller snapshots are revalidated before publication.
+  repeated IndexWorkerDependency precomputed_include_inventories = 7;
 }
 message IndexWorkerTranslationUnit {
   string source = 1;

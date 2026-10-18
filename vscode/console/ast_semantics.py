@@ -43,20 +43,12 @@ def inheritance(inspector: AstInspector, target: Any, file: str) -> dict[str, An
     retained: list[Any] = []
     created: set[str] = set()
     related: set[str] = set()
-    notice = ''
 
     def visit(node: Any, depth: int) -> None:
-        nonlocal notice
-        if depth >= 16 or len(items) >= 128:
-            notice = 'Inheritance display limited to 16 levels and 128 base edges.'
-            return
-        rows = host.client.peek(node, query=BASE_QUERY, max_nodes=1000)
+        rows = host.client.peek(node, query=BASE_QUERY, max_nodes=0)
         retained.append(rows)
         if rows:
             for row in rows:
-                if len(items) >= 128:
-                    notice = 'Inheritance display limited to 16 levels and 128 base edges.'
-                    break
                 edge = row.bindings['target'].base_specifier
                 description = edge.type.description
                 name = description.spelling or description.canonical_spelling
@@ -95,7 +87,7 @@ def inheritance(inspector: AstInspector, target: Any, file: str) -> dict[str, An
         raise
     inspector.collections.extend(retained)
     inspector.related.update(related)
-    return dict(inheritance=items, notice=notice)
+    return dict(inheritance=items)
 
 
 def parameters(host: ActionHost, target: Any) -> list[dict[str, str]]:
@@ -106,8 +98,6 @@ def parameters(host: ActionHost, target: Any) -> list[dict[str, str]]:
         'equalsBoundNode("function")))).bind("parameter")))',
         replace(target, scope=BINDING_MATCH_SCOPE_ROOT_ONLY))
     try:
-        if len(rows) > 1000:
-            raise ValueError('Parameter display limited to 1,000 parameters.')
         return [dict(name=row.binding('parameter').parameter_name or '',
                      type=row.binding('parameter').decl_type or '') for row in rows]
     finally:

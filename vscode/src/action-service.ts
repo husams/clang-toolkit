@@ -22,7 +22,12 @@ import {
   type GraphKind,
   graphSchema,
 } from "./graph-model.js";
-import type { Result, RunRequest } from "./model.js";
+import {
+  type Result,
+  type RunReport,
+  type RunRequest,
+  reportSchema,
+} from "./model.js";
 
 export type ActionSettings = Pick<
   RunRequest,
@@ -40,6 +45,16 @@ const responseSchema = z.object({
   error: z.string().optional(),
   output: z.array(z.string()).optional(),
   report: actionReportSchema.optional(),
+  searchReport: reportSchema
+    .extend({
+      results: z.array(
+        reportSchema.shape.results.element.extend({
+          nodeId: z.string().min(1),
+          translationUnit: z.string().min(1),
+        }),
+      ),
+    })
+    .optional(),
   reset: z.boolean().optional(),
   inspection: astInspectionSchema.optional(),
   graph: graphSchema.optional(),
@@ -129,6 +144,27 @@ export class ActionService {
     this.stopHeartbeat();
     if (this.child)
       await this.request({ type: "reset" }, process.cwd(), 15000, () => {});
+  }
+  async search(
+    settings: ActionSettings,
+    files: string[],
+    queries: string[],
+    maximum: number,
+    progress: (text: string) => void = () => {},
+  ): Promise<RunReport> {
+    const response = await this.request(
+      { type: "search", settings, files, queries, maximum },
+      settings.directory,
+      Math.max(
+        30000,
+        settings.timeoutMs * Math.max(1, files.length) * (queries.length + 1) +
+          10000,
+      ),
+      progress,
+    );
+    if (!response.searchReport)
+      throw new Error("Search worker returned no report");
+    return response.searchReport;
   }
   async keepAlive(): Promise<number> {
     if (this.disposed) throw new Error("Action session closed");
@@ -277,7 +313,8 @@ export class ActionService {
             );
           pending.reject(new Error(response.error));
         } else {
-          if (response.inspection || response.report) this.startHeartbeat();
+          if (response.inspection || response.report || response.searchReport)
+            this.startHeartbeat();
           pending.resolve(response);
         }
       } catch (error) {

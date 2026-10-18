@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 import weakref
 from unittest.mock import Mock
@@ -13,7 +14,148 @@ spec = importlib.util.spec_from_file_location('editor_service', Path(__file__).p
 service = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(service)
 
-from action_service import ActionError, ActionHost
+# The editor adapter bootstrap installs its console/client module paths first.
+from action_service import ActionError, ActionHost  # noqa: E402
+from ast_inspector import AstInspector  # noqa: E402
+from search_service import search  # noqa: E402
+from clang_toolkit._generated.match.v1.match_result_pb2 import MatchBinding  # noqa: E402
+
+
+class SearchRows(list):
+    def __init__(self, rows):
+        super().__init__(rows)
+        self.close = Mock()
+
+
+class InputValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.host = ActionHost.__new__(ActionHost)
+        self.host._fingerprints = None
+        self.host.nodes = {'first': (None, '/source.cpp', 'First'),
+                           'second': (None, '/source.cpp', 'Second')}
+        self.host.roots = {'/source.cpp': ('root', 'original')}
+        self.host.buffers = SimpleNamespace(fingerprint=Mock(return_value='original'))
+
+    def test_checks_source_once_at_each_request_boundary_not_for_each_node(self):
+        with self.host.validated_inputs():
+            for _ in range(130):
+                self.host.check_input('first')
+                self.host.check_input('second')
+        self.assertEqual(self.host.buffers.fingerprint.call_count, 2)
+        self.assertIsNone(self.host._fingerprints)
+
+    def test_rejects_edits_during_inspection_before_publishing(self):
+        self.host.buffers.fingerprint.side_effect = ['original', 'changed']
+        with self.assertRaisesRegex(ActionError, 'Source changed'):
+            with self.host.validated_inputs():
+                self.host.check_input('first')
+        self.assertIsNone(self.host._fingerprints)
+
+    def test_each_new_request_rechecks_the_file_and_rejects_stale_nodes(self):
+        with self.host.validated_inputs():
+            self.host.check_input('first')
+        self.host.buffers.fingerprint.return_value = 'changed'
+        with self.assertRaisesRegex(ActionError, 'Source changed'):
+            with self.host.validated_inputs():
+                self.host.check_input('second')
+        self.assertIsNone(self.host._fingerprints)
+
+
+class SearchRetentionTests(unittest.TestCase):
+    def setUp(self):
+        self.file = str(Path('/tmp/ctk-search-retention.cpp').resolve())
+        self.host = SimpleNamespace(settings={}, sources={self.file: ['struct A {};']},
+                                    nodes={}, roots={}, runs=[], client=Mock(), parse_count=0)
+        self.parsed = {}
+
+        def root(file):
+            if file not in self.host.roots:
+                value = self.parsed.setdefault(file, Mock())
+                self.host.nodes[file] = (value, file, 'File root')
+                self.host.roots[file] = (file, 'fingerprint')
+                self.host.parse_count += 1
+            return file
+        self.host.root = root
+        self.host.check_input = lambda identifier: self.host.nodes[identifier]
+        self.host.inspector = AstInspector(self.host)
+
+    def row(self, name):
+        value = MatchBinding(symbol_identity=name)
+        value.location.valid = True
+        value.location.file = self.file
+        value.location.line = value.location.column = 1
+        value.node.cxx_record_decl.SetInParent()
+        row = Mock()
+        row.bindings = {'symbol': value}
+        row.binding.return_value = SimpleNamespace(value=value)
+        return row
+
+    def request(self, files=None, maximum=10):
+        return dict(settings={}, files=files or [self.file],
+                    queries=['cxxRecordDecl().bind("symbol")'], maximum=maximum)
+
+    def test_inspects_more_than_128_nodes_without_a_count_ceiling(self):
+        self.host.root(self.file)
+        self.host.client.peek.return_value = SearchRows([])
+        for index in range(130):
+            value = MatchBinding(symbol_identity=str(index))
+            value.node.var_decl.SetInParent()
+            node = self.host.inspector.retain(SimpleNamespace(value=value), self.file, str(index))
+            page = self.host.inspector.inspect(dict(settings={}, nodeId=node))
+            self.assertEqual(page['node']['id'], node)
+        self.assertEqual(len(self.host.inspector.cache), 130)
+
+    def test_retains_nodes_beyond_the_old_200000_handle_ceiling(self):
+        value = MatchBinding(symbol_identity='after-limit')
+        value.node.var_decl.SetInParent()
+        target = SimpleNamespace(value=value)
+        self.host.nodes.update((str(index), (target, self.file, 'Earlier node'))
+                               for index in range(200001))
+        node = self.host.inspector.retain(target, self.file, 'New node')
+        self.assertIs(self.host.nodes[node][0], target)
+
+    def test_retains_the_exact_native_binding_and_reports_display_truncation(self):
+        row = self.row('A')
+        rows = SearchRows([row, self.row('B')])
+        self.host.client.match_in.return_value = rows
+        report = search(self.host, self.request(maximum=1), Mock())
+        self.assertTrue(report['truncated'])
+        self.assertEqual(len(report['results']), 1)
+        native = self.host.nodes[report['results'][0]['nodeId']][0]
+        self.assertIs(native, row.binding.return_value)
+        rows.close.assert_not_called()
+        self.assertIs(self.host.runs[0][0], rows)
+
+    def test_releases_empty_files_and_duplicate_cursors_without_closing_shared_roots(self):
+        original = SearchRows([self.row('A')])
+        duplicate = SearchRows([self.row('A')])
+        empty = SearchRows([])
+        self.host.client.match_in.side_effect = [original, duplicate, empty]
+        empty_file = str(Path('/tmp/ctk-search-empty.cpp').resolve())
+        report = search(self.host, self.request([self.file, self.file, empty_file]), Mock())
+        self.assertEqual(len(report['results']), 1)
+        self.assertIn(self.file, self.host.roots)
+        self.assertNotIn(empty_file, self.host.roots)
+        self.parsed[self.file].close.assert_not_called()
+        self.parsed[empty_file].close.assert_called_once()
+        original.close.assert_not_called()
+        duplicate.close.assert_called_once()
+        empty.close.assert_called_once()
+
+    def test_cancellation_releases_unpublished_matches_and_parse_owners(self):
+        class InterruptedRows(SearchRows):
+            def __iter__(self):
+                yield self[0]
+                raise KeyboardInterrupt
+        rows = InterruptedRows([self.row('A')])
+        self.host.client.match_in.return_value = rows
+        with self.assertRaises(KeyboardInterrupt):
+            search(self.host, self.request(), Mock())
+        self.assertEqual(self.host.nodes, {})
+        self.assertEqual(self.host.roots, {})
+        self.assertEqual(self.host.inspector.declarations, {})
+        rows.close.assert_called_once()
+        self.parsed[self.file].close.assert_called_once()
 
 
 class SessionLifetimeTests(unittest.TestCase):

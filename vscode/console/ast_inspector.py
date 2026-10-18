@@ -1,17 +1,19 @@
 """Navigate live AST selections; never recreate nodes from serialized display data."""
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+import re
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from google.protobuf.json_format import MessageToDict
 from clang_toolkit import Matcher
+from clang_toolkit._generated.match.v1.match_result_pb2 import BINDING_MATCH_SCOPE_ROOT_ONLY
 
 from run_service import Results
 from ast_selection import AstSelection
 from ast_semantics import inheritance, parameters, reference_declaration
-from ast_limits import MAX_AST_CHILDREN, MAX_RETAINED_NODES
 
 if TYPE_CHECKING:
     from action_service import ActionHost
@@ -45,8 +47,6 @@ class AstInspector:
             previous = self.declarations.get(key)
             if previous in self.host.nodes:
                 return previous
-        if len(self.host.nodes) >= MAX_RETAINED_NODES:
-            raise ValueError('AST retention limit reached; refresh analysis.')
         identifier = str(uuid4())
         self.host.nodes[identifier] = (target, file, label)
         if key is not None:
@@ -101,9 +101,14 @@ class AstInspector:
             return identifier
         root_id = self.host.root(request['translationUnit'])
         tree, file, _ = self.host.check_input(root_id)
-        category = 'decl' if result['kind'].endswith('Decl') else 'stmt'
-        predicate = 'unless(isImplicit())' if category == 'decl' and not result.get('implicit') else ''
-        rows = self.host.client.match_in(f'{category}({predicate}).bind("candidate")', tree)
+        result_file = str(Path(result['file']).resolve())
+        predicates = [Matcher('isExpansionInFileMatching', re.escape(result_file) + '$')]
+        if result['kind'].endswith('Decl') and not result.get('implicit'):
+            predicates.append(Matcher('unless', Matcher('isImplicit')))
+        # Filter in Clang before collecting rows, rather than materializing all
+        # declarations/statements (including headers) to test their locations.
+        query = Matcher(result['nativeKind'], *predicates).bind('candidate')
+        rows = self.host.client.match_in(query, tree)
         selected = []
         for row in rows:
             value = row.bindings['candidate']
@@ -112,7 +117,7 @@ class AstInspector:
             location = value.location
             # Exact native category and coordinates identify the original result.
             if (location.valid and location.file and
-                    str(Path(location.file).resolve()) == str(Path(result['file']).resolve()) and
+                    str(Path(location.file).resolve()) == result_file and
                     location.line == result['line'] and location.column == result['column'] and
                     kind == result['nativeKind']):
                 selected.append(row.binding('candidate'))
@@ -125,6 +130,16 @@ class AstInspector:
         self.locations[key] = identifier
         return identifier
 
+    def children(self, target: Any, query: Matcher | None = None) -> Any:
+        if target.value.node.WhichOneof('payload') == 'translation_unit_decl':
+            # Match direct TU declarations at the root, applying the file
+            # predicate before collecting rows to avoid retaining unrelated
+            # header declarations for a file-local page.
+            query = Matcher('translationUnitDecl', Matcher('forEach',
+                (query or Matcher('decl')).bind('target')))
+            return self.host.client.match_in(query, replace(target, scope=BINDING_MATCH_SCOPE_ROOT_ONLY))
+        return self.host.client.peek(target, axis='children', query=query, max_nodes=0)
+
     def inspect(self, request: dict[str, Any]) -> dict[str, Any]:
         if request.get('settings') != self.host.settings:
             raise ValueError('Analysis settings changed; refresh analysis before inspecting AST nodes.')
@@ -136,11 +151,8 @@ class AstInspector:
             return self.selection.related(identifier)
         if identifier in self.cache:
             return self.cache[identifier]
-        if len(self.cache) >= 128 or len(self.host.nodes) >= MAX_RETAINED_NODES:
-            raise ValueError('AST inspection limit reached; refresh analysis to release inspected nodes.')
-        query = 'decl(isExpansionInMainFile())' if identifier == self.file_nodes.get(file) else None
-        rows = self.host.client.peek(
-            target, axis='children', query=query, max_nodes=MAX_AST_CHILDREN)
+        query = Matcher('decl', Matcher('isExpansionInMainFile')) if identifier == self.file_nodes.get(file) else None
+        rows = self.children(target, query)
         pending: dict[str, tuple[Any, str, str]] = {}
         children = []
         try:

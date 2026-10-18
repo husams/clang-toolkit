@@ -6,6 +6,7 @@
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/DeclTemplate.h>
 #include <clang/AST/RecursiveASTVisitor.h>
+#include <clang/AST/Stmt.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/Version.h>
@@ -49,6 +50,13 @@ std::string digest_buffer(llvm::StringRef buffer) {
   llvm::SHA256 hash;
   hash.update(buffer);
   return llvm::toHex(llvm::ArrayRef<uint8_t>(hash.final()), true);
+}
+bool is_sha256_hex(llvm::StringRef value) {
+  return value.size() == 64 &&
+         std::all_of(value.begin(), value.end(), [](char c) {
+           return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') ||
+                  (c >= 'a' && c <= 'f');
+         });
 }
 std::string json_string(const std::string &value) {
   std::string out = "\"";
@@ -99,11 +107,41 @@ bool is_symbol_definition(const clang::NamedDecl *decl) {
                    clang::NamespaceDecl, clang::NamespaceAliasDecl,
                    clang::BindingDecl>(decl);
 }
+
+bool is_external_definition(const clang::NamedDecl *decl) {
+  // Function bodies can still be parsed when Clang needs them for constexpr
+  // evaluation or return type deduction. Their declarations do not belong in
+  // the project-wide definition locator.
+  for (const clang::DeclContext *scope = decl->getDeclContext(); scope;
+       scope = scope->getParent()) {
+    if (scope->isFunctionOrMethod())
+      return false;
+    if (const auto *named_scope = llvm::dyn_cast<clang::NamedDecl>(scope)) {
+      if (named_scope->getFormalLinkage() == clang::Linkage::Internal ||
+          named_scope->getFormalLinkage() == clang::Linkage::UniqueExternal)
+        return false;
+      if (const auto *ns = llvm::dyn_cast<clang::NamespaceDecl>(named_scope);
+          ns && ns->isAnonymousNamespace())
+        return false;
+    }
+  }
+
+  const auto linkage = decl->getFormalLinkage();
+  return linkage != clang::Linkage::Internal &&
+         linkage != clang::Linkage::UniqueExternal;
+}
+
 class Visitor : public clang::RecursiveASTVisitor<Visitor> {
 public:
   Visitor(clang::ASTContext &c, ProjectIndexExtraction &r,
           HeaderDefinitionReuse &reuse)
       : context(c), output(r), reuse(reuse) {}
+  bool TraverseStmt(clang::Stmt *) {
+    // PCHs can materialize bodies even when the parser was asked to skip
+    // them. A definition locator needs declaration metadata, never statements
+    // or expressions (including bodies Clang had to parse for type deduction).
+    return true;
+  }
   bool TraverseDecl(clang::Decl *d) {
     // Parse system headers for semantic correctness, but do not enumerate their
     // declarations or repeatedly publish the standard library for every TU.
@@ -116,7 +154,8 @@ public:
     if (reuse.skip(d))
       return true;
     if (d->isImplicit() || !is_symbol_definition(d) ||
-        d->getNameAsString().empty() || !d->getLocation().isValid())
+        !is_external_definition(d) || d->getNameAsString().empty() ||
+        !d->getLocation().isValid())
       return true;
     auto &sm = context.getSourceManager();
     auto loc = sm.getSpellingLoc(d->getLocation());
@@ -148,12 +187,6 @@ public:
     s.column = sm.getSpellingColumnNumber(loc);
     s.byte_offset = sm.getFileOffset(loc);
     s.is_definition = true;
-    if (auto *f = llvm::dyn_cast<clang::FunctionDecl>(d)) {
-      s.signature = f->getType().getAsString();
-    } else if (auto *v = llvm::dyn_cast<clang::VarDecl>(d)) {
-      s.signature = v->getType().getAsString();
-    } else if (auto *field = llvm::dyn_cast<clang::FieldDecl>(d))
-      s.signature = field->getType().getAsString();
     reuse.record(d, s);
     output.symbols.push_back(std::move(s));
     return true;
@@ -186,6 +219,10 @@ class Action final : public clang::ASTFrontendAction {
 public:
   Action(ProjectIndexExtraction &r, std::string cache, bool enabled)
       : result(r), cache(std::move(cache)), enabled(enabled) {}
+  bool BeginSourceFileAction(clang::CompilerInstance &ci) override {
+    ci.getFrontendOpts().SkipFunctionBodies = true;
+    return clang::ASTFrontendAction::BeginSourceFileAction(ci);
+  }
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &, llvm::StringRef) override {
     reuse = std::make_unique<HeaderDefinitionReuse>(getCompilerInstance(),
@@ -318,46 +355,31 @@ serialize_project_index_context(const std::string &directory,
   return out;
 }
 
-bool extract_project_index(const std::string &source,
-                           const std::string &directory,
-                           const std::string &working_directory,
-                           const std::vector<std::string> &arguments,
-                           ProjectIndexExtraction &result, std::string &error,
-                           const std::string &header_cache_directory) {
+bool extract_project_index(
+    const std::string &source, const std::string &directory,
+    const std::string &working_directory,
+    const std::vector<std::string> &arguments, ProjectIndexExtraction &result,
+    std::string &error, const std::string &header_cache_directory,
+    const std::map<std::string, std::string> *precomputed_include_inventories) {
   (void)directory;
   result.compile_context =
       serialize_project_index_context(working_directory, arguments);
-  std::set<std::string> include_roots{
-      canonical(fs::path(source).parent_path().string())};
-  for (std::size_t i = 0; i < arguments.size(); ++i) {
-    const auto &argument = arguments[i];
-    std::string path;
-    if ((argument == "-I" || argument == "-iquote" || argument == "-isystem" ||
-         argument == "-idirafter" || argument == "-F" ||
-         argument == "-iframework") &&
-        i + 1 < arguments.size())
-      path = arguments[++i];
-    else if (argument.starts_with("-I") && argument.size() > 2)
-      path = argument.substr(2);
-    else {
-      for (const char *option :
-           {"-iquote", "-isystem", "-idirafter", "-F", "-iframework"}) {
-        const std::string_view prefix(option);
-        if (argument.starts_with(prefix) && argument.size() > prefix.size()) {
-          path = argument.substr(prefix.size());
-          break;
-        }
+  for (const auto &root :
+       cache::include_roots(source, working_directory, arguments)) {
+    const auto key = "@include-tree:" + root;
+    bool supplied = false;
+    if (precomputed_include_inventories) {
+      const auto found = precomputed_include_inventories->find(root);
+      if (found != precomputed_include_inventories->end() &&
+          is_sha256_hex(found->second)) {
+        result.dependencies.insert_or_assign(key, found->second);
+        supplied = true;
       }
     }
-    if (!path.empty())
-      include_roots.insert(canonical((fs::path(path).is_absolute()
-                                          ? fs::path(path)
-                                          : fs::path(working_directory) / path)
-                                         .string()));
+    if (!supplied)
+      result.dependencies.insert_or_assign(
+          key, digest_buffer(cache::include_inventory(root)));
   }
-  for (const auto &root : include_roots)
-    result.dependencies.insert_or_assign(
-        "@include-tree:" + root, digest_buffer(cache::include_inventory(root)));
   for (std::size_t i = 0; i < arguments.size(); ++i) {
     std::string input;
     const auto &arg = arguments[i];

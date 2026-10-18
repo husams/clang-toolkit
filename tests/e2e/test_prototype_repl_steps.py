@@ -99,6 +99,8 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 110, 0, 0))
     state_root = tmp_path / "state"
     project_root = Path(__file__).resolve().parents[2]
+    library_root = tmp_path / "empty-libraries"
+    library_root.mkdir()
     process = subprocess.Popen(
         [
             "uv",
@@ -113,6 +115,8 @@ def exercise_compiled_repl(compiled_repl, tmp_path: Path):
             str(server.config),
             "--ui",
             ui,
+            "--lib-dir",
+            str(library_root),
         ],
         stdin=slave,
         stdout=slave,

@@ -183,7 +183,7 @@ export class GraphCanvas {
     v.y = Math.max(32 - q.height, Math.min(p.clientHeight - 32, v.y));
     const px = (x) => q.x(x) + v.x,
       py = (y) => q.y(y) + v.y;
-    const route = s.paths().get(s.current) || [],
+    const route = s.path(s.current),
       branch = s.paths(true, s.current),
       active = new Set([...route, ...branch.keys()]);
     const routed = [];

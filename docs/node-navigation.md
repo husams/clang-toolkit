@@ -37,9 +37,11 @@ exact visitor parent when Clang has no standalone parent-map identity. Bare
 auxiliary bindings without that context fail explicitly. Parent-map construction
 may inspect the full pinned tree. AST containment and inheritance are separate.
 
-The node budget counts examined neighbours before filtering across all selected
-source rows: default 10000; range 1..100000. Cancellation and limits can follow
-provisional rows but never publish a successful collection. Existing server row,
+Navigation has no fixed node-count ceiling. An optional caller-selected `nodes`
+budget counts examined neighbours before filtering across all selected source
+rows; omitted or zero means unlimited, and positive uint64 budgets are accepted.
+Cancellation and memory limits can follow provisional rows but never publish a
+successful collection. Existing server
 per-event byte, retained-memory and snapshot limits apply. A leaf has an empty
 children collection; a translation-unit root has an empty parents collection.
 

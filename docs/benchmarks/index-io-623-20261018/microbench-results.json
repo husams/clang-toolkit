@@ -1,0 +1,56 @@
+{
+  "executable": "/tmp/ctk-digest-pool-bench/build/ctk_digest_pool_bench",
+  "workload_paths": "/tmp/ctk-digest-pool-bench/paths.txt",
+  "workload_metadata": "/tmp/ctk-digest-pool-bench/metadata.json",
+  "selected_manifests": 16,
+  "path_visits_per_pass": 21819,
+  "unique_paths": 3245,
+  "repeated_visits": 18574,
+  "unique_file_bytes": 181409221,
+  "read_bytes_per_pass": 771767108,
+  "macos_qos": "utility",
+  "rlimit_soft": 1048575,
+  "rlimit_hard": 9223372036854775807,
+  "effective_reader_budget": 2048,
+  "retained_readers": 2048,
+  "passes": [
+    {
+      "method": "fresh_open_1",
+      "seconds": 21.6532,
+      "checksum": "722c9626191cd0c1e78983edd11c685d128042d07843e89a3a8c2e555425198f",
+      "peak_rss": 16318464
+    },
+    {
+      "method": "reader_pool_1_fresh_hash_each_call",
+      "seconds": 17.4964,
+      "checksum": "722c9626191cd0c1e78983edd11c685d128042d07843e89a3a8c2e555425198f",
+      "path_visits": 21819,
+      "cumulative_cache_hits": 17929,
+      "cumulative_hashes": 21819,
+      "cumulative_cached_opens": 2048,
+      "cumulative_fresh_fallbacks": 1842,
+      "invalidations": 0,
+      "peak_rss": 16318464
+    },
+    {
+      "method": "fresh_open_2",
+      "seconds": 34.0555,
+      "checksum": "722c9626191cd0c1e78983edd11c685d128042d07843e89a3a8c2e555425198f",
+      "peak_rss": 16318464
+    },
+    {
+      "method": "reader_pool_2_fresh_hash_each_call",
+      "seconds": 26.4664,
+      "checksum": "722c9626191cd0c1e78983edd11c685d128042d07843e89a3a8c2e555425198f",
+      "path_visits": 21819,
+      "cumulative_cache_hits": 37906,
+      "cumulative_hashes": 43638,
+      "cumulative_cached_opens": 2048,
+      "cumulative_fresh_fallbacks": 3684,
+      "invalidations": 0,
+      "peak_rss": 17121280
+    }
+  ],
+  "checksums_match": true,
+  "caveat": "Repeated paired order showed host/order variance: fresh-open pass 2 was slower than pass 1. This is a 16-manifest sample, not a full-index timing."
+}

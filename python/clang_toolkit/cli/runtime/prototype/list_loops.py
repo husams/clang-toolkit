@@ -299,6 +299,17 @@ def _scope(
 
 
 def _insertable(context: Any, node: Any, output: list[Any], value: Any) -> None:
+    # Scalars cannot introduce a collection cycle. Avoid allocating traversal
+    # sets and a visitor closure for the common map/filter/reverse case.
+    value_type = type(value)
+    if (
+        value_type is int
+        or value_type is float
+        or value_type is str
+        or value_type is bool
+        or value is None
+    ):
+        return
     from clang_toolkit.match_values import MatchValueError
 
     from ..collections import ensure_insertable
@@ -346,273 +357,96 @@ def _callback_value(
         raise
 
 
+# Fixed compiler templates keep traversal and append operations visible. Source
+# accounting and lexical scope management are shared by one guard per invocation.
+_TEMPLATES = {
+    "map": """def direct_map(context, arguments, owner, call_node):
+    if not can_loop(context, arguments, True):
+        return owner.recursion.run(context, arguments, owner, call_node)
+    with execution(context, arguments, owner, call_node) as loop:
+        plain = prepare_plain(loop)
+        if plain is not None:
+            return plain[0](*plain[1])
+        callback, output = arguments[1:]
+        for index, head in enumerate(loop.items):
+            loop.enter(index)
+            if not loop.host_ready():
+                return loop.resume()
+            value = loop.map_value(callback, head)
+            loop.validate(output, value)
+            output.append(value)
+            loop.pushed(output)
+            loop.advance()
+        return loop.finish(output)
+""",
+    "filter": """def direct_filter(context, arguments, owner, call_node):
+    if not can_loop(context, arguments, True):
+        return owner.recursion.run(context, arguments, owner, call_node)
+    with execution(context, arguments, owner, call_node) as loop:
+        plain = prepare_plain(loop)
+        if plain is not None:
+            return plain[0](*plain[1])
+        callback, output = arguments[1:]
+        for index, head in enumerate(loop.items):
+            loop.enter(index)
+            if loop.keep(callback, head):
+                if not loop.host_ready():
+                    return loop.resume()
+                loop.validate(output, head)
+                output.append(head)
+                loop.pushed(output)
+            loop.end_branch()
+            loop.advance()
+        return loop.finish(output)
+""",
+    "reverse": """def direct_reverse(context, arguments, owner, call_node):
+    if not can_loop(context, arguments, True, True):
+        return owner.recursion.run(context, arguments, owner, call_node)
+    with execution(context, arguments, owner, call_node) as loop:
+        plain = prepare_plain(loop)
+        if plain is not None:
+            return plain[0](*plain[1])
+        for index in range(len(loop.items)):
+            loop.descend(index)
+        output = loop.finish([])
+        for index in range(len(loop.items) - 1, -1, -1):
+            head = loop.items[index]
+            loop.unwind(index, output)
+            if loop.host_ready():
+                loop.validate(output, head)
+                output.append(head)
+                loop.pushed(output)
+            else:
+                loop.host_push()
+            output = loop.result()
+        return output
+""",
+}
+
+
 def compile_direct_loop(node: Any, context: Any) -> Any:
     shape = recognize_loop(node)
     if shape is None:
         return None
-    if shape.kind == "reverse":
-        return _compile_reverse(shape)
     import ast
 
-    from .list_recursion import _Arena
-    from .semantics import _as_bool, observe_statement
+    from .list_loop_runtime import LoopPlan
+    from .plain_list_loops import prepare_plain
 
-    # Only the fixed compiler template is interpolated, never user source.
-    prefix = f"""def direct_{shape.kind}(context, arguments, owner, call_node):
-    if not can_loop(context, arguments, host):
-        return owner.recursion.run(context, arguments, owner, call_node)
-    saved_scopes = list(context._scopes)
-    arena = Arena()
-    callback, output = arguments[1:]
-    try:
-        items = snapshot(context, arguments, owner, call_node)
-        for index in range(len(items)):
-            if index:
-                context.tick(group)
-                context.tick(group)
-            bind_scope(context, owner, shape, items, index, arena, callback, output)
-            context.tick(body)
-            generic_push = False
-"""
-    if shape.kind == "map":
-        work = """            for step in push_steps:
-                context.tick(step)
-            if host_ready(context):
-                for step in callback_steps:
-                    context.tick(step)
-                value = callback_value(context, callback_node, head_node, callback, items[index], host_argument)
-                insertable(context, push_node, output, value)
-                output.append(value)
-                pushed = output
-            else:
-                pushed = context.host_evaluator(context, push_node)
-                generic_push = True
-            if observe_push:
-                observe(context, push_node, pushed)
-"""
-    else:
-        work = """            context.tick(condition)
-            for step in callback_steps:
-                context.tick(step)
-            value = callback_value(context, callback_node, head_node, callback, items[index], host_argument)
-            keep = as_bool(context, value, condition)
-            context.push_scope()
-            try:
-                if keep:
-                    context.tick(yes_block)
-                    for step in push_steps:
-                        context.tick(step)
-                    if host_ready(context):
-                        for step in push_argument_steps:
-                            context.tick(step)
-                        insertable(context, push_node, output, items[index])
-                        output.append(items[index])
-                        branch_value = output
-                    else:
-                        branch_value = context.host_evaluator(context, push_node)
-                        generic_push = True
-                    if observe_push:
-                        observe(context, push_node, branch_value)
-                else:
-                    context.tick(no_block)
-                    branch_value = None
-            finally:
-                context.pop_scope()
-            if observe_condition:
-                observe(context, condition, branch_value)
-"""
-    suffix = """            for step in recursive_steps:
-                context.tick(step)
-            if generic_push:
-                remaining = [context.lookup(shape.tail), context.lookup(shape.callback), context.lookup(shape.output)]
-                return owner.recursion.run(context, remaining, owner, recursive)
-        if items:
-            context.tick(group)
-        bind_scope(context, owner, shape, items, len(items), arena, callback, output)
-        context.push_scope()
-        try:
-            for step in base_steps:
-                context.tick(step)
-            if observe_base:
-                observe(context, base_value, output)
-        finally:
-            context.pop_scope()
-        return output
-    finally:
-        context._scopes[:] = saved_scopes
-"""
-    source = prefix + work + suffix
-    callback = shape.argument
-    base_block = shape.empty.children[0]
-    base_value = _statement(base_block.children[0])
+    plan = LoopPlan(shape)
+
     namespace = {
         "__builtins__": {},
-        "list": list,
+        "enumerate": enumerate,
         "range": range,
         "len": len,
         "can_loop": _can_loop,
-        "host_ready": _host_ready,
-        "host": shape.push.kind == "host",
-        "Arena": _Arena,
-        "bind_scope": _scope,
-        "snapshot": _snapshot,
-        "shape": shape,
-        "group": shape.group,
-        "body": shape.full.children[0],
-        "push_steps": shape.push_steps,
-        "callback_steps": (callback, callback)
-        if shape.kind == "map" and shape.push.kind == "host"
-        else (callback,),
-        "callback_node": callback,
-        "callback_value": _callback_value,
-        "host_argument": shape.kind == "map" and shape.push.kind == "host",
-        "head_node": callback.children[0],
-        "insertable": _insertable,
-        "push_node": shape.push,
-        "observe_push": shape.full.children[0].children[0].kind == "observe",
-        "observe": observe_statement,
-        "recursive_steps": (shape.recursive, *shape.recursive.children),
-        "recursive": shape.recursive,
-        "base_steps": (base_block, base_value),
-        "base_value": base_value,
-        "observe_base": base_block.children[0].kind == "observe",
+        "execution": plan,
+        "prepare_plain": prepare_plain,
     }
-    if shape.kind == "filter":
-        yes, no = shape.condition.children[1:]
-        push_argument = _push(shape.push)[1]
-        namespace.update(
-            condition=shape.condition,
-            yes_block=yes,
-            no_block=no,
-            as_bool=_as_bool,
-            push_argument_steps=(push_argument, push_argument)
-            if shape.push.kind == "host"
-            else (push_argument,),
-            observe_push=yes.children[0].kind == "observe",
-            observe_condition=shape.full.children[0].children[0].kind == "observe",
-        )
-    module = ast.parse(source)
+    module = ast.parse(_TEMPLATES[shape.kind])
     exec(compile(module, "<ctk-direct-list-loop>", "exec"), namespace)  # noqa: S102 - fixed compiler template
     function = namespace["direct_" + shape.kind]
     function.__ctk_source__ = ast.unparse(module)
-    return function
-
-
-def _compile_reverse(shape: LoopShape) -> Any:
-    import ast
-
-    from .list_recursion import _Arena
-    from .semantics import ExecutionLimitError, _error, observe_statement
-
-    assignment = _statement(shape.full.children[0].children[0])
-    consume = assignment.children[0]
-    consumed = consume.kind == "consume"
-    body = shape.full.children[0]
-    base = shape.empty.children[0]
-    base_value = _statement(base.children[0])
-    final = _statement(body.children[2])
-    source = """def direct_reverse(context, arguments, owner, call_node):
-    if not can_loop(context, arguments, host, True):
-        return owner.recursion.run(context, arguments, owner, call_node)
-    saved_scopes = list(context._scopes)
-    saved_depth = context.consume_depth
-    arena = Arena()
-    try:
-        items = snapshot(context, arguments, owner, call_node)
-        for index in range(len(items)):
-            if index:
-                context.tick(group)
-                context.tick(group)
-            bind_scope(context, owner, shape, items, index, arena, None, None)
-            for step in descent_steps:
-                context.tick(step)
-            context.consume_depth += consumed
-            for step in recursive_steps:
-                context.tick(step)
-            if index >= context.max_items:
-                raise error(context, recursive, "continuation stack exceeds item limit", LimitError)
-        if items:
-            context.tick(group)
-        bind_scope(context, owner, shape, items, len(items), arena, None, None)
-        context.push_scope()
-        try:
-            context.tick(base_block)
-            context.tick(base_value)
-            output = []
-            if observe_base:
-                observe(context, base_value, output)
-        finally:
-            context.pop_scope()
-        for index in range(len(items) - 1, -1, -1):
-            context.consume_depth -= consumed
-            bind_scope(context, owner, shape, items, index, arena, None, None)
-            context.define(result_name, output)
-            if observe_assignment:
-                observe(context, assignment, output)
-            for step in push_steps:
-                context.tick(step)
-            if host_ready(context):
-                for step in push_argument_steps:
-                    context.tick(step)
-                insertable(context, push_node, output, items[index])
-                output.append(items[index])
-                pushed = output
-            else:
-                pushed = context.host_evaluator(context, push_node)
-            if observe_push:
-                observe(context, push_node, pushed)
-            context.tick(final)
-            output = context.lookup(result_name)
-            if observe_final:
-                observe(context, final, output)
-        return output
-    finally:
-        context.consume_depth = saved_depth
-        context._scopes[:] = saved_scopes
-"""
-    argument_steps = (
-        (shape.argument, shape.argument)
-        if shape.push.kind == "host"
-        else (shape.argument,)
-    )
-    namespace = {
-        "__builtins__": {},
-        "list": list,
-        "range": range,
-        "len": len,
-        "can_loop": _can_loop,
-        "host_ready": _host_ready,
-        "host": shape.push.kind == "host",
-        "Arena": _Arena,
-        "bind_scope": _scope,
-        "snapshot": _snapshot,
-        "shape": shape,
-        "group": shape.group,
-        "descent_steps": (body, assignment, consume)
-        if consumed
-        else (body, assignment),
-        "consumed": int(consumed),
-        "recursive_steps": (shape.recursive, *shape.recursive.children),
-        "recursive": shape.recursive,
-        "error": _error,
-        "LimitError": ExecutionLimitError,
-        "base_block": base,
-        "base_value": base_value,
-        "observe_base": base.children[0].kind == "observe",
-        "observe": observe_statement,
-        "result_name": shape.result,
-        "assignment": assignment,
-        "observe_assignment": body.children[0].kind == "observe",
-        "push_steps": shape.push_steps,
-        "push_argument_steps": argument_steps,
-        "insertable": _insertable,
-        "push_node": shape.push,
-        "observe_push": body.children[1].kind == "observe",
-        "final": final,
-        "observe_final": body.children[2].kind == "observe",
-    }
-    module = ast.parse(source)
-    exec(compile(module, "<ctk-direct-list-loop>", "exec"), namespace)  # noqa: S102 - fixed compiler template
-    function = namespace["direct_reverse"]
-    function.__ctk_source__ = ast.unparse(module)
+    function.__ctk_plan__ = plan
     return function

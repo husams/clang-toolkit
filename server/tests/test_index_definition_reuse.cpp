@@ -1,9 +1,11 @@
+#include "ctk/cache/include_inventory.hpp"
 #include "ctk/clang/project_index_extract.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <set>
 #include <tuple>
 
 namespace ctk::clang_layer {
@@ -16,15 +18,16 @@ protected:
   void write(const char *name, const std::string &text) {
     std::ofstream(root / name) << text;
   }
-  ProjectIndexExtraction extract(const char *name,
-                                 std::vector<std::string> args = {},
-                                 bool cache = true) {
+  ProjectIndexExtraction
+  extract(const char *name, std::vector<std::string> args = {},
+          bool cache = true,
+          const std::map<std::string, std::string> *inventories = nullptr) {
     ProjectIndexExtraction result;
     std::string error;
     args.insert(args.begin(), {"-std=c++20", "-I" + root.string()});
     EXPECT_TRUE(extract_project_index(
         (root / name).string(), root.string(), root.string(), args, result,
-        error, cache ? cache_directory.path().string() : ""))
+        error, cache ? cache_directory.path().string() : "", inventories))
         << error;
     return result;
   }
@@ -44,11 +47,18 @@ protected:
     return std::any_of(r.symbols.begin(), r.symbols.end(),
                        [&](const auto &s) { return s.qualified_name == name; });
   }
+  bool has_spelling_name(const ProjectIndexExtraction &r,
+                         const std::string &name) {
+    return std::any_of(r.symbols.begin(), r.symbols.end(),
+                       [&](const auto &s) { return s.name == name; });
+  }
   void common() {
     write("shared.hpp",
           "#pragma once\n#ifndef FLAVOR\n#define FLAVOR 1\n#endif\n#if FLAVOR "
           "== 1\nstruct Alpha { int field; };\n#else\nstruct Beta { long "
-          "field; };\n#endif\ninline int shared(){ return FLAVOR; }\n");
+          "field; };\n#endif\nstatic int file_private = 1;\nnamespace "
+          "{ struct HeaderPrivate {}; }\ninline int shared(){ return "
+          "FLAVOR; }\n");
     write("one.cpp", "#include \"shared.hpp\"\nint one(){return shared();}\n");
     write("two.cpp", "#include \"shared.hpp\"\nint two(){return shared();}\n");
   }
@@ -84,9 +94,93 @@ template<class T> concept Small = sizeof(T) < 8;
   EXPECT_FALSE(result.symbols.empty());
   for (const auto &symbol : result.symbols) {
     EXPECT_TRUE(symbol.is_definition);
+    EXPECT_TRUE(symbol.signature.empty());
     EXPECT_FALSE(symbol.qualified_name.starts_with("std::"));
   }
 }
+TEST_F(DefinitionIndex, KeepsExternalDefinitionsAndOmitsFunctionLocals) {
+  write("one.cpp", R"cpp(
+struct Pair { int first; int second; };
+struct PublicType { int field; enum Kind { Value }; };
+using PublicAlias = PublicType;
+constexpr int constant_function() { int local_binding = 4; return local_binding; }
+auto deduced_function() {
+  struct LocalType { int member; };
+  auto local_lambda = [] { return 1; };
+  auto [local_left, local_right] = Pair{2, 3};
+  return local_left + local_lambda() + sizeof(LocalType) + local_right;
+}
+auto deduced_global = deduced_function();
+)cpp");
+  const auto result = extract("one.cpp");
+  for (const auto &name :
+       {"Pair", "Pair::first", "Pair::second", "PublicType",
+        "PublicType::field", "PublicType::Kind", "PublicType::Value",
+        "PublicAlias", "constant_function", "deduced_function",
+        "deduced_global"})
+    EXPECT_TRUE(has(result, name)) << name;
+  for (const auto &name : {"local_binding", "LocalType", "member",
+                           "local_lambda", "local_left", "local_right"})
+    EXPECT_FALSE(has_spelling_name(result, name)) << name;
+  for (const auto &symbol : result.symbols)
+    EXPECT_TRUE(symbol.signature.empty()) << symbol.qualified_name;
+}
+TEST_F(DefinitionIndex, SkippedFunctionBodiesDoNotRequireBodyDiagnostics) {
+  write("one.cpp", "int indexed_function() { return undeclared_in_body; }\n");
+  const auto result = extract("one.cpp");
+  EXPECT_TRUE(has(result, "indexed_function"));
+}
+TEST_F(DefinitionIndex,
+       UsesPrecomputedIncludeInventoriesWithoutChangingDependencies) {
+  common();
+  const auto cold = extract("one.cpp", {}, false);
+  std::map<std::string, std::string> inventories;
+  for (const auto &[path, hash] : cold.dependencies)
+    if (path.starts_with("@include-tree:"))
+      inventories.emplace(path.substr(14), hash);
+  ASSERT_FALSE(inventories.empty());
+  EXPECT_EQ(ctk::cache::include_roots((root / "one.cpp").string(),
+                                      root.string(),
+                                      {"-std=c++20", "-I" + root.string()}),
+            std::vector<std::string>{
+                std::filesystem::weakly_canonical(root).string()});
+
+  const auto supplied = extract("one.cpp", {}, false, &inventories);
+  EXPECT_EQ(supplied.dependencies, cold.dependencies);
+  EXPECT_EQ(rows(supplied), rows(cold));
+
+  // Missing or malformed precomputed values must retain the safe full walk.
+  const std::map<std::string, std::string> missing;
+  const auto fallback = extract("one.cpp", {}, false, &missing);
+  EXPECT_EQ(fallback.dependencies, cold.dependencies);
+  auto malformed = inventories;
+  malformed.begin()->second = "not-a-sha256";
+  const auto invalid = extract("one.cpp", {}, false, &malformed);
+  EXPECT_EQ(invalid.dependencies, cold.dependencies);
+}
+
+TEST_F(DefinitionIndex, IncludeRootsPreserveAllSearchPathOptionForms) {
+  std::vector<std::string> arguments;
+  std::set<std::string> expected{
+      std::filesystem::weakly_canonical(root).string()};
+  const std::vector<std::string> options{
+      "-I", "-iquote", "-isystem", "-idirafter", "-F", "-iframework"};
+  for (std::size_t i = 0; i < options.size(); ++i) {
+    const auto separated = root / ("separated-" + std::to_string(i));
+    const auto attached = root / ("attached-" + std::to_string(i));
+    std::filesystem::create_directories(separated);
+    std::filesystem::create_directories(attached);
+    arguments.push_back(options[i]);
+    arguments.push_back(separated.string());
+    arguments.push_back(options[i] + attached.string());
+    expected.insert(std::filesystem::weakly_canonical(separated).string());
+    expected.insert(std::filesystem::weakly_canonical(attached).string());
+  }
+  const auto roots = ctk::cache::include_roots((root / "one.cpp").string(),
+                                               root.string(), arguments);
+  EXPECT_EQ(roots, std::vector<std::string>(expected.begin(), expected.end()));
+}
+
 TEST_F(DefinitionIndex,
        ReusesExactHeaderDefinitionsAcrossTusWithoutChangingResults) {
   common();
@@ -97,7 +191,8 @@ TEST_F(DefinitionIndex,
   EXPECT_TRUE(has(cached, "two"));
   EXPECT_FALSE(has(cached, "one"));
 }
-TEST_F(DefinitionIndex, PreservesLocalLinkageTemplatesAndFriendDefinitionUsrs) {
+TEST_F(DefinitionIndex,
+       OmitsInternalDefinitionsButKeepsExternalTemplateAndFriend) {
   write("shared.hpp", R"cpp(
 #pragma once
 static int internal_value = 1;
@@ -111,6 +206,12 @@ struct Friend { friend int visit(Friend){return internal_value;} };
   const auto result = extract("two.cpp");
   EXPECT_GT(result.reused_header_symbols, 0);
   EXPECT_EQ(rows(result), rows(extract("two.cpp", {}, false)));
+  EXPECT_FALSE(has_spelling_name(result, "internal_value"));
+  EXPECT_FALSE(has_spelling_name(result, "Hidden"));
+  EXPECT_FALSE(has_spelling_name(result, "hidden"));
+  EXPECT_TRUE(has(result, "echo"));
+  EXPECT_TRUE(has(result, "Friend"));
+  EXPECT_TRUE(has(result, "visit"));
 }
 TEST_F(DefinitionIndex, ReusesNestedHeaderAcrossDifferentWrappers) {
   write("shared.hpp", "#pragma once\nstruct Shared { int field; };\n");
@@ -182,6 +283,12 @@ TEST_F(DefinitionIndex, PreservesCommandAndSourceMacroContextsAndHeaderEdits) {
   EXPECT_TRUE(has(beta, "Beta"));
   EXPECT_FALSE(has(beta, "Alpha"));
   EXPECT_GT(extract("one.cpp", {"-DFLAVOR=2"}).reused_header_symbols, 0);
+  const auto warm_beta = extract("one.cpp", {"-DFLAVOR=2"});
+  EXPECT_EQ(rows(warm_beta), rows(extract("one.cpp", {"-DFLAVOR=2"}, false)));
+  EXPECT_TRUE(has(warm_beta, "Beta"));
+  EXPECT_FALSE(has(warm_beta, "Alpha"));
+  EXPECT_FALSE(has_spelling_name(warm_beta, "file_private"));
+  EXPECT_FALSE(has_spelling_name(warm_beta, "HeaderPrivate"));
   write("two.cpp", "#define FLAVOR 2\n#include \"shared.hpp\"\nint "
                    "two(){return shared();}\n");
   EXPECT_EQ(rows(extract("two.cpp")), rows(extract("two.cpp", {}, false)));
@@ -191,6 +298,46 @@ TEST_F(DefinitionIndex, PreservesCommandAndSourceMacroContextsAndHeaderEdits) {
   EXPECT_EQ(changed.reused_header_symbols, 0);
   EXPECT_TRUE(has(changed, "Changed"));
   EXPECT_FALSE(has(changed, "Alpha"));
+}
+TEST_F(DefinitionIndex,
+       SkippedFunctionBodiesPreserveMacroAndCounterEffectsForHeaders) {
+  write("shared.hpp", R"cpp(
+#pragma once
+#if FLAVOR == 2
+struct Beta {};
+#else
+struct Alpha {};
+#endif
+#if __COUNTER__ == 1
+struct ExpectedCounter {};
+#else
+struct UnexpectedCounter {};
+#endif
+)cpp");
+  const std::string source = R"cpp(
+int body() {
+#define FLAVOR 2
+  int local = __COUNTER__;
+  return local;
+}
+#include "shared.hpp"
+)cpp";
+  write("one.cpp", source);
+  write("two.cpp", source);
+  const auto first = extract("one.cpp");
+  EXPECT_TRUE(has(first, "Beta"));
+  EXPECT_TRUE(has(first, "ExpectedCounter"));
+  EXPECT_FALSE(has(first, "Alpha"));
+  EXPECT_FALSE(has(first, "UnexpectedCounter"));
+  EXPECT_FALSE(has_spelling_name(first, "local"));
+
+  const auto warm = extract("two.cpp");
+  EXPECT_EQ(rows(warm), rows(extract("two.cpp", {}, false)));
+  EXPECT_TRUE(has(warm, "Beta"));
+  EXPECT_TRUE(has(warm, "ExpectedCounter"));
+  EXPECT_FALSE(has(warm, "Alpha"));
+  EXPECT_FALSE(has(warm, "UnexpectedCounter"));
+  EXPECT_FALSE(has_spelling_name(warm, "local"));
 }
 TEST_F(DefinitionIndex, FallsBackForPriorDeclarationsAndVolatileMacroContexts) {
   common();

@@ -34,11 +34,7 @@ import { ParseProblems } from "./parse-problems.js";
 import { SourceHighlight } from "./source-highlight.js";
 import { selectedSource } from "./source-range.js";
 import { AnalysisView } from "./views.js";
-import {
-  startConsoleWorker,
-  startWorker,
-  type WorkerRun,
-} from "./worker-client.js";
+import { startConsoleWorker, type WorkerRun } from "./worker-client.js";
 
 const CXX = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i;
 const EXCLUDE = "**/{.git,node_modules,build,.venv,.cache,dist}/**";
@@ -131,7 +127,7 @@ export class Prototype {
   private consoleOutput: string[] = [];
   private status = "Ready · native server required";
   private completed = false;
-  private active: WorkerRun | undefined;
+  private active: Pick<WorkerRun, "completion" | "cancel"> | undefined;
   private preparing = false;
   private rendered:
     | { action: string; matches: number; groups: number }
@@ -683,9 +679,9 @@ export class Prototype {
               request,
               progress,
             )
-          : startWorker(
-              fileURLToPath(new URL("./worker.js", import.meta.url)),
+          : this.searchAst.search(
               request,
+              await findPython(config.get<string>("pythonPath", ""), directory),
               progress,
             );
       this.active = worker;
@@ -696,6 +692,7 @@ export class Prototype {
         await this.view.reveal();
         this.publish();
         const report = await worker.completion;
+        if (this.action.kind === "script") this.searchAst.close();
         this.results = report.results;
         this.errors = report.errors;
         this.consoleOutput = report.output;
@@ -777,7 +774,7 @@ export class Prototype {
       if (opened.some((path) => associated.includes(path))) return;
       this.inspectionFile = undefined;
       this.inspectionSources.clear();
-      this.searchAst.close();
+      this.searchAst.closeInspection();
       this.details.clear();
       if (inspectedCanonical)
         await this.actions.closeFile(inspectedCanonical, actionContext);
@@ -789,10 +786,13 @@ export class Prototype {
     this.saveFileInspector();
     this.activeFileSession = undefined;
     this.automaticInspection = false;
-    const translationUnit = this.target?.fsPath ?? result.file;
+    const translationUnit =
+      result.translationUnit ?? this.target?.fsPath ?? result.file;
     let searchLoad: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
     const actionId =
-      "nodeId" in result && typeof result.nodeId === "string"
+      !result.translationUnit &&
+      "nodeId" in result &&
+      typeof result.nodeId === "string"
         ? result.nodeId
         : undefined;
     this.inspectionFile = actionId
@@ -827,7 +827,9 @@ export class Prototype {
           return selection
             ? this.actions.selectSource(id ?? actionId, selection)
             : this.actions.inspect(id ?? actionId);
-        searchLoad ??= await this.searchAst.open(result, translationUnit);
+        searchLoad ??= result.translationUnit
+          ? this.searchAst.matched(result)
+          : await this.searchAst.open(result, translationUnit);
         return selection && id
           ? searchLoad.selectSource(id, selection)
           : searchLoad.inspect(id);

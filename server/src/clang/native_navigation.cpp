@@ -6,6 +6,7 @@
 #include <clang/AST/ParentMapContext.h>
 #include <clang/ASTMatchers/Dynamic/Diagnostics.h>
 #include <clang/ASTMatchers/Dynamic/Parser.h>
+#include <limits>
 
 namespace ctk::clang_layer {
 using namespace ctk::match::v1;
@@ -85,14 +86,14 @@ MatchExecution navigate_bindings(
   std::size_t examined = 0;
   const auto maximum = request.has_navigation_max_nodes()
                            ? request.navigation_max_nodes()
-                           : 10000U;
+                           : 0U;
   const auto visit = [&](const clang::DynTypedNode &candidate) {
     if (!checkpoint()) {
       result.code = MatchCode::Cancelled;
       result.message = "navigation cancelled";
       return false;
     }
-    if (++examined > maximum) {
+    if (maximum && ++examined > maximum) {
       result.code = MatchCode::ResourceExhausted;
       result.message = "navigation node limit exceeded";
       return false;
@@ -125,11 +126,13 @@ MatchExecution navigate_bindings(
       options.set_max_depth(1);
       options.set_visit_implicit_code(!source_spelled);
       options.set_visit_template_instantiations(!source_spelled);
-      // One additional visit for the starting node, which is not a candidate.
-      options.set_max_nodes(100001);
+      // This visitor only enumerates direct native edges. Optional caller
+      // budgets are checked by visit(); retained results use the memory budget.
+      options.set_max_nodes(std::numeric_limits<std::uint64_t>::max());
       TraversalResult walked;
       SemanticAstVisitor visitor(
-          context, options, checkpoint, {100001, limits.max_bytes}, walked, {},
+          context, options, checkpoint,
+          {std::numeric_limits<std::size_t>::max(), limits.max_bytes}, walked, {},
           [&](const clang::DynTypedNode &node, std::size_t depth,
               std::string &message) {
             if (depth == 1 && !visit(node)) {
