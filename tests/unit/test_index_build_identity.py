@@ -101,3 +101,44 @@ file(WRITE "{tmp_path}/result" "${{CMAKE_OSX_ARCHITECTURES}}")
 ''',
     )
     assert result == expected
+
+
+def test_cache_inventory_remains_compatible_without_status_dependencies() -> None:
+    from clang_toolkit._generated.match.v1 import match_service_pb2 as service
+    from clang_toolkit._generated.match.v1 import cache_resources_pb2 as resources
+
+    # Existing Python imports and fully qualified protobuf names stay valid.
+    assert service.CacheResources is resources.CacheResources
+    cache = service.CacheResources(memory_available=True, ready_snapshots=7)
+    status = service.ServerStatusResponse(cache=cache)
+    assert status.cache.ready_snapshots == 7
+    assert cache.DESCRIPTOR.full_name == "ctk.match.v1.CacheResources"
+    assert cache.DESCRIPTOR.fields_by_name["ready_snapshots"].number == 7
+
+    pending = [cache.DESCRIPTOR.file]
+    dependencies = set()
+    while pending:
+        schema = pending.pop()
+        if schema.name not in dependencies:
+            dependencies.add(schema.name)
+            pending.extend(schema.dependencies)
+    assert "match/v1/match_service.proto" not in dependencies
+    assert "index/v1/index_service.proto" not in dependencies
+    assert "match/v1/resources.proto" not in dependencies
+
+
+def test_built_native_pch_excludes_rpc_status_headers() -> None:
+    build = ROOT / "build/dev"
+    pch = "server/CMakeFiles/ctk_clang.dir/cmake_pch.hxx.pch"
+    if not (build / pch).exists() or not (build / "build.ninja").exists():
+        pytest.skip("requires the native Ninja build")
+    result = subprocess.run(
+        ["ninja", "-C", str(build), "-t", "deps", pch],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    dependencies = {line.strip() for line in result.stdout.splitlines()[1:]}
+    assert any(path.endswith("/ctk/clang/tooling.hpp") for path in dependencies)
+    assert not any(path.endswith(("/index/v1/index_service.pb.h",
+                                  "/match/v1/match_service.pb.h", "/match/v1/resources.pb.h"))
+                   for path in dependencies), "RPC status leaked into the shared native PCH"

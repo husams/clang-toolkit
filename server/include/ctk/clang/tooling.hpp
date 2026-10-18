@@ -9,7 +9,7 @@
 
 #include "ctk/cache/snapshot.hpp"
 #include "match/v1/match_result.pb.h"
-#include "match/v1/match_service.pb.h"
+#include "match/v1/cache_resources.pb.h"
 
 namespace ctk::clang_layer {
 

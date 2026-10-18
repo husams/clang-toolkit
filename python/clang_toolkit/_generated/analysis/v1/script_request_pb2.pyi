@@ -1,4 +1,5 @@
 from ...match.v1 import match_service_pb2 as _match_service_pb2
+from ...match.v1 import cache_resources_pb2 as _cache_resources_pb2
 from . import script_compilation_profile_pb2 as _script_compilation_profile_pb2
 from . import script_value_pb2 as _script_value_pb2
 from google.protobuf.internal import containers as _containers
