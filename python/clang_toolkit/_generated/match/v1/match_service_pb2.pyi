@@ -6,6 +6,7 @@ from . import match_stream_pb2 as _match_stream_pb2
 from . import parse_request_pb2 as _parse_request_pb2
 from . import parse_response_pb2 as _parse_response_pb2
 from . import resources_pb2 as _resources_pb2
+from . import cache_resources_pb2 as _cache_resources_pb2
 from ...index.v1 import index_service_pb2 as _index_service_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
@@ -13,6 +14,7 @@ from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
+from .cache_resources_pb2 import CacheResources as CacheResources
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -154,30 +156,6 @@ class ServerStatusRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
-class CacheResources(_message.Message):
-    __slots__ = ("memory_available", "reusable_snapshots", "reusable_memory_bytes", "pending_builds", "storage_available", "artifact_disk_bytes", "ready_snapshots", "stale_snapshots", "leased_snapshots", "storage_root")
-    MEMORY_AVAILABLE_FIELD_NUMBER: _ClassVar[int]
-    REUSABLE_SNAPSHOTS_FIELD_NUMBER: _ClassVar[int]
-    REUSABLE_MEMORY_BYTES_FIELD_NUMBER: _ClassVar[int]
-    PENDING_BUILDS_FIELD_NUMBER: _ClassVar[int]
-    STORAGE_AVAILABLE_FIELD_NUMBER: _ClassVar[int]
-    ARTIFACT_DISK_BYTES_FIELD_NUMBER: _ClassVar[int]
-    READY_SNAPSHOTS_FIELD_NUMBER: _ClassVar[int]
-    STALE_SNAPSHOTS_FIELD_NUMBER: _ClassVar[int]
-    LEASED_SNAPSHOTS_FIELD_NUMBER: _ClassVar[int]
-    STORAGE_ROOT_FIELD_NUMBER: _ClassVar[int]
-    memory_available: bool
-    reusable_snapshots: int
-    reusable_memory_bytes: int
-    pending_builds: int
-    storage_available: bool
-    artifact_disk_bytes: int
-    ready_snapshots: int
-    stale_snapshots: int
-    leased_snapshots: int
-    storage_root: str
-    def __init__(self, memory_available: _Optional[bool] = ..., reusable_snapshots: _Optional[int] = ..., reusable_memory_bytes: _Optional[int] = ..., pending_builds: _Optional[int] = ..., storage_available: _Optional[bool] = ..., artifact_disk_bytes: _Optional[int] = ..., ready_snapshots: _Optional[int] = ..., stale_snapshots: _Optional[int] = ..., leased_snapshots: _Optional[int] = ..., storage_root: _Optional[str] = ...) -> None: ...
-
 class ServerStatusResponse(_message.Message):
     __slots__ = ("uptime_ms", "resident_memory_bytes", "active_sessions", "retained_memory_bytes", "max_sessions", "max_retained_memory_bytes", "cache", "project_indexes")
     UPTIME_MS_FIELD_NUMBER: _ClassVar[int]
@@ -194,9 +172,9 @@ class ServerStatusResponse(_message.Message):
     retained_memory_bytes: int
     max_sessions: int
     max_retained_memory_bytes: int
-    cache: CacheResources
+    cache: _cache_resources_pb2.CacheResources
     project_indexes: _index_service_pb2.ListProjectIndexesResponse
-    def __init__(self, uptime_ms: _Optional[int] = ..., resident_memory_bytes: _Optional[int] = ..., active_sessions: _Optional[int] = ..., retained_memory_bytes: _Optional[int] = ..., max_sessions: _Optional[int] = ..., max_retained_memory_bytes: _Optional[int] = ..., cache: _Optional[_Union[CacheResources, _Mapping]] = ..., project_indexes: _Optional[_Union[_index_service_pb2.ListProjectIndexesResponse, _Mapping]] = ...) -> None: ...
+    def __init__(self, uptime_ms: _Optional[int] = ..., resident_memory_bytes: _Optional[int] = ..., active_sessions: _Optional[int] = ..., retained_memory_bytes: _Optional[int] = ..., max_sessions: _Optional[int] = ..., max_retained_memory_bytes: _Optional[int] = ..., cache: _Optional[_Union[_cache_resources_pb2.CacheResources, _Mapping]] = ..., project_indexes: _Optional[_Union[_index_service_pb2.ListProjectIndexesResponse, _Mapping]] = ...) -> None: ...
 
 class PruneCachesRequest(_message.Message):
     __slots__ = ("memory", "disk")
@@ -210,6 +188,6 @@ class PruneCachesResponse(_message.Message):
     __slots__ = ("before", "after")
     BEFORE_FIELD_NUMBER: _ClassVar[int]
     AFTER_FIELD_NUMBER: _ClassVar[int]
-    before: CacheResources
-    after: CacheResources
-    def __init__(self, before: _Optional[_Union[CacheResources, _Mapping]] = ..., after: _Optional[_Union[CacheResources, _Mapping]] = ...) -> None: ...
+    before: _cache_resources_pb2.CacheResources
+    after: _cache_resources_pb2.CacheResources
+    def __init__(self, before: _Optional[_Union[_cache_resources_pb2.CacheResources, _Mapping]] = ..., after: _Optional[_Union[_cache_resources_pb2.CacheResources, _Mapping]] = ...) -> None: ...

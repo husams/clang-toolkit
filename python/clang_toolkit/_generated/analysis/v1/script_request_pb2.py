@@ -23,6 +23,10 @@ _sym_db = _symbol_database.Default()
 
 
 from ...match.v1 import match_service_pb2 as match_dot_v1_dot_match__service__pb2
+try:
+  match_dot_v1_dot_cache__resources__pb2 = match_dot_v1_dot_match__service__pb2.match_dot_v1_dot_cache__resources__pb2
+except AttributeError:
+  match_dot_v1_dot_cache__resources__pb2 = match_dot_v1_dot_match__service__pb2.match.v1.cache_resources_pb2
 from . import script_compilation_profile_pb2 as analysis_dot_v1_dot_script__compilation__profile__pb2
 from . import script_value_pb2 as analysis_dot_v1_dot_script__value__pb2
 

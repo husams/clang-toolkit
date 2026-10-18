@@ -25,39 +25,24 @@ add_custom_command(
   VERBATIM)
 
 set(_match_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/query-generated")
+# Generate each module independently: an RPC-only schema edit must not rewrite
+# stable resource headers consumed by the shared native PCH.
 set(_parse_sources)
-foreach(_module IN ITEMS parse_request parse_response match_stream saved_value resources)
-  list(APPEND _parse_sources "${_match_generated_dir}/match/v1/${_module}.pb.cc"
-       "${_match_generated_dir}/match/v1/${_module}.pb.h")
+foreach(_module IN ITEMS parse_request parse_response match_stream saved_value resources cache_resources
+                         match_result match_service)
+  set(_source_proto "${_api_schema_dir}/match/v1/${_module}.proto")
+  set(_generated_source "${_match_generated_dir}/match/v1/${_module}.pb.cc")
+  set(_generated_header "${_match_generated_dir}/match/v1/${_module}.pb.h")
+  add_custom_command(
+    OUTPUT "${_generated_source}" "${_generated_header}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_match_generated_dir}"
+    COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
+            "--cpp_out=${_match_generated_dir}"
+            --experimental_allow_proto3_optional "${_source_proto}"
+    DEPENDS "${_source_proto}" VERBATIM)
+  list(APPEND _parse_sources "${_generated_source}" "${_generated_header}")
 endforeach()
-add_custom_command(
-  OUTPUT ${_parse_sources} "${_match_generated_dir}/match/v1/match_result.pb.cc"
-         "${_match_generated_dir}/match/v1/match_result.pb.h"
-         "${_match_generated_dir}/match/v1/match_service.pb.cc"
-         "${_match_generated_dir}/match/v1/match_service.pb.h"
-  COMMAND "${CMAKE_COMMAND}" -E make_directory "${_match_generated_dir}"
-  COMMAND protobuf::protoc "--proto_path=${_api_schema_dir}"
-          "--cpp_out=${_match_generated_dir}"
-          --experimental_allow_proto3_optional
-          "${_api_schema_dir}/match/v1/match_result.proto"
-          "${_api_schema_dir}/match/v1/parse_request.proto"
-          "${_api_schema_dir}/match/v1/parse_response.proto"
-          "${_api_schema_dir}/match/v1/match_stream.proto"
-          "${_api_schema_dir}/match/v1/saved_value.proto"
-          "${_api_schema_dir}/match/v1/resources.proto"
-          "${_api_schema_dir}/match/v1/match_service.proto"
-  DEPENDS "${_api_schema_dir}/match/v1/match_result.proto"
-          "${_api_schema_dir}/match/v1/parse_request.proto"
-          "${_api_schema_dir}/match/v1/parse_response.proto"
-          "${_api_schema_dir}/match/v1/match_stream.proto"
-          "${_api_schema_dir}/match/v1/saved_value.proto"
-          "${_api_schema_dir}/match/v1/resources.proto"
-          "${_api_schema_dir}/match/v1/match_service.proto"
-  VERBATIM)
-add_library(ctk_match_api STATIC ${_parse_sources}
-  "${_match_generated_dir}/match/v1/match_result.pb.cc"
-  "${_match_generated_dir}/match/v1/match_result.pb.h"
-  "${_match_generated_dir}/match/v1/match_service.pb.cc")
+add_library(ctk_match_api STATIC ${_parse_sources})
 target_include_directories(ctk_match_api PUBLIC "${_match_generated_dir}")
 target_link_libraries(ctk_match_api PUBLIC ctk_ast_api ctk_index_api protobuf::libprotobuf)
 

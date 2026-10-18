@@ -1,4 +1,5 @@
 from ...match.v1 import match_service_pb2 as _match_service_pb2
+from ...match.v1 import cache_resources_pb2 as _cache_resources_pb2
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Mapping as _Mapping

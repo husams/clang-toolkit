@@ -248,3 +248,34 @@ The Python API keeps per-TU provenance by default. Opt into the console behavior
 with `find_symbols(project, query, kind="alias", unique_symbols=True)`.
 `index lookup` remains a provenance lookup and can still return per-TU entries.
 No stored index schema or worker extraction change is required.
+
+## Keeping status changes out of the native PCH
+
+`ctk/clang/tooling.hpp` includes the stable `cache_resources.pb.h` cache-inventory
+contract, not the match-service RPC header. `CacheResources` lives in
+`match/v1/cache_resources.proto`; the match service imports that schema publicly so
+existing Python `match_service_pb2.CacheResources` constructors and protobuf
+fully qualified names/field numbers stay compatible.
+
+The CMake match-schema generator emits each module independently, so editing an
+RPC schema does not rewrite unchanged resource/parse headers. This keeps
+`ProjectIndexStatus` and `ServerStatusResponse` out of the shared
+native precompiled header. Status-only API changes may still rebuild the small
+set of files that directly consume those RPC contracts, but must not rebuild the
+native PCH or all serializers. Cache-resource or native input changes remain
+real dependencies. Moving to this layout requires one PCH rebuild and normal
+revalidation of affected indexed files; later status changes use the separated
+layout. The extractor fingerprint and existing compilation arguments are unchanged;
+the leaf schema adds one generated cache-inventory translation unit.
+
+`tests/unit/test_index_build_identity.py` checks the cache contract's dependency
+closure, legacy Python constructor compatibility, and the actual Ninja PCH
+dependency list when a native build is available. Incremental validation also
+adds temporary fields to project, server, and resource status messages, rebuilds, checks the PCH and
+serializer objects remain unchanged, then restores the schemas and rebuilds.
+
+A controlled rebuild with temporary fields in all three status responses rebuilt
+21 of 323 native objects: the shared PCH (including its timestamp), all serializer
+objects, existing compile arguments, and extractor identity remained unchanged.
+Restoring the schemas and rebuilding also left the PCH unchanged. These counts
+measure dependency isolation, not a claim that every RPC consumer avoids rebuilds.
