@@ -1904,3 +1904,215 @@ Validation:
   highlights its 87-character source range on lines 249–251. LLVM files are unchanged.
 
 Focused evidence: vscode/artifacts/validation/member-declaration-20261018/.
+
+## 2026-10-18 — v0.2.40: header-heavy AST lookup
+
+The new screenshot reports `match row limit exceeded (limit 100000 rows); no
+cursor state committed`. This differs from the navigation ceiling addressed
+in v0.2.37: selecting a Symbol Search result still matched every declaration
+or statement in the TU, then filtered source coordinates in Python. A small
+source including a namespace with 100,005 declarations reproduces that exact
+error before the fix.
+
+Result lookup now matches the exact native kind and expansion file in Clang
+before collecting candidate rows; exact kind/file/line/column checks still
+identify the retained node. File-root and on-demand header child lookup now
+use root-only `translationUnitDecl(forEach(...))` matching, filtering direct
+declarations by file before collecting rows. A separate flat header with
+100,005 declarations previously failed with `AST traversal node limit exceeded`
+even though the source had only one visible declaration; it now loads.
+
+Server row, memory, cursor and navigation limits are unchanged. More than
+100,000 returned children or same-kind candidates in the requested file can
+still exceed existing bounds; unrelated included declarations no longer
+consume these two lookup paths' budgets.
+
+Validation:
+
+- The exact row-limit regression fails before the lookup fix and passes after
+  it. Its extended version checks class and statement lookup, UTF-8 columns,
+  regex characters in the filename, and parseCount=1 with 100,005 initialized
+  header variables.
+- The separate flat-header regression fails before the file-root fix, then
+  passes automatic root loading and field selection without reparsing.
+- 116 extension unit tests, 20 console tests and all 23 live integration cases pass (one opt-in
+  personal-library case remains skipped). The extended lookup case also passes
+  separately after adding its statement/path/UTF-8 coverage.
+- An isolated real VS Code host passes `CTK_TEST_HEADER_LIMIT_ONLY=1`: automatic
+  file loading, rendered search-result Properties, and editor highlighting all
+  work for `COM::BzRuleADD` with 100,005 top-level included declarations.
+- The LLVM probe still follows `getType()` in SemaDecl.cpp:190 to its exact
+  CXXMethodDecl at DeclCXX.h:249 through four native ancestry pages, with one parse.
+- Type checks, changed-file lint, package build and payload comparison pass.
+  The versioned VSIX is `vscode/artifacts/clang-toolkit-prototype-0.2.40.vsix`.
+- The required full Python unit run reports 3,067 passes and three timeouts:
+  `test_local_batch_and_syntax_error_do_not_connect_to_server`, plus the tree
+  and compiled variants of `test_workspace_switches_traversal_without_reparsing`.
+  All three also time out in focused retries, including a retry with the heavy
+  C++/E2E schedulers held and their in-flight cases finished. Their original
+  assertions and 10-second/3-second deadlines are unchanged. No files in
+  `python/`, `server/` or `tests/unit/` changed in this fix; the broad Python
+  suite is not green, and these failures are not claimed to be repaired here.
+- All 440 C++ cases were exercised: 125 completed in the serial run, then the
+  remaining 315 ran with separate storage per case. 439 pass; the unchanged
+  `ProjectIndexServiceTest.SharedHeaderPayloadIsStoredOnceWithEveryTuProvenance`
+  fails with zero indexed symbols instead of 20, including a fresh-storage
+  focused retry. This C++ indexing failure is not repaired by the extension fix.
+- All 209 Python E2E cases pass using the server's Homebrew Clang compiler:
+  38 completed in the serial prefix, then 171 passed in isolated case runs.
+
+The user's original source is on an inaccessible remote machine, so it has
+not been tested or updated there. All reproductions above are local fixtures;
+the new package must be installed on the affected extension host to verify
+that particular source.
+
+Focused evidence: vscode/artifacts/validation/header-limits-20261018/.
+
+## 2026-10-18 — v0.2.41: retain Symbol Search matches
+
+Symbol Search now runs in the persistent native inspector host instead of a
+one-shot worker that discards its native rows. Each displayed result retains
+its original binding and translation unit. Opening a result sends that exact
+node ID to the same host: no second name, kind, file or coordinate lookup and
+no second parse. Registering declaration identities also makes later file-tree
+expansion reuse the search node's ID. One-shot custom script results keep their
+existing bounded coordinate lookup; public server/SDK contracts are unchanged.
+
+Completed searches own their native rows until replacement or invalidation.
+A failed or cancelled replacement preserves the previous completed owner,
+including cancellation racing a successful response. C++ edits and settings
+changes invalidate the snapshot; stale search nodes fail explicitly. Closing
+the editor tab preserves the result list's retained matches. Choosing an
+action transfers the same owner, so later searches cannot release its input.
+Empty and deduplicated collections and files without visible matches release
+their native resources. Existing server and AST navigation limits are unchanged.
+
+Validation:
+
+- Red/green regressions cover retained native matches, canonical IDs reused by
+  tree expansion, and a cancelled search whose completed report arrives late.
+- All 124 extension unit tests and 23 console tests pass. All 24 enabled live
+  integration tests pass (one personal-library case remains opt-in/skipped).
+- The full real VS Code workflow passes, including source selection, Properties
+  links, Actions, saves, split editors and stale-context handling.
+- Final real VS Code LLVM smoke opens the actual SemaDecl.cpp, searches
+  TypeNameValidatorCCC at line 92, and verifies searchNodeId equals
+  inspectedNodeId. Properties, editor highlighting, repeated selection and
+  Actions reuse that same binding; parseCount remains 1.
+- The header-heavy live regression retains and inspects both COM classes with
+  100,005 included declarations, checks canonical tree IDs, runs a field action
+  and rejects expired handles after reset.
+- The final real VS Code header-heavy smoke also passes: COM::BzRuleADD's
+  search and inspected node IDs match, Properties and source highlighting work,
+  and transfer to Actions keeps parseCount at 1.
+- Type checks, changed-file lint and package build pass. Production payload
+  bytes are checked against the versioned v0.2.41 VSIX.
+- The full core suites were exercised for v0.2.40 above; their three Python
+  timeouts and one C++ indexing failure remain known and are not claimed fixed.
+  This extension-only change does not modify python/, server/ or tests/unit/;
+  the full core suites were not rerun for this change.
+
+The original failing remote source remains inaccessible; validation uses the
+local large LLVM source and the header-heavy reproduction. The package is
+prepared locally and has not been installed on that remote extension host.
+
+Focused evidence: vscode/artifacts/validation/retained-search-20261018/.
+
+## 2026-10-18 — v0.2.42: remove fixed AST count ceilings
+
+Removed the server's 100,000-result-row ceiling and the hard navigation maximum,
+including the internal child visitor's 100,001-node bound. Navigation defaults
+to unlimited counts in the server, sync/async SDK and console; an explicit
+caller-selected uint64 budget remains available, with zero meaning unlimited.
+The wire-compatible max_result_rows status field now reports zero. Configured
+memory and message budgets, cancellation and publication checks remain intact.
+
+The inspector no longer caps direct children, retained handles, inspected pages,
+source-selection files/depth/visits, inheritance edges/depth or parameters.
+Response validation accepts complete large pages and connected source paths.
+Saved action subtrees can also be located beyond 64 levels and 128 pages;
+visited-node tracking prevents repeated traversal. Search continues to inspect
+the exact retained native binding without another lookup or parse.
+
+Validation:
+
+- All 126 extension unit tests and 28 console adapter tests pass. The SDK's
+  19 focused navigation cases pass, including unlimited defaults, zero and
+  budgets above 100,000 through the public API and console syntax.
+- Red/green tests cover pages with 100,005 children, more than 128 inspections,
+  retention beyond 200,000 handles and restoration through 130 nested scopes.
+- All 57 native cursor/script checks pass. The large native regression matches
+  100,005 variables and navigates all 100,005 direct children with omitted,
+  explicit-large and zero budgets. Existing memory/byte rejection, cancellation
+  and source-preserving recovery cases pass with count ceilings removed.
+- The complete live adapter stress case expands 100,005 actual namespace
+  children, inspects the last retained child and reports parseCount=1. It uses
+  an explicit five-minute RPC budget and ten-minute test budget; earlier attempts
+  encountered request deadlines. This exposed redundant full-source hashing
+  per child: the host now fingerprints each touched file once on first use
+  and again before publishing the response. Three regressions prove boundary
+  reuse and rejection of edits before or during a request.
+- Final real VS Code smoke passes on SemaDecl.cpp: TypeNameValidatorCCC at
+  line 92 retains the identical search/inspector ID, updates Properties and
+  editor highlighting, transfers to Actions and reports parseCount=1. The
+  isolated LLVM fixture uses a 120-second configured RPC deadline.
+- Build, type checks and scoped lint pass apart from six existing client.py
+  Ruff diagnostics, independently confirmed against its unchanged HEAD version.
+  The local Homebrew Protobuf package requires config targets to be loaded
+  before CMake's module finder; an ignored build-directory preload resolves
+  that installed-package conflict without changing project build sources.
+- The v0.2.42 VSIX is built and its production payload compared with the source.
+  The updated native server and SDK/extension must be deployed together;
+  an older server still enforces its old navigation request contract and limits.
+- The full Python unit run reports 3,069 passes and five timing failures.
+  Four prompt-modified-enter cases pass a focused retry, resolving the two
+  additional prompt failures; the remaining three are the previously recorded
+  batch and workspace timeouts from v0.2.40. Their assertions and deadlines
+  remain unchanged, and the full suite is not claimed green.
+- All 466 C++ cases are exercised across the focused cursor run, isolated
+  per-case runs and a final combined run of the remaining 202 cases. 465 pass;
+  BatchRegistry.PersistsOwnerGuardIdempotencyRevisionAndExports still fails its
+  terminal-state wait, including isolated retries. Several other initial
+  timeout/shared-temp-file failures pass when rerun with an isolated TMPDIR.
+- Of the other 24 live extension checks, 22 pass initially. The source-symbol
+  case passes its serial retry; the existing two-worker parser-diagnostic case
+  still exceeds its unchanged 30-second overall test deadline. The resulting
+  teardown reports an already-running action. These timing failures are recorded
+  without relaxing their deadlines or claiming the entire live suite green.
+- All 34 Python E2E modules were attempted with the matching Homebrew Clang
+  compiler. 29 modules finish successfully; durable-batch, native-traversal and
+  workspace-console modules finish with timing failures. The callgraph and
+  network modules reach the runner's six-minute module budget after partial
+  progress, so the full E2E suite is incomplete and is not claimed green.
+  Completed modules report 125 passes and three failures. A separate retry of
+  the last callgraph scenario also hits its unchanged 60-second CLI deadline.
+  Node-navigation E2E coverage passes all six cases with the new unlimited
+  defaults. No unrelated console/batch deadlines or assertions were changed.
+
+The original remote source remains inaccessible. Local validation uses LLVM's
+SemaDecl.cpp and a source with 100,005 actual AST children.
+
+Focused evidence: vscode/artifacts/validation/unlimited-counts-20261018/.
+
+### PR integration review
+
+Integrated current main without conflicts. Independent review found that a
+streamed match could retain all native rows before commit-time memory admission.
+Collection now checks the configured cursor memory budget before delivering each
+prospective row, including the snapshot, response metadata, native bindings and
+navigation parent maps. Aggregate cursor admission remains authoritative at
+commit. Parent-map accounting is incremental, avoiding a quadratic wide-page
+scan. The new regression first reproduced all 2,000 rows being emitted before
+rejection for both matching and navigation; it requires early memory rejection,
+no completion/cursor publication and successful reuse of the original source.
+
+After integration, 126 extension unit tests, 28 console adapter tests and 309
+focused SDK/callgraph/list-loop Python checks pass. All 66 native cursor,
+publication and scoped-script checks pass across the main run and an isolated
+writable-storage retry of the eight publication checks (the sandbox initially
+denied their default compilation-index database). This includes the new early
+memory rejection and the 100,005-row match/navigation cases. The final build
+and VSIX packaging pass. Real VS Code again verifies the identical retained
+node ID and parseCount=1 on LLVM SemaDecl.cpp, and closes its test processes.
+Independent review reports no remaining blocker. Earlier broad-suite timing
+failures remain recorded above; they are not claimed resolved by these fixes.

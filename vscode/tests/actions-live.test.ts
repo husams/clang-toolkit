@@ -469,6 +469,166 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         /expired/,
       );
     }, 60000);
+    it("inspects retained search matches directly with over 100,000 header declarations", async () => {
+      const host = service();
+      const source = resolve(directory, "retained-search.cpp");
+      await writeFile(
+        resolve(directory, "retained-search.hpp"),
+        `namespace vendor {\n${Array.from({ length: 100005 }, (_, i) => `int header_${i};`).join("\n")}\n}\n`,
+      );
+      await writeFile(
+        source,
+        '#include "retained-search.hpp"\nnamespace COM { struct BzRuleADD { int value; }; struct BzRuleOther { int other; }; }\n',
+      );
+      const report = await host.search(
+        settings,
+        [source],
+        [
+          'cxxRecordDecl(isExpansionInMainFile(), unless(isImplicit()), isDefinition()).bind("symbol")',
+        ],
+        10,
+      );
+      expect(report.errors).toEqual([]);
+      expect(report.results.map((node) => node.name)).toEqual([
+        "COM::BzRuleADD",
+        "COM::BzRuleOther",
+      ]);
+      for (const result of report.results) {
+        expect(result.nodeId).toBeTruthy();
+        expect(result.translationUnit).toBe(await realpath(source));
+        const inspected = await host.inspect(settings, result.nodeId!);
+        expect(inspected.node.id).toBe(result.nodeId);
+        expect(inspected.node.name).toBe(result.name);
+        expect(inspected.parseCount).toBe(1);
+      }
+      const filePage = await host.inspect(settings, {
+        translationUnit: source,
+      });
+      const namespace = filePage.children.find((node) => node.name === "COM");
+      const namespacePage = await host.inspect(settings, namespace!.id);
+      expect(
+        namespacePage.children.find((node) => node.name === "COM::BzRuleADD")
+          ?.id,
+      ).toBe(report.results[0]!.nodeId);
+      const selected = report.results[0]!;
+      const fields = await host.run(
+        action("search-fields", 'match fieldDecl().bind("field") in node'),
+        {},
+        [source],
+        settings,
+        10,
+        () => {},
+        selected.nodeId!,
+      );
+      expect(
+        fields.results.some((node) => node.name === "COM::BzRuleADD::value"),
+      ).toBe(true);
+      expect(fields.parseCount).toBe(1);
+      await host.reset();
+      await expect(host.inspect(settings, selected.nodeId!)).rejects.toThrow(
+        /expired/,
+      );
+    }, 180000);
+    it("expands over 100,000 actual children without a row or inspector cap", async () => {
+      const host = service();
+      const wideSettings = { ...settings, timeoutMs: 300000 };
+      const source = resolve(directory, "wide-namespace.cpp");
+      await writeFile(
+        source,
+        `namespace Wide {\n${Array.from({ length: 100005 }, (_, i) => `int item_${i};`).join("\n")}\n}\n`,
+      );
+      const root = await host.inspect(wideSettings, {
+        translationUnit: source,
+      });
+      const namespace = root.children.find((node) => node.name === "Wide");
+      expect(namespace).toBeTruthy();
+      const expanded = await host.inspect(wideSettings, namespace!.id);
+      expect(expanded.children).toHaveLength(100005);
+      expect(expanded.children[0]?.name).toBe("Wide::item_0");
+      expect(expanded.children.at(-1)?.name).toBe("Wide::item_100004");
+      expect(expanded.parseCount).toBe(1);
+      expect(
+        (await host.inspect(wideSettings, expanded.children.at(-1)!.id)).node
+          .id,
+      ).toBe(expanded.children.at(-1)!.id);
+    }, 600000);
+    it("locates a search result without collecting 100,000 unrelated header declarations", async () => {
+      const host = service();
+      const source = resolve(directory, "header-heavy[+].cpp");
+      const header = resolve(directory, "header-heavy.hpp");
+      await writeFile(
+        header,
+        `namespace vendor {\n${Array.from({ length: 100005 }, (_, i) => `int header_${i} = 0;`).join("\n")}\n}\n`,
+      );
+      await writeFile(
+        source,
+        '#include "header-heavy.hpp"\n/* λ😀 */ namespace COM { struct BzRuleADD { int value; int read() const { return value; } }; }\n',
+      );
+      const report = await host.run(
+        action(
+          "find-rule",
+          'match cxxRecordDecl(hasName("COM::BzRuleADD"), unless(isImplicit())).bind("rule") in node',
+        ),
+        {},
+        [source],
+        settings,
+        10,
+        () => {},
+      );
+      const result = report.results.find((node) => node.binding === "rule");
+      expect(result).toBeDefined();
+      const page = await host.inspect(settings, {
+        translationUnit: source,
+        result: result!,
+      });
+      expect(page.node.name).toBe("COM::BzRuleADD");
+      expect(page.node.line).toBe(2);
+      expect(
+        page.children.some((node) => node.name === "COM::BzRuleADD::value"),
+      ).toBe(true);
+      expect(page.parseCount).toBe(1);
+      const statements = await host.run(
+        action("find-return", 'match returnStmt().bind("statement") in node'),
+        {},
+        [source],
+        settings,
+        10,
+        () => {},
+      );
+      const statement = statements.results.find(
+        (node) => node.binding === "statement",
+      );
+      expect(statement).toBeDefined();
+      const returned = await host.inspect(settings, {
+        translationUnit: source,
+        result: statement!,
+      });
+      expect(astDisplay(returned.node).kind).toBe("ReturnStmt");
+      expect(returned.node.file).toBe(await realpath(source));
+      expect(returned.parseCount).toBe(1);
+    }, 180000);
+    it("loads a file AST with over 100,000 top-level header declarations", async () => {
+      const host = service();
+      const source = resolve(directory, "wide-header.cpp");
+      const header = resolve(directory, "wide-header.hpp");
+      await writeFile(
+        header,
+        Array.from({ length: 100005 }, (_, i) => `int header_${i};`).join("\n"),
+      );
+      const text =
+        '#include "wide-header.hpp"\nstruct Visible { int value; };\n';
+      await writeFile(source, text);
+      const root = await host.inspect(settings, { translationUnit: source });
+      expect(root.children.map((node) => node.name)).toEqual(["Visible"]);
+      const offset = text.indexOf("value");
+      const selected = await host.selectSource(settings, root.node.id, {
+        file: source,
+        start: offset,
+        end: offset,
+      });
+      expect(selected?.node.name).toBe("Visible::value");
+      expect(selected?.parseCount).toBe(1);
+    }, 180000);
     it("loads large file and namespace ASTs with included header declarations", async () => {
       const host = service();
       const source = resolve(directory, "large.cpp");

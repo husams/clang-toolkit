@@ -8,7 +8,12 @@ import type {
   SourceSelection,
 } from "./ast-model.js";
 import { findPython } from "./console-service.js";
-import type { Result } from "./model.js";
+import {
+  queries,
+  type Result,
+  type RunReport,
+  type RunRequest,
+} from "./model.js";
 
 export interface SearchAstContext {
   inspect(id?: string): Promise<AstInspection>;
@@ -30,6 +35,15 @@ export interface SearchAstContext {
 // their existing action host instead.
 export class SearchAstAccess implements vscode.Disposable {
   private service: ActionService | undefined;
+  private pendingSearch: ActionService | undefined;
+  private searchState:
+    | {
+        service: ActionService;
+        settings: ActionSettings;
+        report: RunReport;
+        generation: number;
+      }
+    | undefined;
   private generation = 0;
   private file: string | undefined;
   private readonly buffers = new Map<
@@ -98,11 +112,161 @@ export class SearchAstAccess implements vscode.Disposable {
   private reset(): void {
     this.generation++;
     this.service?.dispose();
+    this.pendingSearch?.dispose();
     this.service = undefined;
+    this.pendingSearch = undefined;
+    this.searchState = undefined;
     this.buffers.clear();
   }
   close(): void {
     this.reset();
+  }
+  closeInspection(): void {
+    // Live search matches belong to the result list, even without an editor tab.
+    if (!this.searchState) this.close();
+  }
+  search(
+    request: RunRequest,
+    python: string,
+    progress: (text: string) => void = () => {},
+  ): { completion: Promise<RunReport>; cancel(): void } {
+    if (!vscode.workspace.isTrusted)
+      throw new Error("Trust this workspace before searching C++ files.");
+    if (this.pendingSearch) throw new Error("A search is already running.");
+    const expressions = queries(
+      request.action,
+      request.values,
+      request.kinds,
+      request.includeHeaders,
+    );
+    const settings: ActionSettings = {
+      directory: request.directory,
+      compileArguments: request.compileArguments,
+      timeoutMs: request.timeoutMs,
+      ...Object.fromEntries(
+        [
+          "endpoint",
+          "configPath",
+          "compilationDatabase",
+          "libraryDirectory",
+        ].flatMap((key) => {
+          const value = request[key as keyof RunRequest];
+          return typeof value === "string" && value ? [[key, value]] : [];
+        }),
+      ),
+    };
+    const service = new ActionService(
+      vscode.Uri.joinPath(this.uri, "console", "action_service.py").fsPath,
+      python,
+      () => {
+        if (this.service === service) {
+          this.reset();
+          this.invalidated();
+        }
+      },
+    );
+    const generation = this.generation;
+    let cancelled = false;
+    this.pendingSearch = service;
+    const completion = service
+      .search(
+        settings,
+        request.files,
+        expressions,
+        request.maxResults,
+        progress,
+      )
+      .then((report) => {
+        if (cancelled) throw new Error("Analysis cancelled");
+        if (this.generation !== generation || this.pendingSearch !== service)
+          throw new Error("Source or settings changed; rerun the search.");
+        // Replace the previous owner only once the new report is complete.
+        this.service?.dispose();
+        this.service = service;
+        this.pendingSearch = undefined;
+        this.file = undefined;
+        this.buffers.clear();
+        this.generation++;
+        this.searchState = {
+          service,
+          settings,
+          report,
+          generation: this.generation,
+        };
+        return report;
+      })
+      .catch((error: unknown) => {
+        if (this.pendingSearch === service) this.pendingSearch = undefined;
+        service.dispose();
+        throw error;
+      });
+    return {
+      completion,
+      cancel: () => {
+        cancelled = true;
+        service.cancel();
+      },
+    };
+  }
+  matched(result: Result): SearchAstContext {
+    const state = this.searchState;
+    const selected = state?.report.results.find(
+      (row) => row.id === result.id && row.nodeId === result.nodeId,
+    );
+    if (!state || !selected?.nodeId || !selected.translationUnit)
+      throw new Error("Search context expired; rerun the search.");
+    const { service, settings, generation } = state;
+    const nodeId = selected.nodeId;
+    const translationUnit = selected.translationUnit;
+    let root: AstInspection["root"] | undefined;
+    const current = () => {
+      if (this.generation !== generation)
+        throw new Error("Source or settings changed; rerun the search.");
+      if (
+        vscode.workspace.textDocuments.some(
+          (doc) =>
+            !doc.isClosed &&
+            doc.isDirty &&
+            /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
+        )
+      )
+        throw new Error("Save C++ changes before inspecting search results.");
+    };
+    return {
+      inspect: async (id) => {
+        current();
+        const inspection = await service.inspect(settings, id ?? nodeId);
+        current();
+        root = inspection.root;
+        return inspection;
+      },
+      reference: async (reference) => {
+        current();
+        const inspection = await service.inspect(settings, {
+          translationUnit,
+          reference,
+        });
+        current();
+        root = inspection.root;
+        return inspection;
+      },
+      selectSource: async (id, selection) => {
+        current();
+        const inspection = await service.selectSource(settings, id, selection);
+        current();
+        return inspection;
+      },
+      session: () => {
+        current();
+        if (!root)
+          throw new Error("Inspect this node before choosing an action.");
+        return { service, settings, root, retained: false };
+      },
+      transfer: () => {
+        current();
+        if (this.service === service) this.service = undefined;
+      },
+    };
   }
   async open(
     result: Result | undefined,

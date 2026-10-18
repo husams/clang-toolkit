@@ -20,7 +20,7 @@ def execute_navigation(runtime: Runtime, statement: Tree) -> Any:
     target = None
     query = None
     at = None
-    max_nodes = 10000
+    max_nodes = 0
     seen_limit = False
     after_in = False
     for index, child in enumerate(statement.children[2:], start=2):
@@ -30,8 +30,8 @@ def execute_navigation(runtime: Runtime, statement: Tree) -> Any:
                     raise EvaluationError("duplicate navigation nodes option")
                 seen_limit = True
                 raw = str(child.children[1])
-                if not raw.isdigit() or not 1 <= int(raw) <= 100000:
-                    raise EvaluationError("navigation nodes must be 1..100000")
+                if not raw.isdigit() or not 0 <= int(raw) < (1 << 64):
+                    raise EvaluationError("navigation nodes must be a nonnegative uint64 integer")
                 max_nodes = int(raw)
             elif after_in:
                 target = runtime._evaluate(child)

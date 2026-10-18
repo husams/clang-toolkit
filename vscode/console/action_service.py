@@ -1,7 +1,8 @@
 """Persistent VS Code action host; JSON carries display data, never AST identity."""
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
+from collections.abc import Iterator
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -18,6 +19,7 @@ from clang_toolkit.match_values import MatchRow, MatchValue, NativeMatchCollecti
 from run_service import Output, Results
 from ast_inspector import AstInspector
 from editor_buffers import EditorBuffers
+from search_service import search
 
 
 class ActionError(ValueError):
@@ -34,6 +36,7 @@ class ActionHost:
                                               rpc_timeout=settings['timeoutMs'] / 1000)
         self.runtime = PrototypeRuntime(self.client, cwd=Path(settings['directory']))
         self.buffers = EditorBuffers(settings.get('buffers', {}))
+        self._fingerprints: dict[str, str] | None = None
         self.runtime.config_store.effective['extra_args'] = [
             *settings['compileArguments'], *self.buffers.arguments]
         preload_libraries(self.runtime, settings.get('libraryDirectory') or None)
@@ -55,7 +58,7 @@ class ActionHost:
 
     def root(self, file: str) -> str:
         file = str(Path(file).resolve())
-        current = self.buffers.fingerprint(file)
+        current = self._fingerprint(file)
         if file in self.roots:
             identifier, original = self.roots[file]
             if original != current:
@@ -73,9 +76,32 @@ class ActionHost:
         if identifier not in self.nodes:
             raise ActionError('This node has expired; refresh analysis to create a new context')
         value, file, label = self.nodes[identifier]
-        if self.roots[file][1] != self.buffers.fingerprint(file):
+        if self.roots[file][1] != self._fingerprint(file):
             raise ActionError('Source changed; refresh analysis before continuing')
         return value, file, label
+
+    def _fingerprint(self, file: str) -> str:
+        if self._fingerprints is None:
+            return self.buffers.fingerprint(file)
+        if file not in self._fingerprints:
+            self._fingerprints[file] = self.buffers.fingerprint(file)
+        return self._fingerprints[file]
+
+    @contextmanager
+    def validated_inputs(self) -> Iterator[None]:
+        # One wide page must not hash the whole source once per child. Check
+        # each touched file on entry/use and again before sending any result.
+        if self._fingerprints is not None:
+            yield
+            return
+        self._fingerprints = {}
+        try:
+            yield
+            for file, original in self._fingerprints.items():
+                if self.buffers.fingerprint(file) != original:
+                    raise ActionError('Source changed; refresh analysis before continuing')
+        finally:
+            self._fingerprints = None
 
     def run(self, request: dict[str, Any], send: Any) -> dict[str, Any]:
         if request['settings'] != self.settings:
@@ -199,18 +225,20 @@ def main() -> None:
                         continue
                     if host is None:
                         host = ActionHost(request['settings'])
-                    if request['type'] == 'selectSource':
-                        inspection = host.inspector.selection.locate(request)
-                        send(identity, {'inspection': inspection} if inspection else {'notFound': True})
-                        continue
-                    if request['type'] == 'inspect':
-                        inspection = host.inspector.inspect(request)
-                        send(identity, {'inspection': inspection})
-                        continue
-                    report = host.run(request, lambda value: send(identity, value))
-                text = output.getvalue().rstrip('\n')
-                report['output'] = [text] if text else []
-                send(identity, {'report': report})
+                    with host.validated_inputs():
+                        if request['type'] == 'selectSource':
+                            inspection = host.inspector.selection.locate(request)
+                            response = {'inspection': inspection} if inspection else {'notFound': True}
+                        elif request['type'] == 'inspect':
+                            response = {'inspection': host.inspector.inspect(request)}
+                        elif request['type'] == 'search':
+                            response = {'searchReport': search(host, request, lambda value: send(identity, value))}
+                        else:
+                            response = {'report': host.run(request, lambda value: send(identity, value))}
+                if 'report' in response:
+                    text = output.getvalue().rstrip('\n')
+                    response['report']['output'] = [text] if text else []
+                send(identity, response)
             except KeyboardInterrupt:
                 send(request.get('id', 0), {'error': 'Action cancelled', 'output': [output.getvalue()]})
             except Exception as error:

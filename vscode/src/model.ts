@@ -197,6 +197,8 @@ export const requestSchema = z.object({
 export type RunRequest = z.infer<typeof requestSchema>;
 export interface Result {
   id: string;
+  nodeId?: string | undefined;
+  translationUnit?: string | undefined;
   name: string;
   kind: string;
   file: string;
@@ -211,11 +213,14 @@ export interface RunReport {
   output: string[];
   truncated: boolean;
   files: number;
+  parseCount?: number | undefined;
 }
 export const reportSchema = z.object({
   results: z.array(
     z.object({
       id: z.string(),
+      nodeId: z.string().optional(),
+      translationUnit: z.string().optional(),
       name: z.string(),
       kind: z.string(),
       file: z.string(),
@@ -229,4 +234,5 @@ export const reportSchema = z.object({
   output: z.array(z.string()),
   truncated: z.boolean(),
   files: z.number().int().nonnegative(),
+  parseCount: z.number().int().nonnegative().optional(),
 });

@@ -18,7 +18,17 @@ const result = (binding: unknown): AstEntry => ({
   locationValid: true,
 });
 describe("AST inspector projection", () => {
-  it("rejects disconnected or unbounded semantic paths", () => {
+  it("accepts AST pages beyond the former fixed child count", () => {
+    const node = result({});
+    const inspection = astInspectionSchema.parse({
+      node,
+      children: Array(100005).fill(node),
+      parseCount: 1,
+      root: { id: "file", file: "demo.cpp", label: "File root" },
+    });
+    expect(inspection.children).toHaveLength(100005);
+  });
+  it("validates semantic paths without fixed size ceilings", () => {
     const edge = {
       name: "Base",
       depth: 0,
@@ -31,14 +41,15 @@ describe("AST inspector projection", () => {
     expect(() =>
       astSemanticsSchema.parse({ inheritance: [edge, { ...edge, depth: 2 }] }),
     ).toThrow(/disconnected/);
-    expect(() =>
-      astSemanticsSchema.parse({ inheritance: Array(129).fill(edge) }),
-    ).toThrow();
-    expect(() =>
+    expect(
+      astSemanticsSchema.parse({ inheritance: Array(129).fill(edge) })
+        .inheritance,
+    ).toHaveLength(129);
+    expect(
       astSemanticsSchema.parse({
         parameters: Array(1001).fill({ name: "x", type: "int" }),
-      }),
-    ).toThrow();
+      }).parameters,
+    ).toHaveLength(1001);
   });
   it("uses struct default access and hides implicit members and statement-only semantic sections", () => {
     const cls = result({

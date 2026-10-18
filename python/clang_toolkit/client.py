@@ -844,7 +844,7 @@ class AsyncClient:
             self._end_value_operation()
 
     async def peek(self, target: BindingSelection, *, axis: str = "children",
-                   query: MatcherInput | None = None, max_nodes: int = 10000,
+                   query: MatcherInput | None = None, max_nodes: int = 0,
                    on_row: AsyncMatchRowCallback | None = None,
                    scope: ResourceScope[AsyncClient] | str | None = None
                    ) -> MatchValue[AsyncClient]:
@@ -855,7 +855,7 @@ class AsyncClient:
     async def _peek_with_lease(self, target: BindingSelection, *,
                               axis: str = "children",
                               query: MatcherInput | None = None,
-                              max_nodes: int = 10000,
+                              max_nodes: int = 0,
                               on_row: AsyncMatchRowCallback | None = None,
                               scope: ResourceScope[AsyncClient] | str | None = None,
                               lease: OperationLease | None = None
@@ -872,7 +872,7 @@ class AsyncClient:
 
     async def step(self, target: BindingSelection, *, axis: str = "children",
                    query: MatcherInput | None = None, at: int | None = None,
-                   max_nodes: int = 10000,
+                   max_nodes: int = 0,
                    scope: ResourceScope[AsyncClient] | str | None = None
                    ) -> BindingSelection[AsyncClient]:
         """Select one direct neighbour; reject absent or ambiguous selections."""
@@ -882,7 +882,7 @@ class AsyncClient:
     async def _step_with_lease(self, target: BindingSelection, *,
                               axis: str = "children",
                               query: MatcherInput | None = None,
-                              at: int | None = None, max_nodes: int = 10000,
+                              at: int | None = None, max_nodes: int = 0,
                               scope: ResourceScope[AsyncClient] | str | None = None,
                               lease: OperationLease | None = None
                               ) -> BindingSelection[AsyncClient]:
@@ -1985,7 +1985,7 @@ class Client:
         )
 
     def peek(self, target: BindingSelection, *, axis: str = "children",
-             query: MatcherInput | None = None, max_nodes: int = 10000,
+             query: MatcherInput | None = None, max_nodes: int = 0,
              on_row: MatchRowCallback | None = None,
              scope: ResourceScope[Client] | str | None = None
              ) -> MatchValue[Client]:
@@ -2003,7 +2003,7 @@ class Client:
 
     def step(self, target: BindingSelection, *, axis: str = "children",
              query: MatcherInput | None = None, at: int | None = None,
-             max_nodes: int = 10000,
+             max_nodes: int = 0,
              scope: ResourceScope[Client] | str | None = None
              ) -> BindingSelection[Client]:
         """Return a selected neighbour as a reusable native reference."""
@@ -2850,8 +2850,8 @@ def _navigation_request(client: Client | AsyncClient, target: BindingSelection,
             "parents": match_service_pb2.NAVIGATION_AXIS_PARENTS}
     if axis not in axes:
         raise ValueError("navigation axis must be children or parents")
-    if type(max_nodes) is not int or not 1 <= max_nodes <= 100000:
-        raise ValueError("navigation max_nodes must be 1..100000")
+    if type(max_nodes) is not int or not 0 <= max_nodes < (1 << 64):
+        raise ValueError("navigation max_nodes must be a nonnegative uint64 integer")
     request = _value_request(client, query if query is not None else "decl()",
                              target, scope=scope)
     if query is None:

@@ -356,7 +356,7 @@ TEST_F(ScriptNative, ScopedLegacyMatchOptionsKeepValidationAndResultLimits) {
     EXPECT_EQ(result.response.emissions_size(), 0);
   }
   CursorSettings settings;
-  settings.results.max_rows = 1;
+  settings.results.max_bytes = 128;
   ScriptController limited(settings);
   request.set_source(R"script(
     emit 1;

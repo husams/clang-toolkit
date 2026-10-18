@@ -11,18 +11,21 @@ public:
   explicit CapturedBindingState(ctk::cache::SnapshotPtr snapshot)
       : snapshot_(std::move(snapshot)) {}
   ctk::cache::SnapshotPtr snapshot() const override { return snapshot_; }
-  std::size_t retained_bytes() const override {
-    std::size_t bytes = retained_bytes_ + navigation_parents.size() * sizeof(Row);
-    for (const auto &parents : navigation_parents)
-      for (const auto &[name, node] : parents)
-        bytes += sizeof(node) + name.size() + 64;
+  std::size_t retained_bytes() const override { return retained_bytes_; }
+  static std::size_t row_bytes(const Row &row) {
+    std::size_t bytes = sizeof(Row);
+    for (const auto &[name, node] : row)
+      bytes += sizeof(node) + name.size() + 64;
     return bytes;
   }
   void append(Row row) {
-    retained_bytes_ += sizeof(Row);
-    for (const auto &[name, node] : row)
-      retained_bytes_ += sizeof(node) + name.size() + 64;
+    retained_bytes_ += row_bytes(row);
     rows.push_back(std::move(row));
+  }
+  void append(Row row, Row parents) {
+    append(std::move(row));
+    retained_bytes_ += row_bytes(parents);
+    navigation_parents.push_back(std::move(parents));
   }
   std::vector<Row> rows;
   std::vector<Row> navigation_parents;

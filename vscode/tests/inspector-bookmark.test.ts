@@ -61,6 +61,44 @@ function treeFor(pages: BookmarkPage[], selected: string) {
   tree.select(selected);
   return tree;
 }
+it("restores an action subtree beyond the former depth and page ceilings", async () => {
+  const scopes = Array.from({ length: 130 }, (_, index) =>
+    node(
+      `scope-${index}`,
+      "namespaceDecl",
+      Array.from({ length: index + 1 }, (_, i) => `N${i}`).join("::"),
+    ),
+  );
+  const target = node(
+    "target",
+    "functionDecl",
+    `${scopes.at(-1)!.name}::work`,
+    "work",
+  );
+  const bookmark = bookmarkTree(
+    treeFor([page(target)], target.id),
+    target.id,
+    "",
+    file,
+  )!;
+  const pages = new Map(
+    scopes.map((scope, index) => [
+      scope.id,
+      page(scope, [scopes[index + 1] ?? target]),
+    ]),
+  );
+  pages.set(target.id, page(target));
+  const result = await rebuildTree(
+    bookmark,
+    page(node("root", "translationUnitDecl"), [scopes[0]!]),
+    async (id) => pages.get(id)!,
+    "",
+    file,
+    () => true,
+  );
+  expect(result?.selected.node.id).toBe(target.id);
+  expect(result?.pages.size).toBe(132);
+});
 it("rebinds selected declarations and collapsed/expanded branches to fresh native IDs", async () => {
   const old = [
     node("root", "translationUnitDecl"),

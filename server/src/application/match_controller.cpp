@@ -38,10 +38,8 @@ std::string invalid_request(const MatchRequest &request) {
     return "invalid navigation axis";
   if (navigation && (!request.has_binding() || !request.preserve_source()))
     return "navigation requires a binding and preserve_source";
-  if (request.has_navigation_max_nodes() &&
-      (!navigation || request.navigation_max_nodes() == 0 ||
-       request.navigation_max_nodes() > 100000))
-    return "navigation nodes must be 1..100000 and require an axis";
+  if (request.has_navigation_max_nodes() && !navigation)
+    return "navigation nodes require an axis";
   if (request.query().empty() && !navigation)
     return "query must not be empty";
   if (!MatchTraversalMode_IsValid(request.traversal_mode()))
@@ -565,9 +563,13 @@ MatchController::MatchController(
     std::shared_ptr<ctk::clang_layer::IMatchBackend> backend,
     std::shared_ptr<OperationExecutor> executor) {
   if (settings.max_cursors == 0 || settings.max_memory_bytes == 0 ||
-      settings.idle_ttl.count() <= 0 || settings.results.max_rows == 0 ||
+      settings.idle_ttl.count() <= 0 ||
       settings.results.max_bytes == 0)
     throw std::invalid_argument("cursor limits and TTL must be positive");
+  settings.results.max_memory_bytes =
+      settings.max_memory_bytes > sizeof(detail::ResultCursor)
+          ? settings.max_memory_bytes - sizeof(detail::ResultCursor)
+          : 0;
 #ifdef CTK_WITH_CLANG
   if (!backend)
     backend = ctk::clang_layer::make_match_backend();
@@ -954,7 +956,6 @@ ResourceStatusResponse MatchController::resource_status() {
                                     : CacheResources{};
   result = impl_->resources->status(cache,
                                     ctk::platform::resident_memory_bytes());
-  result.set_max_result_rows(impl_->settings.results.max_rows);
   result.set_max_result_bytes(impl_->settings.results.max_bytes);
   result.set_max_manifest_inputs(
       ctk::clang_layer::max_manifest_inputs);
