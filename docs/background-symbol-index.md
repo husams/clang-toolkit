@@ -8,6 +8,7 @@ TU's rows in one SQLite transaction. Unchanged compile entries are skipped.
 ## Console
 
 ```ctk
+index list
 index start "/server/path/project"
 index status "/server/path/project"
 index pause "/server/path/project"
@@ -17,9 +18,12 @@ index lookup "USR_FROM_A_RESULT" in "/server/path/project"
 index cancel "/server/path/project"
 ```
 
-Status and lookup commands return reusable values:
+List, status and lookup commands return reusable values:
 
 ```ctk
+let projects = index list
+print $projects.total_count
+print $projects.projects
 let progress = index status "/server/path/project"
 print $progress.state
 let symbols = index find "demo::Widget" in "/server/path/project"
@@ -30,12 +34,23 @@ Paths refer to the server filesystem. Relative console project paths use the
 console working directory. No VS Code extension code is needed to use the wire
 contract; an extension can call the same service directly.
 
+`index list` lists all saved project indexes in this server's storage plus its
+current job, sorted by project path, with state, indexed/total translation units
+and a total project count. It includes paused, failed and cancelled jobs. Saved
+indexes without a current job (including after restart) show `IDLE`; start them
+again to revalidate their coverage. Listing never parses project sources.
+`server status` and the live Server status pane show the same project inventory,
+the number of projects in progress (queued or indexing), indexed and pending
+translation-unit counts, and the current translation unit when available.
+
 ## Python and UI gRPC clients
 
 ```python
 from clang_toolkit import Client
 
 with Client("unix:///tmp/ctk.sock") as client:
+    projects = client.list_project_indexes()
+    print(projects.total_count)
     client.start_project_index(
         "/server/path/project", compile_commands="/server/path/project/build",
         poll_interval_seconds=2,
@@ -58,6 +73,8 @@ The service is `ctk.index.v1.IndexService`, defined in
 queued work rather than waiting for extraction. `CancelProjectIndex` preserves
 already committed TU contributions. `FindSymbols` and `LookupSymbol` query the
 committed index without parsing source files.
+`ListProjectIndexes(ListProjectIndexesRequest)` returns `projects` and
+`total_count`; `ServerStatus` includes the same data in `project_indexes`.
 
 ## Persistence and change detection
 

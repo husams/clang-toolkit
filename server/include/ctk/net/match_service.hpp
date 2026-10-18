@@ -4,10 +4,12 @@
 #include "match/v1/match_service.grpc.pb.h"
 
 namespace ctk::net {
+class IndexServiceAdapter;
 class MatchServiceAdapter final : public ctk::match::v1::MatchService::Service {
 public:
-  explicit MatchServiceAdapter(application::MatchController &controller)
-      : controller_(controller) {}
+  explicit MatchServiceAdapter(application::MatchController &controller,
+                               IndexServiceAdapter *indexes = nullptr)
+      : controller_(controller), indexes_(indexes) {}
   grpc::Status Parse(grpc::ServerContext *,
                      const ctk::match::v1::ParseRequest *,
                      ctk::match::v1::ParseResponse *) override;
@@ -63,5 +65,6 @@ public:
 
 private:
   application::MatchController &controller_;
+  IndexServiceAdapter *indexes_;
 };
 } // namespace ctk::net

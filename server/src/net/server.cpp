@@ -106,7 +106,10 @@ GrpcServerHost::GrpcServerHost(config::Settings settings,
               std::chrono::minutes(5), std::chrono::minutes(5)})),
       matches_(cursor_settings(settings_, resources_), matcher(native_engine_),
                operations_),
-      match_service_(matches_),
+      index_service_(storage_root(), [executor = operations_] {
+        return executor->active_count() != 0 || executor->pending_count() != 0;
+      }),
+      match_service_(matches_, &index_service_),
       traversals_(cursor_settings(settings_, resources_),
                   visitor(native_engine_), operations_, &matches_),
       cfg_(cursor_settings(settings_, resources_), cfg_backend(native_engine_),
@@ -116,10 +119,7 @@ GrpcServerHost::GrpcServerHost(config::Settings settings,
       scripts_(cursor_settings(settings_, resources_), native_engine_,
                operations_),
       batches_(scripts_, resources_, storage_root(), batch_limits(settings_)),
-      analysis_service_(traversals_, cfg_, calls_, scripts_, batches_),
-      index_service_(storage_root(), [executor = operations_] {
-        return executor->active_count() != 0 || executor->pending_count() != 0;
-      }) {}
+      analysis_service_(traversals_, cfg_, calls_, scripts_, batches_) {}
 GrpcServerHost::~GrpcServerHost() {
   if (server_)
     shutdown();

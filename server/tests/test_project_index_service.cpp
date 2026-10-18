@@ -406,6 +406,108 @@ protected:
   }
 };
 
+TEST_F(ProjectIndexServiceTest, ListsEmptyStorageWithoutCreatingAnIndex) {
+  IndexServiceAdapter service(storage);
+  grpc::ServerContext context;
+  ListProjectIndexesRequest request;
+  ListProjectIndexesResponse response;
+  ASSERT_TRUE(service.ListProjectIndexes(&context, &request, &response).ok());
+  EXPECT_EQ(response.total_count(), 0u);
+  EXPECT_TRUE(response.projects().empty());
+  EXPECT_FALSE(fs::exists(storage));
+}
+
+TEST_F(ProjectIndexServiceTest, ListsQueuedWorkBeforeAnyTranslationUnitIsPublished) {
+  IndexServiceAdapter service(storage, [] { return true; }, CTK_TEST_INDEX_WORKER);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  grpc::ServerContext start_context;
+  ProjectIndexStatus queued;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &queued).ok());
+  grpc::ServerContext context;
+  ListProjectIndexesRequest request;
+  ListProjectIndexesResponse response;
+  ASSERT_TRUE(service.ListProjectIndexes(&context, &request, &response).ok());
+  ASSERT_EQ(response.projects_size(), 1);
+  EXPECT_EQ(response.total_count(), 1u);
+  EXPECT_EQ(response.projects(0).project_root(), project.string());
+  EXPECT_TRUE(response.projects(0).state() == INDEX_STATE_QUEUED ||
+              response.projects(0).state() == INDEX_STATE_PAUSED);
+  EXPECT_EQ(response.projects(0).translation_units_indexed(), 0u);
+}
+
+TEST_F(ProjectIndexServiceTest, ListsSortedSavedProjectsAndIgnoresIncompleteStores) {
+  using namespace index_detail;
+  for (const auto &name : {"z-project", "a-project"}) {
+    const auto key = (root / name).string();
+    const auto directory = storage / "symbol-index" / digest_text(key);
+    fs::create_directories(directory);
+    Database db(directory / "symbols.sqlite3", true);
+    metadata(db, "project_root", key);
+    metadata(db, "revision", "4");
+    metadata(db, "total", "3");
+    db.exec("INSERT INTO translation_unit VALUES"
+            "('tu','file.cc','','','','','{}',1,'ready',''),"
+            "('failed','bad.cc','','','','','{}',1,'failed','bad input'),"
+            "('header','header.h','','','','','[]',0,'ready','')");
+  }
+  // Initialization can be visible before metadata has been populated.
+  const auto incomplete = storage / "symbol-index" / "initializing";
+  fs::create_directories(incomplete);
+  { Database db(incomplete / "symbols.sqlite3", true); }
+  IndexServiceAdapter service(storage);
+  grpc::ServerContext context;
+  ListProjectIndexesRequest request;
+  ListProjectIndexesResponse response;
+  ASSERT_TRUE(service.ListProjectIndexes(&context, &request, &response).ok());
+  ASSERT_EQ(response.projects_size(), 2);
+  EXPECT_EQ(response.total_count(), 2u);
+  EXPECT_EQ(response.projects(0).project_root(), (root / "a-project").string());
+  EXPECT_EQ(response.projects(1).project_root(), (root / "z-project").string());
+  for (const auto &saved : response.projects()) {
+    EXPECT_EQ(saved.state(), INDEX_STATE_IDLE);
+    EXPECT_EQ(saved.revision(), 4u);
+    EXPECT_EQ(saved.translation_units_total(), 3u);
+    EXPECT_EQ(saved.translation_units_indexed(), 2u);
+    EXPECT_EQ(saved.translation_units_pending(), 1u);
+    EXPECT_EQ(saved.translation_units_failed(), 1u);
+  }
+}
+
+TEST_F(ProjectIndexServiceTest, ListsLiveProgressOnceAndRetainsItAfterRestart) {
+  ListProjectIndexesRequest request;
+  ListProjectIndexesResponse response;
+  {
+    IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+    const auto status = start_and_wait(service);
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.ListProjectIndexes(&context, &request, &response).ok());
+    ASSERT_EQ(response.projects_size(), 1);
+    EXPECT_EQ(response.total_count(), 1u);
+    EXPECT_EQ(response.projects(0).SerializeAsString(), status.SerializeAsString());
+    ProjectIndexRequest project_request;
+    project_request.set_project_root(project.string());
+    grpc::ServerContext pause_context;
+    ProjectIndexStatus paused;
+    ASSERT_TRUE(service.PauseProjectIndex(&pause_context, &project_request, &paused).ok());
+    grpc::ServerContext list_context;
+    ASSERT_TRUE(service.ListProjectIndexes(&list_context, &request, &response).ok());
+    ASSERT_EQ(response.projects_size(), 1);
+    EXPECT_EQ(response.projects(0).state(), INDEX_STATE_PAUSED);
+  }
+  // Saved inventory remains available even if the source project is removed.
+  fs::remove_all(project);
+  IndexServiceAdapter restarted(storage);
+  grpc::ServerContext context;
+  ASSERT_TRUE(restarted.ListProjectIndexes(&context, &request, &response).ok());
+  ASSERT_EQ(response.projects_size(), 1);
+  EXPECT_EQ(response.total_count(), 1u);
+  EXPECT_EQ(response.projects(0).project_root(), project.string());
+  EXPECT_EQ(response.projects(0).state(), INDEX_STATE_IDLE);
+  EXPECT_EQ(response.projects(0).translation_units_indexed(), 3u);
+  EXPECT_EQ(response.projects(0).translation_units_total(), 3u);
+}
+
 TEST_F(ProjectIndexServiceTest,
        ExcludesSystemHeadersAndPreservesProjectHeaderVariants) {
   write("system.hpp", "#pragma GCC system_header\n"

@@ -75,6 +75,48 @@ def index_and_pause(indexed_project):
         assert paused.state == pb.INDEX_STATE_PAUSED
 
 
+def _console(indexed_project, source, engine):
+    root = indexed_project["root"]
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server",
+         indexed_project["server"].endpoint, "--script-engine", engine,
+         "--execute", source], text=True, capture_output=True, cwd=root, timeout=20,
+        env=dict(os.environ, XDG_STATE_HOME=str(root.parent / "console-state")),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "error:" not in result.stdout.lower(), result.stdout
+    return result.stdout
+
+
+@then("the console lists zero indexed projects")
+def console_empty_index_list(indexed_project):
+    for engine in ("legacy", "tree", "compiled"):
+        output = _console(indexed_project, "index list", engine)
+        assert "No indexed projects." in output
+        assert "Total projects: 0" in output
+
+
+@then("the console lists the indexed project and server status shows its coverage")
+def console_index_inventory(indexed_project):
+    with Client(indexed_project["server"].endpoint) as client:
+        indexes = client.list_project_indexes()
+        assert indexes.total_count == 1
+        assert len(indexes.projects) == 1
+        assert indexes.projects[0].project_root == str(indexed_project["root"])
+        assert indexes.projects[0].state == pb.INDEX_STATE_PAUSED
+        status = client.server_status()
+        assert status.HasField("project_indexes")
+        assert status.project_indexes == indexes
+    for engine in ("legacy", "tree", "compiled"):
+        output = _console(indexed_project, "index list; server status", engine)
+        assert str(indexed_project["root"]) in output
+        assert "Total projects: 1" in output
+        assert "PAUSED" in output and "3/3 indexed" in output
+        assert "Projects in progress" in output and "Indexed translation units" in output
+        output = _console(indexed_project, "let projects = index list; print $projects.total_count", engine)
+        assert output.strip() == "1"
+
+
 @then("symbol lookup remains available and foreground parsing still works")
 def foreground_works(indexed_project):
     root = indexed_project["root"]
@@ -168,6 +210,12 @@ def foreground_during_indexing(indexed_project):
             query = pb.ProjectIndexRequest(project_root=str(root))
             for _ in range(10):
                 stub.GetProjectIndexStatus(query, timeout=0.5)
+            status = client.server_status()
+            assert status.project_indexes.total_count == 1
+            progress = status.project_indexes.projects[0]
+            assert progress.state in (pb.INDEX_STATE_INDEXING, pb.INDEX_STATE_QUEUED)
+            assert progress.translation_units_pending >= 1
+            assert progress.current_translation_unit.endswith("one.cc")
             started = time.monotonic()
             with client.parse(root / "unrelated.cc") as tree:
                 assert len(tree.match('functionDecl(hasName("unrelated"))')) == 1

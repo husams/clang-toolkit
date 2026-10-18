@@ -18,6 +18,10 @@ public:
                                std::size_t max_workers = 0);
   ~IndexServiceAdapter() override;
   grpc::Status
+  ListProjectIndexes(grpc::ServerContext *,
+                     const ctk::index::v1::ListProjectIndexesRequest *,
+                     ctk::index::v1::ListProjectIndexesResponse *) override;
+  grpc::Status
   StartProjectIndex(grpc::ServerContext *,
                     const ctk::index::v1::StartProjectIndexRequest *,
                     ctk::index::v1::ProjectIndexStatus *) override;

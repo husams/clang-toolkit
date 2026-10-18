@@ -2,6 +2,7 @@ syntax = "proto3";
 package ctk.index.v1;
 
 service IndexService {
+  rpc ListProjectIndexes(ListProjectIndexesRequest) returns (ListProjectIndexesResponse);
   rpc StartProjectIndex(StartProjectIndexRequest) returns (ProjectIndexStatus);
   rpc GetProjectIndexStatus(ProjectIndexRequest) returns (ProjectIndexStatus);
   rpc PauseProjectIndex(ProjectIndexRequest) returns (ProjectIndexStatus);
@@ -28,6 +29,13 @@ message StartProjectIndexRequest {
   uint32 poll_interval_seconds = 3;
 }
 message ProjectIndexRequest { string project_root = 1; }
+message ListProjectIndexesRequest {}
+message ListProjectIndexesResponse {
+  // Sorted by project_root. Includes saved indexes and the current job.
+  // Saved indexes without a current job are IDLE until started again.
+  repeated ProjectIndexStatus projects = 1;
+  uint64 total_count = 2;
+}
 message ProjectIndexStatus {
   string project_root = 1;
   IndexState state = 2;

@@ -55,6 +55,8 @@ for module in "$output/ast/v1/"*_pb2.py "$output/ast/v1/"*_pb2.pyi; do
 done
 for module in "$output/match/v1/"*_pb2*.py "$output/match/v1/"*_pb2.pyi; do
   sed -i.bak \
+    -e 's/^from index\.v1 import /from ...index.v1 import /' \
+    -e 's/^from index\.v1\./from ...index.v1./' \
     -e 's/^from ast\.v1 import /from ...ast.v1 import /' \
     -e 's/^from ast\.v1\./from ...ast.v1./' \
     -e 's/^from match\.v1 import /from . import /' \

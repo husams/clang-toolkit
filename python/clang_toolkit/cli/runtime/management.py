@@ -79,6 +79,30 @@ def _cache_rows(cache: pb.CacheResources) -> list[tuple[str, str]]:
     ]
 
 
+def _index_rows(status: pb.ServerStatusResponse) -> list[tuple[str, str]]:
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as index_pb
+
+    if not status.HasField("project_indexes"):
+        return [("Project indexes", "Unavailable")]
+    indexes = status.project_indexes
+    active = {index_pb.INDEX_STATE_QUEUED, index_pb.INDEX_STATE_INDEXING}
+    rows = [
+        ("Total projects", str(indexes.total_count)),
+        ("Projects in progress", str(sum(p.state in active for p in indexes.projects))),
+        ("Indexed translation units", str(sum(p.translation_units_indexed for p in indexes.projects))),
+        ("Pending translation units", str(sum(p.translation_units_pending for p in indexes.projects))),
+    ]
+    for project in indexes.projects:
+        state = index_pb.IndexState.Name(project.state).removeprefix("INDEX_STATE_")
+        rows.append(("Project", project.project_root))
+        rows.append(("Progress",
+                     f"{state}, {project.translation_units_indexed}/{project.translation_units_total} indexed, "
+                     f"{project.translation_units_pending} pending, {project.translation_units_failed} failed"))
+        if project.current_translation_unit:
+            rows.append(("Current translation unit", project.current_translation_unit))
+    return rows
+
+
 def _render_status(status: pb.ServerStatusResponse) -> str:
     rss = (_bytes(status.resident_memory_bytes)
            if status.HasField("resident_memory_bytes") else "Unavailable")
@@ -90,7 +114,9 @@ def _render_status(status: pb.ServerStatusResponse) -> str:
         ("Session limit", str(status.max_sessions)),
         ("Retained memory limit", _bytes(status.max_retained_memory_bytes)),
     ]
-    return "Server status\n" + _table(rows) + "\n\nCache resources\n" + _table(_cache_rows(status.cache))
+    return ("Server status\n" + _table(rows) +
+            "\n\nProject indexing\n" + _table(_index_rows(status)) +
+            "\n\nCache resources\n" + _table(_cache_rows(status.cache)))
 
 
 def _render_sessions(response: pb.ListSessionsResponse) -> str:

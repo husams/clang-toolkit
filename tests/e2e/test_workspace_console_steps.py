@@ -328,9 +328,10 @@ def run_workspace(
         (tmp_path / "workspace-session-tree.txt").write_text("\n".join(screen.display))
         os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")
         commands.append("server status")
-        submit(commands[-1], "Resident memory")
-        row = next(i for i, line in enumerate(screen.display) if "Resident memory" in line)
-        column = screen.display[row].index("Resident memory")
+        submit(commands[-1], "Total projects")
+        assert any("Projects in progress" in line for line in screen.display)
+        row = next(i for i, line in enumerate(screen.display) if "Total projects" in line)
+        column = screen.display[row].index("Total projects")
         assert screen.buffer[row][column].bg != "default"
         (tmp_path / "workspace-command-output.txt").write_text("\n".join(screen.display))
         # Foreground progress is a single updated bar, backed by native work.

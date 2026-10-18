@@ -1,4 +1,5 @@
 #include "ctk/net/match_service.hpp"
+#include "ctk/net/index_service.hpp"
 #include "match_status.hpp"
 
 namespace ctk::net {
@@ -89,10 +90,17 @@ grpc::Status MatchServiceAdapter::AttachSession(
   return match_status(reply.code, reply.message, *context);
 }
 grpc::Status MatchServiceAdapter::ServerStatus(
-    grpc::ServerContext *, const ctk::match::v1::ServerStatusRequest *,
+    grpc::ServerContext *context, const ctk::match::v1::ServerStatusRequest *,
     ctk::match::v1::ServerStatusResponse *response) {
   try {
     *response = controller_.server_status();
+    if (indexes_) {
+      const ctk::index::v1::ListProjectIndexesRequest request;
+      const auto result = indexes_->ListProjectIndexes(
+          context, &request, response->mutable_project_indexes());
+      if (!result.ok())
+        return result;
+    }
     return grpc::Status::OK;
   } catch (const std::exception &error) {
     return grpc::Status(grpc::StatusCode::INTERNAL, error.what());
