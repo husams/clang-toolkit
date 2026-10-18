@@ -130,7 +130,7 @@ const code = spawn(
     "--skip-release-notes",
     "--disable-updates",
     "--user-data-dir",
-    join(dirname(processInfo.config), "profile"),
+    mkdtempSync(join(dirname(processInfo.config), "profile-")),
     "--extensions-dir",
     join(dirname(processInfo.config), "extensions"),
     `--extensionDevelopmentPath=${extension}`,
