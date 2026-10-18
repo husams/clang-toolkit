@@ -41,13 +41,13 @@ struct DirectoryWatch::Impl {
     } else {
       const auto reserve = std::min<rlim_t>(1024, limit.rlim_cur / 2);
       budget = std::min<std::size_t>(
-          2048, static_cast<std::size_t>((limit.rlim_cur - reserve) / 2));
+          4096, static_cast<std::size_t>((limit.rlim_cur - reserve) / 2));
     }
     queue = kqueue();
     if (queue >= 0)
       fcntl(queue, F_SETFD, FD_CLOEXEC);
 #else
-    budget = 2048;
+    budget = 4096;
     queue = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 #endif
   }

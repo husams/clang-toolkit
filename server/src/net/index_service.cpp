@@ -959,7 +959,7 @@ private:
       const IndexWorkerTranslationUnit *unit;
       std::string command_hash, id, previous_manifest;
       std::map<std::string, std::string> manifest;
-      bool unchanged = false, migrate = false;
+      bool unchanged = false, migrate = false, manifest_validated = false;
     };
     const auto plan_unit = [&](const IndexWorkerTranslationUnit &unit) {
       await_admission(job);
@@ -972,12 +972,94 @@ private:
       if (prior.step()) {
         plan.previous_manifest = prior.text(0);
         plan.manifest = dependencies(plan.previous_manifest);
-        plan.unchanged = manifest_current(job, plan.manifest);
       }
-      plan.migrate =
-          plan.unchanged && plan.previous_manifest.find("\"@symbol-layout\"") ==
-                                std::string::npos;
       return plan;
+    };
+    const auto validate_plans = [&](const std::vector<UnitPlan *> &plans,
+                                    std::uint64_t expected_generation) {
+      std::map<std::string, std::string> expected;
+      std::map<std::string, std::set<std::string>> hashes_by_path;
+      std::vector<UnitPlan *> fallback;
+      for (auto *plan : plans) {
+        plan->unchanged = false;
+        plan->manifest_validated = true;
+        if (plan->manifest.empty())
+          continue;
+        for (const auto &[path, hash] : plan->manifest)
+          hashes_by_path[path].insert(hash);
+      }
+      for (const auto &[path, hashes] : hashes_by_path) {
+        if (hashes.size() != 1)
+          continue;
+        expected.emplace(path, *hashes.begin());
+      }
+      for (auto *plan : plans) {
+        if (plan->manifest.empty())
+          continue;
+        const bool conflicts = std::any_of(
+            plan->manifest.begin(), plan->manifest.end(), [&](const auto &dep) {
+              return hashes_by_path[dep.first].size() > 1;
+            });
+        if (conflicts)
+          fallback.push_back(plan);
+      }
+      std::set<std::string> mismatches;
+      if (!expected.empty()) {
+        for (;;) {
+          if (!admitted(job, expected_generation))
+            throw Interrupted();
+          inventories_.refresh();
+          const auto inventory_generation = inventories_.generation();
+          bool waited = false;
+          mismatches.clear();
+          for (const auto &[path, hash] : expected) {
+            waited = await_admission(job) || waited;
+            if (!admitted(job, expected_generation))
+              throw Interrupted();
+            const auto allowed = [&] {
+              waited = await_admission(job) || waited;
+              if (!admitted(job, expected_generation))
+                throw Interrupted();
+              return true;
+            };
+            std::string current;
+            if (path.starts_with("@include-tree:")) {
+              current = inventories_.digest(path.substr(14), allowed);
+            } else {
+              try {
+                current = files_.digest(path, allowed);
+              } catch (...) {
+                if (!admitted(job, expected_generation) || foreground_busy())
+                  throw Interrupted();
+                throw;
+              }
+            }
+            if (current != hash)
+              mismatches.insert(path);
+          }
+          const bool trees_changed =
+              inventories_.refresh() ||
+              inventory_generation != inventories_.generation();
+          if (waited || trees_changed)
+            continue;
+          break;
+        }
+        for (auto *plan : plans) {
+          if (plan->manifest.empty() ||
+              std::find(fallback.begin(), fallback.end(), plan) !=
+                  fallback.end())
+            continue;
+          plan->unchanged = std::none_of(
+              plan->manifest.begin(), plan->manifest.end(),
+              [&](const auto &dep) { return mismatches.contains(dep.first); });
+        }
+      }
+      for (auto *plan : fallback)
+        plan->unchanged = manifest_current(job, plan->manifest);
+      for (auto *plan : plans)
+        plan->migrate = plan->unchanged &&
+                        plan->previous_manifest.find("\"@symbol-layout\"") ==
+                            std::string::npos;
     };
     const auto needs_worker = [](const UnitPlan &plan) {
       return !(plan.unchanged && !plan.migrate) &&
@@ -1012,6 +1094,7 @@ private:
       std::optional<IndexWorkerResponse> response;
       std::exception_ptr extraction_error;
       std::uint64_t generation = 0;
+      bool extraction_slot = false;
     };
     struct SchedulerWindow {
       std::deque<ScheduledUnit> items;
@@ -1024,6 +1107,8 @@ private:
             item.extraction->join();
       }
     } scheduled;
+    struct StaleSkip {};
+    std::size_t active_extractions = 0;
     int next_unit = 0;
     const auto enqueue_next = [&] {
       await_admission(job);
@@ -1032,12 +1117,6 @@ private:
         auto plan = plan_unit(candidate);
         ScheduledUnit item{std::move(plan)};
         item.generation = generation();
-        if (needs_worker(item.plan))
-          item.extraction = std::make_unique<PendingExtraction>(
-              *this, job, make_request(candidate),
-              directory / "units" / item.plan.id /
-                  std::to_string(item.generation),
-              item.generation);
         scheduled.items.push_back(std::move(item));
       } catch (const Interrupted &) {
         throw;
@@ -1049,6 +1128,32 @@ private:
         item.planning_error = std::current_exception();
         item.generation = generation();
         scheduled.items.push_back(std::move(item));
+      }
+    };
+    const auto launch_extraction = [&](ScheduledUnit &item) {
+      if (!item.planning_error && needs_worker(item.plan) && !item.extraction &&
+          active_extractions < max_workers_) {
+        try {
+          const auto &unit = *item.plan.unit;
+          item.extraction = std::make_unique<PendingExtraction>(
+              *this, job, make_request(unit),
+              directory / "units" / item.plan.id /
+                  std::to_string(item.generation),
+              item.generation);
+          item.extraction_slot = true;
+          ++active_extractions;
+        } catch (const Interrupted &) {
+          throw;
+        } catch (...) {
+          item.planning_error = std::current_exception();
+        }
+      }
+    };
+    const auto launch_available = [&] {
+      for (auto &candidate : scheduled.items) {
+        if (active_extractions >= max_workers_)
+          break;
+        launch_extraction(candidate);
       }
     };
     const auto ensure_response = [&](ScheduledUnit &item) {
@@ -1066,15 +1171,61 @@ private:
                                           item.plan.previous_manifest);
         } else if (item.extraction) {
           item.response = item.extraction->get();
+          if (item.extraction_slot) {
+            item.extraction_slot = false;
+            --active_extractions;
+          }
+          launch_available();
         } else {
-          item.response = execute(
-              job, make_request(unit),
-              directory / "units" / item.plan.id /
-                  std::to_string(item.generation));
+          if (needs_worker(item.plan)) {
+            while (active_extractions >= max_workers_) {
+              auto other =
+                  std::find_if(scheduled.items.begin(), scheduled.items.end(),
+                               [&](auto &candidate) {
+                                 return &candidate != &item &&
+                                        candidate.extraction &&
+                                        candidate.extraction_slot;
+                               });
+              if (other == scheduled.items.end())
+                break;
+              try {
+                other->response = other->extraction->get();
+              } catch (const Interrupted &) {
+                throw;
+              } catch (...) {
+                other->extraction_error = std::current_exception();
+              }
+              other->extraction_slot = false;
+              --active_extractions;
+            }
+            launch_extraction(item);
+            if (item.extraction) {
+              item.response = item.extraction->get();
+              item.extraction_slot = false;
+              --active_extractions;
+              launch_available();
+            } else {
+              item.response = execute(job, make_request(unit),
+                                      directory / "units" / item.plan.id /
+                                          std::to_string(item.generation));
+            }
+          } else {
+            item.response = execute(job, make_request(unit),
+                                    directory / "units" / item.plan.id /
+                                        std::to_string(item.generation));
+          }
         }
       } catch (const Interrupted &) {
+        if (item.extraction_slot) {
+          item.extraction_slot = false;
+          --active_extractions;
+        }
         throw;
       } catch (...) {
+        if (item.extraction_slot) {
+          item.extraction_slot = false;
+          --active_extractions;
+        }
         item.extraction_error = std::current_exception();
         throw;
       }
@@ -1140,9 +1291,18 @@ private:
     for (int unit_index = 0; unit_index < units.size(); ++unit_index) {
       // Plan on the controller, and keep the database and digest caches out of
       // worker threads. Fill a bounded ordered window before publishing rows.
-      while (next_unit < units.size() &&
-             scheduled.items.size() < max_workers_) {
+      while (next_unit < units.size() && scheduled.items.size() < 16) {
         enqueue_next();
+      }
+      {
+        std::vector<UnitPlan *> plans;
+        for (auto &candidate : scheduled.items)
+          if (!candidate.planning_error && !candidate.plan.manifest_validated &&
+              !candidate.plan.manifest.empty())
+            plans.push_back(&candidate.plan);
+        if (!plans.empty())
+          validate_plans(plans, scheduled.items.front().generation);
+        launch_available();
       }
       if (scheduled.items.empty())
         throw Interrupted();
@@ -1154,15 +1314,21 @@ private:
         std::vector<ScheduledUnit *> batch;
         constexpr std::size_t max_batch_units = 16;
         for (std::size_t i = 0; i < max_batch_units; ++i) {
-          while (i >= scheduled.items.size() && next_unit < units.size())
+          while (i >= scheduled.items.size() && next_unit < units.size()) {
             enqueue_next();
+            auto &added = scheduled.items.back();
+            if (!added.planning_error && !added.plan.manifest.empty()) {
+              const std::vector<UnitPlan *> one{&added.plan};
+              validate_plans(one, added.generation);
+            }
+            launch_available();
+          }
           if (i >= scheduled.items.size())
             break;
           auto &candidate = scheduled.items[i];
           if (candidate.plan.unchanged || candidate.planning_error ||
               candidate.generation != item.generation)
             break;
-          const bool response_was_cached = candidate.response.has_value();
           try {
             ensure_response(candidate);
           } catch (const Interrupted &) {
@@ -1171,11 +1337,8 @@ private:
             break;
           }
           batch.push_back(&candidate);
-          // ensure_response joined this unit's worker. Refill just that slot
-          // now; completed batch entries remain queued, while at most the
-          // configured worker count can still be extracting concurrently.
-          if (!response_was_cached && next_unit < units.size())
-            enqueue_next();
+          // ensure_response joined this unit's worker; launch_available keeps
+          // the bounded extraction slots occupied from the planned window.
         }
         if (batch.size() > 1 && publish_batch(batch)) {
           completed += batch.size();
@@ -1197,7 +1360,93 @@ private:
           continue;
         }
       }
-      auto plan = std::move(item.plan);
+      if (item.plan.unchanged && !item.plan.migrate) {
+        std::vector<ScheduledUnit *> skips;
+        constexpr std::size_t max_batch_units = 16;
+        for (std::size_t i = 0; i < max_batch_units; ++i) {
+          while (i >= scheduled.items.size() && next_unit < units.size()) {
+            enqueue_next();
+            auto &added = scheduled.items.back();
+            if (!added.planning_error && !added.plan.manifest.empty()) {
+              const std::vector<UnitPlan *> one{&added.plan};
+              validate_plans(one, added.generation);
+            }
+            launch_available();
+          }
+          if (i >= scheduled.items.size())
+            break;
+          auto &candidate = scheduled.items[i];
+          if (!candidate.plan.unchanged || candidate.plan.migrate ||
+              candidate.planning_error ||
+              candidate.generation != item.generation)
+            break;
+          skips.push_back(&candidate);
+        }
+        std::vector<UnitPlan *> skip_plans;
+        for (auto *skip : skips)
+          skip_plans.push_back(&skip->plan);
+        try {
+          Transaction transaction(db);
+          for (auto *skip : skips) {
+            Statement ready(
+                db, "UPDATE translation_unit SET status='ready',last_error='' "
+                    "WHERE id=? AND status!='ready'");
+            ready.bind(1, skip->plan.id);
+            ready.step();
+          }
+          const auto validate_skips = [&] {
+            for (;;) {
+              validate_plans(skip_plans, item.generation);
+              if (std::any_of(
+                      skip_plans.begin(), skip_plans.end(),
+                      [](const auto *plan) { return !plan->unchanged; }))
+                throw StaleSkip{};
+              bool waited = await_admission(job);
+              const auto current_commands = digest_file(
+                  (fs::path(job.commands) / "compile_commands.json").string(),
+                  [&] {
+                    waited = await_admission(job) || waited;
+                    return true;
+                  });
+              if (waited)
+                continue;
+              if (!admitted(job, item.generation) ||
+                  commands_digest != current_commands ||
+                  worker_time != fs::last_write_time(executable_))
+                throw Interrupted();
+              return;
+            }
+          };
+          commit(job, transaction, validate_skips, item.generation);
+          skipped += skips.size();
+          completed += skips.size();
+          saved_revision = revision(db);
+          saved_count = count_units(db);
+          progress(job, [&](auto &s) {
+            s.set_translation_units_completed(completed);
+            s.set_translation_units_skipped(skipped);
+            s.set_translation_units_failed(failed);
+            s.set_translation_units_pending(total - completed - failed);
+            s.set_revision(saved_revision);
+            s.set_translation_units_indexed(saved_count);
+          });
+          checkpoint(job, db);
+          const auto published = skips.size();
+          for (std::size_t i = 0; i < published; ++i)
+            scheduled.items.pop_front();
+          unit_index += static_cast<int>(published) - 1;
+          continue;
+        } catch (const StaleSkip &) {
+          // A stale later TU may follow an unchanged head. Retry the head so
+          // the next skip window ends at the stale entry and commits this
+          // freshly validated prefix. A stale head falls through to extraction.
+          if (item.plan.unchanged) {
+            --unit_index;
+            continue;
+          }
+        }
+      }
+      auto &plan = item.plan;
       if (plan.unchanged) {
         // Revalidate each preplanned skip immediately before consumption.
         // The controller owns the row, so reuse its decoded manifest only.
@@ -1208,65 +1457,34 @@ private:
       const auto &id = plan.id;
       progress(job,
                [&](auto &s) { s.set_current_translation_unit(unit.source()); });
-      if (plan.unchanged && !plan.migrate) {
-        Transaction transaction(db);
-        Statement ready(
-            db, "UPDATE translation_unit SET status='ready',last_error='' "
-                "WHERE id=? AND status!='ready'");
-        ready.bind(1, id);
-        ready.step();
-        commit(job, transaction, {}, item.generation);
-        ++skipped;
-        ++completed;
-      } else {
-        try {
-          if (item.planning_error) {
-            auto error = std::exchange(item.planning_error, {});
-            std::rethrow_exception(error);
-          }
-          if (item.extraction_error)
-            std::rethrow_exception(item.extraction_error);
-          IndexWorkerResponse response;
-          if (item.response) {
-            response = std::move(*item.response);
-          } else if (plan.migrate &&
-                     symbol_groups(plan.previous_manifest).empty()) {
-            response =
-                stored_response(job, db, id, plan.previous_manifest);
-          } else if (item.extraction) {
-            response = item.extraction->get();
-          } else {
-            response = execute(job, make_request(unit),
-                               directory / "units" / id);
-          }
-          // Replace the consumed head before publication, so extraction
-          // capacity stays full while the controller writes this TU. The
-          // completed head remains in the deque until publication finishes,
-          // so one extra deque entry still respects the live-worker limit.
-          if (next_unit < units.size() &&
-              scheduled.items.size() <= max_workers_) {
-            enqueue_next();
-          }
-          if (commands_digest !=
-              digest_file(
-                  (fs::path(job.commands) / "compile_commands.json").string()))
-            throw Interrupted();
-          if (!admitted(job, item.generation))
-            throw Interrupted();
-          replace(job, db, unit, id, plan.command_hash, response,
-                  commands_digest, worker_time, item.generation);
-          ++completed;
-        } catch (const Interrupted &) {
-          throw;
-        } catch (const std::exception &error) {
-          if (!admitted(job, item.generation))
-            throw Interrupted();
-          mark_failed(job, db, id, unit.source(), active, error.what(),
-                      item.generation);
-          failed_sources.insert(unit.source());
-          ++failed;
-          progress(job, [&](auto &s) { s.set_error(error.what()); });
+      try {
+        if (item.planning_error) {
+          auto error = std::exchange(item.planning_error, {});
+          std::rethrow_exception(error);
         }
+        if (item.extraction_error)
+          std::rethrow_exception(item.extraction_error);
+        ensure_response(item);
+        IndexWorkerResponse response = std::move(*item.response);
+        if (commands_digest !=
+            digest_file(
+                (fs::path(job.commands) / "compile_commands.json").string()))
+          throw Interrupted();
+        if (!admitted(job, item.generation))
+          throw Interrupted();
+        replace(job, db, unit, id, plan.command_hash, response, commands_digest,
+                worker_time, item.generation);
+        ++completed;
+      } catch (const Interrupted &) {
+        throw;
+      } catch (const std::exception &error) {
+        if (!admitted(job, item.generation))
+          throw Interrupted();
+        mark_failed(job, db, id, unit.source(), active, error.what(),
+                    item.generation);
+        failed_sources.insert(unit.source());
+        ++failed;
+        progress(job, [&](auto &s) { s.set_error(error.what()); });
       }
       saved_revision = revision(db);
       saved_count = count_units(db);

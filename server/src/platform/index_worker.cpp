@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -16,6 +17,7 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <system_error>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -41,6 +43,9 @@ constexpr std::uint64_t kWorkerMemoryBudget = 1536ULL * 1024 * 1024;
 constexpr std::uint64_t kWorkerOutputBudget = 128ULL * 1024 * 1024;
 constexpr std::uint64_t kControllerMemoryBudget = kGiB;
 constexpr std::uint64_t kMinimumSystemReserve = 4 * kGiB;
+// macOS may report EPERM for a process group whose last member just exited.
+// Give waitpid a brief chance to confirm that race; a live child still fails.
+constexpr auto kSignalFailureExitWindow = std::chrono::milliseconds(10);
 
 struct CgroupMount {
   std::filesystem::path root;
@@ -463,13 +468,21 @@ void IndexWorker::suspend() {
   if (!kill(-pid_, SIGSTOP))
     return;
   const int signal_error = errno;
-  try {
-    if (const auto status = poll()) {
-      completed_ = status;
-      return;
+  const auto deadline =
+      std::chrono::steady_clock::now() + kSignalFailureExitWindow;
+  for (;;) {
+    try {
+      if (const auto status = poll()) {
+        completed_ = status;
+        return;
+      }
+    } catch (const std::system_error &) {
+      // Preserve the signal failure when polling cannot establish completion.
+      break;
     }
-  } catch (const std::system_error &) {
-    // Preserve the signal failure when polling cannot establish completion.
+    if (std::chrono::steady_clock::now() >= deadline)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   if (signal_error != ESRCH)
     throw std::system_error(signal_error, std::generic_category(),
@@ -486,13 +499,21 @@ void IndexWorker::resume() {
   if (!kill(-pid_, SIGCONT))
     return;
   const int signal_error = errno;
-  try {
-    if (const auto status = poll()) {
-      completed_ = status;
-      return;
+  const auto deadline =
+      std::chrono::steady_clock::now() + kSignalFailureExitWindow;
+  for (;;) {
+    try {
+      if (const auto status = poll()) {
+        completed_ = status;
+        return;
+      }
+    } catch (const std::system_error &) {
+      // Preserve the signal failure when polling cannot establish completion.
+      break;
     }
-  } catch (const std::system_error &) {
-    // Preserve the signal failure when polling cannot establish completion.
+    if (std::chrono::steady_clock::now() >= deadline)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   if (signal_error != ESRCH)
     throw std::system_error(signal_error, std::generic_category(),

@@ -1,4 +1,5 @@
 #include "../src/net/file_digest_cache.hpp"
+#include "../src/net/include_inventory_cache.hpp"
 #include "../src/platform/index_filesystem.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 
@@ -17,6 +18,7 @@
 
 namespace fs = std::filesystem;
 using ctk::net::index_detail::FileDigestCache;
+using ctk::net::index_detail::IncludeInventoryCache;
 using ctk::platform::TemporaryDirectory;
 
 namespace {
@@ -299,4 +301,58 @@ TEST(IndexFileDigestCache, LowDescriptorLimitFallsBackInChildProcess) {
     GTEST_SKIP() << "cannot set the isolated child descriptor limit";
   ASSERT_TRUE(WIFEXITED(status));
   EXPECT_EQ(WEXITSTATUS(status), 0);
+}
+
+TEST(IncludeInventoryCache, CachesInventoriesAbovePreviousWatchBudget) {
+  TemporaryDirectory temporary{"ctk-include-inventory-watch-budget"};
+  const auto root = temporary.path() / "include";
+  fs::create_directory(root);
+  constexpr unsigned directory_count = 2100;
+  for (unsigned i = 0; i < directory_count; ++i) {
+    const auto name = std::to_string(i);
+    ASSERT_TRUE(fs::create_directory(root / name));
+  }
+  if (!supports_reader_reuse(root))
+    GTEST_SKIP() << "filesystem does not support index input reuse";
+
+  // Confirm this OS/process can install the fixture's complete watch set.
+  // This keeps a lower RLIMIT_NOFILE or kernel watch quota from making the
+  // capacity regression fail on an otherwise valid fallback configuration.
+  bool watch_set_supported = true;
+  {
+    ctk::platform::DirectoryWatch probe;
+    watch_set_supported = probe.add(root.parent_path()) && probe.add(root);
+    for (unsigned i = 0; watch_set_supported && i < directory_count; ++i)
+      watch_set_supported = probe.add(root / std::to_string(i));
+  }
+  if (!watch_set_supported)
+    GTEST_SKIP() << "platform cannot install the fixture's complete watch set";
+
+  IncludeInventoryCache cache;
+  std::size_t first_walk_entries = 0;
+  const auto first = cache.digest(root, [&] {
+    ++first_walk_entries;
+    return true;
+  });
+  ASSERT_FALSE(first.empty());
+  EXPECT_GE(first_walk_entries, directory_count);
+
+  std::size_t second_walk_entries = 0;
+  const auto second = cache.digest(root, [&] {
+    ++second_walk_entries;
+    return true;
+  });
+  EXPECT_EQ(second, first);
+  EXPECT_EQ(second_walk_entries, 0u);
+
+  const auto nested = root / "0" / "new";
+  fs::create_directories(nested);
+  write_file(nested / "header.hpp", "new header");
+  std::size_t changed_walk_entries = 0;
+  const auto changed = cache.digest(root, [&] {
+    ++changed_walk_entries;
+    return true;
+  });
+  EXPECT_NE(changed, second);
+  EXPECT_GT(changed_walk_entries, 0u);
 }
