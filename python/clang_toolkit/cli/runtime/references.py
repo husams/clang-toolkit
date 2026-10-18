@@ -35,6 +35,11 @@ class ReferenceError(ValueError):
     """A property, method, or index is unavailable for a value."""
 
 
+def _inspect_message(message: Message) -> dict[str, Any]:
+    """Inspect a protobuf message through the shared semantic schema view."""
+    return semantic_inspect_value(semantic_view(message))
+
+
 _FILE_PROPERTIES = frozenset({"size", "modified", "basename", "dirname", "absolute", "parts"})
 _CALL_GRAPH_METHODS = (
     "function", "callers", "callees", "grouped_calls", "shortest_path",
@@ -550,7 +555,7 @@ def inspect_value(value: Any) -> Any:
             "retained": (value._owner is not None and not value._owner.closed
                          and not value.proto.is_virtual_root
                          and value.proto.HasField("native_match_index")),
-            "value": semantic_inspect_value(semantic_view(value.proto)),
+            "value": _inspect_message(value.proto),
         }
     if isinstance(value, CallGraph):
         return {
@@ -562,7 +567,7 @@ def inspect_value(value: Any) -> Any:
             "source_file": value.response.source_file,
             "retained": value._owner is not None and not value._owner.closed,
             "methods": list(_CALL_GRAPH_METHODS),
-            "value": semantic_inspect_value(semantic_view(value.response), max_depth=4),
+            "value": _inspect_message(value.response),
         }
     if isinstance(value, FileSet):
         return {
@@ -592,7 +597,7 @@ def inspect_value(value: Any) -> Any:
         }
         if value._binding_data is not None:
             try:
-                result["value"] = semantic_inspect_value(semantic_view(value.value))
+                result["value"] = _inspect_message(value.value)
             except (SemanticError, MatchValueError) as error:
                 result["value"] = {"unavailable": str(error)}
         return result
@@ -603,7 +608,7 @@ def inspect_value(value: Any) -> Any:
             "type": "MatchRow",
             "source_match_index": value.source_match_index,
             "bindings": {
-                name[:256]: semantic_inspect_value(semantic_view(binding))
+                name[:256]: _inspect_message(binding)
                 for name, binding in limited
             },
         }
