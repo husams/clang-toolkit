@@ -50,7 +50,7 @@ The qualified native suite passed 511/511 tests in 164.158 seconds. The focused 
 
 The branch was brought forward to main `d8271b2`; upstream changes touched Python, VS Code, and documentation, with no changes to the server, API, or CMake inputs. Review found that a changed TU late in a planned skip window could force an unchanged predecessor to be extracted. The correction preserves each TU's fresh validation result and retries an unchanged prefix through the normal final-validation/commit path. The admission-mutation regression now covers both the first and sixteenth TU, requiring exactly five re-extractions, nineteen skips, five revision increments, and at most four live workers. Its initial adapter is destroyed before the second controller starts, keeping the concurrency assertion scoped to one controller.
 
-The reviewed source commit is `8044a5a9ff201d579199c3e61f31ec4c42444f9c`. All 3,287 Python unit tests passed in 314.43 seconds; the three gRPC indexing scenarios passed in 44.21 seconds and the PCH invalidation scenario passed in 3.66 seconds. These four integration checks ran after the final review correction.
+The reviewed source commit is `8044a5a9ff201d579199c3e61f31ec4c42444f9c`. The complete native suite passed all 511 tests in 950.87 seconds using serial CTest with isolated storage after the final review correction. All 3,287 Python unit tests passed in 314.43 seconds; the three gRPC indexing scenarios passed in 44.21 seconds and the PCH invalidation scenario passed in 3.66 seconds. These four integration checks ran after the final review correction.
 
 The 628-entry timing above was not repeated after this correction; its original source patch and binary hashes remain archived as benchmark provenance.
 
@@ -90,3 +90,5 @@ The 628-entry timing above was not repeated after this correction; its original 
 - [gRPC indexing scenarios](benchmarks/index-managed-regression-20261018/tests/pr-e2e.log.gz)
 - [PCH invalidation scenario](benchmarks/index-managed-regression-20261018/tests/pr-pch.log.gz)
 - [Non-head stale skip negative/positive regression proof](benchmarks/index-managed-regression-20261018/skip-window-regression-proof.md)
+- [Final integrated native suite log](benchmarks/index-managed-regression-20261018/tests/pr-native.log.gz)
+- [Final pre-merge verification summary](benchmarks/index-managed-regression-20261018/pr-verification.json)
