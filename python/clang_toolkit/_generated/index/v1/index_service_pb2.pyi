@@ -89,7 +89,7 @@ class ProjectIndexStatus(_message.Message):
     def __init__(self, project_root: _Optional[str] = ..., state: _Optional[_Union[IndexState, str]] = ..., translation_units_total: _Optional[int] = ..., translation_units_completed: _Optional[int] = ..., translation_units_skipped: _Optional[int] = ..., translation_units_failed: _Optional[int] = ..., current_translation_unit: _Optional[str] = ..., error: _Optional[str] = ..., last_reconciled_unix_seconds: _Optional[int] = ..., revision: _Optional[int] = ..., translation_units_pending: _Optional[int] = ..., paused_reason: _Optional[str] = ..., translation_units_indexed: _Optional[int] = ..., translation_units_indexing: _Optional[int] = ...) -> None: ...
 
 class FindSymbolsRequest(_message.Message):
-    __slots__ = ("project_root", "query", "limit", "match_mode", "kind")
+    __slots__ = ("project_root", "query", "limit", "match_mode", "kind", "unique_symbols")
     class MatchMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
         MATCH_MODE_EXACT: _ClassVar[FindSymbolsRequest.MatchMode]
@@ -102,21 +102,25 @@ class FindSymbolsRequest(_message.Message):
         KIND_FUNCTION: _ClassVar[FindSymbolsRequest.Kind]
         KIND_CLASS: _ClassVar[FindSymbolsRequest.Kind]
         KIND_VARIABLE: _ClassVar[FindSymbolsRequest.Kind]
+        KIND_ALIAS: _ClassVar[FindSymbolsRequest.Kind]
     KIND_ANY: FindSymbolsRequest.Kind
     KIND_FUNCTION: FindSymbolsRequest.Kind
     KIND_CLASS: FindSymbolsRequest.Kind
     KIND_VARIABLE: FindSymbolsRequest.Kind
+    KIND_ALIAS: FindSymbolsRequest.Kind
     PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]
     QUERY_FIELD_NUMBER: _ClassVar[int]
     LIMIT_FIELD_NUMBER: _ClassVar[int]
     MATCH_MODE_FIELD_NUMBER: _ClassVar[int]
     KIND_FIELD_NUMBER: _ClassVar[int]
+    UNIQUE_SYMBOLS_FIELD_NUMBER: _ClassVar[int]
     project_root: str
     query: str
     limit: int
     match_mode: FindSymbolsRequest.MatchMode
     kind: FindSymbolsRequest.Kind
-    def __init__(self, project_root: _Optional[str] = ..., query: _Optional[str] = ..., limit: _Optional[int] = ..., match_mode: _Optional[_Union[FindSymbolsRequest.MatchMode, str]] = ..., kind: _Optional[_Union[FindSymbolsRequest.Kind, str]] = ...) -> None: ...
+    unique_symbols: bool
+    def __init__(self, project_root: _Optional[str] = ..., query: _Optional[str] = ..., limit: _Optional[int] = ..., match_mode: _Optional[_Union[FindSymbolsRequest.MatchMode, str]] = ..., kind: _Optional[_Union[FindSymbolsRequest.Kind, str]] = ..., unique_symbols: _Optional[bool] = ...) -> None: ...
 
 class LookupSymbolRequest(_message.Message):
     __slots__ = ("project_root", "usr")

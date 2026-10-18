@@ -70,15 +70,15 @@ def test_sync_index_controls_use_existing_client_loop(monkeypatch):
 @pytest.mark.parametrize("kind, expected", [("", pb.FindSymbolsRequest.KIND_ANY),
     ("function", pb.FindSymbolsRequest.KIND_FUNCTION),
     ("class", pb.FindSymbolsRequest.KIND_CLASS),
-    ("variable", pb.FindSymbolsRequest.KIND_VARIABLE)])
+    ("variable", pb.FindSymbolsRequest.KIND_VARIABLE), ("alias", pb.FindSymbolsRequest.KIND_ALIAS)])
 def test_optional_kind_filter_is_sent_before_server_limit(kind, expected):
     async def exercise():
         client = AsyncClient("unix:///tmp/not-connected-index-test.sock")
         client._index_call = AsyncMock(return_value=pb.FindSymbolsResponse())
         try:
-            await client.find_symbols("/project", "demo", kind=kind, prefix=True, limit=1)
+            await client.find_symbols("/project", "demo", kind=kind, prefix=True, limit=1, unique_symbols=True)
             request = client._index_call.call_args.args[1]
-            assert request.kind == expected and request.limit == 1
+            assert request.kind == expected and request.limit == 1 and request.unique_symbols
         finally:
             await client.aclose()
     asyncio.run(exercise())

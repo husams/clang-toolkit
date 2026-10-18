@@ -2565,5 +2565,78 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_FALSE(fs::exists(storage));
 }
 
+TEST_F(ProjectIndexServiceTest,
+       AliasAndUniqueFiltersPreserveKindsAndLimitUniqueDefinitions) {
+  write("shared.h", R"cpp(
+struct UniqueA {
+#if FLAVOR == 1
+  int field;
+#else
+  long field;
+#endif
+};
+struct UniqueB {};
+inline int UniqueFunction(int) { return 1; }
+inline int UniqueFunction(double) { return 2; }
+using AliasUsing = int;
+typedef long AliasTypedef;
+template<class T> using AliasTemplate = T;
+)cpp");
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  start_and_wait(service);
+  const auto search = [&](const std::string &query,
+                          FindSymbolsRequest::Kind kind, bool prefix,
+                          unsigned limit, bool unique) {
+    FindSymbolsRequest request;
+    request.set_project_root(project.string());
+    request.set_query(query);
+    request.set_kind(kind);
+    request.set_limit(limit);
+    request.set_unique_symbols(unique);
+    request.set_match_mode(prefix ? FindSymbolsRequest::MATCH_MODE_PREFIX
+                                  : FindSymbolsRequest::MATCH_MODE_EXACT);
+    grpc::ServerContext context;
+    FindSymbolsResponse response;
+    EXPECT_TRUE(service.FindSymbols(&context, &request, &response).ok());
+    return response;
+  };
+  const auto unique =
+      search("Unique", FindSymbolsRequest::KIND_CLASS, true, 2, true);
+  ASSERT_EQ(unique.symbols_size(), 2);
+  EXPECT_EQ(unique.symbols(0).qualified_name(), "UniqueA");
+  EXPECT_EQ(unique.symbols(1).qualified_name(), "UniqueB");
+  EXPECT_FALSE(unique.truncated());
+  for (const auto &symbol : unique.symbols()) {
+    EXPECT_EQ(symbol.kind(), "CXXRecord");
+    EXPECT_TRUE(symbol.translation_unit().ends_with(".cpp"));
+  }
+  const auto limited =
+      search("Unique", FindSymbolsRequest::KIND_CLASS, true, 1, true);
+  EXPECT_EQ(limited.symbols_size(), 1);
+  EXPECT_TRUE(limited.truncated());
+  EXPECT_GT(search("Unique", FindSymbolsRequest::KIND_CLASS, true, 100, false)
+                .symbols_size(),
+            2);
+  const auto functions = search(
+      "UniqueFunction", FindSymbolsRequest::KIND_FUNCTION, false, 100, true);
+  ASSERT_EQ(functions.symbols_size(), 2);
+  EXPECT_NE(functions.symbols(0).usr(), functions.symbols(1).usr());
+  const auto aliases =
+      search("Alias", FindSymbolsRequest::KIND_ALIAS, true, 100, true);
+  ASSERT_EQ(aliases.symbols_size(), 3);
+  std::set<std::string> kinds;
+  for (const auto &symbol : aliases.symbols())
+    kinds.insert(symbol.kind());
+  EXPECT_EQ(kinds, (std::set<std::string>{"TypeAlias", "Typedef"}));
+  const auto exact =
+      search("AliasTypedef", FindSymbolsRequest::KIND_ALIAS, false, 100, true);
+  ASSERT_EQ(exact.symbols_size(), 1);
+  EXPECT_EQ(exact.symbols(0).kind(), "Typedef");
+  EXPECT_TRUE(
+      search("UniqueA", FindSymbolsRequest::KIND_ALIAS, false, 100, true)
+          .symbols()
+          .empty());
+}
+
 } // namespace
 } // namespace ctk::net

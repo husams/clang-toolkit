@@ -70,8 +70,11 @@ message FindSymbolsRequest {
     KIND_FUNCTION = 1;
     KIND_CLASS = 2;
     KIND_VARIABLE = 3;
+    KIND_ALIAS = 4;
   }
   Kind kind = 5;
+  // Return one representative per definition instead of per translation unit.
+  bool unique_symbols = 6;
 }
 message LookupSymbolRequest { string project_root = 1; string usr = 2; }
 message Symbol {
