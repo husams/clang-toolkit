@@ -1815,3 +1815,25 @@ Validation:
   reload the user's VS Code window to activate it. Test windows closed cleanly.
 
 Logs: vscode/artifacts/validation/large-ast-20261017/.
+
+## 2026-10-18 — real LLVM source validation
+
+Tested the existing llvm-project checkout at revision be8255a29 using its
+build/compile_commands.json and clang/lib/Sema/SemaDecl.cpp (21,332 lines,
+859,393 bytes). No source or build configuration in that checkout was changed.
+
+- The extension's actual Python action host, with only its navigation bound
+  temporarily restored to 1,000 in a separate process, reproduces
+  "navigation node limit exceeded" (12.508 seconds).
+- The unchanged fixed action host loads 323 main-file declarations in 5.566
+  seconds with the default 30-second RPC deadline. Expanding the retained
+  lookupUnqualifiedTypeNameInBase function returns two children; parseCount
+  remains one. Header candidates explain why the old bound failed despite
+  fewer than 1,000 displayed declarations.
+- An isolated actual VS Code extension host opens the original LLVM source
+  and renders all 323 children, 324 tree rows, in 4.826 seconds. Assertions
+  check the exact source path, child count and rendered row count. The test
+  window and its processes close successfully.
+
+Focused scripts, results and host log:
+vscode/artifacts/validation/real-llvm-ast-20261018/.
