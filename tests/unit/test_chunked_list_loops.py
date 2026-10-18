@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import sys
+from dataclasses import replace
 from threading import Event
 
 import pytest
@@ -223,5 +225,157 @@ def test_event_cancellation_settles_completed_chunks(
     assert captured["tail"] == context.session.last_tail == tail
     assert context.step_count == context.steps
     assert context.current_location == (node.line, node.column)
+    assert context.call_depth == context.consume_depth == 0
+    assert context.scopes == (context.bindings,)
+
+
+def test_shared_loop_has_no_per_operation_branches():
+    from clang_toolkit.cli.runtime.prototype import plain_list_loops
+
+    source = inspect.getsource(plain_list_loops._run_plain_chunks)
+    tree = ast.parse(source)
+    loops = [node for node in ast.walk(tree) if isinstance(node, ast.For)]
+    assert len(loops) == 1
+    body = [child for statement in loops[0].body for child in ast.walk(statement)]
+    branches = [node for node in body if isinstance(node, (ast.If, ast.IfExp))]
+    assert len(branches) == 1, "the shared loop should only branch for cancellation"
+    assert "cancel" in ast.unparse(branches[0].test)
+    assert not any(
+        isinstance(node, ast.Name) and node.id in {"reverse", "filtering"}
+        for node in ast.walk(tree)
+    )
+
+
+@pytest.mark.parametrize("target,expression", CASES)
+@pytest.mark.parametrize("size", [0, 257])
+def test_operation_policy_is_selected_once_and_owns_chunk_transitions(
+    execute, monkeypatch, target, expression, size
+):
+    from clang_toolkit.cli.runtime.prototype import plain_list_loops
+
+    context = Context(bindings={"xs": list(range(size)), "out": []})
+    execute(DEFINITIONS, context)
+    selections = []
+    events = []
+    policies = plain_list_loops._CHUNK_POLICIES
+    kind = {"map_into": "map", "filter_into": "filter", "reverse_list": "reverse"}[
+        target
+    ]
+    policy = policies[kind]
+
+    def setup(run, items):
+        events.append("setup")
+        return policy.setup(run, items)
+
+    def checkpoint(run):
+        events.append("checkpoint")
+        return policy.checkpoint(run)
+
+    def settle(run, count, before, keep):
+        events.append(("settle", count))
+        return policy.settle(run, count, before, keep)
+
+    def finish(run, nonempty):
+        events.append("finish")
+        return policy.finish(run, nonempty)
+
+    class SelectedPolicies(dict):
+        def __getitem__(self, key):
+            selections.append(key)
+            return super().__getitem__(key)
+
+    configured = SelectedPolicies(policies)
+    configured[kind] = replace(
+        policy, setup=setup, checkpoint=checkpoint, settle=settle, finish=finish
+    )
+    monkeypatch.setattr(plain_list_loops, "_CHUNK_POLICIES", configured)
+    result = execute(expression, context)
+    values = list(range(size))
+    assert result == (
+        [x * 2 for x in values]
+        if kind == "map"
+        else [x for x in values if x % 2 == 0]
+        if kind == "filter"
+        else values[::-1]
+    )
+    assert selections == [kind]
+    assert events == (
+        ["setup"]
+        + [
+            event
+            for count in ([128, 128, 1] if size else [])
+            for event in ("checkpoint", ("settle", count))
+        ]
+        + ["finish"]
+    )
+    assert context.call_depth == context.consume_depth == 0
+    assert context.scopes == (context.bindings,)
+
+
+@pytest.mark.parametrize("target,expression", CASES)
+def test_final_chunk_cancellation_preserves_finish_checkpoints(
+    execute, monkeypatch, target, expression
+):
+    from clang_toolkit.cli.runtime.prototype import plain_list_loops
+
+    size = 257
+    event = Event()
+    context = Context(
+        bindings={"xs": list(range(size)), "out": []}, cancel_hook=event.is_set
+    )
+    execute(DEFINITIONS, context)
+    direct = context.lookup(target).direct_loop
+    plan = direct.__ctk_plan__
+    prepare = plain_list_loops.prepare_plain
+    captured = {}
+
+    def prepare_capture(loop):
+        entry = prepare(loop)
+        assert entry is not None
+        runner, arguments = entry
+        captured["steps"] = context.steps
+        kernel_code = arguments[6].__code__
+        last_head = 0 if target == "reverse_list" else size - 1
+
+        def cancel_last_item(frame, action, value):
+            if action == "line" and frame.f_code is kernel_code:
+                if frame.f_locals.get("head") == last_head:
+                    event.set()
+            return cancel_last_item
+
+        def run(*args):
+            previous_trace = sys.gettrace()
+            try:
+                sys.settrace(cancel_last_item)
+                return runner(*args)
+            finally:
+                sys.settrace(previous_trace)
+                captured["tail"] = context.session.last_tail
+                captured["location"] = context.current_location
+                captured["end_steps"] = context.steps
+                captured["depth"] = context.consume_depth
+                # Isolate the runner's finish checkpoint from enclosing calls.
+                event.clear()
+
+        return run, arguments
+
+    monkeypatch.setitem(direct.__globals__, "prepare_plain", prepare_capture)
+    if target == "reverse_list":
+        assert execute(expression, context) == list(range(size - 1, -1, -1))
+        delta, node, tail = size * 11 + 1, plan.final, "ref"
+    else:
+        with pytest.raises(CancelledError, match="execution cancelled"):
+            execute(expression, context)
+        if target == "map_into":
+            assert context.bindings["out"] == [x * 2 for x in range(size)]
+            delta = size * 15 - 2
+        else:
+            assert context.bindings["out"] == list(range(0, size, 2))
+            delta = size * 17 + len(context.bindings["out"]) * 3 - 2
+        node, tail = plan.shape.group, "host"
+    assert captured["end_steps"] == captured["steps"] + delta
+    assert captured["location"] == (node.line, node.column)
+    assert captured["tail"] == tail
+    assert captured["depth"] == 0
     assert context.call_depth == context.consume_depth == 0
     assert context.scopes == (context.bindings,)
