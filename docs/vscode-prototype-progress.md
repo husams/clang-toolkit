@@ -1904,3 +1904,66 @@ Validation:
   highlights its 87-character source range on lines 249–251. LLVM files are unchanged.
 
 Focused evidence: vscode/artifacts/validation/member-declaration-20261018/.
+
+## 2026-10-18 — v0.2.40: header-heavy AST lookup
+
+The new screenshot reports `match row limit exceeded (limit 100000 rows); no
+cursor state committed`. This differs from the navigation ceiling addressed
+in v0.2.37: selecting a Symbol Search result still matched every declaration
+or statement in the TU, then filtered source coordinates in Python. A small
+source including a namespace with 100,005 declarations reproduces that exact
+error before the fix.
+
+Result lookup now matches the exact native kind and expansion file in Clang
+before collecting candidate rows; exact kind/file/line/column checks still
+identify the retained node. File-root and on-demand header child lookup now
+use root-only `translationUnitDecl(forEach(...))` matching, filtering direct
+declarations by file before collecting rows. A separate flat header with
+100,005 declarations previously failed with `AST traversal node limit exceeded`
+even though the source had only one visible declaration; it now loads.
+
+Server row, memory, cursor and navigation limits are unchanged. More than
+100,000 returned children or same-kind candidates in the requested file can
+still exceed existing bounds; unrelated included declarations no longer
+consume these two lookup paths' budgets.
+
+Validation:
+
+- The exact row-limit regression fails before the lookup fix and passes after
+  it. Its extended version checks class and statement lookup, UTF-8 columns,
+  regex characters in the filename, and parseCount=1 with 100,005 initialized
+  header variables.
+- The separate flat-header regression fails before the file-root fix, then
+  passes automatic root loading and field selection without reparsing.
+- 116 extension unit tests, 20 console tests and all 23 live integration cases pass (one opt-in
+  personal-library case remains skipped). The extended lookup case also passes
+  separately after adding its statement/path/UTF-8 coverage.
+- An isolated real VS Code host passes `CTK_TEST_HEADER_LIMIT_ONLY=1`: automatic
+  file loading, rendered search-result Properties, and editor highlighting all
+  work for `COM::BzRuleADD` with 100,005 top-level included declarations.
+- The LLVM probe still follows `getType()` in SemaDecl.cpp:190 to its exact
+  CXXMethodDecl at DeclCXX.h:249 through four native ancestry pages, with one parse.
+- Type checks, changed-file lint, package build and payload comparison pass.
+  The versioned VSIX is `vscode/artifacts/clang-toolkit-prototype-0.2.40.vsix`.
+- The required full Python unit run reports 3,067 passes and three timeouts:
+  `test_local_batch_and_syntax_error_do_not_connect_to_server`, plus the tree
+  and compiled variants of `test_workspace_switches_traversal_without_reparsing`.
+  All three also time out in focused retries, including a retry with the heavy
+  C++/E2E schedulers held and their in-flight cases finished. Their original
+  assertions and 10-second/3-second deadlines are unchanged. No files in
+  `python/`, `server/` or `tests/unit/` changed in this fix; the broad Python
+  suite is not green, and these failures are not claimed to be repaired here.
+- All 440 C++ cases were exercised: 125 completed in the serial run, then the
+  remaining 315 ran with separate storage per case. 439 pass; the unchanged
+  `ProjectIndexServiceTest.SharedHeaderPayloadIsStoredOnceWithEveryTuProvenance`
+  fails with zero indexed symbols instead of 20, including a fresh-storage
+  focused retry. This C++ indexing failure is not repaired by the extension fix.
+- All 209 Python E2E cases pass using the server's Homebrew Clang compiler:
+  38 completed in the serial prefix, then 171 passed in isolated case runs.
+
+The user's original source is on an inaccessible remote machine, so it has
+not been tested or updated there. All reproductions above are local fixtures;
+the new package must be installed on the affected extension host to verify
+that particular source.
+
+Focused evidence: vscode/artifacts/validation/header-limits-20261018/.

@@ -135,6 +135,63 @@ export async function run(): Promise<void> {
     );
     return;
   }
+  if (process.env.CTK_TEST_HEADER_LIMIT_ONLY === "1") {
+    const source = vscode.Uri.joinPath(folder.uri, "header-heavy.cpp");
+    const header = vscode.Uri.joinPath(folder.uri, "header-heavy.hpp");
+    await vscode.workspace.fs.writeFile(
+      header,
+      Buffer.from(
+        Array.from({ length: 100005 }, (_, i) => `int header_${i};`).join("\n"),
+      ),
+    );
+    await vscode.workspace.fs.writeFile(
+      source,
+      Buffer.from(
+        '#include "header-heavy.hpp"\nnamespace COM { struct BzRuleADD { int value; }; }\n',
+      ),
+    );
+    await vscode.window.showTextDocument(
+      await vscode.workspace.openTextDocument(source),
+    );
+    const root = await automaticFile("header-heavy.cpp", "COM");
+    assert.deepEqual(
+      root.children?.map((node) => node.name),
+      ["COM"],
+    );
+    await api.execute({
+      action: predefined[0]!,
+      values: { NAME: "BzRuleADD" },
+      scope: "file",
+      target: source,
+      kinds: ["classes"],
+    });
+    const search = api.snapshot() as {
+      results: { id: string; name: string }[];
+      errors: string[];
+    };
+    assert.deepEqual(search.errors, []);
+    const rule = search.results.find((node) => node.name === "COM::BzRuleADD");
+    assert.ok(rule);
+    await api.openResult(rule.id);
+    assert.equal(astState().error, "");
+    assert.equal(astState().node?.kind, "CXXRecordDecl");
+    assert.equal(astState().node?.name, "COM::BzRuleADD");
+    assert.ok((await inspectorTab("properties")).text.includes("value"));
+    const editor = vscode.window.activeTextEditor;
+    assert.ok(editor);
+    assert.equal(
+      await realpath(editor.document.uri.fsPath),
+      await realpath(source.fsPath),
+    );
+    assert.match(
+      editor.document.getText(editor.selection),
+      /^struct BzRuleADD/,
+    );
+    console.log(
+      "CTK_HEADER_LIMIT_HOST_PASS: automatic AST load, search result inspection, Properties and source highlighting with 100005 header declarations",
+    );
+    return;
+  }
   if (process.env.CTK_TEST_LARGE_AST_ONLY === "1") {
     const largeFile = vscode.Uri.joinPath(folder.uri, "large-ast.cpp");
     await vscode.workspace.fs.writeFile(

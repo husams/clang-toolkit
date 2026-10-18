@@ -35,8 +35,7 @@ class AstSelection:
             # Header declarations remain real TU children, fetched only when needed.
             target, _, _ = host.check_input(root_id)
             query = Matcher('decl', Matcher('isExpansionInFileMatching', re.escape(file) + '$'))
-            rows = host.client.peek(
-                target, axis='children', query=query, max_nodes=MAX_AST_CHILDREN)
+            rows = self.inspector.children(target, query)
             pending = {}
             children = []
             try:
