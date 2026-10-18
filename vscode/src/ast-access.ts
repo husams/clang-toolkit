@@ -314,7 +314,10 @@ export class SearchAstAccess implements vscode.Disposable {
       );
     if (!unchanged())
       throw new Error("C++ edits changed while preparing the AST; try again.");
-    const config = vscode.workspace.getConfiguration("ctk");
+    const config = vscode.workspace.getConfiguration(
+      "ctk",
+      vscode.Uri.file(translationUnit),
+    );
     const settings: ActionSettings = {
       directory:
         vscode.workspace.getWorkspaceFolder(vscode.Uri.file(translationUnit))

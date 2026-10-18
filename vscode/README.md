@@ -1,6 +1,14 @@
 # Clang Toolkit VS Code prototype
 
-Semantic Analysis has two tabs: **Symbol Search** and **Actions**. Symbol Search finds declarations by name, with scope and kind filters under Options. Actions run YAML-described CTK functions on a retained file root or a selected match binding. Both use the real native server. Ordinary console scripts remain available from the editor and file menu.
+Semantic Analysis has two tabs: **Symbol Search** and **Actions**. Symbol Search finds declarations by name, with scope and kind filters under Options. Actions run YAML-described CTK functions on a file, directory, entire workspace, or selected match binding. Both use the real native server. Ordinary console scripts remain available from the editor and file menu.
+
+## Workspace actions and indexed symbols
+
+In **Actions → Options**, choose **Current C++ file**, **Directory**, or **Workspace folders**. Directory actions also appear in the existing Explorer CTK menu; **Workspace folders** covers every open workspace folder. Discovery prefers C/C++ translation units, uses headers in folders without translation units, and skips build and dependency folders. `ctk.maxFiles` bounds the complete manifest; exceeding it reports an error. Save relevant C/C++ drafts before running.
+
+Directory and workspace actions use bounded server batches, releasing native resources after each file. Completed matches stay grouped in the existing result list, and opening a match loads its AST for inspection and follow-up actions. Failed files appear separately from successful results. Each workspace folder supplies its own compiler settings.
+
+**Symbol Search** uses the server index for **Project** and **Global** searches. Select an indexed project under the existing Options and choose Variables, Classes, Functions, or Aliases. Project selection stays fixed when switching editors. Start or resume the server project index if none is available; partial or stale coverage is reported. Opening an indexed match loads its originating translation unit for inspection.
 
 ## Run
 

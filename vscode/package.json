@@ -132,6 +132,11 @@
           "submenu": "ctk.fileActions",
           "when": "resourceScheme == file && resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$/",
           "group": "navigation@90"
+        },
+        {
+          "submenu": "ctk.fileActions",
+          "when": "resourceScheme == file && resourceIsFolder",
+          "group": "navigation@90"
         }
       ],
       "editor/context": [
@@ -145,10 +150,12 @@
         {"command":"ctk.runAction","group":"1_run@0"},
         {
           "command": "ctk.runScript",
+          "when": "!resourceIsFolder",
           "group": "1_run@1"
         },
         {
           "command": "ctk.runPredefined",
+          "when": "!resourceIsFolder",
           "group": "1_run@2"
         }
       ],
@@ -239,7 +246,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "lint": "biome check src tests media scripts",
-    "test:live": "CTK_INTEGRATION=1 vitest run tests/live.test.ts tests/actions-live.test.ts",
+    "test:live": "CTK_INTEGRATION=1 vitest run tests/live.test.ts tests/actions-live.test.ts tests/actions-batch-live.test.ts tests/indexed-symbols-live.test.ts",
     "test:host": "node scripts/test-host.mjs",
     "test:host-cleanup": "node --test scripts/test-process-check.mjs",
     "test:deploy": "node --test scripts/test-deploy-rhel9.mjs",

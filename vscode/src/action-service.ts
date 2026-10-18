@@ -39,6 +39,11 @@ export type ActionSettings = Pick<
   | "compilationDatabase"
   | "libraryDirectory"
 > & { buffers?: Record<string, string> };
+export interface ActionFileProfile {
+  directory: string;
+  compileArguments: string[];
+  compilationDatabase?: string;
+}
 const responseSchema = z.object({
   id: z.number().int(),
   progress: z.string().optional(),
@@ -121,6 +126,8 @@ export class ActionService {
     maximum: number,
     progress: (text: string) => void = () => {},
     inputId?: string,
+    batch = false,
+    profiles?: Record<string, ActionFileProfile>,
   ): Promise<ActionReport> {
     const response = await this.request(
       {
@@ -131,6 +138,8 @@ export class ActionService {
         settings,
         maximum,
         ...(inputId ? { inputId } : {}),
+        ...(batch ? { batch: true } : {}),
+        ...(profiles ? { profiles } : {}),
       },
       settings.directory,
       Math.max(30000, settings.timeoutMs * Math.max(1, files.length) + 10000),

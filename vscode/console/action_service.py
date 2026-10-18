@@ -14,8 +14,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from clang_toolkit.cli.runtime.imports import preload_libraries, script_source
 from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+from clang_toolkit.cli.runtime.semantic import MessageView
+from clang_toolkit.cli.runtime.values import MatchSet
 from clang_toolkit.client import Client
 from clang_toolkit.match_values import MatchRow, MatchValue, NativeMatchCollection
+from clang_toolkit.resources import FileSet
+from google.protobuf.json_format import MessageToDict
 from run_service import Output, Results
 from ast_inspector import AstInspector
 from editor_buffers import EditorBuffers
@@ -44,6 +48,9 @@ class ActionHost:
         self.base_bindings = dict(self.runtime.bindings)
         self.nodes: dict[str, tuple[Any, str, str]] = {}
         self.roots: dict[str, tuple[str, str]] = {}
+        # Batch discovery is metadata-only. Keep the frozen per-file profile so
+        # a later detached-result inspection can parse the same TU on demand.
+        self.batch_inputs: dict[str, Any] = {}
         self.runs: list[list[Any]] = []
         self.parse_count = 0
         self.sources: dict[str, list[str]] = {
@@ -65,10 +72,18 @@ class ActionHost:
             if original != current:
                 raise ActionError('Source changed; refresh analysis before continuing')
             return identifier
-        self.runtime.bindings['__ctk_path'] = file
-        self.dispatch('let __ctk_root = parse __ctk_path')
+        descriptor = self.batch_inputs.get(file)
+        if descriptor is not None:
+            # Parse the exact frozen profile discovered for this batch input;
+            # this lazily acquires a normal retained tree only when the user
+            # asks to inspect or continue from a detached result.
+            tree = self.client.parse(descriptor)
+        else:
+            self.runtime.bindings['__ctk_path'] = file
+            self.dispatch('let __ctk_root = parse __ctk_path')
+            tree = self.runtime.bindings['__ctk_root']
         identifier = str(uuid4())
-        self.nodes[identifier] = (self.runtime.bindings['__ctk_root'], file, 'File root')
+        self.nodes[identifier] = (tree, file, 'File root')
         self.roots[file] = (identifier, current)
         self.parse_count += 1
         return identifier
@@ -107,9 +122,11 @@ class ActionHost:
     def run(self, request: dict[str, Any], send: Any) -> dict[str, Any]:
         if request['settings'] != self.settings:
             raise ActionError('Analysis settings changed; refresh analysis before continuing')
+        action = request['action']
+        if request.get('batch') is True:
+            return self._run_batch(request, action, send)
         if len(self.runs) >= 32:
             raise ActionError('Analysis history is full (32 runs); close or refresh analysis to release it')
-        action = request['action']
         self.runtime.clear_batch_cancel()
         self.runtime.bindings.clear()
         self.runtime.bindings.update(self.base_bindings)
@@ -173,11 +190,151 @@ class ActionHost:
         return dict(results=results, input=first_input, runId=run_id, matches=matches,
                     truncated=truncated, parseCount=self.parse_count)
 
+    def _run_batch(self, request: dict[str, Any], action: dict[str, Any], send: Any) -> dict[str, Any]:
+        """Run each frozen input through the console's scoped batch evaluator."""
+        files = [str(Path(file).resolve()) for file in request.get('files', ())]
+        if not files:
+            raise ActionError('Choose one or more C++ files before running a batch action')
+        self.runtime.clear_batch_cancel()
+        run_id = str(uuid4())
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        matches = 0
+        truncated = False
+        parse_count = 0
+        limit = request['maximum']
+        profiles = request.get('profiles', {})
+        descriptors = []
+        for file in files:
+            has_profile = file in profiles
+            profile = profiles.get(file, {})
+            directory = profile.get('directory') or self.settings['directory']
+            compile_arguments = [
+                *profile.get(
+                    'compileArguments',
+                    [] if has_profile else self.settings['compileArguments'],
+                ),
+                *self.buffers.arguments,
+            ]
+            try:
+                manifest = self.client.discover_files(
+                    [file],
+                    working_directory=directory,
+                    compile_arguments=compile_arguments,
+                    compilation_database=(
+                        profile.get('compilationDatabase')
+                        if has_profile
+                        else self.settings.get('compilationDatabase')
+                    ),
+                )
+                descriptors.extend(manifest.inputs)
+                for descriptor in manifest.inputs:
+                    self.batch_inputs[descriptor.path] = descriptor
+                if not manifest.inputs:
+                    errors.append({
+                        'file': file,
+                        'message': '; '.join(manifest.diagnostics)
+                        or 'Server discovery returned no analysis input',
+                    })
+            except Exception as error:
+                errors.append({'file': file, 'message': str(error)})
+        inputs = tuple(descriptors)
+        for descriptor in inputs:
+            self._fingerprint(descriptor.path)
+        first_file = inputs[0].path if inputs else files[0]
+        first_input = dict(id='', file=first_file, label='Workspace batch')
+        argument_keys = [
+            f'__ctk_argument_{index}' for index, _ in enumerate(action['arguments'])
+        ]
+        call = f"{action['callable']}(__ctk_action_roots[0].tu{''.join(', ' + key for key in argument_keys)})"
+        batch_source = (
+            'let __ctk_batch_report = batch __ctk_part in __ctk_inputs '
+            'size 1 jobs 1 on error continue progress off do { '
+            'let __ctk_action_roots = match translationUnitDecl().bind("tu") '
+            'in __ctk_part.inputs[0]; '
+            f'{call} '
+            '}'
+        )
+        self.runtime.bindings.clear()
+        self.runtime.bindings.update(self.base_bindings)
+        for key, argument in zip(argument_keys, action['arguments'], strict=True):
+            self.runtime.bindings[key] = request['values'][argument['name']]
+
+        try:
+            with script_source(self.runtime, action['path']):
+                self.dispatch(action['generated'])
+                for index, descriptor in enumerate(inputs):
+                    if matches >= limit:
+                        truncated = True
+                        break
+                    file = descriptor.path
+                    send(dict(progress=f"{action['title']} · {Path(file).name}"))
+                    # The evaluator owns admission, operation attribution, scoped
+                    # locals, cancellation, detachment, cleanup, and result limits.
+                    self.runtime.bindings['__ctk_inputs'] = FileSet((descriptor,))
+                    self.dispatch(batch_source)
+                    report = self.runtime.bindings['__ctk_batch_report']
+                    if not report.get('cleanup_acknowledged', False):
+                        raise ActionError(
+                            f"Could not confirm cleanup for {file}; stopping workspace action"
+                        )
+                    parse_count += int(report.get('completed_files', 0))
+                    if report.get('status') == 'cancelled':
+                        raise KeyboardInterrupt('Action cancelled')
+                    if report.get('failed_groups', 0):
+                        message = '; '.join(
+                            sample['message'] for sample in report.get('group_errors_sample', ())
+                        ) or 'Batch group failed'
+                        errors.append({'file': file, 'message': message})
+                        continue
+                    group_results = report.get('results', ())
+                    group_indices = report.get('result_group_indices', ())
+                    for group_index, group_result in zip(group_indices, group_results, strict=True):
+                        if group_index != 1:
+                            raise ActionError('Expected one input group from the workspace action')
+                        if not isinstance(group_result, MatchSet):
+                            raise ActionError('Action must return retained CTK matches')
+                        for row in group_result.rows:
+                            if not isinstance(row, MessageView):
+                                raise ActionError('Batch returned a non-detached match row')
+                            raw_match = MessageToDict(row._message())
+                            if matches >= limit:
+                                truncated = True
+                                break
+                            match_id = f'{run_id}:{matches}'
+                            matches += 1
+                            for binding_name, binding in sorted(row._message().bindings.items()):
+                                display = Results(1)
+                                display.sources = self.sources
+                                display.add(binding)
+                                item = display.items[0] if display.items else dict(
+                                    name=binding_name, kind='Node', file=file, line=1,
+                                    column=1, excerpt='', raw={})
+                                result_id = str(uuid4())
+                                results.append({**item, 'id': result_id, 'nodeId': result_id,
+                                                'matchId': match_id, 'binding': binding_name,
+                                                'translationUnit': file, 'detached': True,
+                                                'raw': {'binding': item['raw'], 'match': raw_match}})
+                        if truncated:
+                            break
+                    if truncated:
+                        break
+                if inputs and not truncated and matches >= limit and len(inputs) > index + 1:
+                    truncated = True
+        finally:
+            self.runtime.bindings.clear()
+            self.runtime.bindings.update(self.base_bindings)
+
+        return dict(results=results, input=first_input, runId=run_id, matches=matches,
+                    truncated=truncated, parseCount=parse_count, batch=True,
+                    files=len(files), errors=errors)
+
     def close(self) -> None:
         try:
             self.inspector.close()
             self.nodes.clear()
             self.roots.clear()
+            self.batch_inputs.clear()
             self.runs.clear()
             self.runtime.close()
         finally:

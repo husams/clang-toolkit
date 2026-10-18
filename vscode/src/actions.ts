@@ -217,6 +217,8 @@ export const actionResultSchema = z.object({
   column: z.number().int().positive(),
   excerpt: z.string(),
   raw: z.unknown(),
+  detached: z.boolean().optional(),
+  translationUnit: z.string().optional(),
 });
 export type ActionNode = z.infer<typeof actionResultSchema>;
 export const actionReportSchema = z.object({
@@ -227,6 +229,11 @@ export const actionReportSchema = z.object({
   matches: z.number().int().nonnegative(),
   truncated: z.boolean(),
   parseCount: z.number().int().nonnegative(),
+  batch: z.boolean().optional(),
+  files: z.number().int().nonnegative().optional(),
+  errors: z
+    .array(z.object({ file: z.string(), message: z.string() }))
+    .optional(),
 });
 export type ActionReport = z.infer<typeof actionReportSchema>;
 
