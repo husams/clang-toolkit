@@ -502,6 +502,9 @@ class ReplSession:
         if value is not None and tail not in {"print", "host_display"} and not (node.kind == "foreach" and emitted):
             self.record("display", value)
 
+    # Native scalar loops must not bypass a replaced observation method.
+    _plain_observer = observe
+
     def dispatch(self, source: str) -> Any:
         from clang_toolkit.cli.app import DispatchResult
 

@@ -27,6 +27,7 @@ private:
   const MatchLimits &limits_;
   const IMatchBackend::RowSink *sink_;
   std::size_t bytes_{};
+  std::uint64_t memory_bytes_{};
 };
 
 } // namespace ctk::clang_layer

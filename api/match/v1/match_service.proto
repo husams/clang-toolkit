@@ -115,7 +115,8 @@ message MatchRequest {
   // Requires a binding and preserve_source=true. An empty query is allowed
   // only for navigation. No implicit current node or mutable movement state.
   NavigationAxis navigation_axis = 9;
-  // Examined neighbours before filtering. Default 10000; range 1..100000.
+  // Optional caller-selected examined-neighbour budget before filtering.
+  // Unset or zero means unlimited; there is no server-imposed count ceiling.
   // Exhaustion is an error, never a successful empty/partial result.
   optional uint64 navigation_max_nodes = 10;
 }

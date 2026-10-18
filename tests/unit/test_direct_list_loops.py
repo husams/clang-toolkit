@@ -598,3 +598,262 @@ def test_batched_accounting_preserves_every_uninstrumented_budget(
     total = run(False, 1000)[1]
     for budget in range(total + 2):
         assert run(True, budget) == run(False, budget), budget
+
+
+@pytest.mark.parametrize(
+    "target, expression, expected",
+    [
+        ("map_into", "map_list([1, 2, 3], (x) x * 10)", [10, 20, 30]),
+        ("filter_into", "filter_list([-3, -2, 0, 1, 2], (x) x % 2 == 0)", [-2, 0, 2]),
+        ("reverse_list", "reverse_list([1, 2, 3])", [3, 2, 1]),
+    ],
+)
+def test_plain_loops_avoid_per_item_runtime_guards(
+    execute, monkeypatch, target, expression, expected
+):
+    from clang_toolkit.cli.runtime.prototype.list_loop_runtime import _LoopExecution
+
+    context = Context()
+    execute(DEFINITIONS, context)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("plain traversal called a per-item runtime guard")
+
+    for name in (
+        "enter",
+        "map_value",
+        "keep",
+        "validate",
+        "pushed",
+        "advance",
+        "end_branch",
+        "descend",
+        "unwind",
+        "result",
+        "finish",
+        "bind",
+    ):
+        monkeypatch.setattr(_LoopExecution, name, forbidden)
+    assert execute(expression, context) == expected
+    plan = context.lookup(target).direct_loop.__ctk_plan__
+    assert plan.last_plain is not None
+    source = plan.last_plain.__ctk_source__
+    assert "output.append(" in source and "context.steps" not in source
+    assert "loop." not in source
+
+
+@pytest.mark.parametrize(
+    "target,expression",
+    [
+        ("map_into", "map_into(xs, (x) x * -3 + 1, out)"),
+        ("map_into", "map_into(xs, (x) x % 3, out)"),
+        ("filter_into", "filter_into(xs, (x) x % 3 == 0, out)"),
+        ("filter_into", "filter_into(xs, (x) not x < 0, out)"),
+        ("reverse_list", "reverse_list(xs)"),
+    ],
+)
+@pytest.mark.parametrize("size", [0, 1, 17, 100])
+def test_plain_loop_success_matches_general_state(execute, target, expression, size):
+    outcomes = []
+    for enabled in (True, False):
+        values = list(range(-(size // 2), size - size // 2))
+        context = Context(bindings={"xs": values, "out": values})
+        execute(DEFINITIONS, context)
+        function = context.lookup(target)
+        if not enabled:
+            object.__setattr__(function, "direct_loop", None)
+        context.steps = context.step_count = 0
+        result = execute(expression, context)
+        if enabled:
+            assert function.direct_loop.__ctk_plan__.last_plain is not None
+        outcomes.append(
+            (
+                result,
+                context.steps,
+                context.step_count,
+                context.current_location,
+                context.location,
+                context.bindings["xs"],
+                context.session.last_tail,
+            )
+        )
+        assert context.call_depth == context.consume_depth == 0
+        assert context.scopes == (context.bindings,)
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize(
+    "target,expression,values",
+    [
+        ("map_into", "map_into(xs, (x) x + 1, out)", [1, 9223372036854775807]),
+        ("map_into", "map_into(xs, (x) x % 0, out)", [1, 2]),
+        ("map_into", "map_into(xs, (x) x + true, out)", [1, 2]),
+        ("map_into", "map_into(xs, (x) x * 2, out)", [1.5, 2.5]),
+        ("map_into", "map_into(xs, (x) x, out)", [[1], [2]]),
+        ("filter_into", "filter_into(xs, (x) x, out)", [0, 1]),
+        ("reverse_list", "reverse_list(xs)", [[1], [2]]),
+    ],
+)
+def test_plain_loop_unsupported_values_preserve_errors_and_mutation(
+    execute, target, expression, values
+):
+    from clang_toolkit.cli.runtime.prototype.semantics import PrototypeError
+
+    outcomes = []
+    for enabled in (True, False):
+        context = Context(bindings={"xs": values.copy(), "out": [42]})
+        execute(DEFINITIONS, context)
+        function = context.lookup(target)
+        if not enabled:
+            object.__setattr__(function, "direct_loop", None)
+        context.steps = context.step_count = 0
+        try:
+            result = ("ok", execute(expression, context))
+        except PrototypeError as error:
+            result = (type(error).__name__, str(error))
+        if enabled:
+            assert function.direct_loop.__ctk_plan__.last_plain is None
+        outcomes.append(
+            (result, context.steps, context.current_location, context.bindings["out"])
+        )
+        assert context.call_depth == context.consume_depth == 0
+        assert context.scopes == (context.bindings,)
+    assert outcomes[0] == outcomes[1]
+
+
+def test_plain_loop_rejects_replaced_callback_executable(execute):
+    from dataclasses import replace
+
+    context = Context(bindings={"xs": [1, 2, 3]})
+    execute(DEFINITIONS + "\nlet double = (x) x * 2", context)
+    original = context.lookup("double")
+    context.bindings["double"] = replace(original, executable=lambda ctx: 99)
+    assert execute("map_list(xs, double)", context) == [99, 99, 99]
+    assert context.lookup("map_into").direct_loop.__ctk_plan__.last_plain is None
+
+
+@pytest.mark.parametrize("hook", ["event", "tick_many", "observer"])
+def test_plain_loop_rejects_replaced_class_hooks(console, monkeypatch, hook):
+    from threading import Event
+    from clang_toolkit.cli.app import dispatch_result
+    from clang_toolkit.cli.runtime.prototype.repl import ReplSession, _ReplContext
+
+    client, runtime = console
+    seen = []
+    if hook == "event":
+        original = Event.is_set
+
+        def event_check(event):
+            seen.append("event")
+            return original(event)
+
+        monkeypatch.setattr(Event, "is_set", event_check)
+    elif hook == "tick_many":
+        original = _ReplContext.tick_many
+
+        def tick_many(context, nodes):
+            seen.append("tick_many")
+            return original(context, nodes)
+
+        monkeypatch.setattr(_ReplContext, "tick_many", tick_many)
+    else:
+        original = ReplSession.observe
+
+        def observe(session, context, node, value):
+            seen.append("observe")
+            return original(session, context, node, value)
+
+        monkeypatch.setattr(ReplSession, "observe", observe)
+    result = dispatch_result(
+        client, "let answer = map_list([1, 2, 3], (x) x * 2)", runtime
+    )
+    assert result.success, result.output
+    assert runtime.bindings["answer"] == [2, 4, 6]
+    assert seen
+    assert runtime.bindings["map_into"].direct_loop.__ctk_plan__.last_plain is None
+
+
+@pytest.mark.parametrize(
+    "target,expression",
+    [
+        ("map_into", "map_list([1, 2, 3], (x) x * 2)"),
+        ("filter_into", "filter_list([1, 2, 3], (x) x > 1)"),
+        ("reverse_list", "reverse_list([1, 2, 3])"),
+    ],
+)
+def test_plain_loop_cancellation_restores_scopes_and_depth(
+    execute, monkeypatch, target, expression
+):
+    from threading import Event
+    from clang_toolkit.cli.runtime.prototype import plain_list_loops
+    from clang_toolkit.cli.runtime.prototype.semantics import CancelledError
+
+    event = Event()
+    context = Context(cancel_hook=event.is_set)
+    execute(DEFINITIONS, context)
+    prepare = plain_list_loops.prepare_plain
+
+    def prepare_then_cancel(loop):
+        result = prepare(loop)
+        assert result is not None
+        event.set()
+        return result
+
+    monkeypatch.setattr(plain_list_loops, "prepare_plain", prepare_then_cancel)
+    # The generated dispatcher binds prepare_plain at compile time.
+    direct = context.lookup(target).direct_loop
+    monkeypatch.setitem(direct.__globals__, "prepare_plain", prepare_then_cancel)
+    with pytest.raises(CancelledError, match="execution cancelled"):
+        execute(expression, context)
+    assert context.call_depth == context.consume_depth == 0
+    assert context.scopes == (context.bindings,)
+
+
+@pytest.mark.parametrize(
+    "target,expression",
+    [
+        ("map_into", "map_list([1, 2, 3], (x) x * 2)"),
+        ("filter_into", "filter_list([1, 2, 3], (x) x > 1)"),
+        ("reverse_list", "reverse_list([1, 2, 3])"),
+    ],
+)
+def test_plain_loop_detected_cancellation_is_not_polled_twice(
+    execute, monkeypatch, target, expression
+):
+    import sys
+    from threading import Event
+    from clang_toolkit.cli.runtime.prototype import plain_list_loops
+    from clang_toolkit.cli.runtime.prototype.semantics import CancelledError
+
+    event = Event()
+    context = Context(cancel_hook=event.is_set)
+    execute(DEFINITIONS, context)
+    direct = context.lookup(target).direct_loop
+    prepare = plain_list_loops.prepare_plain
+    prepared = {}
+
+    def prepare_then_cancel(loop):
+        result = prepare(loop)
+        assert result is not None
+        prepared["code"] = plain_list_loops._cancelled.__code__
+        prepared["steps"] = context.steps
+        event.set()
+        return result
+
+    monkeypatch.setitem(direct.__globals__, "prepare_plain", prepare_then_cancel)
+
+    def clear_after_detection(frame, action, argument):
+        if action == "call" and frame.f_code is prepared.get("code"):
+            event.clear()
+        return clear_after_detection
+
+    previous_trace = sys.gettrace()
+    try:
+        sys.settrace(clear_after_detection)
+        with pytest.raises(CancelledError, match="execution cancelled"):
+            execute(expression, context)
+    finally:
+        sys.settrace(previous_trace)
+    assert context.steps == prepared["steps"]
+    assert context.call_depth == context.consume_depth == 0
+    assert context.scopes == (context.bindings,)

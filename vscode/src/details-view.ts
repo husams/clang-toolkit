@@ -8,7 +8,6 @@ import {
   type AstReference,
   type AstSemantics,
   astDisplay,
-  MAX_RETAINED_NODES,
   type SourceSelection,
 } from "./ast-model.js";
 import {
@@ -120,18 +119,16 @@ const messages = z.discriminatedUnion("type", [
     kind: z.string(),
     properties: z.array(z.string()),
     children: z.array(z.string()),
-    tree: z
-      .array(
-        z.object({
-          id: z.string(),
-          level: z.number().int().positive(),
-          expanded: z.boolean().optional(),
-          selected: z.boolean(),
-          loaded: z.boolean(),
-          context: nodeMenuSchema,
-        }),
-      )
-      .max(MAX_RETAINED_NODES),
+    tree: z.array(
+      z.object({
+        id: z.string(),
+        level: z.number().int().positive(),
+        expanded: z.boolean().optional(),
+        selected: z.boolean(),
+        loaded: z.boolean(),
+        context: nodeMenuSchema,
+      }),
+    ),
     text: z.string().max(100000),
     tab: z.enum(["ast", "properties"]),
     panels: z.object({ ast: z.boolean(), properties: z.boolean() }),

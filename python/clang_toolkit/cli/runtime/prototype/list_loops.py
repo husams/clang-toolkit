@@ -364,6 +364,9 @@ _TEMPLATES = {
     if not can_loop(context, arguments, True):
         return owner.recursion.run(context, arguments, owner, call_node)
     with execution(context, arguments, owner, call_node) as loop:
+        plain = prepare_plain(loop)
+        if plain is not None:
+            return plain[0](*plain[1])
         callback, output = arguments[1:]
         for index, head in enumerate(loop.items):
             loop.enter(index)
@@ -380,6 +383,9 @@ _TEMPLATES = {
     if not can_loop(context, arguments, True):
         return owner.recursion.run(context, arguments, owner, call_node)
     with execution(context, arguments, owner, call_node) as loop:
+        plain = prepare_plain(loop)
+        if plain is not None:
+            return plain[0](*plain[1])
         callback, output = arguments[1:]
         for index, head in enumerate(loop.items):
             loop.enter(index)
@@ -397,6 +403,9 @@ _TEMPLATES = {
     if not can_loop(context, arguments, True, True):
         return owner.recursion.run(context, arguments, owner, call_node)
     with execution(context, arguments, owner, call_node) as loop:
+        plain = prepare_plain(loop)
+        if plain is not None:
+            return plain[0](*plain[1])
         for index in range(len(loop.items)):
             loop.descend(index)
         output = loop.finish([])
@@ -422,6 +431,9 @@ def compile_direct_loop(node: Any, context: Any) -> Any:
     import ast
 
     from .list_loop_runtime import LoopPlan
+    from .plain_list_loops import prepare_plain
+
+    plan = LoopPlan(shape)
 
     namespace = {
         "__builtins__": {},
@@ -429,10 +441,12 @@ def compile_direct_loop(node: Any, context: Any) -> Any:
         "range": range,
         "len": len,
         "can_loop": _can_loop,
-        "execution": LoopPlan(shape),
+        "execution": plan,
+        "prepare_plain": prepare_plain,
     }
     module = ast.parse(_TEMPLATES[shape.kind])
     exec(compile(module, "<ctk-direct-list-loop>", "exec"), namespace)  # noqa: S102 - fixed compiler template
     function = namespace["direct_" + shape.kind]
     function.__ctk_source__ = ast.unparse(module)
+    function.__ctk_plan__ = plan
     return function

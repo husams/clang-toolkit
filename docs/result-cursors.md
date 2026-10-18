@@ -83,9 +83,10 @@ reclaimed on subsequent requests. Closing waits for the cursor's active
 operation and releases retained state.
 
 The bounded executor and registry enforce cursor count, estimated retained
-memory, row count and serialized message size. Snapshot estimates
+memory and serialized message size. Snapshot estimates
 are counted once per unique snapshot within this registry. Defaults are 100
-cursors, 2 GiB estimated retained memory, and 100,000 rows. There is no configured
+cursors and 2 GiB estimated retained memory. There is no fixed row-count ceiling
+(`max_result_rows` is zero for compatibility). There is no configured
 wire cap by default. Streamed cursors retain native bindings and thin row selection
 metadata rather than complete semantic payloads; the memory budget applies to
 that retained state. Wire limits apply to each stream event, allowing aggregate

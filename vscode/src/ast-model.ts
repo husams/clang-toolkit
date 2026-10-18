@@ -14,10 +14,6 @@ import type { Result } from "./model.js";
 
 export { astBinding, nativeKind } from "./ast-facts.js";
 
-// Keep these aligned with console/ast_limits.py.
-export const MAX_AST_CHILDREN = 100000;
-export const MAX_RETAINED_NODES = 2 * MAX_AST_CHILDREN;
-
 export const astReferenceSchema = z.object({
   name: z.string().min(1),
   symbol: z.string().min(1),
@@ -37,7 +33,7 @@ export const astSemanticsSchema = z
       .array(
         z.object({
           name: z.string(),
-          depth: z.number().int().min(0).max(15),
+          depth: z.number().int().min(0),
           access: z.string(),
           virtual: z.boolean(),
           unresolved: z.boolean().optional(),
@@ -45,11 +41,9 @@ export const astSemanticsSchema = z
           declaration: astReferenceSchema.optional(),
         }),
       )
-      .max(128)
       .optional(),
     parameters: z
       .array(z.object({ name: z.string(), type: z.string() }))
-      .max(1000)
       .optional(),
     notice: z.string().optional(),
   })
@@ -81,14 +75,14 @@ export const astEntrySchema = z.object({
 });
 export const astPageSchema = z.object({
   node: astEntrySchema,
-  children: z.array(astEntrySchema).max(MAX_AST_CHILDREN),
+  children: z.array(astEntrySchema),
   semantics: astSemanticsSchema.optional(),
 });
 export const astInspectionSchema = astPageSchema
   .extend({
     parseCount: z.number().int().nonnegative(),
     root: z.object({ id: z.string(), file: z.string(), label: z.string() }),
-    path: z.array(astPageSchema).min(1).max(65).optional(),
+    path: z.array(astPageSchema).min(1).optional(),
   })
   .superRefine((inspection, context) => {
     const path = inspection.path;

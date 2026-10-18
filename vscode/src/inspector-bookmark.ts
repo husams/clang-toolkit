@@ -275,11 +275,12 @@ export async function rebuildTree(
   else {
     // An action result may start its outline below the file root. Follow only
     // source-containing or named enclosing declarations to find that subtree.
+    const searched = new Set<string>();
     const locate = async (
       page: BookmarkPage,
-      depth = 0,
     ): Promise<BookmarkPage | undefined> => {
-      if (!current() || depth > 64 || pages.size >= 128) return;
+      if (!current() || searched.has(page.node.id)) return;
+      searched.add(page.node.id);
       const match = matchingNode(bookmark, page.children, text, file);
       if (match) return load(match.id);
       for (const child of page.children) {
@@ -303,7 +304,7 @@ export async function rebuildTree(
         const loaded = await load(child.id);
         remember(loaded);
         tree.expand(loaded.node.id, true);
-        const found = await locate(loaded, depth + 1);
+        const found = await locate(loaded);
         if (found) return found;
       }
     };
