@@ -106,6 +106,8 @@ def console_index_inventory(indexed_project):
         assert len(indexes.projects) == 1
         assert indexes.projects[0].project_root == str(indexed_project["root"])
         assert indexes.projects[0].state == pb.INDEX_STATE_PAUSED
+        assert indexes.projects[0].HasField("last_completed_pass")
+        assert indexes.projects[0].last_completed_pass.total == 3
         status = client.server_status()
         assert status.HasField("project_indexes")
         assert status.project_indexes == indexes
@@ -113,7 +115,7 @@ def console_index_inventory(indexed_project):
         output = _console(indexed_project, "index list; server status", engine)
         assert str(indexed_project["root"]) in output
         assert "Total projects: 1" in output
-        assert "PAUSED" in output and "3/3 indexed" in output
+        assert "PAUSED" in output and "Saved files" in output
         assert any(line.split()[:2] == [indexed_project["root"].name, str(indexed_project["root"])]
                    for line in output.splitlines())
         assert "Projects in progress" in output and "Indexed translation units" in output
@@ -123,7 +125,9 @@ def console_index_inventory(indexed_project):
         assert output.strip() == "1"
         output = _console(indexed_project, 'index status "project"', engine)
         assert str(indexed_project["root"]) in output
-        assert "PAUSED" in output and "Indexed  3/3" in output
+        assert "PAUSED" in output and "Saved index  3 files" in output
+        assert "Last pass total 3; reused" in output
+        assert "Current pass checked" in output
         output = _console(indexed_project, 'index find "flow::clamp" in "project"', engine)
         assert "flow::clamp" in output and str(indexed_project["root"]) in output
 

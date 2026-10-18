@@ -36,7 +36,8 @@ contract; an extension can call the same service directly.
 
 `index list` lists all saved project indexes in this server's storage plus its
 current monitors, sorted by project path, with the folder name and full path in
-separate columns, state, indexed/total translation units
+separate columns, state, saved indexed files, current-pass checked/total,
+active extractions, and last completed pass reused/newly indexed/failed counts
 and a total project count. It includes paused, failed and cancelled jobs. Saved
 indexes without a current monitor (including after restart) show `IDLE`; start them
 again to revalidate their coverage. Listing never parses project sources.
@@ -48,7 +49,12 @@ Freshness reconciliation shows `CHECKING`; `INDEXING` means extraction is in
 flight. Saved indexed coverage is separate from this pass's reused entries,
 newly indexed entries, and currently indexing entries. Pending entries may only
 need freshness checks; they do not imply that saved entries will be extracted
-again. Reused and newly indexed counts reset at the start of each pass.
+again. Current-pass counters reset at the start of each pass; last completed
+pass counts stay visible throughout checking, pausing, or cancellation. The
+completed summary is persisted atomically in existing index metadata and survives
+server restarts. Older indexes show a dash (not zero) until a full pass finishes.
+`index status` includes the completed pass timestamp and detailed current progress.
+A completed pass may include failures; an interrupted pass never replaces the summary.
 
 ## Python and UI gRPC clients
 

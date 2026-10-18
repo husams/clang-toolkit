@@ -83,6 +83,16 @@ std::uint64_t count_units(Database &db) {
   row.step();
   return row.number(0);
 }
+void load_last_pass(Database &db, ProjectIndexStatus &status) {
+  Statement row(db,
+                "SELECT value FROM metadata WHERE key='last_completed_pass'");
+  IndexPassSummary summary;
+  if (row.step() &&
+      google::protobuf::util::JsonStringToMessage(row.text(0), &summary).ok()) {
+    *status.mutable_last_completed_pass() = summary;
+    status.set_last_reconciled_unix_seconds(summary.finished_unix_seconds());
+  }
+}
 } // namespace
 
 // This controller owns no native ASTs and never runs work on the foreground
@@ -149,6 +159,7 @@ public:
         saved.set_state(INDEX_STATE_IDLE);
         saved.set_revision(revision(db));
         saved.set_translation_units_indexed(count_units(db));
+        load_last_pass(db, saved);
         Statement total(db, "SELECT value FROM metadata WHERE key='total'");
         if (total.step())
           saved.set_translation_units_total(std::stoull(total.text(0)));
@@ -199,14 +210,21 @@ public:
   }
   ProjectIndexStatus status(const std::string &root) {
     const auto key = root_key(root);
-    std::lock_guard lock(mutex_);
-    if (job_.root.empty() || key != job_.root) {
-      ProjectIndexStatus idle;
-      idle.set_project_root(key);
-      idle.set_state(INDEX_STATE_IDLE);
-      return idle;
+    {
+      std::lock_guard lock(mutex_);
+      if (!job_.root.empty() && key == job_.root)
+        return status_;
     }
-    return status_;
+    grpc::ServerContext context;
+    const auto saved_projects = list(context);
+    for (const auto &saved : saved_projects.projects()) {
+      if (saved.project_root() == key)
+        return saved;
+    }
+    ProjectIndexStatus idle;
+    idle.set_project_root(key);
+    idle.set_state(INDEX_STATE_IDLE);
+    return idle;
   }
   ProjectIndexStatus control(const std::string &root, int action) {
     const auto key = root_key(root);
@@ -1098,6 +1116,8 @@ private:
     commit(job, transaction, {}, expected_generation);
   }
   void reconcile(const Job &job, Database &db, const fs::path &directory) {
+    ProjectIndexStatus saved_status;
+    load_last_pass(db, saved_status);
     progress(job, [](auto &s) {
       s.set_state(INDEX_STATE_CHECKING);
       s.set_translation_units_indexing(0);
@@ -1106,6 +1126,13 @@ private:
       s.set_translation_units_failed(0);
       s.set_translation_units_pending(s.translation_units_total());
       s.clear_current_translation_unit();
+    });
+    progress(job, [&](auto &s) {
+      if (saved_status.has_last_completed_pass()) {
+        *s.mutable_last_completed_pass() = saved_status.last_completed_pass();
+        s.set_last_reconciled_unix_seconds(
+            saved_status.last_reconciled_unix_seconds());
+      }
     });
     IndexWorkerRequest listing;
     listing.set_list_translation_units(true);
@@ -1784,11 +1811,27 @@ private:
     }
     saved_revision = revision(db);
     saved_count = count_units(db);
+    IndexPassSummary summary;
+    summary.set_total(total);
+    summary.set_reused(skipped);
+    summary.set_newly_indexed(completed - skipped);
+    summary.set_failed(failed);
+    summary.set_finished_unix_seconds(timestamp());
+    std::string summary_json;
+    if (!google::protobuf::util::MessageToJsonString(summary, &summary_json)
+             .ok())
+      throw std::runtime_error("cannot encode completed index pass");
+    {
+      Transaction transaction(db);
+      metadata(db, "last_completed_pass", summary_json);
+      commit(job, transaction);
+    }
     progress(job, [&](auto &s) {
       s.set_translation_units_indexing(0);
       s.set_state(failed ? INDEX_STATE_FAILED : INDEX_STATE_COMPLETE);
       s.clear_current_translation_unit();
-      s.set_last_reconciled_unix_seconds(timestamp());
+      *s.mutable_last_completed_pass() = summary;
+      s.set_last_reconciled_unix_seconds(summary.finished_unix_seconds());
       s.set_revision(saved_revision);
       s.set_translation_units_indexed(saved_count);
     });
