@@ -44,3 +44,14 @@ Exited fullscreen from `submit → save_order → save_order_4`, confirmed all 3
 
 Extension regression tests: 124 passed, 24 optional live tests skipped. Type checking and lint passed, retaining the existing informational template suggestion.
 The rebuilt large native VS Code host regression passed with a three-function trail, distinct ancestor cameras, and an explicit 100% current camera; closing the editor returned the identical serialized state to the Inspector. One initial run timed out during AST loading before graph assertions; the isolated retry passed and closed all owned test processes. VSIX packaging succeeded (0.3.0, 5.43 MB), and the packaged graph sources contain both fixes.
+
+## 2026-10-18: real VS Code restart persistence
+
+Added validated workspace graph sessions with atomic file replacement, shutdown flushing, a `ctk.graph` webview serializer and **CTK: Reopen Last Graph**. Both Inspector and fullscreen changes update the saved session. Restored graphs retain their native display projection and keep AST actions disabled until a fresh native inspection supplies handles. The saved analysis can be refreshed with Show Call Graph or Show CFG.
+
+Backed up the exact live graph, then quit preview process 42165 and launched process 98641 with the same profile and workspace, without the demo test driver. Reopen Last Graph restored all 302 expanded functions and `submit → save_order → save_order_4`. Every visible function position, size and expansion control matched before/after restart: submit at 3% (35 function buttons), save_order at 40% (24), save_order_4 at 100% (10). The serialized expansion flags and all three camera values also matched.
+
+A second normal quit/restart (98641 → 6009), with no test driver and no reopen command, automatically restored the graph tab, the complete three-function trail, all 302 expansions and the same 100% child view. The exact saved ancestor cameras remained intact. Local evidence is in ignored `vscode/artifacts/graph-preview/restart-verification.json` and `restart-verified.png`.
+
+Five new storage tests cover fresh-instance recovery of 302 expansions and cameras, overlapping saves, separate graph kinds, damaged storage and invalid payloads. The native large call graph/CFG host regression passed and closed its owned processes; type checking, lint, and the complete extension suite passed. Lint keeps one existing informational template suggestion.
+Final verification: 130 extension tests passed, 24 optional live tests skipped. The additional Inspector regression confirms that restoring a saved graph cannot revive expired native AST handles. The rebuilt 0.3.0 VSIX packaged successfully (5.44 MB).

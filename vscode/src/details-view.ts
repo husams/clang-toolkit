@@ -13,6 +13,7 @@ import {
 } from "./ast-model.js";
 import type { AnalysisGraph, GraphKind, GraphLoad } from "./graph-model.js";
 import { openGraphPanel } from "./graph-panel.js";
+import type { GraphSessions } from "./graph-sessions.js";
 import {
   type BookmarkPage,
   type InspectorBookmark,
@@ -127,6 +128,11 @@ const messages = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("graph-retry") }),
   z.object({
+    type: z.literal("graph-viewstate"),
+    key: z.string(),
+    state: z.string().max(2000000),
+  }),
+  z.object({
     type: z.literal("graph-fullscreen"),
     key: z.string(),
     state: z.string().max(2000000),
@@ -212,6 +218,7 @@ export class DetailsView
     private readonly refreshRelated: (
       reference: AstReference,
     ) => Promise<string | false | undefined> = async () => undefined,
+    private readonly graphSessions?: GraphSessions,
   ) {
     this.status.name = "CTK AST inspection";
   }
@@ -397,8 +404,10 @@ export class DetailsView
       context = this.contextId;
     if (!graph) return;
     this.graphPanel?.dispose();
-    this.graphPanel = await openGraphPanel(
-      this.uri,
+    const create = this.graphSessions
+      ? this.graphSessions.open.bind(this.graphSessions)
+      : openGraphPanel.bind(undefined, this.uri);
+    this.graphPanel = await create(
       graph,
       state,
       (returned) => {
@@ -418,6 +427,19 @@ export class DetailsView
           this.graphRendered = parsed.data;
       },
     );
+  }
+  showSavedGraph(graph: AnalysisGraph, state: string): void {
+    const root = graph.nodes.find((node) => node.id === graph.root);
+    if (!root) return;
+    this.clear();
+    this.current = {
+      node: { ...root, kind: "FunctionDecl", excerpt: "", raw: {} },
+    };
+    this.tab = graph.kind;
+    this.graphData = graph;
+    this.graphUiState = state;
+    this.graphUiRevision++;
+    this.publish();
   }
   setRefreshError(file: string, error?: string, hasAst = false): void {
     if (error) this.refreshErrors.set(file, { message: error, hasAst });
@@ -592,6 +614,13 @@ export class DetailsView
   }
   async receive(input: unknown): Promise<void> {
     const message = messages.parse(input);
+    if (message.type === "graph-viewstate") {
+      if (message.key === this.graphData?.key) {
+        this.graphUiState = message.state;
+        this.graphSessions?.remember(this.graphData, message.state);
+      }
+      return;
+    }
     if (message.type === "graph-rendered") {
       if (message.key === this.graphData?.key) this.graphRendered = message;
       return;

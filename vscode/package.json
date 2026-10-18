@@ -18,6 +18,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onWebviewPanel:ctk.graph",
     "onLanguage:c",
     "onLanguage:cpp",
     "onView:ctk.analysis",
@@ -83,6 +84,7 @@
       ]
     },
     "commands": [
+      {"command":"ctk.reopenGraph","title":"Reopen Last Graph","category":"CTK"},
       {"command":"ctk.showCallGraph","title":"Show Call Graph","category":"CTK"},
       {"command":"ctk.showCfg","title":"Show CFG","category":"CTK"},
       {"command":"ctk.reloadFileAst","title":"Reload File AST","category":"CTK"},

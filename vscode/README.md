@@ -118,6 +118,8 @@ Select a function (or place the cursor inside it), then use **CTK: Show Call Gra
 
 **Expand downstream** opens the reachable graph without a UI node cap. Drag to pan; use the zoom controls or Ctrl/Cmd + wheel. At overview scale, readable function labels are prioritized and compact marks retain the other functions. Clicking a function drills into its branch. Breadcrumbs and Back restore that function's saved pan and zoom while keeping every expansion. **Full graph** and **Fit graph** frame the opened graph. **Fullscreen** opens a graph editor and hides the sidebars and bottom panel; Exit fullscreen returns the opened branches and viewport to the inspector.
 
+Expanded branches, breadcrumbs and each function’s pan and zoom are saved with the workspace. VS Code restores open graph tabs after restarting; use **CTK: Reopen Last Graph** after closing one. A reopened graph shows its saved native analysis; rerun Show Call Graph or Show CFG to refresh the analysis after source changes.
+
 CFG blocks and branch edges come from the native CFG; true/false labels are only added for native if-terminators. Incomplete native payloads and unresolved call sites are shown explicitly. Graph scope is the selected translation unit, including its non-system headers; cross-translation-unit project graphs are not inferred.
 
 Graph arrangement runs in a bundled Web Worker so expanding a large graph does not run the layout algorithm on the UI thread. The worker is loaded from a local blob, following the [VS Code webview worker restrictions](https://code.visualstudio.com/api/extension-guides/webview#using-web-workers); no network or dynamic script loading is needed.

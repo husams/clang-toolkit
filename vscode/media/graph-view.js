@@ -383,13 +383,14 @@ export class GraphView {
       previous = this.api.getState() || {};
     this.api.setState({
       ...previous,
+      ...(this.fullscreen ? { graphModel: this.state.model } : {}),
       graphs: { ...previous.graphs, [this.state.model.key]: value },
     });
-    if (this.fullscreen)
-      this.api.postMessage({
-        type: "graph-viewstate",
-        state: JSON.stringify(value),
-      });
+    this.api.postMessage({
+      type: "graph-viewstate",
+      key: this.state.model.key,
+      state: JSON.stringify(value),
+    });
     this.api.postMessage({
       type: "graph-rendered",
       key: this.state.model.key,

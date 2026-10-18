@@ -14,6 +14,7 @@ import {
 } from "./details-view.js";
 import { EditorSelectionSync } from "./editor-selection.js";
 import { FileInspectionSync } from "./file-inspection.js";
+import { GraphSessions } from "./graph-sessions.js";
 import {
   bookmarkHeaders,
   bookmarkTree,
@@ -98,6 +99,7 @@ export class Prototype {
   readonly actions: ActionsController;
   private tab: "symbols" | "actions" = "symbols";
   readonly details: DetailsView;
+  readonly graphSessions: GraphSessions;
   private readonly searchAst: SearchAstAccess;
   private readonly sourceHighlight = new SourceHighlight();
   private readonly parseProblems = new ParseProblems();
@@ -135,11 +137,15 @@ export class Prototype {
     | { action: string; matches: number; groups: number }
     | undefined;
   constructor(private readonly context: vscode.ExtensionContext) {
+    this.graphSessions = new GraphSessions(context, (graph, state) =>
+      this.details.showSavedGraph(graph, state),
+    );
     this.details = new DetailsView(
       context.extensionUri,
       (result) => this.openSource(result),
       (target) => this.actions.choose(undefined, true, target),
       (reference) => this.refreshRelated(reference),
+      this.graphSessions,
     );
     this.searchAst = new SearchAstAccess(context.extensionUri);
     this.view = new AnalysisView(
@@ -172,6 +178,7 @@ export class Prototype {
       this.parseProblems,
       this.actions,
       this.details,
+      this.graphSessions,
       this.searchAst,
       {
         dispose: () => {
@@ -1328,10 +1335,15 @@ export class Prototype {
     this.editorSelection.cancel();
   }
 }
+let activePrototype: Prototype | undefined;
+export async function deactivate(): Promise<void> {
+  await activePrototype?.graphSessions.flush();
+}
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<Prototype> {
   const prototype = new Prototype(context);
+  activePrototype = prototype;
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "ctk.runInspectorNodeAction",

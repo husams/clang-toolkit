@@ -18,17 +18,28 @@ export async function openGraphPanel(
   initial: string,
   returned: (state: string) => void,
   rendered: (state: unknown) => void = () => {},
+  options: {
+    panel?: vscode.WebviewPanel;
+    changed?: (state: string) => void;
+  } = {},
 ): Promise<vscode.WebviewPanel> {
-  const panel = vscode.window.createWebviewPanel(
-    "ctk.graph",
-    `${graph.kind === "cfg" ? "CFG" : "Call Graph"}: ${graph.name}`,
-    vscode.ViewColumn.Active,
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [vscode.Uri.joinPath(uri, "media")],
-    },
-  );
+  const panel =
+    options.panel ??
+    vscode.window.createWebviewPanel(
+      "ctk.graph",
+      `${graph.kind === "cfg" ? "CFG" : "Call Graph"}: ${graph.name}`,
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(uri, "media")],
+      },
+    );
+  panel.title = `${graph.kind === "cfg" ? "CFG" : "Call Graph"}: ${graph.name}`;
+  panel.webview.options = {
+    enableScripts: true,
+    localResourceRoots: [vscode.Uri.joinPath(uri, "media")],
+  };
   const nonce = randomBytes(18).toString("base64");
   const media = (file: string) =>
     panel.webview.asWebviewUri(vscode.Uri.joinPath(uri, "media", file));
@@ -44,7 +55,10 @@ export async function openGraphPanel(
         model: graph,
         uiState: state,
       });
-    if (message.data.type === "graph-viewstate") state = message.data.state;
+    if (message.data.type === "graph-viewstate") {
+      state = message.data.state;
+      options.changed?.(state);
+    }
     if (message.data.type === "graph-close") panel.dispose();
   });
   panel.onDidDispose(() => {
