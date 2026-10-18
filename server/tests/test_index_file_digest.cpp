@@ -356,3 +356,48 @@ TEST(IncludeInventoryCache, CachesInventoriesAbovePreviousWatchBudget) {
   EXPECT_NE(changed, second);
   EXPECT_GT(changed_walk_entries, 0u);
 }
+
+TEST(IndexInputWatch, DetectsContentWritesReplacementAndDeletion) {
+  TemporaryDirectory temporary{"ctk-input-watch"};
+  const auto file = temporary.path() / "input.cpp";
+  write_file(file, "before");
+  ctk::platform::DirectoryWatch watch;
+  ASSERT_TRUE(watch.add_file(file));
+  EXPECT_FALSE(watch.changed());
+  const timespec access_only[2]{{1, 0}, {0, UTIME_OMIT}};
+  ASSERT_EQ(utimensat(AT_FDCWD, file.c_str(), access_only, 0), 0);
+  EXPECT_FALSE(watch.changed()) << "access metadata must not wake idle monitors";
+  write_file(file, "after!");
+  EXPECT_TRUE(watch.changed());
+  watch.reset();
+  ASSERT_TRUE(watch.add_file(file));
+  const auto replacement = temporary.path() / "replacement";
+  write_file(replacement, "replacement");
+  fs::rename(replacement, file);
+  EXPECT_TRUE(watch.changed());
+  watch.reset();
+  ASSERT_TRUE(watch.add_file(file));
+  fs::remove(file);
+  EXPECT_TRUE(watch.changed());
+  watch.reset();
+  EXPECT_FALSE(watch.add_file(file));
+}
+
+TEST(IncludeInventoryCache, IdleNotificationsIgnoreUnrelatedAncestorEntries) {
+  TemporaryDirectory temporary{"ctk-inventory-notification"};
+  const auto include = temporary.path() / "include";
+  fs::create_directory(include);
+  write_file(include / "one.hpp", "int one;");
+  IncludeInventoryCache cache;
+  const auto before = cache.digest(include);
+  ASSERT_FALSE(before.empty());
+  write_file(temporary.path() / "unrelated", "not an index input");
+  EXPECT_FALSE(cache.inputs_changed());
+  write_file(include / "two.hpp", "int two;");
+  EXPECT_TRUE(cache.inputs_changed());
+  const auto after = cache.digest(include);
+  EXPECT_NE(after, before);
+  // A safety sweep discards cached directory inventories even without events.
+  cache.reset();
+  EXPECT_EQ(cache.digest(include), after);
+}

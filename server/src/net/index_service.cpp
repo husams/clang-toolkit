@@ -1,4 +1,5 @@
 #include "ctk/net/index_service.hpp"
+#include "ctk/platform/directory_watch.hpp"
 #include "ctk/platform/index_worker.hpp"
 #include "file_digest_cache.hpp"
 #include "include_inventory_cache.hpp"
@@ -1115,7 +1116,8 @@ private:
     }
     commit(job, transaction, {}, expected_generation);
   }
-  void reconcile(const Job &job, Database &db, const fs::path &directory) {
+  void reconcile(const Job &job, Database &db, const fs::path &directory,
+                 const std::function<void(const std::string &)> &watch_input) {
     ProjectIndexStatus saved_status;
     load_last_pass(db, saved_status);
     progress(job, [](auto &s) {
@@ -1168,6 +1170,8 @@ private:
       s.clear_error();
     });
     for (const auto &unit : listing_result.translation_units()) {
+      // Failed first-time extractions have no saved manifest yet.
+      watch_input(unit.source());
       const auto command_hash = digest_text(unit.compile_context());
       active.insert(digest_text(unit.source() + '\n' + command_hash));
     }
@@ -1870,11 +1874,46 @@ private:
                         fs::perm_options::replace);
         Database db(database_path(job.root), true);
         metadata(db, "project_root", job.root);
+        // Arm before reconciling, so edits during extraction remain queued.
+        platform::DirectoryWatch inputs;
+        std::set<std::string> watched;
+        bool fully_watched = true;
+        auto arm_input = [&](const std::string &path) {
+          if (!watched.insert(path).second)
+            return false;
+          fully_watched = inputs.add_file(path) && fully_watched;
+          return true;
+        };
+        auto arm_inputs = [&] {
+          std::set<std::string> paths{
+              (fs::path(job.commands) / "compile_commands.json").string(),
+              executable_.string()};
+          Statement rows(db, "SELECT main_file,dependencies_json FROM "
+                             "translation_unit WHERE indexed_at>0");
+          while (rows.step()) {
+            paths.insert(rows.text(0));
+            try {
+              for (const auto &[path, digest] : dependencies(rows.text(1)))
+                if (!path.starts_with("@include-tree:"))
+                  paths.insert(path);
+            } catch (const std::runtime_error &) {
+              // Reconciliation handles corrupt manifests per TU, preserving
+              // valid publications from the rest of the project.
+              fully_watched = false;
+            }
+          }
+          bool added = false;
+          for (const auto &path : paths) {
+            added = arm_input(path) || added;
+          }
+          return added;
+        };
+        arm_inputs();
         while (current(job)) {
           try {
             upgrade_symbols(job, db);
             metadata(db, "schema_version", "2");
-            reconcile(job, db, directory);
+            reconcile(job, db, directory, arm_input);
           } catch (const Interrupted &) {
             if (!current(job))
               break;
@@ -1887,14 +1926,45 @@ private:
               s.set_error(error.what());
             });
           }
-          std::unique_lock lock(mutex_);
-          changed_.wait_for(lock, std::chrono::seconds(job.interval), [&] {
-            return stopping_ || cancelled_ || paused_ ||
-                   job.epoch != job_.epoch;
-          });
-          if (paused_) {
+          // Newly discovered inputs need one guarded validation pass after
+          // arming. Afterwards idle projects do no per-file work until an
+          // event or the bounded safety sweep (also covers lost watches).
+          {
+            std::lock_guard lock(mutex_);
+            // A failed first extraction may not know all header inputs yet.
+            fully_watched = fully_watched && status_.state() != INDEX_STATE_FAILED;
+          }
+          const bool new_inputs = arm_inputs();
+          const auto deadline =
+              std::chrono::steady_clock::now() +
+              std::chrono::seconds(
+                  new_inputs
+                      ? 2
+                      : (fully_watched && inventories_.notifications_available()
+                             ? 300
+                             : 60));
+          while (current(job)) {
+            std::unique_lock lock(mutex_);
+            changed_.wait_for(
+                lock, std::chrono::seconds(std::min(job.interval, 2u)), [&] {
+                  return stopping_ || cancelled_ || paused_ ||
+                         job.epoch != job_.epoch;
+                });
+            const bool resumed = paused_;
             lock.unlock();
-            await_admission(job);
+            if (resumed)
+              await_admission(job);
+            if (resumed || inputs.changed() || inventories_.inputs_changed() ||
+                std::chrono::steady_clock::now() >= deadline) {
+              // Reopen watches after rename/delete/revoke/overflow. Retaining
+              // the old descriptors would miss later edits to replacements.
+              inventories_.reset();
+              inputs.reset();
+              watched.clear();
+              fully_watched = true;
+              arm_inputs();
+              break;
+            }
           }
         }
       } catch (const Interrupted &) {
@@ -2054,9 +2124,10 @@ IndexServiceAdapter::IndexServiceAdapter(fs::path root,
           std::move(root), std::move(foreground_busy), std::move(executable),
           max_workers)) {}
 IndexServiceAdapter::~IndexServiceAdapter() = default;
-grpc::Status IndexServiceAdapter::ListProjectIndexes(
-    grpc::ServerContext *context, const ListProjectIndexesRequest *,
-    ListProjectIndexesResponse *out) {
+grpc::Status
+IndexServiceAdapter::ListProjectIndexes(grpc::ServerContext *context,
+                                        const ListProjectIndexesRequest *,
+                                        ListProjectIndexesResponse *out) {
   // Inventory reads do not require the native extraction backend. In
   // particular, ServerStatus must remain available in builds without Clang.
   try {
