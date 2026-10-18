@@ -239,7 +239,8 @@ public:
   find(grpc::ServerContext &context, const std::string &root,
        const std::string &query, std::uint32_t requested_limit, bool prefix,
        bool by_usr,
-       FindSymbolsRequest::Kind kind = FindSymbolsRequest::KIND_ANY) {
+       FindSymbolsRequest::Kind kind = FindSymbolsRequest::KIND_ANY,
+       bool unique_symbols = false) {
     std::string kind_filter;
     switch (kind) {
     case FindSymbolsRequest::KIND_ANY:
@@ -257,6 +258,9 @@ public:
       kind_filter =
           "kind IN ('Var','VarTemplateSpecialization',"
           "'VarTemplatePartialSpecialization','Field','Binding') AND ";
+      break;
+    case FindSymbolsRequest::KIND_ALIAS:
+      kind_filter = "kind IN ('TypeAlias','Typedef') AND ";
       break;
     default:
       throw std::invalid_argument("invalid symbol kind filter");
@@ -317,64 +321,80 @@ public:
     // Joining first reads the large TU overflow records once per match, even
     // when nearly all those matches will be discarded by LIMIT.
     const std::string projection =
-        "SELECT tu_id,usr,file_path,byte_offset,is_definition,qualified_name "
-        "FROM symbol";
+        std::string(unique_symbols ? "SELECT MIN(tu_id) AS tu_id,"
+                                   : "SELECT tu_id,") +
+        "usr,file_path,byte_offset,is_definition,qualified_name FROM symbol";
+    const std::string group =
+        unique_symbols
+            ? " GROUP BY "
+              "usr,file_path,byte_offset,is_definition,qualified_name "
+            : " ";
     const std::string columns = projection + " WHERE " + kind_filter;
-    // Prefix matching and ordering share NOCASE, allowing the qualified-name
-    // index to stop early. Bound each OR arm before merging and deduplicating.
+    const std::string name_columns =
+        unique_symbols
+            ? projection + " INDEXED BY symbol_name_prefix WHERE " + kind_filter
+            : columns;
+    const std::string qualified_columns =
+        unique_symbols
+            ? projection + " INDEXED BY symbol_qualified_prefix WHERE " +
+                  kind_filter
+            : columns;
     const std::string order =
         prefix ? "qualified_name COLLATE NOCASE,file_path,byte_offset,tu_id"
                : "qualified_name,file_path,byte_offset,tu_id";
     std::string sql;
     if (prefix) {
-      sql = "WITH name_matches AS MATERIALIZED (" + columns +
-            "name LIKE ?1 ESCAPE '\\' ORDER BY " + order +
-            " LIMIT ?3), qualified_matches AS MATERIALIZED (" + columns +
-            "qualified_name LIKE ?2 ESCAPE '\\' ORDER BY " + order +
+      sql = "WITH name_matches AS MATERIALIZED (" + name_columns +
+            "name LIKE ?1 ESCAPE '\\'" + group + "ORDER BY " + order +
+            " LIMIT ?3), qualified_matches AS MATERIALIZED (" +
+            qualified_columns + "qualified_name LIKE ?2 ESCAPE '\\'" + group +
+            "ORDER BY " + order +
             " LIMIT ?3), selected AS MATERIALIZED ("
             "SELECT * FROM name_matches UNION SELECT * FROM qualified_matches "
             "ORDER BY " +
             order + " LIMIT ?3), ";
     } else if (!by_usr) {
-      // Unary + keeps BINARY equality as a residual filter: otherwise SQLite
-      // can choose that equality for access and scan instead of the NOCASE
-      // index.
+      // Keep the BINARY test residual so the existing NOCASE index can seek.
       sql = "WITH selected AS MATERIALIZED (" + projection +
             " INDEXED BY symbol_name_prefix WHERE " + kind_filter +
-            "name=?1 COLLATE NOCASE "
-            "AND +name=?1 COLLATE BINARY UNION " +
-            projection + " INDEXED BY symbol_qualified_prefix WHERE " +
-            kind_filter +
-            "qualified_name=?2 "
-            "COLLATE NOCASE AND +qualified_name=?2 COLLATE BINARY ORDER BY " +
-            order + " LIMIT ?3), ";
+            "name=?1 COLLATE NOCASE AND +name=?1 COLLATE BINARY" + group +
+            "UNION " + projection +
+            " INDEXED BY symbol_qualified_prefix WHERE " + kind_filter +
+            "qualified_name=?2 COLLATE NOCASE AND +qualified_name=?2 COLLATE "
+            "BINARY" +
+            group + "ORDER BY " + order + " LIMIT ?3), ";
     } else {
-      sql = "WITH selected AS MATERIALIZED (" + columns + "usr=?1 ORDER BY " +
-            order + " LIMIT ?2), ";
+      sql = "WITH selected AS MATERIALIZED (" + columns + "usr=?1" + group +
+            "ORDER BY " + order + " LIMIT ?2), ";
     }
-    // A shared header owner can expand into many TUs. Include every owner tied
-    // at the physical boundary before limiting logical results by real TU ID.
-    sql +=
-        "boundary AS MATERIALIZED (SELECT qualified_name,file_path,byte_offset "
-        "FROM selected ORDER BY qualified_name" +
-        std::string(prefix ? " COLLATE NOCASE" : "") +
-        " DESC,file_path DESC,byte_offset DESC LIMIT 1), "
-        "candidates AS MATERIALIZED (SELECT * FROM selected UNION " +
-        projection +
-        " INDEXED BY symbol_qualified_prefix WHERE qualified_name="
-        "(SELECT qualified_name FROM boundary) COLLATE NOCASE " +
-        (prefix ? std::string()
-                : "AND +qualified_name=(SELECT qualified_name FROM boundary) "
-                  "COLLATE BINARY ") +
-        "AND file_path=(SELECT file_path FROM boundary) AND byte_offset="
-        "(SELECT byte_offset FROM boundary) AND " +
-        kind_filter +
-        (by_usr ? "usr=?1"
-         : prefix
-             ? "(name LIKE ?1 ESCAPE '\\' OR qualified_name LIKE ?2 ESCAPE "
-               "'\\')"
-             : "(name=?1 COLLATE BINARY OR qualified_name=?2 COLLATE BINARY)") +
-        "), ";
+    if (unique_symbols) {
+      // Group physical definitions before LIMIT, so repeated TU contributions
+      // cannot hide later unique results or make truncation misleading.
+      sql += "candidates AS MATERIALIZED (SELECT * FROM selected), ";
+    } else {
+      sql +=
+          "boundary AS MATERIALIZED (SELECT "
+          "qualified_name,file_path,byte_offset "
+          "FROM selected ORDER BY qualified_name" +
+          std::string(prefix ? " COLLATE NOCASE" : "") +
+          " DESC,file_path DESC,byte_offset DESC LIMIT 1), "
+          "candidates AS MATERIALIZED (SELECT * FROM selected UNION " +
+          projection +
+          " INDEXED BY symbol_qualified_prefix WHERE qualified_name="
+          "(SELECT qualified_name FROM boundary) COLLATE NOCASE " +
+          (prefix ? std::string()
+                  : "AND +qualified_name=(SELECT qualified_name FROM boundary) "
+                    "COLLATE BINARY ") +
+          "AND file_path=(SELECT file_path FROM boundary) AND byte_offset="
+          "(SELECT byte_offset FROM boundary) AND " +
+          kind_filter +
+          (by_usr   ? "usr=?1"
+           : prefix ? "(name LIKE ?1 ESCAPE '\\' OR qualified_name LIKE ?2 "
+                      "ESCAPE '\\')"
+                    : "(name=?1 COLLATE BINARY OR qualified_name=?2 COLLATE "
+                      "BINARY)") +
+          "), ";
+    }
     // Older stores remain readable before their background schema upgrade.
     // Once available, force the covering index: SQLite otherwise sometimes
     // prefers the TU primary key without accounting for manifest overflow I/O.
@@ -387,18 +407,31 @@ public:
     Statement header_index(db, "SELECT 1 FROM sqlite_master WHERE type='index' "
                                "AND name='translation_unit_header_members'");
     if (header_index.step()) {
-      sql +=
-          "owners AS MATERIALIZED (SELECT id,dependencies_json FROM "
-          "translation_unit INDEXED BY translation_unit_header_members "
-          "WHERE indexed_at=0 AND id IN (SELECT tu_id FROM candidates)), "
-          "expanded AS MATERIALIZED (SELECT c.tu_id AS owner_id,"
-          "COALESCE(m.value,c.tu_id) AS tu_id,c.usr,c.file_path,c.byte_offset,"
-          "c.is_definition,c.qualified_name FROM candidates c LEFT JOIN "
-          "owners o ON o.id=c.tu_id LEFT JOIN json_each(o.dependencies_json) m "
-          "ORDER BY c.qualified_name" +
-          std::string(prefix ? " COLLATE NOCASE" : "") +
-          ",c.file_path,c.byte_offset,COALESCE(m.value,c.tu_id) LIMIT " +
-          (by_usr ? "?2), " : "?3), ");
+      if (unique_symbols) {
+        sql +=
+            "owners AS MATERIALIZED (SELECT id,dependencies_json FROM "
+            "translation_unit INDEXED BY translation_unit_header_members "
+            "WHERE indexed_at=0 AND id IN (SELECT tu_id FROM candidates)), "
+            "expanded AS MATERIALIZED (SELECT c.tu_id AS owner_id,"
+            "COALESCE((SELECT MIN(value) FROM "
+            "json_each(o.dependencies_json)),c.tu_id) AS tu_id,"
+            "c.usr,c.file_path,c.byte_offset,c.is_definition,c.qualified_name "
+            "FROM candidates c LEFT JOIN owners o ON o.id=c.tu_id), ";
+      } else {
+        sql += "owners AS MATERIALIZED (SELECT id,dependencies_json FROM "
+               "translation_unit INDEXED BY translation_unit_header_members "
+               "WHERE indexed_at=0 AND id IN (SELECT tu_id FROM candidates)), "
+               "expanded AS MATERIALIZED (SELECT c.tu_id AS owner_id,"
+               "COALESCE(m.value,c.tu_id) AS "
+               "tu_id,c.usr,c.file_path,c.byte_offset,"
+               "c.is_definition,c.qualified_name FROM candidates c LEFT JOIN "
+               "owners o ON o.id=c.tu_id LEFT JOIN "
+               "json_each(o.dependencies_json) m "
+               "ORDER BY c.qualified_name" +
+               std::string(prefix ? " COLLATE NOCASE" : "") +
+               ",c.file_path,c.byte_offset,COALESCE(m.value,c.tu_id) LIMIT " +
+               (by_usr ? "?2), " : "?3), ");
+      }
     } else {
       sql += "expanded AS MATERIALIZED (SELECT *,tu_id AS owner_id FROM "
              "candidates), ";
@@ -1920,10 +1953,12 @@ public:
   FindSymbolsResponse
   find(grpc::ServerContext &context, const std::string &root,
        const std::string &query, std::uint32_t limit, bool prefix, bool by_usr,
-       FindSymbolsRequest::Kind kind = FindSymbolsRequest::KIND_ANY) {
+       FindSymbolsRequest::Kind kind = FindSymbolsRequest::KIND_ANY,
+       bool unique_symbols = false) {
     auto monitor = project(root);
     return (monitor ? *monitor : reader_)
-        .find(context, root, query, limit, prefix, by_usr, kind);
+        .find(context, root, query, limit, prefix, by_usr, kind,
+              unique_symbols);
   }
 
 private:
@@ -2025,7 +2060,7 @@ grpc::Status IndexServiceAdapter::FindSymbols(grpc::ServerContext *context,
     *out = indexer_->find(
         *context, request->project_root(), request->query(), request->limit(),
         request->match_mode() == FindSymbolsRequest::MATCH_MODE_PREFIX, false,
-        request->kind());
+        request->kind(), request->unique_symbols());
   });
 }
 grpc::Status

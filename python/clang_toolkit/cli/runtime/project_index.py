@@ -56,9 +56,11 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
         query = strings[0]
         symbol_kind = next((str(child) for child in node.children
                             if isinstance(child, Token) and child.type == "NAME"), "")
-        if symbol_kind not in {"", "function", "class", "variable"}:
-            raise ValueError("kind must be function, class, or variable")
-        options = {"kind": symbol_kind} if symbol_kind else {}
+        if symbol_kind not in {"", "function", "class", "variable", "alias"}:
+            raise ValueError("kind must be function, class, variable, or alias")
+        options: dict[str, Any] = {"unique_symbols": True}
+        if symbol_kind:
+            options["kind"] = symbol_kind
         exact = any(isinstance(child, Token) and child.type == "EXACT" for child in node.children)
         if not exact:
             query = query.removesuffix("*")

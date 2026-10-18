@@ -216,3 +216,29 @@ Python clients accept `find_symbols(project, query, kind="function")`, with an
 empty kind (the default) meaning unfiltered. Both server and client must be
 updated to use filtering. Stored symbols and worker extraction are unchanged;
 existing indexes do not need reindexing for this search filter.
+
+### Aliases and unique per-project results
+
+```ctk
+index find "Alias" kind alias in "ctk-lab"
+index find "ctk::" kind alias
+```
+
+`kind alias` includes `using` type aliases and `typedef` declarations; their raw
+kinds are `TypeAlias` and `Typedef`. Alias templates are represented by their
+defining `TypeAlias` declaration, not a separate template wrapper. Namespace
+aliases remain separate kinds and are available in unfiltered searches.
+
+Console `index find` returns each definition once per project, even when a header
+is indexed through several translation units or compile variants. Definitions
+are identified by USR, file path, byte offset and definition status; distinct
+overloads and locations remain separate. Global searches deduplicate within each
+project and retain matching definitions from different projects. Each returned
+symbol retains one deterministic representative translation unit and compile
+context. Grouping happens before result limits, so duplicates do not consume the
+100-symbol budget or incorrectly mark a complete set as truncated.
+
+The Python API keeps per-TU provenance by default. Opt into the console behavior
+with `find_symbols(project, query, kind="alias", unique_symbols=True)`.
+`index lookup` remains a provenance lookup and can still return per-TU entries.
+No stored index schema or worker extraction change is required.
