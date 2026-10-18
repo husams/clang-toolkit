@@ -1,6 +1,15 @@
 # Included before project(): picks the Clang toolchain and LLVM install per platform.
 # Override with -DCMAKE_CXX_COMPILER=... / -DCTK_LLVM_ROOT=... when needed.
 
+# Cache the first native architecture instead of relying on CMake's changing
+# implicit defaults. Preserve explicit settings, including an empty string and
+# universal builds, on every subsequent configure.
+if(CMAKE_HOST_APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
+  cmake_host_system_information(RESULT _ctk_native_arch QUERY OS_PLATFORM)
+  set(CMAKE_OSX_ARCHITECTURES "${_ctk_native_arch}" CACHE STRING
+      "macOS target architectures (pinned on first configuration)")
+endif()
+
 if(NOT DEFINED CTK_LLVM_ROOT)
   if(CMAKE_HOST_APPLE)
     foreach(candidate /opt/homebrew/opt/llvm /usr/local/opt/llvm)
