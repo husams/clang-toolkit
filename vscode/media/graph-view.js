@@ -31,7 +31,12 @@ export class GraphView {
         if (view) this.canvas.restore(this.state.current, view);
         this.canvas.paint();
         this.status();
-      } else if (this.state && host.clientWidth) void this.render();
+      } else if (this.state && host.clientWidth)
+        void this.render(
+          this.state.view
+            ? { id: this.state.current, camera: this.state.view }
+            : undefined,
+        );
     }).observe(host);
   }
   update(data, override) {

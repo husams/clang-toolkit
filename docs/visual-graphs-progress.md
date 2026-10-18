@@ -35,3 +35,12 @@ Installable package: `vscode/artifacts/clang-toolkit-prototype.vsix` (0.3.0). It
 Used macOS UI automation against the isolated VS Code development host, clicked `save_order`, and returned using the `submit` breadcrumb. The original navigation message added a 13-pixel row and shifted the returned graph by 8 pixels. Removed that redundant message; the breadcrumb already identifies the focused function, and native warnings now remain intact during navigation.
 
 Retested against the user's original view: all 302 functions remained expanded, child focus zoomed to 50%, and the breadcrumb restored the original 2% overview. All 27 visible function buttons returned to identical screen coordinates and sizes. The graph was left on `submit` at the original pan and zoom. Evidence is in `vscode/artifacts/graph-preview/breadcrumb-verification.json` and `breadcrumb-verified.png` (local, ignored artifacts).
+
+## 2026-10-18: reopen and saved view restoration
+
+Native VS Code testing exposed two camera resets: revisiting a function outside the current breadcrumb trail ignored its saved camera, and the first ResizeObserver callback could replace the restored camera with a fitted view. Both now restore the existing camera. The new state regression covers revisits after serialization with 302 functions expanded.
+
+Exited fullscreen from `submit → save_order → save_order_4`, confirmed all 302 functions and breadcrumbs returned to the Inspector, then reopened fullscreen. The three-level breadcrumb trail survived. Native UI comparisons before and after this cycle matched every visible function position, size and expanded control: `save_order_4` at 100% (10 visible function buttons), `save_order` at 40% (24), and `submit` at 3% (35). All 302 functions remained in the layout. The actual VS Code window was left on the submit overview. Evidence is in ignored `vscode/artifacts/graph-preview/reopen-verification.json` and `reopen-verified.png`.
+
+Extension regression tests: 124 passed, 24 optional live tests skipped. Type checking and lint passed, retaining the existing informational template suggestion.
+The rebuilt large native VS Code host regression passed with a three-function trail, distinct ancestor cameras, and an explicit 100% current camera; closing the editor returned the identical serialized state to the Inspector. One initial run timed out during AST loading before graph assertions; the isolated retry passed and closed all owned test processes. VSIX packaging succeeded (0.3.0, 5.43 MB), and the packaged graph sources contain both fixes.

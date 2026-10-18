@@ -117,12 +117,24 @@ export async function run(): Promise<void> {
         const model = state.graph.model;
         assert.ok(model);
         assert.equal(model.nodes.length, 302);
+        const child = model.nodes.find((node) => node.name === "save_order"),
+          grandchild = model.nodes.find((node) => node.name === "save_order_4");
+        assert.ok(child);
+        assert.ok(grandchild);
+        const trail = [model.root, child.id, grandchild.id],
+          cameras = {
+            [`out:${model.root}`]: { scale: 0.03125, ax: 0.125, ay: 0.75 },
+            [`out:${child.id}`]: { scale: 0.4, ax: -0.2, ay: 1.1 },
+          },
+          view = { scale: 1, ax: 0.25, ay: 0.5 };
         await api.details.receive({
           type: "graph-fullscreen",
           key: model.key,
           state: JSON.stringify({
             expanded: { out: model.nodes.map((n) => n.id), in: [model.root] },
-            trail: [model.root],
+            trail,
+            cameras,
+            view,
           }),
         });
         const deadline = Date.now() + 60000;
@@ -136,13 +148,19 @@ export async function run(): Promise<void> {
           302,
           JSON.stringify(astState().graph),
         );
+        await new Promise((done) => setTimeout(done, 200));
+        assert.equal(astState().graph.rendered?.zoom, view.scale);
+        assert.deepEqual(astState().graph.rendered?.trail, trail);
         await vscode.commands.executeCommand(
           "workbench.action.closeActiveEditor",
         );
-        assert.equal(
-          JSON.parse(astState().graph.uiState).expanded.out.length,
-          302,
-        );
+        const returned = JSON.parse(astState().graph.uiState);
+        assert.equal(returned.expanded.out.length, 302);
+        assert.deepEqual(returned.trail, trail);
+        assert.deepEqual(returned.cameras, cameras);
+        assert.equal(returned.view.scale, view.scale);
+        assert.ok(Math.abs(returned.view.ax - view.ax) < 1e-9);
+        assert.ok(Math.abs(returned.view.ay - view.ay) < 1e-9);
       }
       if (kind === "cfg") {
         assert.ok(state.graph.rendered?.labels.includes("True"));

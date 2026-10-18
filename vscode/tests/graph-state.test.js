@@ -35,6 +35,25 @@ describe("graph exploration state", () => {
     expect(s.snapshot().expanded).toEqual(opened);
     expect(s.visible().nodes).toHaveLength(302);
   });
+  it("restores each function camera when reopening and revisiting a previous branch", () => {
+    const graph = model(302),
+      state = new GraphState(graph),
+      child = { scale: 0.4, ax: -0.2, ay: 1.1 },
+      grandchild = { scale: 1, ax: 0.3, ay: 0.5 };
+    state.expandAll();
+    state.visit("1", camera);
+    state.visit("4", child);
+    state.visit("0", grandchild);
+    const saved = JSON.parse(JSON.stringify(state.snapshot(camera))),
+      reopened = new GraphState(graph, saved);
+    expect(reopened.visit("1", camera)).toEqual(child);
+    expect(reopened.visit("4", child)).toEqual(grandchild);
+    expect(reopened.trail).toEqual(["0", "1", "4"]);
+    expect(reopened.visit("1", grandchild)).toEqual(child);
+    expect(reopened.visit("0", child)).toEqual(camera);
+    expect(reopened.snapshot().expanded).toEqual(saved.expanded);
+    expect(reopened.visible().nodes).toHaveLength(302);
+  });
   it("retains nested expansion when a branch is collapsed then reopened", () => {
     const s = new GraphState(model(302));
     s.expandAll();

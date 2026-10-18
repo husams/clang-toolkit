@@ -106,7 +106,7 @@ export class GraphState {
     const previous = this.trail.lastIndexOf(id);
     this.trail =
       previous >= 0 ? this.trail.slice(0, previous + 1) : [...this.trail, id];
-    return previous >= 0 ? this.cameras[`${this.direction}:${id}`] : undefined;
+    return this.cameras[`${this.direction}:${id}`];
   }
   snapshot(view) {
     return {
