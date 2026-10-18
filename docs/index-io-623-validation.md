@@ -48,3 +48,9 @@ The final design batches up to 16 completed changed TUs in one transaction, with
 - The final 623-context definition/provenance audit passed with the 19 modified input paths explicitly listed. Host load for the 285.197-second prior run is unknown, so the observed elapsed-time difference remains non-causal.
 
 Permanent evidence: [result](benchmarks/index-io-623-20261018/result.json), [correctness audit](benchmarks/index-io-623-20261018/final-correctness-audit.json), [resources](benchmarks/index-io-623-20261018/resource-audit.json), and test logs in the same folder. Prior report: [parallel baseline](index-parallel-623-validation.md). The benchmark used a private server, stopped after completion; the managed main server was not replaced or restarted.
+
+## PR integration validation
+
+After integrating main `52a7daf`, the final source revision `b9b0a505ee39cda004ec15701c0850af22b4ca9e` passed all 507 native tests (77.873 seconds), all 3,243 Python unit tests (221.40 seconds), and 43 indexing/cross-TU/foreground integration cases (139.85 seconds). Both independent code reviews approved. [Integration summary](benchmarks/index-io-623-20261018/integration/summary.json) and compressed logs preserve the exact outcomes.
+
+Pre-merge review closed the partial-schema race by requiring both forced SQLite name indexes in the reader snapshot. Integration also exposed an unchanged upstream memory-test fixture comparing cold and stored AST estimates; the same failure reproduced with the main-checkout native test binary. Pinning one backend snapshot for both controllers preserved every assertion and passed 20 consecutive runs. An initial Python workspace timeout passed all three isolated parameterizations and then the complete clean suite; the initial E2E import-path collection error and original failure logs remain available alongside successful runs. The 623-TU timing above remains attributed to its measured revision.
