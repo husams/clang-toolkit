@@ -1,0 +1,32 @@
+{
+  "at_utc": "2026-10-18T09:53:05.191238+00:00",
+  "endpoint": "unix:///var/folders/07/p__xlp357ps_8_fb3yhffmrh0000gn/T/ctk.sock",
+  "before": {
+    "project_root": "/Users/husam/workspace/clang-toolkit",
+    "state": "INDEX_STATE_PAUSED",
+    "translation_units_total": "628",
+    "translation_units_completed": "93",
+    "translation_units_skipped": "93",
+    "current_translation_unit": "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/atn/Transition.cpp",
+    "last_reconciled_unix_seconds": "1792314396",
+    "revision": "4550",
+    "translation_units_pending": "535",
+    "paused_reason": "paused by client; uncommitted extraction will be retried",
+    "translation_units_indexed": "628"
+  },
+  "after": {
+    "project_root": "/Users/husam/workspace/clang-toolkit",
+    "state": "INDEX_STATE_QUEUED",
+    "translation_units_total": "628",
+    "translation_units_completed": "93",
+    "translation_units_skipped": "93",
+    "current_translation_unit": "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/atn/Transition.cpp",
+    "last_reconciled_unix_seconds": "1792314396",
+    "revision": "4550",
+    "translation_units_pending": "535",
+    "translation_units_indexed": "628"
+  },
+  "resumed_own_pause": true,
+  "latency_ms": 0.5001670215278864,
+  "note": "Managed binaries unchanged; restore only this task own pause."
+}

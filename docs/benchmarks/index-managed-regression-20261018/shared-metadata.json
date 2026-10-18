@@ -1,0 +1,25 @@
+{
+  "created_utc": "2026-10-18T09:36:02+00:00",
+  "project_root": "/Users/husam/workspace/clang-toolkit",
+  "source_compile_commands": "/Users/husam/workspace/clang-toolkit/build/dev/compile_commands.json",
+  "copied_compile_commands": "/private/tmp/ctk-mqualified-20261018/shared/cdb/compile_commands.json",
+  "compile_commands_sha256": "25a9cd8f183165ac9ec204a278e0cf7d4f14b0681b3d646c9de2c1360532d139",
+  "entry_count": 628,
+  "unique_source_count": 627,
+  "working_directories": [
+    "/Users/husam/workspace/clang-toolkit/build/dev"
+  ],
+  "pch_inputs": [
+    "/Users/husam/workspace/clang-toolkit/build/dev/server/CMakeFiles/ctk_clang.dir/cmake_pch.hxx.pch"
+  ],
+  "project_revision": "4b3ded853a9a6db6103fd645312d3d77454fc8b4",
+  "binary_sources": {
+    "ctk-server": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/server/ctk-server",
+    "ctk-index-worker": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/server/ctk-index-worker"
+  },
+  "binary_sha256": {
+    "ctk-server": "d75f78eafb34f70a302c1ecdbd46e5d1d6b93c645dced7e28b747da53515f9d5",
+    "ctk-index-worker": "57bf4b31c39f0da6f02c73fbb04798b83edb37556752e1b83dbf846533d507d4"
+  },
+  "input_hash_count": 2291
+}

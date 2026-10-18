@@ -1,0 +1,8 @@
+Base commit: 435179466f087eea8939558396f4b3dafb999610
+Included files:
+server/src/net/index_service.cpp
+server/src/platform/directory_watch.cpp
+server/src/platform/index_worker.cpp
+server/tests/test_index_file_digest.cpp
+server/tests/test_index_worker.cpp
+server/tests/test_project_index_service.cpp

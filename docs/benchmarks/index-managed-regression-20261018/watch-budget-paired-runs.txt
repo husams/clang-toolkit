@@ -1,0 +1,13 @@
+Five alternating old/candidate pairs; each command launches a fresh process over the same 55 roots.
+Cold is cold per-process watch/cache state; OS filesystem cache was not flushed.
+Priority lowering via nice/taskpolicy was denied by host policy; runs began after native suite ended.
+run=1 variant=old exit=0 wall_seconds=1.991 roots=55 cold_walks=55 cold_ms=894.737 warm_hits=0 warm_walks=55 warm_walk_ms=752.67 warm_pass_ms=758.737 callbacks=8586 failed_adds=2740
+run=2 variant=candidate exit=0 wall_seconds=0.885 roots=55 cold_walks=55 cold_ms=867.086 warm_hits=55 warm_walks=0 warm_walk_ms=0 warm_pass_ms=1.28383 callbacks=4293 failed_adds=0
+run=3 variant=candidate exit=0 wall_seconds=0.940 roots=55 cold_walks=55 cold_ms=915.543 warm_hits=55 warm_walks=0 warm_walk_ms=0 warm_pass_ms=1.53317 callbacks=4293 failed_adds=0
+run=4 variant=old exit=0 wall_seconds=1.868 roots=55 cold_walks=55 cold_ms=787.352 warm_hits=0 warm_walks=55 warm_walk_ms=1058.45 warm_pass_ms=1063.1 callbacks=8586 failed_adds=2740
+run=5 variant=old exit=0 wall_seconds=1.956 roots=55 cold_walks=55 cold_ms=1042.15 warm_hits=0 warm_walks=55 warm_walk_ms=871.653 warm_pass_ms=880.559 callbacks=8586 failed_adds=2740
+run=6 variant=candidate exit=0 wall_seconds=0.942 roots=55 cold_walks=55 cold_ms=915.623 warm_hits=55 warm_walks=0 warm_walk_ms=0 warm_pass_ms=1.66683 callbacks=4293 failed_adds=0
+run=7 variant=candidate exit=0 wall_seconds=0.935 roots=55 cold_walks=55 cold_ms=902.576 warm_hits=55 warm_walks=0 warm_walk_ms=0 warm_pass_ms=1.44271 callbacks=4293 failed_adds=0
+run=8 variant=old exit=0 wall_seconds=1.698 roots=55 cold_walks=55 cold_ms=844.374 warm_hits=0 warm_walks=55 warm_walk_ms=801.689 warm_pass_ms=806.938 callbacks=8586 failed_adds=2740
+run=9 variant=old exit=0 wall_seconds=1.537 roots=55 cold_walks=55 cold_ms=815.569 warm_hits=0 warm_walks=55 warm_walk_ms=707.538 warm_pass_ms=709.504 callbacks=8586 failed_adds=2740
+run=10 variant=candidate exit=0 wall_seconds=0.900 roots=55 cold_walks=55 cold_ms=882.249 warm_hits=55 warm_walks=0 warm_walk_ms=0 warm_pass_ms=3.34388 callbacks=4293 failed_adds=0

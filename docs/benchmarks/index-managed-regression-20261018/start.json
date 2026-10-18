@@ -1,0 +1,12 @@
+{
+  "started_utc": "2026-10-18T09:39:33.082658+00:00",
+  "server_version": "ctk-server 0.1.0 (revision 435179466f08)",
+  "before": {
+    "project_root": "/Users/husam/workspace/clang-toolkit",
+    "state": "INDEX_STATE_IDLE"
+  },
+  "start_response": {
+    "project_root": "/Users/husam/workspace/clang-toolkit",
+    "state": "INDEX_STATE_QUEUED"
+  }
+}

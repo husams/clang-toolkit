@@ -1,0 +1,35 @@
+{
+  "started_utc": "2026-10-18T09:39:33.082658+00:00",
+  "server_version": "ctk-server 0.1.0 (revision 435179466f08)",
+  "before": {
+    "project_root": "/Users/husam/workspace/clang-toolkit",
+    "state": "INDEX_STATE_IDLE"
+  },
+  "start_response": {
+    "project_root": "/Users/husam/workspace/clang-toolkit",
+    "state": "INDEX_STATE_QUEUED"
+  },
+  "completed_elapsed_upper_seconds": 320.37558466685005,
+  "completed_elapsed_lower_seconds": 319.3706392077729,
+  "final": {
+    "project_root": "/Users/husam/workspace/clang-toolkit",
+    "state": "INDEX_STATE_COMPLETE",
+    "translation_units_total": "628",
+    "translation_units_completed": "628",
+    "last_reconciled_unix_seconds": "1792316693",
+    "revision": "628",
+    "translation_units_indexed": "628",
+    "translation_units_skipped": "0",
+    "translation_units_failed": "0",
+    "current_translation_unit": "",
+    "error": "",
+    "translation_units_pending": "0",
+    "paused_reason": "",
+    "elapsed_seconds": 320.37558466685005,
+    "at_utc": "2026-10-18T09:44:53.457019+00:00",
+    "latency_ms": 0.4405002109706402
+  },
+  "probe_exit_code": 0,
+  "errors": [],
+  "elapsed_seconds": 320.3757793328259
+}

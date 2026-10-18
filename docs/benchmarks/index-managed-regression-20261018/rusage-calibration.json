@@ -1,0 +1,35 @@
+{
+  "pid": 40933,
+  "method": "Three ~100 ms CPU-busy trials; compare proc_pid_rusage v4 ri_user_time+ri_system_time deltas with Python time.process_time_ns deltas.",
+  "host_qualification": "Empirical calibration only; does not establish a portable API unit contract.",
+  "mean_raw_units_per_cpu_ns": 0.02401399974700479,
+  "trials": [
+    {
+      "trial": 1,
+      "raw_user_plus_system_delta": 2402424,
+      "process_time_delta_ns": 100002000,
+      "wall_elapsed_ns": 438087042,
+      "raw_units_per_cpu_ns": 0.024023759524809504,
+      "cpu_ns_per_raw_unit": 41.62545828713,
+      "counter_units": "raw rusage_info_v4 units; calibration is empirical for this host only"
+    },
+    {
+      "trial": 2,
+      "raw_user_plus_system_delta": 2401062,
+      "process_time_delta_ns": 100002000,
+      "wall_elapsed_ns": 408593416,
+      "raw_units_per_cpu_ns": 0.024010139797204056,
+      "cpu_ns_per_raw_unit": 41.64907028639827,
+      "counter_units": "raw rusage_info_v4 units; calibration is empirical for this host only"
+    },
+    {
+      "trial": 3,
+      "raw_user_plus_system_delta": 2400834,
+      "process_time_delta_ns": 100001000,
+      "wall_elapsed_ns": 321775875,
+      "raw_units_per_cpu_ns": 0.02400809991900081,
+      "cpu_ns_per_raw_unit": 41.652609051687875,
+      "counter_units": "raw rusage_info_v4 units; calibration is empirical for this host only"
+    }
+  ]
+}

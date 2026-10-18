@@ -1,0 +1,215 @@
+{
+  "case": "fresh matched-input 628-entry run",
+  "server_pid": 50997,
+  "run_elapsed_seconds": 320.29,
+  "resource_samples": 64,
+  "host_load_ranges_1m_5m_15m": [
+    {
+      "min": 8.98046875,
+      "max": 20.62890625
+    },
+    {
+      "min": 15.13330078125,
+      "max": 21.90869140625
+    },
+    {
+      "min": 23.330078125,
+      "max": 28.390625
+    }
+  ],
+  "server": {
+    "pid": 50997,
+    "sample_count": 64,
+    "peak_rss_kb": 587184,
+    "first_rss_kb": 46208,
+    "last_rss_kb": 587184
+  },
+  "workers": {
+    "max_concurrent": 4,
+    "process_samples": 206,
+    "unique_pids": 206,
+    "nice_sample_counts": {
+      "0": 6,
+      "15": 200
+    },
+    "nice0_observations_note": "Six one-snapshot worker observations were NI 0; the sampling interval cannot determine how long each remained at that priority.",
+    "peak_single_worker_rss_kb": 503568,
+    "peak_sampled_worker_rss_sum_kb": 1454928
+  },
+  "cpu_resource_counters": {
+    "source": "libproc proc_pid_rusage RUSAGE_INFO_V4; retain raw counter values",
+    "controller_user_plus_system_raw_delta": 509781800,
+    "controller_cumulative_child_user_plus_system_raw_delta": 22597573220,
+    "host_calibration": {
+      "raw_units_per_process_cpu_ns_mean": 0.02401399974700479,
+      "trials": 3,
+      "qualification": "empirical on this host only; not an API unit guarantee"
+    },
+    "approx_cpu_seconds_from_empirical_calibration": {
+      "controller": 21.22852525071688,
+      "cumulative_children": 941.0166343829724
+    }
+  },
+  "index_completion": {
+    "state": "INDEX_STATE_COMPLETE",
+    "translation_units_total": 628,
+    "translation_units_completed": 628,
+    "translation_units_indexed": 628,
+    "translation_units_pending": 0,
+    "translation_units_failed": 0,
+    "translation_units_skipped": 0,
+    "revision": 628,
+    "error": "",
+    "sampled_utc": "2026-10-18T09:44:53.373+00:00",
+    "elapsed_seconds": 320.258,
+    "latency_ms": 0.991
+  },
+  "first_nonzero_index_progress": {
+    "state": "INDEX_STATE_INDEXING",
+    "translation_units_total": 628,
+    "translation_units_completed": 16,
+    "translation_units_indexed": 16,
+    "translation_units_pending": 612,
+    "translation_units_failed": 0,
+    "translation_units_skipped": 0,
+    "revision": 16,
+    "error": "",
+    "sampled_utc": "2026-10-18T09:39:43.129+00:00",
+    "elapsed_seconds": 10.015,
+    "latency_ms": 1.902
+  },
+  "foreground_probe": {
+    "success": true,
+    "completed": true,
+    "bursts": 65,
+    "failures": [],
+    "control_calls": [],
+    "latency_ms": {
+      "exact": {
+        "count": 67,
+        "p50_ms": 6.48,
+        "p95_ms": 19.739,
+        "max_ms": 40.688
+      },
+      "fresh_parse_and_match": {
+        "count": 65,
+        "p50_ms": 44.368,
+        "p95_ms": 73.855,
+        "max_ms": 731.249
+      },
+      "index_status": {
+        "count": 65,
+        "p50_ms": 1.444,
+        "p95_ms": 2.719,
+        "max_ms": 6.153
+      },
+      "out_of_line_definition": {
+        "count": 65,
+        "p50_ms": 4.195,
+        "p95_ms": 5.761,
+        "max_ms": 8.26
+      },
+      "prefix": {
+        "count": 63,
+        "p50_ms": 6.872,
+        "p95_ms": 11.638,
+        "max_ms": 25.782
+      },
+      "server_status": {
+        "count": 65,
+        "p50_ms": 7.76,
+        "p95_ms": 17.673,
+        "max_ms": 27.262
+      },
+      "usr": {
+        "count": 63,
+        "p50_ms": 4.094,
+        "p95_ms": 7.388,
+        "max_ms": 12.892
+      }
+    },
+    "cross_tu_positive_samples": {
+      "exact": {
+        "positive": 63,
+        "samples": 67,
+        "first": {
+          "burst": 2,
+          "revision": 16,
+          "tu_count": 2,
+          "latency_ms": 8.673,
+          "translation_units": [
+            "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/ANTLRFileStream.cpp",
+            "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/ANTLRInputStream.cpp"
+          ]
+        }
+      },
+      "prefix": {
+        "positive": 63,
+        "samples": 63,
+        "first": {
+          "burst": 2,
+          "revision": 16,
+          "tu_count": 2,
+          "latency_ms": 5.901,
+          "translation_units": [
+            "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/ANTLRFileStream.cpp",
+            "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/ANTLRInputStream.cpp"
+          ]
+        }
+      },
+      "usr": {
+        "positive": 63,
+        "samples": 63,
+        "first": {
+          "burst": 2,
+          "revision": 16,
+          "tu_count": 2,
+          "latency_ms": 4.229,
+          "translation_units": [
+            "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/ANTLRFileStream.cpp",
+            "/Users/husam/workspace/clang-toolkit/build/dev/_deps/ctk_antlr-src/runtime/src/ANTLRInputStream.cpp"
+          ]
+        }
+      }
+    },
+    "out_of_line_definition": {
+      "positive_samples": 8,
+      "total_samples": 65,
+      "query": "ctk::platform::current_executable_sibling",
+      "definition_files": [
+        "/Users/husam/workspace/clang-toolkit/server/src/platform/index_worker.cpp"
+      ],
+      "first_positive": {
+        "burst": 57,
+        "revision": 576,
+        "latency_ms": 2.864,
+        "facts": {
+          "query": "ctk::platform::current_executable_sibling",
+          "count": 2,
+          "distinct_translation_units": 1,
+          "cross_tu": false,
+          "all_definitions": true,
+          "stale": true,
+          "revision": 576,
+          "translation_units_indexed": 576,
+          "translation_units": [
+            "/Users/husam/workspace/clang-toolkit/server/src/platform/index_worker.cpp"
+          ],
+          "definition_files": [
+            "/Users/husam/workspace/clang-toolkit/server/src/platform/index_worker.cpp"
+          ],
+          "available": true
+        }
+      }
+    }
+  },
+  "run_bracket_utc": {
+    "start": "2026-10-18T09:39:33.082658+00:00",
+    "complete": "2026-10-18T09:44:53.457019+00:00",
+    "elapsed_seconds": 320.375584667,
+    "rusage_measurement_start": "2026-10-18T09:39:43.401779+00:00",
+    "rusage_measurement_end": "2026-10-18T09:44:52.140924+00:00",
+    "rusage_measurement_span_seconds": 308.7403869580012,
+    "rusage_interval_note": "Counters start about 10s after indexing began; ending sample is the last at/before completion."
+  }
+}

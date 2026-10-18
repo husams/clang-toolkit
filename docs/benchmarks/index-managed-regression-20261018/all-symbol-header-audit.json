@@ -1,0 +1,11 @@
+{
+  "all_symbols": 145382,
+  "nondefinitions": 0,
+  "standard_cpp_header_definitions": 0,
+  "sdk_header_definitions": 0,
+  "compiler_builtin_header_definitions": 0,
+  "nonempty_signatures": 0,
+  "project_owned_std_specializations": 21,
+  "nonstandard_installed_toolchain_definitions": 61668,
+  "scope_note": "All symbol rows, including header groups. Project-owned std::hash specializations and nonstandard Clang/LLVM API definitions are intentionally retained; std namespace membership alone does not identify a standard library include."
+}
