@@ -132,10 +132,8 @@ int install_revision_trace(sqlite3 *database, char **,
         [](sqlite3_context *context, int, sqlite3_value **) {
           auto &trace =
               *static_cast<PipelineTrace *>(sqlite3_user_data(context));
-          sqlite3_result_int(
-              context,
-              trace.fail_publication_once.exchange(false,
-                                                    std::memory_order_acq_rel));
+          sqlite3_result_int(context, trace.fail_publication_once.exchange(
+                                          false, std::memory_order_acq_rel));
         },
         nullptr, nullptr);
   }
@@ -468,23 +466,11 @@ TEST_F(ProjectIndexServiceTest,
 TEST_F(ProjectIndexServiceTest,
        ReadyUnitsPublishAtomicallyAfterSharedDependencyValidation) {
   ProjectIndexStatus first;
-  std::string worker_one_path, worker_two_path;
   {
     IndexServiceAdapter initial(storage, {}, CTK_TEST_INDEX_WORKER);
     first = start_and_wait(initial);
-    const auto symbols = find(initial, "alphaOnly", false);
-    for (const auto &symbol : symbols.symbols()) {
-      std::error_code path_error;
-      if (fs::equivalent(symbol.file_path(), project / "one.cpp", path_error))
-        worker_one_path = symbol.file_path();
-      path_error.clear();
-      if (fs::equivalent(symbol.file_path(), project / "two.cpp", path_error))
-        worker_two_path = symbol.file_path();
-    }
   }
   ASSERT_EQ(first.translation_units_total(), 3);
-  ASSERT_FALSE(worker_one_path.empty());
-  ASSERT_FALSE(worker_two_path.empty());
 
   const auto database = database_file();
   ASSERT_FALSE(database.empty());
@@ -502,10 +488,11 @@ TEST_F(ProjectIndexServiceTest,
   sqlite3 *db = nullptr;
   ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
   const auto trigger =
-      "CREATE TRIGGER block_last_batch_unit BEFORE INSERT ON symbol WHEN "
-      "NEW.file_path='" +
-      worker_two_path +
-      "' BEGIN SELECT block_index_publication(); END;";
+      "CREATE TRIGGER block_last_batch_unit BEFORE INSERT ON "
+      "translation_unit WHEN NEW.indexed_at>0 AND CAST((SELECT value FROM "
+      "metadata WHERE key='revision') AS INTEGER)>" +
+      std::to_string(first.revision()) +
+      " BEGIN SELECT block_index_publication(); END;";
   char *error = nullptr;
   const auto trigger_status =
       sqlite3_exec(db, trigger.c_str(), nullptr, nullptr, &error);
@@ -531,6 +518,7 @@ TEST_F(ProjectIndexServiceTest,
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   ASSERT_TRUE(trace.publication_gate_entered.load(std::memory_order_acquire));
   EXPECT_EQ(find(service, "batchOne", false).symbols_size(), 0);
+  EXPECT_EQ(find(service, "batchTwo", false).symbols_size(), 0);
   EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
   std::ofstream(release_file) << "continue\n";
 
@@ -540,8 +528,8 @@ TEST_F(ProjectIndexServiceTest,
       std::chrono::steady_clock::now() + std::chrono::seconds(60);
   do {
     grpc::ServerContext context;
-    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &status_request, &status)
-                    .ok());
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&context, &status_request, &status).ok());
     if (status.state() == INDEX_STATE_COMPLETE ||
         status.state() == INDEX_STATE_FAILED)
       break;
@@ -584,33 +572,30 @@ TEST_F(ProjectIndexServiceTest,
   const auto lock_word = shell_word(lock.string());
   const auto active_word = shell_word(active_file.string());
   const auto maximum_word = shell_word(maximum_file.string());
-  std::ofstream(wrapper)
-      << "#!/bin/sh\n"
-      << "while ! mkdir " << lock_word << " 2>/dev/null; do sleep 0.001; done\n"
-      << "active=$(cat " << active_word << ")\n"
-      << "active=$((active + 1))\necho $active > " << active_word << "\n"
-      << "maximum=$(cat " << maximum_word << ")\n"
-      << "if [ $active -gt $maximum ]; then echo $active > " << maximum_word
-      << "; fi\nrmdir " << lock_word << "\nsleep 0.05\n"
-      << shell_word(CTK_TEST_INDEX_WORKER) << " \"$@\"\nstatus=$?\n"
-      << "while ! mkdir " << lock_word << " 2>/dev/null; do sleep 0.001; done\n"
-      << "active=$(cat " << active_word << ")\n"
-      << "active=$((active - 1))\necho $active > " << active_word << "\n"
-      << "rmdir " << lock_word << "\nexit $status\n";
+  std::ofstream(wrapper) << "#!/bin/sh\n"
+                         << "while ! mkdir " << lock_word
+                         << " 2>/dev/null; do sleep 0.001; done\n"
+                         << "active=$(cat " << active_word << ")\n"
+                         << "active=$((active + 1))\necho $active > "
+                         << active_word << "\n"
+                         << "maximum=$(cat " << maximum_word << ")\n"
+                         << "if [ $active -gt $maximum ]; then echo $active > "
+                         << maximum_word << "; fi\nrmdir " << lock_word
+                         << "\nsleep 0.05\n"
+                         << shell_word(CTK_TEST_INDEX_WORKER)
+                         << " \"$@\"\nstatus=$?\n"
+                         << "while ! mkdir " << lock_word
+                         << " 2>/dev/null; do sleep 0.001; done\n"
+                         << "active=$(cat " << active_word << ")\n"
+                         << "active=$((active - 1))\necho $active > "
+                         << active_word << "\n"
+                         << "rmdir " << lock_word << "\nexit $status\n";
   fs::permissions(wrapper, fs::perms::owner_all);
 
-  std::string worker_source_path;
   {
     IndexServiceAdapter initial(storage, {}, wrapper, 4);
     start_and_wait(initial);
-    const auto symbols = find(initial, "alphaOnly", false);
-    for (const auto &symbol : symbols.symbols()) {
-      std::error_code path_error;
-      if (fs::equivalent(symbol.file_path(), project / "one.cpp", path_error))
-        worker_source_path = symbol.file_path();
-    }
   }
-  ASSERT_FALSE(worker_source_path.empty());
   const auto database = database_file();
   ASSERT_FALSE(database.empty());
   std::ofstream(maximum_file, std::ios::trunc) << "0\n";
@@ -633,19 +618,19 @@ TEST_F(ProjectIndexServiceTest,
       commands << ',';
     commands << "{\"directory\":" << directory << ",\"file\":" << source
              << ",\"arguments\":[" << compiler
-             << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-DVAR="
-             << i << "\",\"-c\"," << source << "]}";
+             << ",\"-std=c++20\",\"-I.\",\"-DFLAVOR=1\",\"-DVAR=" << i
+             << "\",\"-c\"," << source << "]}";
   }
   commands << ']';
   commands.close();
 
   sqlite3 *db = nullptr;
   ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
-  const auto trigger = "CREATE TRIGGER reject_first_batch_symbol BEFORE "
-                       "INSERT ON symbol WHEN NEW.file_path='" +
-                       worker_source_path +
-                       "' AND fail_index_publication()=1 BEGIN SELECT "
-                       "RAISE(FAIL,'force single fallback'); END;";
+  const std::string trigger =
+      "CREATE TRIGGER reject_first_batch_unit BEFORE "
+      "INSERT ON translation_unit WHEN NEW.indexed_at>0 "
+      "AND fail_index_publication()=1 BEGIN SELECT "
+      "RAISE(FAIL,'force single fallback'); END;";
   char *error = nullptr;
   const auto trigger_status =
       sqlite3_exec(db, trigger.c_str(), nullptr, nullptr, &error);
@@ -666,8 +651,8 @@ TEST_F(ProjectIndexServiceTest,
       std::chrono::steady_clock::now() + std::chrono::seconds(90);
   do {
     grpc::ServerContext context;
-    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &status_request, &status)
-                    .ok());
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&context, &status_request, &status).ok());
     if (status.state() == INDEX_STATE_COMPLETE ||
         status.state() == INDEX_STATE_FAILED)
       break;
