@@ -121,11 +121,61 @@ def test_graph_inspection_exposes_schema_and_existing_console_operations():
 def test_call_graph_inspection_uses_default_semantic_inspector_depth(select_node):
     value = graph()
     value.proto.nodes[1].function.type.spelling = "project::return_type"
+    value.proto.nodes[1].function.function.return_type.spelling = "project::return_type"
     selected = value.nodes[1].proto if select_node else value.proto
 
     inspected = inspect_value(value.nodes[1] if select_node else value)
 
-    assert inspected["value"] == inspect_semantic_value(semantic_view(selected))
+    if select_node:
+        assert inspected["value"] == inspect_semantic_value(semantic_view(selected))
+        assert inspected["value"]["fields"]["function"]["fields"]["type"]["fields"]["spelling"] == "project::return_type"
+        assert inspected["value"]["fields"]["function"]["fields"]["function"]["fields"]["return_type"] == {
+            "type": "ctk.ast.v1.TypeDescription",
+            "truncated": True,
+        }
+    else:
+        standalone = inspect_value(value.nodes[1])["value"]
+        graph_node = inspected["value"]["fields"]["nodes"][1]
+        assert graph_node["fields"]["function"] == standalone["fields"]["function"]
+        assert graph_node["fields"]["function"]["fields"]["type"]["fields"]["spelling"] == "project::return_type"
+        assert graph_node["fields"]["function"]["fields"]["function"]["fields"]["return_type"] == {
+            "type": "ctk.ast.v1.TypeDescription",
+            "truncated": True,
+        }
+
+
+def test_graph_inspection_gives_each_node_default_depth_with_present_location():
+    value = graph()
+    value.proto.nodes[1].availability.clear()
+    value.proto.nodes[1].location.file = "example.cc"
+    value.proto.nodes[1].location.line = 12
+    value.proto.nodes[1].location.column = 4
+    value.proto.nodes[1].function.type.spelling = "project::return_type"
+    value.proto.nodes[1].function.function.return_type.spelling = "project::return_type"
+
+    graph_inspection = inspect_value(value)
+    nodes_inspection = graph_inspection["value"]["fields"]["nodes"]
+    standalone_node = inspect_value(value.nodes[1])["value"]
+
+    graph_node = nodes_inspection[1]
+    assert graph_node["fields"]["function"] == standalone_node["fields"]["function"]
+    assert graph_node["fields"]["location"] == standalone_node["fields"]["location"]
+    assert graph_node["fields"]["function"]["fields"]["qualified_name"] == "project::work"
+    assert graph_node["fields"]["function"]["fields"]["type"]["fields"]["spelling"] == "project::return_type"
+    assert graph_node["fields"]["function"]["fields"]["function"]["fields"]["return_type"] == {
+        "type": "ctk.ast.v1.TypeDescription",
+        "truncated": True,
+    }
+    assert graph_node["fields"]["location"]["fields"]["file"] == "example.cc"
+    assert graph_node["fields"]["location"]["fields"]["line"] == 12
+    rendered = json.loads(render_inspection(value))
+    rendered_node = rendered["value"]["fields"]["nodes"][1]
+    assert rendered_node["fields"]["function"]["fields"]["qualified_name"] == "project::work"
+    assert rendered_node["fields"]["location"]["fields"]["file"] == "example.cc"
+    assert rendered_node["fields"]["function"]["fields"]["function"]["fields"]["return_type"] == {
+        "type": "ctk.ast.v1.TypeDescription",
+        "truncated": True,
+    }
 
 
 @pytest.mark.parametrize("state", ["live", "detached", "closed", "root"])
@@ -165,6 +215,9 @@ def test_graph_preview_limits_do_not_truncate_the_stored_graph_or_nodes():
     assert "truncated" in displayed
     assert "project::work" in displayed
     assert json.loads(inspected)["node_count"] == 40
+    graph_nodes = inspect_value(value)["value"]["fields"]["nodes"]
+    assert len(graph_nodes) == 21
+    assert graph_nodes[-1] == {"truncated": 20}
     assert nodes[1]["value"]["fields"]["function"]["fields"]["qualified_name"] == "project::work"
     assert nodes[-1] == {"truncated": 20}
     assert len(value.nodes) == 40
