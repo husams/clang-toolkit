@@ -3,6 +3,8 @@
 #include "ctk/net/protocol_adapter.hpp"
 #include "ctk/net/server.hpp"
 #include "ctk/version.hpp"
+#include "index/v1/index_service.grpc.pb.h"
+#include "match/v1/match_service.grpc.pb.h"
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -153,6 +155,32 @@ TEST(NetworkTransport, VersionReportsRunningBuildWithoutStartingAQuery) {
       stub->GetVersion(&context, wire::VersionRequest{}, &response).ok());
   EXPECT_EQ(response.version(), ctk::build::version);
   EXPECT_EQ(response.revision(), ctk::build::revision);
+  EXPECT_FALSE(controller.task);
+  host.shutdown();
+}
+
+TEST(NetworkTransport, ServerStatusIncludesProjectInventoryWithoutNativeWork) {
+  FakeController controller;
+  auto settings = isolated_settings();
+  ctk::net::GrpcServerHost host(settings, controller);
+  host.start();
+  auto channel = grpc::CreateChannel(settings.endpoint,
+                                     grpc::InsecureChannelCredentials());
+  auto matches = ctk::match::v1::MatchService::NewStub(channel);
+  auto indexes = ctk::index::v1::IndexService::NewStub(channel);
+  grpc::ClientContext status_context;
+  status_context.set_deadline(std::chrono::system_clock::now() +
+                              std::chrono::seconds(5));
+  ctk::match::v1::ServerStatusResponse status;
+  ASSERT_TRUE(matches->ServerStatus(&status_context, {}, &status).ok());
+  ASSERT_TRUE(status.has_project_indexes());
+  grpc::ClientContext list_context;
+  list_context.set_deadline(std::chrono::system_clock::now() +
+                            std::chrono::seconds(5));
+  ctk::index::v1::ListProjectIndexesResponse inventory;
+  ASSERT_TRUE(indexes->ListProjectIndexes(&list_context, {}, &inventory).ok());
+  EXPECT_EQ(status.project_indexes().total_count(), inventory.total_count());
+  EXPECT_EQ(inventory.total_count(), inventory.projects_size());
   EXPECT_FALSE(controller.task);
   host.shutdown();
 }

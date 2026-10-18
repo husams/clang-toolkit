@@ -185,6 +185,7 @@ def test_panel_keys_preserve_draft_and_status_refreshes_then_marks_stale(
         calls = 0
 
         async def read_status() -> pb.ServerStatusResponse:
+            from clang_toolkit._generated.index.v1 import index_service_pb2 as index_pb
             nonlocal calls
             calls += 1
             if calls > 1:
@@ -194,6 +195,11 @@ def test_panel_keys_preserve_draft_and_status_refreshes_then_marks_stale(
                 active_sessions=2,
                 retained_memory_bytes=4 * 1024**2,
                 max_sessions=100,
+                project_indexes=index_pb.ListProjectIndexesResponse(
+                    total_count=1, projects=[index_pb.ProjectIndexStatus(
+                        project_root="/active-project", state=index_pb.INDEX_STATE_INDEXING,
+                        translation_units_indexed=2, translation_units_total=7,
+                        translation_units_pending=5)]),
             )
 
         async def execute(source: str) -> DispatchResult:
@@ -232,6 +238,9 @@ def test_panel_keys_preserve_draft_and_status_refreshes_then_marks_stale(
                 pipe.send_text("\x1b[20~")  # F9 server.
                 await wait_until(lambda: ui.panel_kind == "server")
                 assert "Resident memory" in ui.server_panel.text
+                assert "Projects in progress" in ui.server_panel.text
+                assert "/active-project" in ui.server_panel.text
+                assert "2/7 indexed" in ui.server_panel.text
                 await wait_until(lambda: calls >= 2 and "stale" in ui.footer())
                 assert "Refresh failed" in ui.server_panel.text
                 assert ui.buffer.text == 'print "kept"'

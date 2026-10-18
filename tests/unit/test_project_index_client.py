@@ -13,6 +13,10 @@ def test_async_index_controls_build_ui_contract_requests():
     async def exercise():
         client = AsyncClient("unix:///tmp/not-connected-index-test.sock")
         client._index_call = AsyncMock(return_value=pb.ProjectIndexStatus())
+        await client.list_project_indexes()
+        method, request = client._index_call.call_args.args
+        assert method == "ListProjectIndexes"
+        assert isinstance(request, pb.ListProjectIndexesRequest)
         await client.start_project_index("/remote/project", compile_commands="/remote/build", poll_interval_seconds=3)
         method, request = client._index_call.call_args.args
         assert method == "StartProjectIndex"
@@ -58,4 +62,6 @@ def test_sync_index_controls_use_existing_client_loop(monkeypatch):
     monkeypatch.setattr(client, "_cursor_call", call)
     assert client.pause_project_index("/project") is expected
     assert calls == [("pause_project_index", ("/project",), {})]
+    assert client.list_project_indexes() is expected
+    assert calls[-1] == ("list_project_indexes", (), {})
     client.close()

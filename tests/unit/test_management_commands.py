@@ -10,6 +10,29 @@ from clang_toolkit.client import Client
 from prompt_toolkit.document import Document
 
 
+def test_status_shows_project_inventory_and_active_progress():
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as index_pb
+
+    status = pb.ServerStatusResponse(project_indexes=index_pb.ListProjectIndexesResponse(
+        total_count=3, projects=[
+            index_pb.ProjectIndexStatus(project_root="/complete", state=index_pb.INDEX_STATE_IDLE,
+                                        translation_units_indexed=5, translation_units_total=5),
+            index_pb.ProjectIndexStatus(project_root="/active", state=index_pb.INDEX_STATE_INDEXING,
+                                        translation_units_indexed=2, translation_units_total=7,
+                                        translation_units_pending=5, current_translation_unit="/active/a.cc"),
+            index_pb.ProjectIndexStatus(project_root="/paused", state=index_pb.INDEX_STATE_PAUSED),
+        ]))
+    rendered = _render_status(status)
+    assert "Project indexing" in rendered
+    for label, value in [("Total projects", "3"), ("Projects in progress", "1"),
+                         ("Indexed translation units", "7"), ("Pending translation units", "5")]:
+        assert any(line.startswith(label + " ") and line.endswith(value)
+                   for line in rendered.splitlines())
+    assert "INDEXING, 2/7 indexed, 5 pending, 0 failed" in rendered
+    assert "/active/a.cc" in rendered
+    assert "Unavailable" in _render_status(pb.ServerStatusResponse())
+
+
 def test_bindings_rename_and_drop_preserve_aliases(tmp_path):
     runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
     try:

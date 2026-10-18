@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <iterator>
 #include <mutex>
@@ -365,7 +366,36 @@ protected:
         return entry.path();
     return {};
   }
+  fs::path second_project() {
+    const auto first = project;
+    const auto second = root / "second-project";
+    fs::copy(first, second, fs::copy_options::recursive);
+    project = second;
+    write_commands();
+    project = first;
+    return second;
+  }
+  ProjectIndexStatus wait_for_revision(IndexServiceAdapter &service,
+                                       std::uint64_t minimum_revision) {
+    ProjectIndexRequest request;
+    request.set_project_root(project.string());
+    ProjectIndexStatus status;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    do {
+      grpc::ServerContext context;
+      EXPECT_TRUE(
+          service.GetProjectIndexStatus(&context, &request, &status).ok());
+      if (status.state() == INDEX_STATE_COMPLETE &&
+          status.revision() >= minimum_revision)
+        return status;
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    } while (std::chrono::steady_clock::now() < deadline);
+    ADD_FAILURE() << status.DebugString();
+    return status;
+  }
   ProjectIndexStatus start_and_wait(IndexServiceAdapter &service) {
+
     StartProjectIndexRequest request;
     request.set_project_root(project.string());
     request.set_poll_interval_seconds(1);
@@ -401,10 +431,122 @@ protected:
                                   : FindSymbolsRequest::MATCH_MODE_EXACT);
     FindSymbolsResponse result;
     grpc::ServerContext context;
-    EXPECT_TRUE(service.FindSymbols(&context, &request, &result).ok());
+    const auto rpc_status = service.FindSymbols(&context, &request, &result);
+    EXPECT_TRUE(rpc_status.ok()) << rpc_status.error_message();
     return result;
   }
 };
+
+TEST_F(ProjectIndexServiceTest, ListsEmptyStorageWithoutCreatingAnIndex) {
+  IndexServiceAdapter service(storage);
+  grpc::ServerContext context;
+  ListProjectIndexesRequest request;
+  ListProjectIndexesResponse response;
+  ASSERT_TRUE(service.ListProjectIndexes(&context, &request, &response).ok());
+  EXPECT_EQ(response.total_count(), 0u);
+  EXPECT_TRUE(response.projects().empty());
+  EXPECT_FALSE(fs::exists(storage));
+}
+
+TEST_F(ProjectIndexServiceTest,
+       ListsQueuedWorkBeforeAnyTranslationUnitIsPublished) {
+  IndexServiceAdapter service(
+      storage, [] { return true; }, CTK_TEST_INDEX_WORKER);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  grpc::ServerContext start_context;
+  ProjectIndexStatus queued;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &queued).ok());
+  grpc::ServerContext context;
+  ListProjectIndexesRequest request;
+  ListProjectIndexesResponse response;
+  ASSERT_TRUE(service.ListProjectIndexes(&context, &request, &response).ok());
+  ASSERT_EQ(response.projects_size(), 1);
+  EXPECT_EQ(response.total_count(), 1u);
+  EXPECT_EQ(response.projects(0).project_root(), project.string());
+  EXPECT_TRUE(response.projects(0).state() == INDEX_STATE_QUEUED ||
+              response.projects(0).state() == INDEX_STATE_PAUSED);
+  EXPECT_EQ(response.projects(0).translation_units_indexed(), 0u);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       ListsSortedSavedProjectsAndIgnoresIncompleteStores) {
+  using namespace index_detail;
+  for (const auto &name : {"z-project", "a-project"}) {
+    const auto key = (root / name).string();
+    const auto directory = storage / "symbol-index" / digest_text(key);
+    fs::create_directories(directory);
+    Database db(directory / "symbols.sqlite3", true);
+    metadata(db, "project_root", key);
+    metadata(db, "revision", "4");
+    metadata(db, "total", "3");
+    db.exec("INSERT INTO translation_unit VALUES"
+            "('tu','file.cc','','','','','{}',1,'ready',''),"
+            "('failed','bad.cc','','','','','{}',1,'failed','bad input'),"
+            "('header','header.h','','','','','[]',0,'ready','')");
+  }
+  // Initialization can be visible before metadata has been populated.
+  const auto incomplete = storage / "symbol-index" / "initializing";
+  fs::create_directories(incomplete);
+  {
+    Database db(incomplete / "symbols.sqlite3", true);
+  }
+  IndexServiceAdapter service(storage);
+  grpc::ServerContext context;
+  ListProjectIndexesRequest request;
+  ListProjectIndexesResponse response;
+  ASSERT_TRUE(service.ListProjectIndexes(&context, &request, &response).ok());
+  ASSERT_EQ(response.projects_size(), 2);
+  EXPECT_EQ(response.total_count(), 2u);
+  EXPECT_EQ(response.projects(0).project_root(), (root / "a-project").string());
+  EXPECT_EQ(response.projects(1).project_root(), (root / "z-project").string());
+  for (const auto &saved : response.projects()) {
+    EXPECT_EQ(saved.state(), INDEX_STATE_IDLE);
+    EXPECT_EQ(saved.revision(), 4u);
+    EXPECT_EQ(saved.translation_units_total(), 3u);
+    EXPECT_EQ(saved.translation_units_indexed(), 2u);
+    EXPECT_EQ(saved.translation_units_pending(), 1u);
+    EXPECT_EQ(saved.translation_units_failed(), 1u);
+  }
+}
+
+TEST_F(ProjectIndexServiceTest, ListsLiveProgressOnceAndRetainsItAfterRestart) {
+  ListProjectIndexesRequest request;
+  ListProjectIndexesResponse response;
+  {
+    IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+    const auto status = start_and_wait(service);
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.ListProjectIndexes(&context, &request, &response).ok());
+    ASSERT_EQ(response.projects_size(), 1);
+    EXPECT_EQ(response.total_count(), 1u);
+    EXPECT_EQ(response.projects(0).SerializeAsString(),
+              status.SerializeAsString());
+    ProjectIndexRequest project_request;
+    project_request.set_project_root(project.string());
+    grpc::ServerContext pause_context;
+    ProjectIndexStatus paused;
+    ASSERT_TRUE(
+        service.PauseProjectIndex(&pause_context, &project_request, &paused)
+            .ok());
+    grpc::ServerContext list_context;
+    ASSERT_TRUE(
+        service.ListProjectIndexes(&list_context, &request, &response).ok());
+    ASSERT_EQ(response.projects_size(), 1);
+    EXPECT_EQ(response.projects(0).state(), INDEX_STATE_PAUSED);
+  }
+  // Saved inventory remains available even if the source project is removed.
+  fs::remove_all(project);
+  IndexServiceAdapter restarted(storage);
+  grpc::ServerContext context;
+  ASSERT_TRUE(restarted.ListProjectIndexes(&context, &request, &response).ok());
+  ASSERT_EQ(response.projects_size(), 1);
+  EXPECT_EQ(response.total_count(), 1u);
+  EXPECT_EQ(response.projects(0).project_root(), project.string());
+  EXPECT_EQ(response.projects(0).state(), INDEX_STATE_IDLE);
+  EXPECT_EQ(response.projects(0).translation_units_indexed(), 3u);
+  EXPECT_EQ(response.projects(0).translation_units_total(), 3u);
+}
 
 TEST_F(ProjectIndexServiceTest,
        ExcludesSystemHeadersAndPreservesProjectHeaderVariants) {
@@ -2088,6 +2230,194 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_EQ(status.revision(), initial.revision() + 2);
   EXPECT_EQ(find(service, "NewChoice", false).symbols_size(), 2);
   EXPECT_EQ(find(service, "OldChoice", false).symbols_size(), 0);
+}
+TEST_F(ProjectIndexServiceTest, ReadersWaitForBriefDatabaseLocks) {
+  {
+    IndexServiceAdapter initial(storage, {}, CTK_TEST_INDEX_WORKER);
+    start_and_wait(initial);
+  }
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto database = database_file();
+  for (bool listing : {false, true}) {
+    sqlite3 *raw = nullptr;
+    ASSERT_EQ(sqlite3_open(database.c_str(), &raw), SQLITE_OK);
+    std::unique_ptr<sqlite3, decltype(&sqlite3_close_v2)> locked(
+        raw, sqlite3_close_v2);
+    ASSERT_EQ(sqlite3_exec(locked.get(),
+                           "PRAGMA locking_mode=EXCLUSIVE; "
+                           "BEGIN EXCLUSIVE; "
+                           "UPDATE metadata SET value=value "
+                           "WHERE key='revision'",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK)
+        << sqlite3_errmsg(locked.get());
+    FindSymbolsRequest request;
+    request.set_project_root(project.string());
+    request.set_query("alphaOnly");
+    FindSymbolsResponse symbols;
+    ListProjectIndexesResponse projects;
+    auto result = std::async(std::launch::async, [&] {
+      grpc::ServerContext context;
+      if (listing) {
+        ListProjectIndexesRequest list;
+        return service.ListProjectIndexes(&context, &list, &projects);
+      }
+      return service.FindSymbols(&context, &request, &symbols);
+    });
+    EXPECT_EQ(result.wait_for(std::chrono::milliseconds(20)),
+              std::future_status::timeout);
+    locked.reset();
+    const auto status = result.get();
+    ASSERT_TRUE(status.ok()) << status.error_message();
+    if (listing)
+      EXPECT_EQ(projects.total_count(), 1u);
+    else {
+      EXPECT_EQ(symbols.symbols_size(), 2);
+      EXPECT_TRUE(symbols.stale());
+    }
+  }
+}
+
+TEST_F(ProjectIndexServiceTest, MonitorsProjectsAndControlsThemIndependently) {
+  const auto first = project;
+  const auto second = second_project();
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER, 2);
+  const auto first_status = start_and_wait(service);
+  project = second;
+  const auto second_status = start_and_wait(service);
+  EXPECT_FALSE(find(service, "alphaOnly", false).stale());
+  project = first;
+  EXPECT_FALSE(find(service, "alphaOnly", false).stale());
+
+  ProjectIndexRequest control;
+  control.set_project_root(first.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext pause_context;
+  ASSERT_TRUE(
+      service.PauseProjectIndex(&pause_context, &control, &status).ok());
+  write("one.cpp", "int firstChanged(){return 1;}\n");
+  project = second;
+  write("one.cpp", "int secondChanged(){return 2;}\n");
+  wait_for_revision(service, second_status.revision() + 2);
+  EXPECT_EQ(find(service, "secondChanged", false).symbols_size(), 2);
+  project = first;
+  EXPECT_EQ(find(service, "firstChanged", false).symbols_size(), 0);
+  grpc::ServerContext status_context;
+  ASSERT_TRUE(
+      service.GetProjectIndexStatus(&status_context, &control, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_PAUSED);
+  EXPECT_EQ(status.revision(), first_status.revision());
+
+  grpc::ServerContext resume_context;
+  ASSERT_TRUE(
+      service.ResumeProjectIndex(&resume_context, &control, &status).ok());
+  wait_for_revision(service, first_status.revision() + 2);
+  EXPECT_EQ(find(service, "firstChanged", false).symbols_size(), 2);
+  // An equivalent project path must reuse the same monitor and revision.
+  StartProjectIndexRequest duplicate;
+  duplicate.set_project_root((first / ".").string());
+  grpc::ServerContext duplicate_context;
+  ASSERT_TRUE(
+      service.StartProjectIndex(&duplicate_context, &duplicate, &status).ok());
+  EXPECT_EQ(status.revision(), first_status.revision() + 2);
+
+  grpc::ServerContext cancel_context;
+  ASSERT_TRUE(
+      service.CancelProjectIndex(&cancel_context, &control, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_CANCELLED);
+  EXPECT_TRUE(find(service, "firstChanged", false).stale());
+  project = second;
+  write("two.cpp", "int stillMonitored(){return 3;}\n");
+  wait_for_revision(service, second_status.revision() + 3);
+  EXPECT_EQ(find(service, "stillMonitored", false).symbols_size(), 1);
+  EXPECT_FALSE(find(service, "stillMonitored", false).stale());
+  project = first;
+  EXPECT_EQ(start_and_wait(service).translation_units_failed(), 0);
+}
+
+TEST_F(ProjectIndexServiceTest, SharesWorkerLimitAcrossConcurrentProjects) {
+  const auto first = project;
+  const auto second = second_project();
+  const auto overlap = root / "worker-overlap";
+  const auto wrapper = worker_wrapper_with_lock(
+      root / "counter", root / "worker-lock", overlap, {}, "sleep 0.05\n");
+  IndexServiceAdapter service(storage, {}, wrapper, 1);
+  for (const auto &path : {first, second}) {
+    StartProjectIndexRequest request;
+    request.set_project_root(path.string());
+    request.set_poll_interval_seconds(1);
+    grpc::ServerContext context;
+    ProjectIndexStatus status;
+    ASSERT_TRUE(service.StartProjectIndex(&context, &request, &status).ok());
+  }
+  EXPECT_EQ(wait_for_revision(service, 3).translation_units_indexed(), 3);
+  project = second;
+  EXPECT_EQ(wait_for_revision(service, 3).translation_units_indexed(), 3);
+  EXPECT_FALSE(fs::exists(overlap));
+}
+
+TEST_F(ProjectIndexServiceTest,
+       CancellingQueuedProjectLeavesOtherMonitorRunning) {
+  const auto second = second_project();
+  IndexServiceAdapter service(
+      storage, [] { return true; }, CTK_TEST_INDEX_WORKER, 1);
+  for (const auto &path : {project, second}) {
+    StartProjectIndexRequest request;
+    request.set_project_root(path.string());
+    grpc::ServerContext context;
+    ProjectIndexStatus status;
+    ASSERT_TRUE(service.StartProjectIndex(&context, &request, &status).ok());
+  }
+  ProjectIndexRequest request;
+  request.set_project_root(second.string());
+  grpc::ServerContext context;
+  ProjectIndexStatus status;
+  ASSERT_TRUE(service.CancelProjectIndex(&context, &request, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_CANCELLED);
+  request.set_project_root(project.string());
+  grpc::ServerContext first_context;
+  ASSERT_TRUE(
+      service.GetProjectIndexStatus(&first_context, &request, &status).ok());
+  EXPECT_NE(status.state(), INDEX_STATE_CANCELLED);
+  grpc::ServerContext list_context;
+  ListProjectIndexesRequest list_request;
+  ListProjectIndexesResponse listed;
+  ASSERT_TRUE(
+      service.ListProjectIndexes(&list_context, &list_request, &listed).ok());
+  ASSERT_EQ(listed.total_count(), 2u);
+  ASSERT_EQ(listed.projects_size(), 2);
+  EXPECT_EQ(listed.projects(0).project_root(), project.string());
+  EXPECT_NE(listed.projects(0).state(), INDEX_STATE_IDLE);
+  EXPECT_NE(listed.projects(0).state(), INDEX_STATE_CANCELLED);
+  EXPECT_EQ(listed.projects(1).project_root(), second.string());
+  EXPECT_EQ(listed.projects(1).state(), INDEX_STATE_CANCELLED);
+  // Destruction must wake and join both monitors even while foreground work
+  // prevents their admission.
+}
+
+TEST_F(ProjectIndexServiceTest,
+       ShutdownReapsWorkersAndWakesOtherProjectsWaitingForSlots) {
+  const auto second = second_project();
+  const auto counter = root / "blocked-worker";
+  const auto wrapper = worker_wrapper(counter, "sleep 10\n");
+  auto service = std::make_unique<IndexServiceAdapter>(
+      storage, std::function<bool()>{}, wrapper, 1);
+  for (const auto &path : {project, second}) {
+    StartProjectIndexRequest request;
+    request.set_project_root(path.string());
+    grpc::ServerContext context;
+    ProjectIndexStatus status;
+    ASSERT_TRUE(service->StartProjectIndex(&context, &request, &status).ok());
+  }
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (!fs::exists(counter) && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  ASSERT_TRUE(fs::exists(counter));
+  const auto stopping = std::chrono::steady_clock::now();
+  service.reset();
+  EXPECT_LT(std::chrono::steady_clock::now() - stopping,
+            std::chrono::seconds(2));
 }
 } // namespace
 } // namespace ctk::net

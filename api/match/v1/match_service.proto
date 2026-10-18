@@ -8,6 +8,7 @@ import "match/v1/match_stream.proto";
 import "match/v1/parse_request.proto";
 import "match/v1/parse_response.proto";
 import "match/v1/resources.proto";
+import "index/v1/index_service.proto";
 
 service MatchService {
   rpc DiscoverFiles(DiscoverFilesRequest) returns (DiscoverFilesResponse);
@@ -234,6 +235,7 @@ message ServerStatusResponse {
   uint64 max_sessions = 5;
   uint64 max_retained_memory_bytes = 6;
   CacheResources cache = 7;
+  ctk.index.v1.ListProjectIndexesResponse project_indexes = 8;
 }
 message PruneCachesRequest {
   // At least one selection is required; disk pruning retires unused snapshots.

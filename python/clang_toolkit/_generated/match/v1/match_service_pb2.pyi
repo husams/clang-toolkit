@@ -6,6 +6,7 @@ from . import match_stream_pb2 as _match_stream_pb2
 from . import parse_request_pb2 as _parse_request_pb2
 from . import parse_response_pb2 as _parse_response_pb2
 from . import resources_pb2 as _resources_pb2
+from ...index.v1 import index_service_pb2 as _index_service_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
@@ -178,7 +179,7 @@ class CacheResources(_message.Message):
     def __init__(self, memory_available: _Optional[bool] = ..., reusable_snapshots: _Optional[int] = ..., reusable_memory_bytes: _Optional[int] = ..., pending_builds: _Optional[int] = ..., storage_available: _Optional[bool] = ..., artifact_disk_bytes: _Optional[int] = ..., ready_snapshots: _Optional[int] = ..., stale_snapshots: _Optional[int] = ..., leased_snapshots: _Optional[int] = ..., storage_root: _Optional[str] = ...) -> None: ...
 
 class ServerStatusResponse(_message.Message):
-    __slots__ = ("uptime_ms", "resident_memory_bytes", "active_sessions", "retained_memory_bytes", "max_sessions", "max_retained_memory_bytes", "cache")
+    __slots__ = ("uptime_ms", "resident_memory_bytes", "active_sessions", "retained_memory_bytes", "max_sessions", "max_retained_memory_bytes", "cache", "project_indexes")
     UPTIME_MS_FIELD_NUMBER: _ClassVar[int]
     RESIDENT_MEMORY_BYTES_FIELD_NUMBER: _ClassVar[int]
     ACTIVE_SESSIONS_FIELD_NUMBER: _ClassVar[int]
@@ -186,6 +187,7 @@ class ServerStatusResponse(_message.Message):
     MAX_SESSIONS_FIELD_NUMBER: _ClassVar[int]
     MAX_RETAINED_MEMORY_BYTES_FIELD_NUMBER: _ClassVar[int]
     CACHE_FIELD_NUMBER: _ClassVar[int]
+    PROJECT_INDEXES_FIELD_NUMBER: _ClassVar[int]
     uptime_ms: int
     resident_memory_bytes: int
     active_sessions: int
@@ -193,7 +195,8 @@ class ServerStatusResponse(_message.Message):
     max_sessions: int
     max_retained_memory_bytes: int
     cache: CacheResources
-    def __init__(self, uptime_ms: _Optional[int] = ..., resident_memory_bytes: _Optional[int] = ..., active_sessions: _Optional[int] = ..., retained_memory_bytes: _Optional[int] = ..., max_sessions: _Optional[int] = ..., max_retained_memory_bytes: _Optional[int] = ..., cache: _Optional[_Union[CacheResources, _Mapping]] = ...) -> None: ...
+    project_indexes: _index_service_pb2.ListProjectIndexesResponse
+    def __init__(self, uptime_ms: _Optional[int] = ..., resident_memory_bytes: _Optional[int] = ..., active_sessions: _Optional[int] = ..., retained_memory_bytes: _Optional[int] = ..., max_sessions: _Optional[int] = ..., max_retained_memory_bytes: _Optional[int] = ..., cache: _Optional[_Union[CacheResources, _Mapping]] = ..., project_indexes: _Optional[_Union[_index_service_pb2.ListProjectIndexesResponse, _Mapping]] = ...) -> None: ...
 
 class PruneCachesRequest(_message.Message):
     __slots__ = ("memory", "disk")

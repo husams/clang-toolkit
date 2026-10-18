@@ -858,6 +858,7 @@ server status
 Manage background symbol indexing and locate symbols across TUs.
 
 ```text
+index list
 index start "PROJECT"
 index status "PROJECT"
 index pause "PROJECT"
@@ -870,10 +871,14 @@ index lookup "USR" in "PROJECT"
 - Project paths refer to the server filesystem; relative paths use console cwd.
 - Start discovers compile_commands.json; Python start_project_index accepts an explicit path.
 - Status and controls return immediately; indexing runs independently in the background.
+- List shows saved indexes and current work with a total count. Saved indexes without a current job are IDLE until started again.
 - Find performs exact name or qualified-name lookup; Python find_symbols supports prefix=True.
-- Status and lookup responses can be assigned to variables.
+- List, status and lookup responses can be assigned to variables.
 
 ```text
+index list
+let projects = index list
+print $projects.total_count
 index start "."
 let progress = index status "."
 index pause "."
@@ -890,6 +895,7 @@ server status
 ```
 
 - Reports uptime, current process RSS when available, session count and configured limits.
+- Includes saved project indexes, projects in progress, indexed/pending translation units and current extraction; also shown in the live Server status pane.
 - Sizes use KiB below 1 MiB, MiB below 1 GiB, and GiB otherwise.
 - Retained/native memory counters are estimates; cache and cursor bytes can overlap.
 - Unavailable disk or memory cache accounting is explicitly flagged.

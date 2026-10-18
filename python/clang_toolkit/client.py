@@ -1521,6 +1521,10 @@ class AsyncClient:
         except grpc.aio.AioRpcError as error:
             raise CursorError(error.code(), error.details()) from error
 
+    async def list_project_indexes(self) -> index_pb.ListProjectIndexesResponse:
+        """List saved project indexes and current work on this server."""
+        return await self._index_call("ListProjectIndexes", index_pb.ListProjectIndexesRequest())
+
     async def start_project_index(
         self, project_root: str | Path, *, compile_commands: str | Path = "",
         poll_interval_seconds: int = 2,
@@ -2174,6 +2178,10 @@ class Client:
 
     def resource_status(self) -> Any:
         return self._cursor_call("resource_status")
+
+    def list_project_indexes(self) -> index_pb.ListProjectIndexesResponse:
+        """List saved project indexes and current work on this server."""
+        return self._cursor_call("list_project_indexes")
 
     def start_project_index(self, project_root: str | Path, *,
                             compile_commands: str | Path = "",

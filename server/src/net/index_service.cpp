@@ -14,6 +14,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <semaphore>
 #include <set>
 #include <thread>
 #include <utility>
@@ -28,6 +29,45 @@ struct Job {
   std::string root, commands;
   unsigned interval = 2;
   std::uint64_t epoch = 0;
+};
+// WAL cleanup after a monitor stops can briefly hold an exclusive lock. Keep
+// foreground reads retryable within their existing deadline/cancellation
+// budget.
+class ReadBudget {
+public:
+  explicit ReadBudget(grpc::ServerContext &context)
+      : context_(context), deadline_(std::min(context.deadline(),
+                                              std::chrono::system_clock::now() +
+                                                  std::chrono::seconds(1))) {}
+  bool interrupted() const {
+    return context_.IsCancelled() ||
+           std::chrono::system_clock::now() >= deadline_;
+  }
+  void wait_for_locks(Database &db) {
+    sqlite3_busy_handler(
+        db.handle,
+        [](void *raw, int) {
+          auto &budget = *static_cast<ReadBudget *>(raw);
+          if (budget.interrupted())
+            return 0;
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          return budget.interrupted() ? 0 : 1;
+        },
+        this);
+  }
+  void limit_query(Database &db) {
+    wait_for_locks(db);
+    sqlite3_progress_handler(
+        db.handle, 1000,
+        [](void *raw) {
+          return static_cast<ReadBudget *>(raw)->interrupted() ? 1 : 0;
+        },
+        this);
+  }
+
+private:
+  grpc::ServerContext &context_;
+  std::chrono::system_clock::time_point deadline_;
 };
 std::string escaped_prefix(const std::string &value) {
   std::string pattern;
@@ -47,10 +87,11 @@ std::uint64_t count_units(Database &db) {
 
 // This controller owns no native ASTs and never runs work on the foreground
 // pool.
-class BackgroundSymbolIndexer {
+class ProjectSymbolMonitor {
 public:
-  BackgroundSymbolIndexer(fs::path root, std::function<bool()> foreground_busy,
-                          fs::path executable, std::size_t max_workers)
+  ProjectSymbolMonitor(fs::path root, std::function<bool()> foreground_busy,
+                       fs::path executable, std::size_t max_workers,
+                       std::counting_semaphore<4> &worker_slots)
       : storage_(std::move(root) / "symbol-index"),
         executable_(executable.empty() ? platform::current_executable_sibling(
                                              "ctk-index-worker")
@@ -60,27 +101,87 @@ public:
             max_workers ? max_workers
                         : platform::index_worker_parallelism_limit(),
             1, 4)),
-        thread_([this] { loop(); }) {}
-  ~BackgroundSymbolIndexer() {
+        worker_slots_(worker_slots) {}
+  void stop() {
     {
       std::lock_guard lock(mutex_);
       stopping_ = true;
     }
     changed_.notify_all();
-    thread_.join();
+  }
+  ~ProjectSymbolMonitor() {
+    stop();
+    if (thread_.joinable())
+      thread_.join();
   }
   fs::path database_path(const std::string &root) const {
     return storage_ / digest_text(root) / "symbols.sqlite3";
   }
+  ListProjectIndexesResponse list(grpc::ServerContext &context) {
+    ReadBudget budget(context);
+    std::map<std::string, ProjectIndexStatus> projects;
+    // Only index metadata is read; never hold the controller mutex during I/O.
+    // A database may still be being initialized by the background worker.
+    if (fs::exists(storage_)) {
+      for (const auto &entry : fs::directory_iterator(storage_)) {
+        if (context.IsCancelled())
+          throw std::runtime_error("project index listing cancelled");
+        const auto path = entry.path() / "symbols.sqlite3";
+        if (!entry.is_directory() || !fs::is_regular_file(path))
+          continue;
+        Database db(path, false);
+        budget.wait_for_locks(db);
+        db.exec("BEGIN");
+        Statement schema(db, "SELECT count(*) FROM sqlite_master WHERE "
+                             "type='table' AND name IN "
+                             "('metadata','translation_unit')");
+        schema.step();
+        if (schema.number(0) != 2)
+          continue;
+        Statement root(db, "SELECT value FROM metadata WHERE key='project_root'");
+        if (!root.step() || root.text(0).empty())
+          continue;
+        const auto key = root_key(root.text(0));
+        if (path != database_path(key))
+          continue;
+        ProjectIndexStatus saved;
+        saved.set_project_root(key);
+        saved.set_state(INDEX_STATE_IDLE);
+        saved.set_revision(revision(db));
+        saved.set_translation_units_indexed(count_units(db));
+        Statement total(db, "SELECT value FROM metadata WHERE key='total'");
+        if (total.step())
+          saved.set_translation_units_total(std::stoull(total.text(0)));
+        Statement failed(db, "SELECT count(*) FROM translation_unit "
+                             "WHERE indexed_at>0 AND status='failed'");
+        failed.step();
+        saved.set_translation_units_failed(failed.number(0));
+        if (saved.translation_units_total() > saved.translation_units_indexed())
+          saved.set_translation_units_pending(saved.translation_units_total() -
+                                              saved.translation_units_indexed());
+        projects.emplace(key, std::move(saved));
+      }
+    }
+    {
+      std::lock_guard lock(mutex_);
+      // Include queued work before its database exists, without duplicating
+      // the saved row; live progress takes precedence over persisted coverage.
+      if (!job_.root.empty())
+        projects[job_.root] = status_;
+    }
+    ListProjectIndexesResponse response;
+    for (auto &[key, status] : projects)
+      *response.add_projects() = std::move(status);
+    response.set_total_count(response.projects_size());
+    return response;
+  }
   ProjectIndexStatus start(const StartProjectIndexRequest &request) {
     const auto key = root_key(request.project_root());
     std::lock_guard lock(mutex_);
-    if (!job_.root.empty() && !cancelled_) {
-      if (job_.root != key)
-        throw std::logic_error(
-            "cancel the active project index before starting another project");
+    if (!thread_.joinable())
+      thread_ = std::thread([this] { loop(); });
+    if (!job_.root.empty() && !cancelled_)
       return status_;
-    }
     job_.root = key;
     job_.commands = request.compile_commands();
     job_.interval = std::clamp(
@@ -150,27 +251,11 @@ public:
       response.set_stale(true);
       return response;
     }
+    // Cold pages and brief WAL cleanup locks share the same bounded budget;
+    // client deadlines and cancellation still win.
+    ReadBudget budget(context);
     Database db(path, false);
-    // Cold index pages may require disk I/O while the background writer is
-    // active. Keep a bounded budget without rejecting otherwise cheap queries
-    // at the former 250ms cutoff; client deadlines/cancellation still win.
-    const auto deadline =
-        std::min(context.deadline(),
-                 std::chrono::system_clock::now() + std::chrono::seconds(1));
-    struct QueryBudget {
-      grpc::ServerContext &context;
-      std::chrono::system_clock::time_point deadline;
-    } budget{context, deadline};
-    sqlite3_progress_handler(
-        db.handle, 1000,
-        [](void *raw) {
-          auto &value = *static_cast<QueryBudget *>(raw);
-          return value.context.IsCancelled() ||
-                         std::chrono::system_clock::now() >= value.deadline
-                     ? 1
-                     : 0;
-        },
-        &budget);
+    budget.limit_query(db);
     db.exec("BEGIN");
     {
       Statement schema(
@@ -342,7 +427,7 @@ public:
 private:
   class PendingExtraction {
   public:
-    PendingExtraction(BackgroundSymbolIndexer &owner, Job job,
+    PendingExtraction(ProjectSymbolMonitor &owner, Job job,
                       IndexWorkerRequest request, fs::path directory,
                       std::uint64_t generation)
         : owner_(owner), job_(std::move(job)), generation_(generation),
@@ -386,7 +471,7 @@ private:
       join();
     }
 
-    BackgroundSymbolIndexer &owner_;
+    ProjectSymbolMonitor &owner_;
     Job job_;
     std::uint64_t generation_;
     std::promise<IndexWorkerResponse> promise_;
@@ -448,6 +533,17 @@ private:
                               const fs::path &directory,
                               const std::function<bool()> &stop = {}) {
     await_admission(job, stop);
+    // All project monitors share the server's extraction budget. Polling the
+    // permit keeps cancellation and shutdown responsive while another project
+    // occupies the workers.
+    while (!worker_slots_.try_acquire_for(std::chrono::milliseconds(25)))
+      await_admission(job, stop);
+    struct ReleaseSlot {
+      std::counting_semaphore<4> &slots;
+      ~ReleaseSlot() { slots.release(); }
+    } release_slot{worker_slots_};
+    if ((stop && stop()) || !admitted(job))
+      throw Interrupted();
     fs::create_directories(directory);
     const auto request_path = directory / "worker.request";
     const auto result_path = directory / "worker.result";
@@ -614,7 +710,7 @@ private:
     // Destroy the progress handler before transaction rollback on every error.
     Transaction transaction(db);
     struct Budget {
-      BackgroundSymbolIndexer &owner;
+      ProjectSymbolMonitor &owner;
       const Job &job;
       bool interrupted = false;
     } budget{*this, job};
@@ -1519,7 +1615,7 @@ private:
           obsolete.size() >= 32 && obsolete.size() > retained.size() / 4;
       Transaction transaction(db);
       struct Budget {
-        BackgroundSymbolIndexer &owner;
+        ProjectSymbolMonitor &owner;
         const Job &job;
         bool interrupted = false;
       } budget{*this, job};
@@ -1678,6 +1774,7 @@ private:
   fs::path storage_, executable_;
   std::function<bool()> foreground_busy_;
   std::size_t max_workers_;
+  std::counting_semaphore<4> &worker_slots_;
   std::mutex foreground_mutex_;
   IncludeInventoryCache inventories_;
   FileDigestCache files_;
@@ -1688,6 +1785,104 @@ private:
   bool stopping_ = false, cancelled_ = true, paused_ = false;
   std::uint64_t generation_ = 0;
   std::thread thread_;
+};
+
+// Own each project's reconciliation state independently, while sharing the
+// process budget and foreground gate across all monitors. The reader never
+// starts a thread; it serves persisted indexes not started in this process.
+class BackgroundSymbolIndexer {
+public:
+  BackgroundSymbolIndexer(fs::path root, std::function<bool()> foreground_busy,
+                          fs::path executable, std::size_t max_workers)
+      : storage_(std::move(root)), executable_(std::move(executable)),
+        foreground_busy_(std::move(foreground_busy)),
+        max_workers_(std::clamp<std::size_t>(
+            max_workers ? max_workers
+                        : platform::index_worker_parallelism_limit(),
+            1, 4)),
+        worker_slots_(max_workers_),
+        reader_(storage_, foreground_gate(), executable_, max_workers_,
+                worker_slots_) {}
+  ~BackgroundSymbolIndexer() {
+    // Signal every monitor before joining any of them, including monitors
+    // waiting for another project's extraction slot.
+    for (auto &[root, monitor] : monitors_)
+      monitor->stop();
+    monitors_.clear();
+  }
+  ListProjectIndexesResponse list(grpc::ServerContext &context) {
+    auto saved = reader_.list(context);
+    std::map<std::string, ProjectIndexStatus> projects;
+    for (const auto &status : saved.projects())
+      projects[status.project_root()] = status;
+    std::map<std::string, std::shared_ptr<ProjectSymbolMonitor>> monitors;
+    {
+      std::lock_guard lock(mutex_);
+      monitors = monitors_;
+    }
+    // Do not hold the registry mutex during filesystem reads or while taking
+    // individual monitor locks. Include queued monitors before their DB exists.
+    for (const auto &[root, monitor] : monitors) {
+      if (context.IsCancelled())
+        throw std::runtime_error("project index listing cancelled");
+      projects[root] = monitor->status(root);
+    }
+    ListProjectIndexesResponse response;
+    for (const auto &[root, status] : projects)
+      *response.add_projects() = status;
+    response.set_total_count(response.projects_size());
+    return response;
+  }
+  ProjectIndexStatus start(const StartProjectIndexRequest &request) {
+    const auto key = root_key(request.project_root());
+    std::lock_guard lock(mutex_);
+    auto &monitor = monitors_[key];
+    if (!monitor)
+      monitor = std::make_shared<ProjectSymbolMonitor>(
+          storage_, foreground_gate(), executable_, max_workers_,
+          worker_slots_);
+    return monitor->start(request);
+  }
+  ProjectIndexStatus status(const std::string &root) {
+    if (auto monitor = project(root))
+      return monitor->status(root);
+    return reader_.status(root);
+  }
+  ProjectIndexStatus control(const std::string &root, int action) {
+    auto monitor = project(root);
+    if (!monitor)
+      throw std::logic_error("project has not been started on this server");
+    return monitor->control(root, action);
+  }
+  FindSymbolsResponse find(grpc::ServerContext &context,
+                           const std::string &root, const std::string &query,
+                           std::uint32_t limit, bool prefix, bool by_usr) {
+    auto monitor = project(root);
+    return (monitor ? *monitor : reader_)
+        .find(context, root, query, limit, prefix, by_usr);
+  }
+
+private:
+  std::function<bool()> foreground_gate() {
+    return [this] {
+      std::lock_guard lock(foreground_mutex_);
+      return foreground_busy_ && foreground_busy_();
+    };
+  }
+  std::shared_ptr<ProjectSymbolMonitor> project(const std::string &root) {
+    const auto key = root_key(root);
+    std::lock_guard lock(mutex_);
+    const auto found = monitors_.find(key);
+    return found == monitors_.end() ? nullptr : found->second;
+  }
+  fs::path storage_, executable_;
+  std::function<bool()> foreground_busy_;
+  std::mutex foreground_mutex_;
+  std::size_t max_workers_;
+  std::counting_semaphore<4> worker_slots_;
+  ProjectSymbolMonitor reader_;
+  std::mutex mutex_;
+  std::map<std::string, std::shared_ptr<ProjectSymbolMonitor>> monitors_;
 };
 
 namespace {
@@ -1717,6 +1912,18 @@ IndexServiceAdapter::IndexServiceAdapter(fs::path root,
           std::move(root), std::move(foreground_busy), std::move(executable),
           max_workers)) {}
 IndexServiceAdapter::~IndexServiceAdapter() = default;
+grpc::Status IndexServiceAdapter::ListProjectIndexes(
+    grpc::ServerContext *context, const ListProjectIndexesRequest *,
+    ListProjectIndexesResponse *out) {
+  // Inventory reads do not require the native extraction backend. In
+  // particular, ServerStatus must remain available in builds without Clang.
+  try {
+    *out = indexer_->list(*context);
+    return grpc::Status::OK;
+  } catch (const std::exception &error) {
+    return {grpc::StatusCode::UNAVAILABLE, error.what()};
+  }
+}
 grpc::Status
 IndexServiceAdapter::StartProjectIndex(grpc::ServerContext *,
                                        const StartProjectIndexRequest *request,
