@@ -1,6 +1,7 @@
 # Plain list kernels and shared chunk runner
 
-Base: main `ac709de`; branch `codex/plain-list-kernels`.
+PR integration base: main `fae5a59`; branch `codex/plain-list-kernels`.
+Implementation and benchmark baseline: main `ac709de`.
 
 - [x] Require generated kernels to contain only one ordinary transform/append loop.
 - [x] Move chunk control, cancellation, accounting and observer settlement into one runner.
