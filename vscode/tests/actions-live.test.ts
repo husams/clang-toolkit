@@ -369,6 +369,43 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
       await host.reset();
       await expect(host.inspect(settings, baseId!)).rejects.toThrow(/expired/);
     }, 60000);
+    it("follows a variable reference to its exact declaration through the file AST", async () => {
+      const host = service();
+      const source = resolve(directory, "references.cpp");
+      const text =
+        "int read() { int BaseRD = 1; { int BaseRD = 2; if (BaseRD) return BaseRD; } return BaseRD; }\n";
+      await writeFile(source, text);
+      const root = await host.inspect(settings, { translationUnit: source });
+      const offset = text.indexOf("BaseRD)");
+      const selected = await host.selectSource(settings, root.node.id, {
+        file: source,
+        start: offset,
+        end: offset,
+      });
+      expect(astDisplay(selected!.node).kind).toBe("DeclRefExpr");
+      const reference = selected?.semantics?.referencedDeclaration;
+      expect(reference?.name).toBe("BaseRD");
+      expect(reference?.symbol).toBeTruthy();
+      const declaration = await host.inspect(settings, reference!.nodeId);
+      expect(astDisplay(declaration.node).kind).toBe("VarDecl");
+      expect(declaration.node.column).toBe(text.indexOf("int BaseRD = 2") + 1);
+      expect(declaration.path?.at(-1)?.node.id).toBe(reference!.nodeId);
+      expect(declaration.path?.[0]?.node.id).toBe(root.node.id);
+      expect(declaration.parseCount).toBe(1);
+      const cached = await host.inspect(settings, selected!.node.id);
+      expect(cached.semantics?.referencedDeclaration).toEqual(reference);
+      // A refreshed context must resolve by native identity, including shadows.
+      const refreshed = await service().inspect(settings, {
+        translationUnit: source,
+        reference: { name: reference!.name, symbol: reference!.symbol! },
+      });
+      expect(refreshed.node.column).toBe(declaration.node.column);
+      expect(refreshed.path?.at(-1)?.node.id).toBe(refreshed.node.id);
+      await host.reset();
+      await expect(host.inspect(settings, reference!.nodeId)).rejects.toThrow(
+        /expired/,
+      );
+    }, 60000);
     it("loads large file and namespace ASTs with included header declarations", async () => {
       const host = service();
       const source = resolve(directory, "large.cpp");

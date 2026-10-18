@@ -1837,3 +1837,37 @@ build/compile_commands.json and clang/lib/Sema/SemaDecl.cpp (21,332 lines,
 
 Focused scripts, results and host log:
 vscode/artifacts/validation/real-llvm-ast-20261018/.
+
+## 2026-10-18 — v0.2.38: reference declaration navigation
+
+DeclRefExpr inspection previously omitted a declaration link. Inspection now
+follows Clang's native `to()` edge with root-only candidate scope, retains the
+exact declaration and exposes it in Properties and AST. Declaration IDs are
+reused when the lexical tree reaches the same node, so navigation expands the
+real ancestry and preserves live handles. Refresh resolves links by native
+symbol identity; ambiguous or missing declarations fail explicitly. Existing
+base-class navigation remains supported.
+
+Validation:
+
+- A live shadowed-variable regression failed before the change with an absent
+  referencedDeclaration. It now selects the inner BaseRD declaration, reuses
+  its exact tree ID, preserves parseCount=1, resolves its identity in a fresh
+  context and rejects the expired handle after reset.
+- 116 extension unit tests, 20 console tests and 20 live integration tests pass
+  (one opt-in personal-library live test remains skipped). Type checking,
+  changed-file lint, Python lint, build and VSIX packaging pass.
+- CTK_TEST_REFERENCE_ONLY=1 pnpm test:host passes in actual isolated VS Code:
+  cursor selection updates Properties, the declaration link selects the exact
+  shadowed VarDecl, the tree selects its retained ID, and source highlighting
+  selects the declaration. Test assertions normalize macOS filesystem aliases
+  and inspect the active editor returned by source navigation.
+- The original LLVM SemaDecl.cpp reference at line 191 resolves to BaseRD's
+  VarDecl at line 190 through seven native ancestry pages without reparsing.
+- Installed v0.2.38 in the normal VS Code profile and verified installed payloads
+  against the VSIX. After reloading the user's window, clicking BaseRD selects
+  DeclRefExpr and Properties shows Referenced declaration. Clicking its BaseRD
+  link opens VarDecl Properties at 190:5 and highlights the 66-character
+  declaration in the original LLVM editor. No LLVM source changes were made.
+
+Focused evidence: vscode/artifacts/validation/reference-declaration-20261018/.
