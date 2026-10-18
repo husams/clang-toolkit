@@ -22,7 +22,7 @@ Large counts: 1000, 500, 1000
 ## Direct Python loop specialization
 
 The accumulator map/filter and push-based reverse forms in the example now emit
-ordinary indexed Python loops. Recognition uses structure, so function and parameter
+ordinary Python loops. Recognition uses structure, so function and parameter
 names can change. Map and filter append directly into their ordinary output list;
 reverse traverses the snapshot in reverse order after accounting for descent.
 There are no per-element generators, continuation requests, or saved frames on
@@ -48,17 +48,23 @@ existing guarded execution, preserving identity, cycle checks and diagnostics.
 
 The compiler hoists a conservative bound on the complete source-step cost. If the
 remaining budget cannot cover it, the original guarded loop preserves the exact
-first failing source node and partial output. Successful plain loops update step
-counts inline; filter accounts separately for kept and rejected items. Reverse
-accounts for logical descent in one operation and unwind per item, preserving
-its pending-work item limit without allocating a pending stack. No per-item
-runtime guard, callback invocation, scope dictionary or continuation is needed
-on the plain path.
+first failing source node and partial output. Successful plain loops settle step
+counts once per chunk of at most 128 elements; filter derives kept-item counts
+from the output-length delta. Observer updates also happen outside the inner
+loop. Reverse accounts for logical descent in one operation and unwind in
+chunks, preserving its pending-work item limit without allocating a pending
+stack. Each inner loop only evaluates the proven scalar expression or predicate
+and appends. A persistent iterator feeds `islice` chunks without copying chunk
+lists or revisiting the start of the snapshot. No per-item runtime guard,
+callback invocation, scope dictionary or continuation is needed on the plain path.
 
-Standard cancellation events are polled before each pure iteration/effect boundary
-and periodically during the initial proof scan. Reverse also polls before its
-compressed descent. Cancellation remains cooperative; it is not polled at every
-logical source tick on this path. Custom hooks, instrumented tick methods,
+Standard cancellation events are polled before each chunk and every 128 items
+during the initial proof scan. Map/filter also poll before their base clause;
+reverse polls before compressed descent. Cancellation remains cooperative: a
+running chunk can finish at most 128 pure item operations before the next poll,
+and the final reverse chunk can complete without another poll. Completed chunks
+settle their exact source-step counts and observer state before cancellation is
+reported. This path does not poll at every logical source tick. Custom hooks, instrumented tick methods,
 replaced callbacks and custom observers retain guarded execution with their
 original ordering. The standard console observer's internal tail state is
 updated directly; externally observable statement handling stays on the guarded

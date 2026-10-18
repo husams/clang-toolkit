@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 from functools import lru_cache
+from itertools import islice
 from threading import Event
 from typing import Any
 
@@ -13,6 +14,7 @@ from .semantics import CancelledError, Context, MAX_INT64, MIN_INT64, _error
 _EVENT_IS_SET = Event.is_set
 _TICK = Context.tick
 _TICK_MANY = Context.tick_many
+_CHUNK_SIZE = 128
 
 
 @dataclass(frozen=True)
@@ -265,7 +267,7 @@ def prepare_plain(loop: Any) -> Any:
         return None
     low = high = 0
     for index, item in enumerate(loop.items):
-        if cancel is not None and index % 256 == 0 and cancel():
+        if cancel is not None and index % _CHUNK_SIZE == 0 and cancel():
             _cancelled(context, plan.body if loop.items else plan.base)
         item_type = type(item)
         if scalar is not None:
@@ -297,16 +299,19 @@ def prepare_plain(loop: Any) -> Any:
 def _compile_plain(
     kind: str, expression: str, callback_ticks: int, consumed: int, callback_tail: str
 ) -> Any:
-    """Only compiler-built scalar expressions enter these fixed templates."""
+    """Emit bounded plain inner loops; settle source state only between chunks."""
     if kind == "map":
-        first = 2 + 2 + 1 + callback_ticks + 4
+        each = 2 + 2 + 1 + callback_ticks + 4 + 2
         source = f"""def plain_map(context, items, output, cancel, observer, plan):
-    for index, head in enumerate(items):
+    pending = iter(items)
+    for start in range(0, len(items), {_CHUNK_SIZE}):
         if cancel is not None and cancel():
-            cancelled(context, plan.body if index == 0 else plan.shape.group)
-        context.steps += {first} if index == 0 else {first + 2}
+            cancelled(context, plan.body if start == 0 else plan.shape.group)
+        count = min({_CHUNK_SIZE}, len(items) - start)
+        for head in islice(pending, {_CHUNK_SIZE}):
+            output.append({expression})
+        context.steps += count * {each} - (2 if start == 0 else 0)
         context.step_count = context.steps
-        output.append({expression})
         if observer is not None:
             observer.last_tail = 'host'
     if cancel is not None and cancel():
@@ -319,16 +324,20 @@ def _compile_plain(
     return output
 """
     elif kind == "filter":
-        first = 3 + 1 + callback_ticks
+        rejected = 3 + 1 + callback_ticks + 5 + 2
         source = f"""def plain_filter(context, items, output, cancel, observer, plan):
-    for index, head in enumerate(items):
+    pending = iter(items)
+    for start in range(0, len(items), {_CHUNK_SIZE}):
         if cancel is not None and cancel():
-            cancelled(context, plan.body if index == 0 else plan.shape.group)
-        keep = {expression}
-        context.steps += ({first + 8} if keep else {first + 5}) + (2 if index else 0)
+            cancelled(context, plan.body if start == 0 else plan.shape.group)
+        count = min({_CHUNK_SIZE}, len(items) - start)
+        before = len(output)
+        for head in islice(pending, {_CHUNK_SIZE}):
+            keep = {expression}
+            if keep:
+                output.append(head)
+        context.steps += count * {rejected} + (len(output) - before) * 3 - (2 if start == 0 else 0)
         context.step_count = context.steps
-        if keep:
-            output.append(head)
         if observer is not None:
             observer.last_tail = 'host' if keep else {callback_tail!r}
     if cancel is not None and cancel():
@@ -348,17 +357,21 @@ def _compile_plain(
     context.step_count = context.steps
     context.consume_depth += len(items) * {consumed}
     output = []
+    pending = reversed(items)
     if observer is not None:
         observer.last_tail = 'list'
-    for head in reversed(items):
+    for start in range(0, len(items), {_CHUNK_SIZE}):
+        count = min({_CHUNK_SIZE}, len(items) - start)
         context.consume_depth -= {consumed}
         if observer is not None:
             observer.last_tail = 'let'
         if cancel is not None and cancel():
             cancelled(context, plan.shape.push)
-        context.steps += 4
+        for head in islice(pending, {_CHUNK_SIZE}):
+            output.append(head)
+        context.steps += count * 4
         context.step_count = context.steps
-        output.append(head)
+        context.consume_depth -= (count - 1) * {consumed}
         if observer is not None:
             observer.last_tail = 'ref'
     final = plan.final if items else plan.base_value
@@ -368,7 +381,10 @@ def _compile_plain(
     namespace = {
         "__builtins__": {},
         "cancelled": _cancelled,
-        "enumerate": enumerate,
+        "iter": iter,
+        "islice": islice,
+        "min": min,
+        "range": range,
         "reversed": reversed,
         "len": len,
     }
