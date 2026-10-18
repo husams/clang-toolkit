@@ -48,3 +48,8 @@ Feature: Pipe filters and tuple callbacks in the console
       | engine   |
       | compiled |
       | tree     |
+
+  Scenario: Graph display and inspection preserve retained matching in the real prompt
+    Given an isolated pipe-filter console and class fixture
+    When I display, inspect and filter a call graph in the real console terminal
+    Then graph previews expose structured values and the filtered node still matches

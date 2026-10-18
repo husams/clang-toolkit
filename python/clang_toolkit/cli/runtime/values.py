@@ -153,9 +153,9 @@ def _bounded_row_dict(value: MatchRow) -> dict[str, Any]:
     return preview if isinstance(preview, dict) else {}
 
 
-def _bounded_inspection(value: Any) -> Any:
+def _bounded_inspection(value: Any, *, max_chars: int = 16_000) -> Any:
     """Limit the total scalar content of an inspect preview before JSON encoding."""
-    budget = [16_000]
+    budget = [max_chars]
 
     def walk(item: Any, depth: int = 0) -> Any:
         if budget[0] <= 0:
@@ -217,7 +217,16 @@ def render_inspection(value: Any) -> str:
         return rendered if len(rendered) <= _MAX_RENDER_CHARS else rendered[: _MAX_RENDER_CHARS - 16] + "… <truncated>"
     import json
 
-    return json.dumps(_bounded_inspection(inspected), sort_keys=True, ensure_ascii=False)
+    # Bound the preview before encoding so its envelope and JSON stay intact.
+    budget = 16_000
+    while True:
+        rendered = json.dumps(
+            _bounded_inspection(inspected, max_chars=budget),
+            sort_keys=True, ensure_ascii=False,
+        )
+        if len(rendered) <= _MAX_RENDER_CHARS:
+            return rendered
+        budget //= 2
 
 
 def _render_sequence(values: Any) -> str:
@@ -259,8 +268,8 @@ class MatchSet:
 
 def render(value: Any) -> str:
     """Return a stable, human-readable result for the REPL output sink."""
-    from clang_toolkit.call_graph_values import CallGraphNodeValue
-    if isinstance(value, CallGraphNodeValue):
+    from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
+    if isinstance(value, CallGraph | CallGraphNodeValue):
         from .semantic import view
         return render(view(value.proto))
     from clang_toolkit.resources import FileBatch, FileHandle, FileSet, InputDescriptor

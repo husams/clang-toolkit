@@ -567,7 +567,11 @@ def inspect_value(value: Any, *, max_depth: int = 3, max_items: int = 20) -> Any
 
 def display_value(value: Any, *, max_depth: int = 16, max_items: int = 20) -> Any:
     """Return ordinary AST fields without protobuf inspection metadata."""
+    from clang_toolkit.call_graph_values import CallGraph, CallGraphNodeValue
+
     def walk(item: Any, depth: int) -> Any:
+        if isinstance(item, CallGraph | CallGraphNodeValue):
+            item = view(item.proto)
         if isinstance(item, EnumValue):
             return item.name
         if isinstance(item, MessageView):
