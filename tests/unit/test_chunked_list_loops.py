@@ -24,9 +24,7 @@ CASES = [
 
 
 @pytest.mark.parametrize("target,expression", CASES)
-def test_generated_chunk_inner_loops_only_transform_and_append(
-    execute, target, expression
-):
+def test_generated_kernels_only_transform_and_append(execute, target, expression):
     context = Context(bindings={"xs": list(range(257)), "out": []})
     execute(DEFINITIONS, context)
     execute(expression, context)
@@ -37,29 +35,66 @@ def test_generated_chunk_inner_loops_only_transform_and_append(
         for node in ast.walk(ast.parse(native.__ctk_source__))
         if isinstance(node, ast.For)
     ]
-    assert len(loops) == 2, (
-        "plain traversal needs bounded outer chunks and a plain inner loop"
-    )
-    inner = next(
-        node
-        for node in loops
-        if not any(
-            isinstance(child, ast.For)
-            for statement in node.body
-            for child in ast.walk(statement)
+    assert len(loops) == 1, "generated kernels need one ordinary for loop"
+    assert [arg.arg for arg in ast.parse(native.__ctk_source__).body[0].args.args] == [
+        "items",
+        "output",
+    ]
+    for node in ast.walk(ast.parse(native.__ctk_source__)):
+        assert not (
+            isinstance(node, ast.Name)
+            and node.id in {"context", "observer", "cancel", "plan", "islice"}
         )
-    )
-    for statement in inner.body:
-        for node in ast.walk(statement):
-            assert not (
-                isinstance(node, ast.Name)
-                and node.id in {"context", "observer", "cancel", "plan"}
-            )
-            if isinstance(node, ast.Call):
-                assert (
-                    isinstance(node.func, ast.Attribute) and node.func.attr == "append"
-                )
-    assert "islice(pending, 128)" in native.__ctk_source__
+        if isinstance(node, ast.Call):
+            assert isinstance(node.func, ast.Attribute) and node.func.attr == "append"
+
+
+@pytest.mark.parametrize("size", [0, 1, 128, 129, 257])
+def test_shared_runner_invokes_kernels_once_per_bounded_chunk(
+    execute, monkeypatch, size
+):
+    from clang_toolkit.cli.runtime.prototype import plain_list_loops
+
+    prepare = plain_list_loops.prepare_plain
+    entries = []
+    for target, expression in CASES:
+        context = Context(bindings={"xs": list(range(size)), "out": []})
+        execute(DEFINITIONS, context)
+        direct = context.lookup(target).direct_loop
+        calls = []
+
+        def capture(loop):
+            result = prepare(loop)
+            assert result is not None
+            runner, arguments = result
+            kernel = loop.plan.last_plain
+            entries.append(runner)
+            assert runner is not kernel
+            assert arguments[6] is kernel
+
+            def counted(items, output):
+                values = list(items)
+                calls.append(values)
+                return kernel(values, output)
+
+            return runner, (*arguments[:6], counted, *arguments[7:])
+
+        monkeypatch.setitem(direct.__globals__, "prepare_plain", capture)
+        actual = execute(expression, context)
+        values = list(range(size))
+        expected = (
+            [x * 2 for x in values]
+            if target == "map_into"
+            else [x for x in values if x % 2 == 0]
+            if target == "filter_into"
+            else list(reversed(values))
+        )
+        assert actual == expected
+        ordered = list(reversed(values)) if target == "reverse_list" else values
+        assert calls == [ordered[i : i + 128] for i in range(0, size, 128)]
+        assert context.call_depth == context.consume_depth == 0
+        assert context.scopes == (context.bindings,)
+    assert len(set(entries)) == 1, "all three kinds must use the same chunk runner"
 
 
 def outcome(execute, target, expression, values, enabled, budget=1_000_000):
@@ -133,11 +168,10 @@ def test_event_cancellation_settles_completed_chunks(
     def prepare_capture(loop):
         result = prepare(loop)
         assert result is not None
-        function = result[0]
         prepared.update(
-            code=function.__code__,
+            code=plan.last_plain.__code__,
+            runner=result[0].__code__,
             steps=context.steps,
-            lines=function.__ctk_source__.splitlines(),
         )
         sys.settrace(cancel_inside_chunk)
         return result
@@ -148,14 +182,19 @@ def test_event_cancellation_settles_completed_chunks(
         if action == "line" and frame.f_code is prepared.get("code"):
             if frame.f_locals.get("head") == target_head:
                 event.set()
-            line = prepared["lines"][frame.f_lineno - 1]
-            if "cancelled(" in line and event.is_set():
-                captured.update(
-                    output=frame.f_locals["output"].copy(),
-                    steps=context.steps,
-                    depth=context.consume_depth,
-                    tail=context.session.last_tail,
-                )
+        if (
+            action == "call"
+            and frame.f_code is plain_list_loops._cancelled.__code__
+            and event.is_set()
+        ):
+            runner_frame = frame.f_back
+            assert runner_frame.f_code is prepared["runner"]
+            captured.update(
+                output=runner_frame.f_locals["output"].copy(),
+                steps=context.steps,
+                depth=context.consume_depth,
+                tail=context.session.last_tail,
+            )
         return cancel_inside_chunk
 
     monkeypatch.setitem(direct.__globals__, "prepare_plain", prepare_capture)

@@ -34,6 +34,12 @@ loops with native arithmetic. The actual selected Python for the example is:
 [map](generated-list-loops/plain_map.py),
 [filter](generated-list-loops/plain_filter.py), and
 [reverse](generated-list-loops/plain_reverse.py).
+The generated functions contain only the ordinary transform/filter/append kernel.
+One shared runtime runner calls the kernel once per nonempty chunk of at most 128
+items and owns cancellation polls, exact source accounting and observer updates.
+Filter returns its last predicate result for observer settlement; accepted counts
+come from the output-length delta. Reverse's runner supplies elements in reverse
+order, so its kernel uses the same ordinary forward `for` loop over that input.
 The callable wrappers and one invocation guard still perform argument validation,
 snapshotting and scope restoration outside those loops.
 
@@ -48,7 +54,7 @@ existing guarded execution, preserving identity, cycle checks and diagnostics.
 
 The compiler hoists a conservative bound on the complete source-step cost. If the
 remaining budget cannot cover it, the original guarded loop preserves the exact
-first failing source node and partial output. Successful plain loops settle step
+first failing source node and partial output. The shared runner settles step
 counts once per chunk of at most 128 elements; filter derives kept-item counts
 from the output-length delta. Observer updates also happen outside the inner
 loop. Reverse accounts for logical descent in one operation and unwind in
@@ -64,7 +70,8 @@ reverse polls before compressed descent. Cancellation remains cooperative: a
 running chunk can finish at most 128 pure item operations before the next poll,
 and the final reverse chunk can complete without another poll. Completed chunks
 settle their exact source-step counts and observer state before cancellation is
-reported. This path does not poll at every logical source tick. Custom hooks, instrumented tick methods,
+reported. This path does not poll at every logical source tick. Custom hooks,
+instrumented tick methods,
 replaced callbacks and custom observers retain guarded execution with their
 original ordering. The standard console observer's internal tail state is
 updated directly; externally observable statement handling stays on the guarded

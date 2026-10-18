@@ -284,110 +284,114 @@ def prepare_plain(loop: Any) -> Any:
             return None
     if scalar is not None and not scalar.safe_for(low, high):
         return None
-    function = _compile_plain(
-        shape.kind,
-        expression,
+    kernel = _compile_plain(shape.kind, expression)
+    plan.last_plain = kernel
+    callback_tail = scalar.expression.kind if scalar is not None else "ref"
+    return _run_plain_chunks, (
+        context,
+        loop.items,
+        loop.output,
+        cancel,
+        observed,
+        plan,
+        kernel,
         callback_ticks,
-        getattr(plan, "consumed", 0),
-        scalar.expression.kind if scalar is not None else "ref",
+        callback_tail,
     )
-    plan.last_plain = function
-    return function, (context, loop.items, loop.output, cancel, observed, plan)
+
+
+def _run_plain_chunks(
+    context: Context,
+    items: list[Any],
+    output: list[Any],
+    cancel: Any,
+    observer: Any,
+    plan: Any,
+    kernel: Any,
+    callback_ticks: int,
+    callback_tail: str,
+) -> list[Any]:
+    """Run proven kernels with one shared set of bounded source checkpoints."""
+    reverse = plan.shape.kind == "reverse"
+    filtering = plan.shape.kind == "filter"
+    size = len(items)
+    consumed = getattr(plan, "consumed", 0)
+    each = 4 if reverse else 11 + callback_ticks
+    if reverse:
+        if cancel is not None and cancel():
+            _cancelled(context, plan.body if items else plan.base)
+        context.steps += size * (6 + consumed) + (1 if items else 2)
+        context.step_count = context.steps
+        context.consume_depth += size * consumed
+        output = []
+        pending = reversed(items)
+        if observer is not None:
+            observer.last_tail = "list"
+    else:
+        pending = iter(items)
+    for start in range(0, size, _CHUNK_SIZE):
+        count = min(_CHUNK_SIZE, size - start)
+        if reverse:
+            context.consume_depth -= consumed
+            if observer is not None:
+                observer.last_tail = "let"
+        if cancel is not None and cancel():
+            node = (
+                plan.shape.push
+                if reverse
+                else (plan.body if start == 0 else plan.shape.group)
+            )
+            _cancelled(context, node)
+        before = len(output) if filtering else 0
+        keep = kernel(islice(pending, _CHUNK_SIZE), output)
+        cost = count * each
+        if not reverse and start == 0:
+            cost -= 2
+        if filtering:
+            cost += (len(output) - before) * 3
+        context.steps += cost
+        context.step_count = context.steps
+        if reverse:
+            context.consume_depth -= (count - 1) * consumed
+        if observer is not None:
+            observer.last_tail = (
+                "ref" if reverse else "host" if not filtering or keep else callback_tail
+            )
+    if not reverse:
+        if cancel is not None and cancel():
+            _cancelled(context, plan.shape.group if items else plan.base)
+        context.steps += 3 if items else 2
+        context.step_count = context.steps
+        if observer is not None:
+            observer.last_tail = "ref"
+    final = plan.final if reverse and items else plan.base_value
+    context.location = context.current_location = (final.line, final.column)
+    return output
 
 
 @lru_cache(maxsize=128)
-def _compile_plain(
-    kind: str, expression: str, callback_ticks: int, consumed: int, callback_tail: str
-) -> Any:
-    """Emit bounded plain inner loops; settle source state only between chunks."""
+def _compile_plain(kind: str, expression: str) -> Any:
+    """Emit only a pure for/append kernel; the shared runner owns checkpoints."""
     if kind == "map":
-        each = 2 + 2 + 1 + callback_ticks + 4 + 2
-        source = f"""def plain_map(context, items, output, cancel, observer, plan):
-    pending = iter(items)
-    for start in range(0, len(items), {_CHUNK_SIZE}):
-        if cancel is not None and cancel():
-            cancelled(context, plan.body if start == 0 else plan.shape.group)
-        count = min({_CHUNK_SIZE}, len(items) - start)
-        for head in islice(pending, {_CHUNK_SIZE}):
-            output.append({expression})
-        context.steps += count * {each} - (2 if start == 0 else 0)
-        context.step_count = context.steps
-        if observer is not None:
-            observer.last_tail = 'host'
-    if cancel is not None and cancel():
-        cancelled(context, plan.shape.group if items else plan.base)
-    context.steps += 3 if items else 2
-    context.step_count = context.steps
-    context.location = context.current_location = (plan.base_value.line, plan.base_value.column)
-    if observer is not None:
-        observer.last_tail = 'ref'
-    return output
+        source = f"""def plain_map(items, output):
+    for head in items:
+        output.append({expression})
 """
     elif kind == "filter":
-        rejected = 3 + 1 + callback_ticks + 5 + 2
-        source = f"""def plain_filter(context, items, output, cancel, observer, plan):
-    pending = iter(items)
-    for start in range(0, len(items), {_CHUNK_SIZE}):
-        if cancel is not None and cancel():
-            cancelled(context, plan.body if start == 0 else plan.shape.group)
-        count = min({_CHUNK_SIZE}, len(items) - start)
-        before = len(output)
-        for head in islice(pending, {_CHUNK_SIZE}):
-            keep = {expression}
-            if keep:
-                output.append(head)
-        context.steps += count * {rejected} + (len(output) - before) * 3 - (2 if start == 0 else 0)
-        context.step_count = context.steps
-        if observer is not None:
-            observer.last_tail = 'host' if keep else {callback_tail!r}
-    if cancel is not None and cancel():
-        cancelled(context, plan.shape.group if items else plan.base)
-    context.steps += 3 if items else 2
-    context.step_count = context.steps
-    context.location = context.current_location = (plan.base_value.line, plan.base_value.column)
-    if observer is not None:
-        observer.last_tail = 'ref'
-    return output
+        source = f"""def plain_filter(items, output):
+    keep = False
+    for head in items:
+        keep = {expression}
+        if keep:
+            output.append(head)
+    return keep
 """
     else:
-        source = f"""def plain_reverse(context, items, output, cancel, observer, plan):
-    if cancel is not None and cancel():
-        cancelled(context, plan.body if items else plan.base)
-    context.steps += len(items) * {6 + consumed} + (1 if items else 2)
-    context.step_count = context.steps
-    context.consume_depth += len(items) * {consumed}
-    output = []
-    pending = reversed(items)
-    if observer is not None:
-        observer.last_tail = 'list'
-    for start in range(0, len(items), {_CHUNK_SIZE}):
-        count = min({_CHUNK_SIZE}, len(items) - start)
-        context.consume_depth -= {consumed}
-        if observer is not None:
-            observer.last_tail = 'let'
-        if cancel is not None and cancel():
-            cancelled(context, plan.shape.push)
-        for head in islice(pending, {_CHUNK_SIZE}):
-            output.append(head)
-        context.steps += count * 4
-        context.step_count = context.steps
-        context.consume_depth -= (count - 1) * {consumed}
-        if observer is not None:
-            observer.last_tail = 'ref'
-    final = plan.final if items else plan.base_value
-    context.location = context.current_location = (final.line, final.column)
-    return output
+        source = """def plain_reverse(items, output):
+    for head in items:
+        output.append(head)
 """
-    namespace = {
-        "__builtins__": {},
-        "cancelled": _cancelled,
-        "iter": iter,
-        "islice": islice,
-        "min": min,
-        "range": range,
-        "reversed": reversed,
-        "len": len,
-    }
+    namespace = {"__builtins__": {}}
     module = ast.parse(source)
     exec(compile(module, "<ctk-plain-list-loop>", "exec"), namespace)  # noqa: S102 - compiler-built AST
     function = namespace["plain_" + kind]
