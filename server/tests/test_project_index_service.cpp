@@ -464,6 +464,29 @@ TEST_F(ProjectIndexServiceTest,
 }
 
 TEST_F(ProjectIndexServiceTest,
+       LookupReturnsEmptyStaleUntilRequiredPrefixIndexesExist) {
+  const auto key = ctk::net::index_detail::root_key(project.string());
+  const auto database = storage / "symbol-index" /
+                        ctk::net::index_detail::digest_text(key) /
+                        "symbols.sqlite3";
+  fs::create_directories(database.parent_path());
+  {
+    ctk::net::index_detail::Database db(database, true);
+    db.exec("DROP INDEX symbol_name_prefix; "
+            "DROP INDEX symbol_qualified_prefix;");
+  }
+
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto before_indexes_ready = find(service, "alphaOnly", false);
+  EXPECT_TRUE(before_indexes_ready.stale());
+  EXPECT_EQ(before_indexes_ready.symbols_size(), 0);
+
+  const auto indexed = start_and_wait(service);
+  EXPECT_EQ(indexed.translation_units_failed(), 0);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+}
+
+TEST_F(ProjectIndexServiceTest,
        ReadyUnitsPublishAtomicallyAfterSharedDependencyValidation) {
   ProjectIndexStatus first;
   {

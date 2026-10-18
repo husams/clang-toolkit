@@ -173,11 +173,14 @@ public:
         &budget);
     db.exec("BEGIN");
     {
-      Statement tables(
-          db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND "
-              "name IN ('metadata','translation_unit','symbol')");
-      tables.step();
-      if (tables.number(0) != 3) {
+      Statement schema(
+          db, "SELECT count(*) FROM sqlite_master WHERE "
+              "(type='table' AND name IN "
+              "('metadata','translation_unit','symbol')) OR "
+              "(type='index' AND name IN "
+              "('symbol_name_prefix','symbol_qualified_prefix'))");
+      schema.step();
+      if (schema.number(0) != 5) {
         db.exec("ROLLBACK");
         response.set_stale(true);
         return response;
