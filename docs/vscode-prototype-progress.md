@@ -1967,3 +1967,53 @@ the new package must be installed on the affected extension host to verify
 that particular source.
 
 Focused evidence: vscode/artifacts/validation/header-limits-20261018/.
+
+## 2026-10-18 — v0.2.41: retain Symbol Search matches
+
+Symbol Search now runs in the persistent native inspector host instead of a
+one-shot worker that discards its native rows. Each displayed result retains
+its original binding and translation unit. Opening a result sends that exact
+node ID to the same host: no second name, kind, file or coordinate lookup and
+no second parse. Registering declaration identities also makes later file-tree
+expansion reuse the search node's ID. One-shot custom script results keep their
+existing bounded coordinate lookup; public server/SDK contracts are unchanged.
+
+Completed searches own their native rows until replacement or invalidation.
+A failed or cancelled replacement preserves the previous completed owner,
+including cancellation racing a successful response. C++ edits and settings
+changes invalidate the snapshot; stale search nodes fail explicitly. Closing
+the editor tab preserves the result list's retained matches. Choosing an
+action transfers the same owner, so later searches cannot release its input.
+Empty and deduplicated collections and files without visible matches release
+their native resources. Existing server and AST navigation limits are unchanged.
+
+Validation:
+
+- Red/green regressions cover retained native matches, canonical IDs reused by
+  tree expansion, and a cancelled search whose completed report arrives late.
+- All 124 extension unit tests and 23 console tests pass. All 24 enabled live
+  integration tests pass (one personal-library case remains opt-in/skipped).
+- The full real VS Code workflow passes, including source selection, Properties
+  links, Actions, saves, split editors and stale-context handling.
+- Final real VS Code LLVM smoke opens the actual SemaDecl.cpp, searches
+  TypeNameValidatorCCC at line 92, and verifies searchNodeId equals
+  inspectedNodeId. Properties, editor highlighting, repeated selection and
+  Actions reuse that same binding; parseCount remains 1.
+- The header-heavy live regression retains and inspects both COM classes with
+  100,005 included declarations, checks canonical tree IDs, runs a field action
+  and rejects expired handles after reset.
+- The final real VS Code header-heavy smoke also passes: COM::BzRuleADD's
+  search and inspected node IDs match, Properties and source highlighting work,
+  and transfer to Actions keeps parseCount at 1.
+- Type checks, changed-file lint and package build pass. Production payload
+  bytes are checked against the versioned v0.2.41 VSIX.
+- The full core suites were exercised for v0.2.40 above; their three Python
+  timeouts and one C++ indexing failure remain known and are not claimed fixed.
+  This extension-only change does not modify python/, server/ or tests/unit/;
+  the full core suites were not rerun for this change.
+
+The original failing remote source remains inaccessible; validation uses the
+local large LLVM source and the header-heavy reproduction. The package is
+prepared locally and has not been installed on that remote extension host.
+
+Focused evidence: vscode/artifacts/validation/retained-search-20261018/.

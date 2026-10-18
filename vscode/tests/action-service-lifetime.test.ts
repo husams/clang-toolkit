@@ -64,6 +64,44 @@ async function open() {
   worker.reply({ inspection });
   await pending;
 }
+it("keeps a search cursor alive and inspects its original native handle directly", async () => {
+  const pending = host.search(
+    settings,
+    ["/demo.cpp"],
+    ['cxxRecordDecl().bind("symbol")'],
+    10,
+  );
+  worker.reply({
+    searchReport: {
+      results: [
+        {
+          ...inspection.node,
+          nodeId: "matched-node",
+          translationUnit: "/demo.cpp",
+        },
+      ],
+      errors: [],
+      output: [],
+      files: 1,
+      truncated: false,
+      parseCount: 1,
+    },
+  });
+  const report = await pending;
+  expect(report.results[0]?.nodeId).toBe("matched-node");
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(worker.sent.at(-1)?.type).toBe("keepAlive");
+  worker.reply({ keptAlive: 2 });
+  await vi.advanceTimersByTimeAsync(0);
+  const inspected = host.inspect(settings, "matched-node");
+  expect(worker.sent.at(-1)).toMatchObject({
+    type: "inspect",
+    nodeId: "matched-node",
+  });
+  expect(worker.sent.at(-1)).not.toHaveProperty("result");
+  worker.reply({ inspection });
+  await inspected;
+});
 it("allows initial file inspection to finish its parse, root lookup and child RPCs", async () => {
   const pending = host
     .inspect(settings, { translationUnit: "/large.cpp" })

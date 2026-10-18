@@ -135,48 +135,102 @@ export async function run(): Promise<void> {
     );
     return;
   }
-  if (process.env.CTK_TEST_HEADER_LIMIT_ONLY === "1") {
-    const source = vscode.Uri.joinPath(folder.uri, "header-heavy.cpp");
+  if (
+    process.env.CTK_TEST_HEADER_LIMIT_ONLY === "1" ||
+    process.env.CTK_TEST_LLVM_RETAINED_SEARCH_ONLY === "1"
+  ) {
+    const llvm = process.env.CTK_TEST_LLVM_RETAINED_SEARCH_ONLY === "1";
+    if (llvm) {
+      assert.ok(process.env.CTK_TEST_LLVM_SOURCE);
+      assert.ok(process.env.CTK_TEST_LLVM_DATABASE);
+      const config = vscode.workspace.getConfiguration("ctk");
+      await config.update(
+        "compilationDatabase",
+        process.env.CTK_TEST_LLVM_DATABASE,
+        vscode.ConfigurationTarget.Workspace,
+      );
+      await config.update(
+        "compileArguments",
+        [],
+        vscode.ConfigurationTarget.Workspace,
+      );
+    }
+    const source = llvm
+      ? vscode.Uri.file(process.env.CTK_TEST_LLVM_SOURCE!)
+      : vscode.Uri.joinPath(folder.uri, "header-heavy.cpp");
     const header = vscode.Uri.joinPath(folder.uri, "header-heavy.hpp");
-    await vscode.workspace.fs.writeFile(
-      header,
-      Buffer.from(
-        Array.from({ length: 100005 }, (_, i) => `int header_${i};`).join("\n"),
-      ),
-    );
-    await vscode.workspace.fs.writeFile(
-      source,
-      Buffer.from(
-        '#include "header-heavy.hpp"\nnamespace COM { struct BzRuleADD { int value; }; }\n',
-      ),
-    );
+    if (!llvm) {
+      await vscode.workspace.fs.writeFile(
+        header,
+        Buffer.from(
+          Array.from({ length: 100005 }, (_, i) => `int header_${i};`).join(
+            "\n",
+          ),
+        ),
+      );
+      await vscode.workspace.fs.writeFile(
+        source,
+        Buffer.from(
+          '#include "header-heavy.hpp"\nnamespace COM { struct BzRuleADD { int value; }; }\n',
+        ),
+      );
+    }
     await vscode.window.showTextDocument(
       await vscode.workspace.openTextDocument(source),
     );
-    const root = await automaticFile("header-heavy.cpp", "COM");
-    assert.deepEqual(
-      root.children?.map((node) => node.name),
-      ["COM"],
+    const root = await automaticFile(
+      llvm ? "SemaDecl.cpp" : "header-heavy.cpp",
+      llvm ? undefined : "COM",
+      true,
+      120000,
     );
+    if (!llvm)
+      assert.deepEqual(
+        root.children?.map((node) => node.name),
+        ["COM"],
+      );
     await api.execute({
       action: predefined[0]!,
-      values: { NAME: "BzRuleADD" },
+      values: { NAME: llvm ? "TypeNameValidatorCCC" : "BzRuleADD" },
       scope: "file",
       target: source,
       kinds: ["classes"],
     });
     const search = api.snapshot() as {
-      results: { id: string; name: string }[];
+      results: {
+        id: string;
+        name: string;
+        nodeId: string;
+        translationUnit: string;
+      }[];
       errors: string[];
     };
     assert.deepEqual(search.errors, []);
-    const rule = search.results.find((node) => node.name === "COM::BzRuleADD");
+    const rule = search.results.find((node) =>
+      llvm
+        ? node.name.endsWith("TypeNameValidatorCCC")
+        : node.name === "COM::BzRuleADD",
+    );
     assert.ok(rule);
+    assert.ok(rule.nodeId, "search must retain the original native match");
+    assert.equal(
+      await realpath(rule.translationUnit),
+      await realpath(source.fsPath),
+    );
     await api.openResult(rule.id);
+    assert.equal(
+      astState().node?.id,
+      rule.nodeId,
+      "inspection must use the exact search match without location lookup",
+    );
     assert.equal(astState().error, "");
     assert.equal(astState().node?.kind, "CXXRecordDecl");
-    assert.equal(astState().node?.name, "COM::BzRuleADD");
-    assert.ok((await inspectorTab("properties")).text.includes("value"));
+    assert.equal(astState().node?.name, rule.name);
+    assert.ok(
+      (await inspectorTab("properties")).text.includes(
+        llvm ? "AllowInvalidDecl" : "value",
+      ),
+    );
     const editor = vscode.window.activeTextEditor;
     assert.ok(editor);
     assert.equal(
@@ -185,10 +239,21 @@ export async function run(): Promise<void> {
     );
     assert.match(
       editor.document.getText(editor.selection),
-      /^struct BzRuleADD/,
+      llvm ? /^class TypeNameValidatorCCC/ : /^struct BzRuleADD/,
     );
+    await api.openResult(rule.id);
+    assert.equal(astState().node?.id, rule.nodeId);
+    const actionTarget = await api.details.actionTarget();
+    assert.equal((await actionTarget.activate()).id, rule.nodeId);
+    const retained = await api.actions.inspect(rule.nodeId);
+    assert.equal(
+      retained.parseCount,
+      1,
+      "search, repeated inspection and Actions must reuse one parse",
+    );
+    assert.equal(retained.node.id, rule.nodeId);
     console.log(
-      "CTK_HEADER_LIMIT_HOST_PASS: automatic AST load, search result inspection, Properties and source highlighting with 100005 header declarations",
+      `${llvm ? "CTK_LLVM_RETAINED_SEARCH_HOST_PASS" : "CTK_HEADER_LIMIT_HOST_PASS"}: ${JSON.stringify({ file: source.fsPath, name: rule.name, searchNodeId: rule.nodeId, inspectedNodeId: retained.node.id, line: retained.node.line, parseCount: retained.parseCount })}`,
     );
     return;
   }

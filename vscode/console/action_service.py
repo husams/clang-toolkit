@@ -18,6 +18,7 @@ from clang_toolkit.match_values import MatchRow, MatchValue, NativeMatchCollecti
 from run_service import Output, Results
 from ast_inspector import AstInspector
 from editor_buffers import EditorBuffers
+from search_service import search
 
 
 class ActionError(ValueError):
@@ -206,6 +207,10 @@ def main() -> None:
                     if request['type'] == 'inspect':
                         inspection = host.inspector.inspect(request)
                         send(identity, {'inspection': inspection})
+                        continue
+                    if request['type'] == 'search':
+                        report = search(host, request, lambda value: send(identity, value))
+                        send(identity, {'searchReport': report})
                         continue
                     report = host.run(request, lambda value: send(identity, value))
                 text = output.getvalue().rstrip('\n')

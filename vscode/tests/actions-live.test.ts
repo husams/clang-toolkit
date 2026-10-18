@@ -469,6 +469,66 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         /expired/,
       );
     }, 60000);
+    it("inspects retained search matches directly with over 100,000 header declarations", async () => {
+      const host = service();
+      const source = resolve(directory, "retained-search.cpp");
+      await writeFile(
+        resolve(directory, "retained-search.hpp"),
+        `namespace vendor {\n${Array.from({ length: 100005 }, (_, i) => `int header_${i};`).join("\n")}\n}\n`,
+      );
+      await writeFile(
+        source,
+        '#include "retained-search.hpp"\nnamespace COM { struct BzRuleADD { int value; }; struct BzRuleOther { int other; }; }\n',
+      );
+      const report = await host.search(
+        settings,
+        [source],
+        [
+          'cxxRecordDecl(isExpansionInMainFile(), unless(isImplicit()), isDefinition()).bind("symbol")',
+        ],
+        10,
+      );
+      expect(report.errors).toEqual([]);
+      expect(report.results.map((node) => node.name)).toEqual([
+        "COM::BzRuleADD",
+        "COM::BzRuleOther",
+      ]);
+      for (const result of report.results) {
+        expect(result.nodeId).toBeTruthy();
+        expect(result.translationUnit).toBe(await realpath(source));
+        const inspected = await host.inspect(settings, result.nodeId!);
+        expect(inspected.node.id).toBe(result.nodeId);
+        expect(inspected.node.name).toBe(result.name);
+        expect(inspected.parseCount).toBe(1);
+      }
+      const filePage = await host.inspect(settings, {
+        translationUnit: source,
+      });
+      const namespace = filePage.children.find((node) => node.name === "COM");
+      const namespacePage = await host.inspect(settings, namespace!.id);
+      expect(
+        namespacePage.children.find((node) => node.name === "COM::BzRuleADD")
+          ?.id,
+      ).toBe(report.results[0]!.nodeId);
+      const selected = report.results[0]!;
+      const fields = await host.run(
+        action("search-fields", 'match fieldDecl().bind("field") in node'),
+        {},
+        [source],
+        settings,
+        10,
+        () => {},
+        selected.nodeId!,
+      );
+      expect(
+        fields.results.some((node) => node.name === "COM::BzRuleADD::value"),
+      ).toBe(true);
+      expect(fields.parseCount).toBe(1);
+      await host.reset();
+      await expect(host.inspect(settings, selected.nodeId!)).rejects.toThrow(
+        /expired/,
+      );
+    }, 180000);
     it("locates a search result without collecting 100,000 unrelated header declarations", async () => {
       const host = service();
       const source = resolve(directory, "header-heavy[+].cpp");
