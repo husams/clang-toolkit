@@ -91,6 +91,7 @@ if(CTK_BUILD_NETWORK)
     src/platform/index_worker.cpp
     src/platform/directory_watch.cpp
     src/platform/index_file_reader.cpp
+    src/platform/index_filesystem.cpp
     src/net/network_service.cpp)
   target_sources(ctk_network PRIVATE src/net/match_service.cpp src/net/match_status.cpp
     src/net/analysis_service.cpp src/net/index_service.cpp)

@@ -1,14 +1,18 @@
 #include "../src/net/file_digest_cache.hpp"
+#include "../src/platform/index_filesystem.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
 
+#include <cerrno>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -38,6 +42,26 @@ TEST(IndexFileDigestCache, ReusesOpenReaderButRehashesEveryCall) {
   EXPECT_EQ(cache.counters().hits, 1u);
 }
 
+TEST(IndexFileDigestCache, ReusesOnlyOnSupportedLocalFilesystems) {
+  TemporaryDirectory temporary{"ctk-file-digest"};
+  const auto file = temporary.path() / "header.hpp";
+  write_file(file, "contents");
+  const int descriptor = open(file.c_str(), O_RDONLY | O_CLOEXEC);
+  ASSERT_GE(descriptor, 0);
+  const bool supported = ctk::platform::supports_index_input_reuse(descriptor);
+  EXPECT_EQ(close(descriptor), 0);
+#ifdef __APPLE__
+  EXPECT_TRUE(supported);
+#endif
+
+  FileDigestCache cache;
+  EXPECT_FALSE(cache.digest(file.string()).empty());
+  if (!supported) {
+    EXPECT_EQ(cache.size(), 0u);
+    EXPECT_EQ(cache.counters().uncached, 1u);
+  }
+}
+
 TEST(IndexFileDigestCache, DetectsSameSizeEditWithRestoredMtime) {
   TemporaryDirectory temporary{"ctk-file-digest"};
   const auto file = temporary.path() / "header.hpp";
@@ -52,6 +76,29 @@ TEST(IndexFileDigestCache, DetectsSameSizeEditWithRestoredMtime) {
   const auto second = cache.digest(file.string());
   EXPECT_NE(second, first);
   EXPECT_EQ(cache.counters().hashes, 2u);
+}
+
+TEST(IndexFileDigestCache, ReopensReaderAfterSameInodeMetadataChange) {
+  TemporaryDirectory temporary{"ctk-file-digest"};
+  const auto file = temporary.path() / "header.hpp";
+  write_file(file, "contents");
+  FileDigestCache cache;
+  const auto first = cache.digest(file.string());
+  ASSERT_FALSE(first.empty());
+
+  struct stat before{};
+  ASSERT_EQ(stat(file.c_str(), &before), 0);
+  std::error_code error;
+  fs::permissions(file, fs::perms::owner_exec, fs::perm_options::add, error);
+  ASSERT_FALSE(error);
+  struct stat after{};
+  ASSERT_EQ(stat(file.c_str(), &after), 0);
+  ASSERT_EQ(before.st_dev, after.st_dev);
+  ASSERT_EQ(before.st_ino, after.st_ino);
+
+  EXPECT_EQ(cache.digest(file.string()), first);
+  EXPECT_EQ(cache.counters().invalidations, 1u);
+  EXPECT_EQ(cache.counters().cached, 2u);
 }
 
 TEST(IndexFileDigestCache, ReadsMmapWritesOnAlreadyDirtySharedPage) {
@@ -178,4 +225,45 @@ TEST(IndexFileDigestCache, CancellationAfterReadingReturnsNoDigest) {
   EXPECT_EQ(cache.counters().hashes, 1u);
   EXPECT_FALSE(cache.digest(file.string()).empty());
   EXPECT_EQ(cache.counters().hashes, 2u);
+}
+
+TEST(IndexFileDigestCache, LowDescriptorLimitFallsBackInChildProcess) {
+  TemporaryDirectory temporary{"ctk-file-digest"};
+  const auto file = temporary.path() / "header.hpp";
+  write_file(file, "contents");
+
+  const auto child = fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    rlimit limit{};
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_max < 512)
+      _exit(77);
+    limit.rlim_cur = 512;
+    if (setrlimit(RLIMIT_NOFILE, &limit) != 0 ||
+        ctk::platform::IndexFileReader::descriptor_budget(2048) != 128 ||
+        ctk::platform::IndexFileReader::descriptor_budget(64) != 64)
+      _exit(1);
+
+    limit.rlim_cur = 256;
+    if (setrlimit(RLIMIT_NOFILE, &limit) != 0 ||
+        ctk::platform::IndexFileReader::descriptor_budget(2048) != 0)
+      _exit(2);
+
+    FileDigestCache cache;
+    const auto digest = cache.digest(file.string());
+    const bool fallback_worked =
+        !digest.empty() && cache.size() == 0 && cache.counters().uncached == 1;
+    _exit(fallback_worked ? 0 : 3);
+  }
+
+  int status = 0;
+  pid_t waited;
+  do {
+    waited = waitpid(child, &status, 0);
+  } while (waited < 0 && errno == EINTR);
+  ASSERT_EQ(waited, child);
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 77)
+    GTEST_SKIP() << "cannot set the isolated child descriptor limit";
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(WEXITSTATUS(status), 0);
 }

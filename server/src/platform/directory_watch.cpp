@@ -1,4 +1,5 @@
 #include "ctk/platform/directory_watch.hpp"
+#include "index_filesystem.hpp"
 
 #include <algorithm>
 #include <array>
@@ -20,7 +21,7 @@ namespace ctk::platform {
 struct DirectoryWatch::Impl {
   int queue = -1;
   std::map<std::filesystem::path, int> directories;
-  std::size_t budget = 2048;
+  std::size_t budget = 1024;
   bool add(const std::filesystem::path &resolved);
   Impl() {
 #ifdef __APPLE__
@@ -36,12 +37,13 @@ struct DirectoryWatch::Impl {
         limit.rlim_cur = previous;
     }
     budget = limit.rlim_cur > 256
-                 ? std::min<std::size_t>(2048, (limit.rlim_cur - 256) / 2)
+                 ? std::min<std::size_t>(1024, (limit.rlim_cur - 256) / 2)
                  : 0;
     queue = kqueue();
     if (queue >= 0)
       fcntl(queue, F_SETFD, FD_CLOEXEC);
 #else
+    budget = 2048;
     queue = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 #endif
   }
@@ -125,8 +127,11 @@ bool DirectoryWatch::Impl::add(const std::filesystem::path &path) {
     return false;
 #ifdef __APPLE__
   const int descriptor = open(path.c_str(), O_EVTONLY | O_CLOEXEC);
-  if (descriptor < 0)
+  if (descriptor < 0 || !supports_index_input_reuse(descriptor)) {
+    if (descriptor >= 0)
+      close(descriptor);
     return false;
+  }
   struct kevent event;
   EV_SET(&event, descriptor, EVFILT_VNODE, EV_ADD | EV_CLEAR,
          NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE | NOTE_ATTRIB |
@@ -137,6 +142,14 @@ bool DirectoryWatch::Impl::add(const std::filesystem::path &path) {
     return false;
   }
 #else
+  const int filesystem_descriptor =
+      open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (filesystem_descriptor < 0)
+    return false;
+  const bool supported = supports_index_input_reuse(filesystem_descriptor);
+  close(filesystem_descriptor);
+  if (!supported)
+    return false;
   const int descriptor = inotify_add_watch(
       queue, path.c_str(),
       IN_ONLYDIR | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO |

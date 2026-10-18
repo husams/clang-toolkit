@@ -1,4 +1,5 @@
 #include "ctk/platform/index_file_reader.hpp"
+#include "index_filesystem.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -25,6 +26,8 @@ std::optional<IndexFileIdentity> from_stat(const struct stat &value) {
 #endif
   return IndexFileIdentity{static_cast<std::uint64_t>(value.st_dev),
                            static_cast<std::uint64_t>(value.st_ino),
+                           static_cast<std::uint64_t>(value.st_uid),
+                           static_cast<std::uint64_t>(value.st_gid),
                            static_cast<std::uint64_t>(value.st_size),
                            static_cast<std::int64_t>(mtime_seconds),
                            static_cast<std::int64_t>(mtime_nanoseconds),
@@ -43,19 +46,15 @@ IndexFileReader::~IndexFileReader() {
 }
 
 bool IndexFileReader::valid() const { return descriptor_ >= 0; }
+bool IndexFileReader::cacheable() const {
+  return descriptor_ >= 0 && supports_index_input_reuse(descriptor_);
+}
 
 std::optional<IndexFileIdentity> IndexFileReader::identity() const {
   struct stat value{};
   if (descriptor_ < 0 || fstat(descriptor_, &value) != 0)
     return std::nullopt;
   return from_stat(value);
-}
-
-bool IndexFileReader::refers_to(const std::filesystem::path &path) const {
-  const auto opened = identity();
-  const auto current = path_identity(path);
-  return opened && current && opened->device == current->device &&
-         opened->inode == current->inode;
 }
 
 std::ptrdiff_t IndexFileReader::read_at(void *buffer, std::size_t size,
@@ -81,7 +80,7 @@ std::size_t IndexFileReader::descriptor_budget(std::size_t requested) {
   rlimit limit{};
   if (getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_cur <= 256)
     return 0;
-  const auto available = static_cast<std::size_t>((limit.rlim_cur - 256) / 4);
+  const auto available = static_cast<std::size_t>((limit.rlim_cur - 256) / 2);
   return std::min(requested, available);
 }
 

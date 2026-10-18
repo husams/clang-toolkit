@@ -10,6 +10,8 @@ namespace ctk::platform {
 struct IndexFileIdentity {
   std::uint64_t device = 0;
   std::uint64_t inode = 0;
+  std::uint64_t owner = 0;
+  std::uint64_t group = 0;
   std::uint64_t size = 0;
   std::int64_t mtime_seconds = 0;
   std::int64_t mtime_nanoseconds = 0;
@@ -30,8 +32,8 @@ public:
   IndexFileReader &operator=(const IndexFileReader &) = delete;
 
   bool valid() const;
+  bool cacheable() const;
   std::optional<IndexFileIdentity> identity() const;
-  bool refers_to(const std::filesystem::path &path) const;
   std::ptrdiff_t read_at(void *buffer, std::size_t size,
                          std::uint64_t offset) const;
 

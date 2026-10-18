@@ -18,7 +18,7 @@ namespace ctk::net::index_detail {
 // repeated open/close. It always reads and hashes the current file contents.
 class FileDigestCache {
 public:
-  static constexpr std::size_t max_capacity = 512;
+  static constexpr std::size_t max_capacity = 2048;
   using Allowed = std::function<bool()>;
   struct Counters {
     std::uint64_t hits = 0;
@@ -47,10 +47,14 @@ public:
     const auto key = absolute.lexically_normal();
 
     auto found = entries_.find(key);
-    if (found != entries_.end() && !found->second->refers_to(key)) {
-      entries_.erase(found);
-      ++counters_.invalidations;
-      found = entries_.end();
+    std::optional<platform::IndexFileIdentity> path_before;
+    if (found != entries_.end()) {
+      path_before = platform::IndexFileReader::path_identity(key);
+      if (!path_before || found->second.identity != *path_before) {
+        entries_.erase(found);
+        ++counters_.invalidations;
+        found = entries_.end();
+      }
     }
     if (found != entries_.end())
       ++counters_.hits;
@@ -59,29 +63,30 @@ public:
       if (entries_.size() >= capacity_)
         return uncached_digest(key.string(), allowed);
       auto reader = std::make_unique<platform::IndexFileReader>(key);
-      if (!reader->valid() || !reader->refers_to(key))
+      if (!reader->valid() || !reader->cacheable())
         return uncached_digest(key.string(), allowed);
-      found = entries_.emplace(key, std::move(reader)).first;
+      const auto opened = reader->identity();
+      path_before = platform::IndexFileReader::path_identity(key);
+      if (!opened || !path_before || *opened != *path_before)
+        return uncached_digest(key.string(), allowed);
+      found = entries_.emplace(key, Entry{std::move(reader), *opened}).first;
       ++counters_.cached;
     }
 
     ++counters_.hashes;
-    const auto before = found->second->identity();
-    const auto path_before = platform::IndexFileReader::path_identity(key);
-    if (!before || !path_before || before->device != path_before->device ||
-        before->inode != path_before->inode) {
+    if (!path_before || found->second.identity != *path_before) {
       entries_.erase(found);
       ++counters_.invalidations;
       return {};
     }
 
-    const auto value = hash_current(*found->second, allowed);
+    const auto value = hash_current(*found->second.reader, allowed);
     if (value.empty() || (allowed && !allowed()))
       return {};
 
-    const auto after = found->second->identity();
     const auto path_after = platform::IndexFileReader::path_identity(key);
-    if (!after || !path_after || *before != *after || *after != *path_after) {
+    if (!path_after || *path_before != *path_after ||
+        found->second.identity != *path_after) {
       entries_.erase(found);
       ++counters_.invalidations;
       return {};
@@ -93,6 +98,11 @@ public:
   std::size_t size() const { return entries_.size(); }
 
 private:
+  struct Entry {
+    std::unique_ptr<platform::IndexFileReader> reader;
+    platform::IndexFileIdentity identity;
+  };
+
   static std::string hash_current(const platform::IndexFileReader &reader,
                                   const Allowed &allowed) {
     std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(
@@ -131,8 +141,7 @@ private:
   }
 
   std::size_t capacity_;
-  std::map<std::filesystem::path, std::unique_ptr<platform::IndexFileReader>>
-      entries_;
+  std::map<std::filesystem::path, Entry> entries_;
   Counters counters_;
 };
 } // namespace ctk::net::index_detail
