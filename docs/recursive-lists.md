@@ -34,7 +34,7 @@ The exact generated functions, including execution accounting, are checked in:
 [filter_into](generated-list-loops/filter_into.py), and
 [reverse_list](generated-list-loops/reverse_list.py).
 Their bound namespace supplies one shared execution guard per invocation. The
-emitted map/filter functions are 16/17 lines and reverse is 19 lines. Traversal,
+emitted map/filter functions are 15/16 lines and reverse is 18 lines. Traversal,
 callback use, conditional filtering, and ordinary `append` calls remain visible;
 source accounting and scope restoration live in the shared guard. No per-element
 continuation objects are introduced.

@@ -87,3 +87,29 @@ def test_scalar_shortcut_preserves_custom_type_hooks():
                 ensure_insertable([], Value())
         outcomes.append((str(failure.value), checks))
     assert outcomes[0] == outcomes[1]
+
+
+def test_scalar_shortcut_cannot_be_spoofed_by_metaclass_equality():
+    from types import SimpleNamespace
+
+    from clang_toolkit.cli.runtime.prototype.list_loops import _insertable
+    from clang_toolkit.cli.runtime.prototype.semantics import PrototypeError
+
+    comparisons = []
+
+    class PretendingScalar(type):
+        def __eq__(self, other):
+            comparisons.append(other)
+            return True
+
+    class Nested(list, metaclass=PretendingScalar):
+        pass
+
+    output = []
+    method = SimpleNamespace(meta=SimpleNamespace(line=1, column=1))
+    node = SimpleNamespace(
+        value=(SimpleNamespace(children=[None, None, None, method]), None)
+    )
+    with pytest.raises(PrototypeError, match="cannot create a cyclic collection"):
+        _insertable(Context(), node, output, Nested([output]))
+    assert comparisons == []

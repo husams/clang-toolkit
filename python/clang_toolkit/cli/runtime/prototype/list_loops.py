@@ -7,8 +7,6 @@ from typing import Any
 
 from .patterns import ConsPattern, ListPattern
 
-_SCALAR_TYPES = (int, float, str, bool, type(None))
-
 
 def _statement(node: Any) -> Any:
     return node.children[0] if node.kind == "observe" else node
@@ -303,7 +301,14 @@ def _scope(
 def _insertable(context: Any, node: Any, output: list[Any], value: Any) -> None:
     # Scalars cannot introduce a collection cycle. Avoid allocating traversal
     # sets and a visitor closure for the common map/filter/reverse case.
-    if type(value) in _SCALAR_TYPES:
+    value_type = type(value)
+    if (
+        value_type is int
+        or value_type is float
+        or value_type is str
+        or value_type is bool
+        or value is None
+    ):
         return
     from clang_toolkit.match_values import MatchValueError
 
