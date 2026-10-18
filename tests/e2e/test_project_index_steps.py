@@ -354,3 +354,27 @@ def console_optional_kind_filter(indexed_project):
         assert all(name in unfiltered for name in ["FilterClass", "FilterVariable", "FilterFunction"])
         exact = _console(indexed_project, 'index find "FilterFunction" exact kind function in "project"', engine)
         assert "FilterFunction" in exact and "[Function]" in exact
+
+
+@then("alias searches retain kinds and return each shared definition once per project")
+def console_alias_unique_search(indexed_project):
+    root = indexed_project["root"]
+    header = root / "shared.hpp"
+    header.write_text(header.read_text() +
+        "\nusing AliasUsing = int; typedef long AliasTypedef;\n"
+        "template<class T> using AliasTemplate = T;\n", encoding="utf-8")
+    with Client(indexed_project["server"].endpoint) as client:
+        client.resume_project_index(root)
+        _until(lambda: client.find_symbols(root, "AliasUsing").symbols)
+        client.pause_project_index(root)
+        assert len(client.find_symbols(root, "AliasUsing").symbols) == 2
+        unique = client.find_symbols(root, "AliasUsing", kind="alias", unique_symbols=True)
+        assert len(unique.symbols) == 1 and unique.symbols[0].kind == "TypeAlias"
+    for engine in ("legacy", "tree", "compiled"):
+        for scope in (' in "project"', ""):
+            output = _console(indexed_project, 'index find "Alias" kind alias' + scope, engine)
+            assert output.count("AliasUsing  [TypeAlias]") == 1
+            assert output.count("AliasTypedef  [Typedef]") == 1
+            assert output.count("AliasTemplate  [TypeAlias]") == 1
+        output = _console(indexed_project, 'index find "SharedBefore" exact kind class in "project"', engine)
+        assert output.count("SharedBefore  [CXXRecord]") == 1

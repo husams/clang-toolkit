@@ -37,3 +37,8 @@ Feature: Background project symbol lookup
     Given an isolated server and three translation units with a shared header
     When I index the project and pause background refresh through gRPC
     Then kind filtering works in scoped and global console searches with kinds in results
+
+  Scenario: Alias searches return shared header symbols once per project
+    Given an isolated server and three translation units with a shared header
+    When I index the project and pause background refresh through gRPC
+    Then alias searches retain kinds and return each shared definition once per project

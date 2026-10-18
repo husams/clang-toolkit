@@ -86,7 +86,7 @@ def test_project_symbol_lookup_routes_without_parsing(tmp_path):
     runtime = Runtime(client, cwd=tmp_path, environment={})
     try:
         assert "leaf" in runtime.execute('index find "leaf" in "."')
-        client.find_symbols.assert_called_once_with(str(tmp_path), "leaf", prefix=True)
+        client.find_symbols.assert_called_once_with(str(tmp_path), "leaf", prefix=True, unique_symbols=True)
         runtime.execute('index lookup "c:@F@leaf#" in "."')
         client.lookup_symbol.assert_called_once_with(str(tmp_path), "c:@F@leaf#")
         client.parse.assert_not_called()
@@ -121,7 +121,7 @@ def test_index_commands_resolve_listed_names_and_preserve_paths(tmp_path, engine
         assert expected in output
         if command == "find":
             assert "flow::clamp" in output
-            client.find_symbols.assert_called_once_with(expected, "flow::clamp", prefix=True)
+            client.find_symbols.assert_called_once_with(expected, "flow::clamp", prefix=True, unique_symbols=True)
         else:
             client.project_index_status.assert_called_once_with(expected)
         assert client.list_project_indexes.call_count == (1 if target == "ctk-lab" else 0)
@@ -188,7 +188,7 @@ def test_index_find_global_modes_keep_project_identity(tmp_path, engine, pattern
         assert "Results truncated" in output
         assert [call.args for call in client.find_symbols.call_args_list] == [
             ("/one/demo", query), ("/two/demo", query)]
-        assert all(call.kwargs == {"prefix": not exact}
+        assert all(call.kwargs == {"prefix": not exact, "unique_symbols": True}
                    for call in client.find_symbols.call_args_list)
         runtime.execute("let hits = " + source)
         assert runtime.evaluate("$hits[0].project_root") == "/one/demo"
@@ -258,14 +258,14 @@ def test_index_find_scoped_exact_preserves_literal_query(tmp_path, engine):
                else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
     try:
         runtime.execute('index find "operator*" exact in "."')
-        client.find_symbols.assert_called_once_with(str(tmp_path), "operator*", prefix=False)
+        client.find_symbols.assert_called_once_with(str(tmp_path), "operator*", prefix=False, unique_symbols=True)
         client.list_project_indexes.assert_not_called()
     finally:
         runtime.close()
 
 
 @pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
-@pytest.mark.parametrize("category, raw", [("function", "Function"), ("class", "CXXRecord"), ("variable", "Var")])
+@pytest.mark.parametrize("category, raw", [("function", "Function"), ("class", "CXXRecord"), ("variable", "Var"), ("alias", "TypeAlias"), ("alias", "Typedef")])
 @pytest.mark.parametrize("scope", ["", ' in "/project"'])
 def test_optional_kind_filter_is_forwarded_and_kind_returned(tmp_path, engine, category, raw, scope):
     from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
@@ -282,7 +282,7 @@ def test_optional_kind_filter_is_forwarded_and_kind_returned(tmp_path, engine, c
     try:
         source = f'index find "demo" exact kind {category}' + scope
         assert f"[{raw}]" in runtime.execute(source)
-        client.find_symbols.assert_called_once_with("/project", "demo", prefix=False, kind=category)
+        client.find_symbols.assert_called_once_with("/project", "demo", prefix=False, kind=category, unique_symbols=True)
         runtime.execute("let hits = " + source)
         field = "$hits.symbols[0].kind" if scope else "$hits[0].result.symbols[0].kind"
         assert runtime.evaluate(field) == raw
