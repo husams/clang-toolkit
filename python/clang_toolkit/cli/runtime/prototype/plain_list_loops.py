@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from itertools import islice
@@ -300,6 +301,114 @@ def prepare_plain(loop: Any) -> Any:
     )
 
 
+@dataclass(slots=True)
+class _ChunkState:
+    context: Context
+    output: list[Any]
+    cancel: Any
+    observer: Any
+    plan: Any
+    each: int
+    callback_tail: str
+    adjustment: int = 2
+    consumed: int = 0
+    cancel_node: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ChunkPolicy:
+    setup: Callable[[_ChunkState, list[Any]], Iterator[Any]]
+    checkpoint: Callable[[_ChunkState], Any]
+    settle: Callable[[_ChunkState, int, int, Any], None]
+    finish: Callable[[_ChunkState, bool], Any]
+
+
+def _setup_forward(run: _ChunkState, items: list[Any]) -> Iterator[Any]:
+    run.cancel_node = run.plan.body
+    return iter(items)
+
+
+def _checkpoint_forward(run: _ChunkState) -> Any:
+    return run.cancel_node
+
+
+def _settle_map(run: _ChunkState, count: int, before: int, keep: Any) -> None:
+    context = run.context
+    context.steps += count * run.each - run.adjustment
+    context.step_count = context.steps
+    run.adjustment = 0
+    run.cancel_node = run.plan.shape.group
+    if run.observer is not None:
+        run.observer.last_tail = "host"
+
+
+def _settle_filter(run: _ChunkState, count: int, before: int, keep: Any) -> None:
+    context = run.context
+    context.steps += count * run.each - run.adjustment + (len(run.output) - before) * 3
+    context.step_count = context.steps
+    run.adjustment = 0
+    run.cancel_node = run.plan.shape.group
+    if run.observer is not None:
+        run.observer.last_tail = "host" if keep else run.callback_tail
+
+
+def _finish_forward(run: _ChunkState, nonempty: bool) -> Any:
+    if run.cancel is not None and run.cancel():
+        _cancelled(run.context, run.plan.shape.group if nonempty else run.plan.base)
+    run.context.steps += 3 if nonempty else 2
+    run.context.step_count = run.context.steps
+    if run.observer is not None:
+        run.observer.last_tail = "ref"
+    return run.plan.base_value
+
+
+def _setup_reverse(run: _ChunkState, items: list[Any]) -> Iterator[Any]:
+    context = run.context
+    if run.cancel is not None and run.cancel():
+        _cancelled(context, run.plan.body if items else run.plan.base)
+    run.consumed = getattr(run.plan, "consumed", 0)
+    context.steps += len(items) * (6 + run.consumed) + (1 if items else 2)
+    context.step_count = context.steps
+    context.consume_depth += len(items) * run.consumed
+    run.output = []
+    if run.observer is not None:
+        run.observer.last_tail = "list"
+    return reversed(items)
+
+
+def _checkpoint_reverse(run: _ChunkState) -> Any:
+    # Descent has already been charged; preserve unwind state before polling.
+    run.context.consume_depth -= run.consumed
+    if run.observer is not None:
+        run.observer.last_tail = "let"
+    return run.plan.shape.push
+
+
+def _settle_reverse(run: _ChunkState, count: int, before: int, keep: Any) -> None:
+    run.context.steps += count * 4
+    run.context.step_count = run.context.steps
+    run.context.consume_depth -= (count - 1) * run.consumed
+    if run.observer is not None:
+        run.observer.last_tail = "ref"
+
+
+def _finish_reverse(run: _ChunkState, nonempty: bool) -> Any:
+    return run.plan.final if nonempty else run.plan.base_value
+
+
+_CHUNK_POLICIES = {
+    "map": _ChunkPolicy(
+        _setup_forward, _checkpoint_forward, _settle_map, _finish_forward
+    ),
+    "filter": _ChunkPolicy(
+        _setup_forward, _checkpoint_forward, _settle_filter, _finish_forward
+    ),
+    "reverse": _ChunkPolicy(
+        _setup_reverse, _checkpoint_reverse, _settle_reverse, _finish_reverse
+    ),
+}
+
+
 def _run_plain_chunks(
     context: Context,
     items: list[Any],
@@ -311,60 +420,24 @@ def _run_plain_chunks(
     callback_ticks: int,
     callback_tail: str,
 ) -> list[Any]:
-    """Run proven kernels with one shared set of bounded source checkpoints."""
-    reverse = plan.shape.kind == "reverse"
-    filtering = plan.shape.kind == "filter"
+    """Select source-state policies once, then run bounded plain kernels."""
+    policy = _CHUNK_POLICIES[plan.shape.kind]
+    run = _ChunkState(
+        context, output, cancel, observer, plan, 11 + callback_ticks, callback_tail
+    )
+    pending = policy.setup(run, items)
+    output = run.output
+    checkpoint, settle = policy.checkpoint, policy.settle
     size = len(items)
-    consumed = getattr(plan, "consumed", 0)
-    each = 4 if reverse else 11 + callback_ticks
-    if reverse:
-        if cancel is not None and cancel():
-            _cancelled(context, plan.body if items else plan.base)
-        context.steps += size * (6 + consumed) + (1 if items else 2)
-        context.step_count = context.steps
-        context.consume_depth += size * consumed
-        output = []
-        pending = reversed(items)
-        if observer is not None:
-            observer.last_tail = "list"
-    else:
-        pending = iter(items)
     for start in range(0, size, _CHUNK_SIZE):
         count = min(_CHUNK_SIZE, size - start)
-        if reverse:
-            context.consume_depth -= consumed
-            if observer is not None:
-                observer.last_tail = "let"
+        node = checkpoint(run)
         if cancel is not None and cancel():
-            node = (
-                plan.shape.push
-                if reverse
-                else (plan.body if start == 0 else plan.shape.group)
-            )
             _cancelled(context, node)
-        before = len(output) if filtering else 0
+        before = len(output)
         keep = kernel(islice(pending, _CHUNK_SIZE), output)
-        cost = count * each
-        if not reverse and start == 0:
-            cost -= 2
-        if filtering:
-            cost += (len(output) - before) * 3
-        context.steps += cost
-        context.step_count = context.steps
-        if reverse:
-            context.consume_depth -= (count - 1) * consumed
-        if observer is not None:
-            observer.last_tail = (
-                "ref" if reverse else "host" if not filtering or keep else callback_tail
-            )
-    if not reverse:
-        if cancel is not None and cancel():
-            _cancelled(context, plan.shape.group if items else plan.base)
-        context.steps += 3 if items else 2
-        context.step_count = context.steps
-        if observer is not None:
-            observer.last_tail = "ref"
-    final = plan.final if reverse and items else plan.base_value
+        settle(run, count, before, keep)
+    final = policy.finish(run, bool(items))
     context.location = context.current_location = (final.line, final.column)
     return output
 
