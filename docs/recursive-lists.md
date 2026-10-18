@@ -33,7 +33,17 @@ The exact generated functions, including execution accounting, are checked in:
 [map_into](generated-list-loops/map_into.py),
 [filter_into](generated-list-loops/filter_into.py), and
 [reverse_list](generated-list-loops/reverse_list.py).
-Their bound namespace supplies the original source nodes and safety operations.
+Their bound namespace supplies one shared execution guard per invocation. The
+emitted map/filter functions are 16/17 lines and reverse is 19 lines. Traversal,
+callback use, conditional filtering, and ordinary `append` calls remain visible;
+source accounting and scope restoration live in the shared guard. No per-element
+continuation objects are introduced.
+
+Adjacent source steps use batched accounting when there are no cancellation hooks,
+cleanup, or instrumented ticks. Exhausting a batch still fails at the exact original
+source node. Other cases retain every individual cancellation/step check. Appending
+an exact built-in scalar avoids allocating cycle-traversal sets; collections and
+custom values retain the existing validation and diagnostics.
 
 Each traversal takes one shallow snapshot after initial clause matching. Indexed
 visits and private tail views reuse that snapshot; nested elements retain identity,
