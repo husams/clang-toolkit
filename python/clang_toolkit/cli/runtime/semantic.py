@@ -571,7 +571,9 @@ def display_value(value: Any, *, max_depth: int = 16, max_items: int = 20) -> An
 
     def walk(item: Any, depth: int) -> Any:
         if isinstance(item, CallGraph | CallGraphNodeValue):
-            item = view(item.proto)
+            from .values import _bounded_message_dict
+
+            return _bounded_message_dict(item.proto)
         if isinstance(item, EnumValue):
             return item.name
         if isinstance(item, MessageView):
