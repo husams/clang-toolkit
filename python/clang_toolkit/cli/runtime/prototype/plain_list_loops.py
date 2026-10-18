@@ -312,13 +312,13 @@ class _ChunkState:
     callback_tail: str
     adjustment: int = 2
     consumed: int = 0
+    remaining: int = 0
     cancel_node: Any = None
 
 
 @dataclass(frozen=True, slots=True)
 class _ChunkPolicy:
     setup: Callable[[_ChunkState, list[Any]], Iterator[Any]]
-    checkpoint: Callable[[_ChunkState], Any]
     settle: Callable[[_ChunkState, int, int, Any], None]
     finish: Callable[[_ChunkState, bool], Any]
 
@@ -326,10 +326,6 @@ class _ChunkPolicy:
 def _setup_forward(run: _ChunkState, items: list[Any]) -> Iterator[Any]:
     run.cancel_node = run.plan.body
     return iter(items)
-
-
-def _checkpoint_forward(run: _ChunkState) -> Any:
-    return run.cancel_node
 
 
 def _settle_map(run: _ChunkState, count: int, before: int, keep: Any) -> None:
@@ -373,15 +369,13 @@ def _setup_reverse(run: _ChunkState, items: list[Any]) -> Iterator[Any]:
     run.output = []
     if run.observer is not None:
         run.observer.last_tail = "list"
+    run.cancel_node = run.plan.shape.push
+    run.remaining = len(items)
+    if run.remaining:
+        context.consume_depth -= run.consumed
+        if run.observer is not None:
+            run.observer.last_tail = "let"
     return reversed(items)
-
-
-def _checkpoint_reverse(run: _ChunkState) -> Any:
-    # Descent has already been charged; preserve unwind state before polling.
-    run.context.consume_depth -= run.consumed
-    if run.observer is not None:
-        run.observer.last_tail = "let"
-    return run.plan.shape.push
 
 
 def _settle_reverse(run: _ChunkState, count: int, before: int, keep: Any) -> None:
@@ -390,6 +384,12 @@ def _settle_reverse(run: _ChunkState, count: int, before: int, keep: Any) -> Non
     run.context.consume_depth -= (count - 1) * run.consumed
     if run.observer is not None:
         run.observer.last_tail = "ref"
+    # Prepare only an existing next chunk's cancellation boundary.
+    run.remaining -= count
+    if run.remaining:
+        run.context.consume_depth -= run.consumed
+        if run.observer is not None:
+            run.observer.last_tail = "let"
 
 
 def _finish_reverse(run: _ChunkState, nonempty: bool) -> Any:
@@ -397,15 +397,9 @@ def _finish_reverse(run: _ChunkState, nonempty: bool) -> Any:
 
 
 _CHUNK_POLICIES = {
-    "map": _ChunkPolicy(
-        _setup_forward, _checkpoint_forward, _settle_map, _finish_forward
-    ),
-    "filter": _ChunkPolicy(
-        _setup_forward, _checkpoint_forward, _settle_filter, _finish_forward
-    ),
-    "reverse": _ChunkPolicy(
-        _setup_reverse, _checkpoint_reverse, _settle_reverse, _finish_reverse
-    ),
+    "map": _ChunkPolicy(_setup_forward, _settle_map, _finish_forward),
+    "filter": _ChunkPolicy(_setup_forward, _settle_filter, _finish_forward),
+    "reverse": _ChunkPolicy(_setup_reverse, _settle_reverse, _finish_reverse),
 }
 
 
@@ -427,13 +421,12 @@ def _run_plain_chunks(
     )
     pending = policy.setup(run, items)
     output = run.output
-    checkpoint, settle = policy.checkpoint, policy.settle
+    settle = policy.settle
     size = len(items)
     for start in range(0, size, _CHUNK_SIZE):
         count = min(_CHUNK_SIZE, size - start)
-        node = checkpoint(run)
         if cancel is not None and cancel():
-            _cancelled(context, node)
+            _cancelled(context, run.cancel_node)
         before = len(output)
         keep = kernel(islice(pending, _CHUNK_SIZE), output)
         settle(run, count, before, keep)
