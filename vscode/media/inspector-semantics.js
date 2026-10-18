@@ -23,10 +23,14 @@ export function renderSemantics(host, node, semantics, context, navigate) {
   }
   if (semantics?.referencedDeclaration) {
     const reference = semantics.referencedDeclaration,
-      details = group("Base declaration"),
+      details = group(
+        node.kind === "DeclRefExpr"
+          ? "Referenced declaration"
+          : "Base declaration",
+      ),
       link = document.createElement("button");
     link.textContent = reference.name;
-    link.title = `Inspect base class ${reference.name}`;
+    link.title = `Inspect declaration ${reference.name}`;
     link.disabled = context.running;
     link.dataset.vscodeContext = JSON.stringify({
       webviewSection: "ast-node",

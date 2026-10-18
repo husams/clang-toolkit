@@ -16,6 +16,23 @@ BASE_QUERY = ('cxxBaseSpecifier(optionally(hasType(qualType('
               'cxxRecordDecl().bind("base"))))))))')
 
 
+def reference_declaration(inspector: AstInspector, target: Any, file: str) -> str:
+    """Follow Clang's reference edge, never a name or a serialized declaration."""
+    rows = inspector.host.client.match_in(
+        'declRefExpr(to(namedDecl().bind("declaration")))',
+        replace(target, scope=BINDING_MATCH_SCOPE_ROOT_ONLY))
+    try:
+        if len(rows) != 1:
+            raise ValueError('Could not resolve one native referenced declaration.')
+        declaration = inspector.retain(rows[0].binding('declaration'), file, 'Referenced declaration')
+    except BaseException:
+        rows.close()
+        raise
+    inspector.collections.append(rows)
+    inspector.related.add(declaration)
+    return declaration
+
+
 def inheritance(inspector: AstInspector, target: Any, file: str) -> dict[str, Any]:
     """Keep exact base declarations alive for navigation and follow-up actions."""
     host = inspector.host
