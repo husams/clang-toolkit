@@ -16,6 +16,7 @@ No matching extension graph implementation was present in the wiki index; curren
 - Extension units: 123 passed; editor-console checks: 20 passed.
 - Live extension/native tests: 23 passed, one existing optional default-library test skipped.
 - Focused real VS Code test: call graph and CFG webviews render under the actual webview CSP; native if-edges display True/False.
+- Final worker-backed large-graph VS Code test passed with `CTK_TEST_GRAPHS_ONLY=1 CTK_TEST_GRAPHS_LARGE=1`: 302 native functions render in fullscreen and all 302 expansion flags return to the inspector. Layout runs in a local blob worker; bridge intersections are cached per layout. Pan/zoom changes made while arrangement is pending are kept.
 - Full existing VS Code host regression succeeded (`CTK_EXTENSION_HOST_PASS`, `CTK_LARGE_AST_HOST_PASS`, owned test processes closed).
 - Python units: 3,046 passed against worktree sources.
 - Existing native build: 439/440 cases passed after retrying seven storage cases with private storage. `ProjectIndexServiceTest.SharedHeaderPayloadIsStoredOnceWithEveryTuProvenance` still fails independently of this extension change (zero symbols instead of 20). No native/server source was changed; this is a baseline verification limitation, not a green complete native suite.

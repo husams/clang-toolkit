@@ -120,6 +120,8 @@ Select a function (or place the cursor inside it), then use **CTK: Show Call Gra
 
 CFG blocks and branch edges come from the native CFG; true/false labels are only added for native if-terminators. Incomplete native payloads and unresolved call sites are shown explicitly. Graph scope is the selected translation unit, including its non-system headers; cross-translation-unit project graphs are not inferred.
 
+Graph arrangement runs in a bundled Web Worker so expanding a large graph does not run the layout algorithm on the UI thread. The worker is loaded from a local blob, following the [VS Code webview worker restrictions](https://code.visualstudio.com/api/extension-guides/webview#using-web-workers); no network or dynamic script loading is needed.
+
 After `pnpm build`, run `node scripts/preview-graphs.mjs` for an isolated VS Code preview with a generated 302-function C++ file and private native server. `CTK_SERVER` and `CTK_PYTHON` select existing installations; the default discovers this repository's shared build and environment. Run `node scripts/preview-graphs.mjs --stop` to stop only that preview server. The normal editor profile and extension installation are kept separate.
 
 The Activity Bar hexagon opens Semantic Analysis. Server connection state and running work appear in the status bar; click the running task there to cancel. Clicking a result opens source and **CTK Inspector → AST Inspector** in the bottom panel. Plain script runs open **CTK Output** with the console's rendered output and diagnostics. Search file/result limits are explicit.

@@ -232,11 +232,11 @@ export class DetailsView
       vscode.Uri.joinPath(this.uri, "media", "graph.css"),
     );
     const elk = view.webview.asWebviewUri(
-      vscode.Uri.joinPath(this.uri, "media", "elk.bundled.js"),
+      vscode.Uri.joinPath(this.uri, "media", "elk-api.js"),
     );
     view.webview.html = `<!doctype html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}' ${view.webview.cspSource};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}' ${view.webview.cspSource}; worker-src blob:;">
 <link rel="stylesheet" href="${css}"><link rel="stylesheet" href="${graphCss}"></head><body><main>
 <div class="inspector-body">
 <p id="empty">Open a C++ file or select a match to inspect its AST.</p>
@@ -407,6 +407,15 @@ export class DetailsView
         this.graphUiState = returned;
         this.graphUiRevision++;
         this.publish();
+      },
+      (input) => {
+        const parsed = graphRenderedSchema.safeParse(input);
+        if (
+          parsed.success &&
+          this.contextId === context &&
+          parsed.data.key === this.graphData?.key
+        )
+          this.graphRendered = parsed.data;
       },
     );
   }

@@ -72,9 +72,18 @@ export async function run(): Promise<void> {
     const graphFile = vscode.Uri.joinPath(folder.uri, "graph.cpp");
     await vscode.workspace.fs.writeFile(
       graphFile,
-      Buffer.from(
-        "int leaf(int value) { return value + 1; }\nint submit(int value) { if (value > 0) return leaf(value); return 0; }\n",
-      ),
+      process.env.CTK_TEST_GRAPHS_LARGE === "1"
+        ? await readFile(
+            vscode.Uri.joinPath(
+              extension.extensionUri,
+              "artifacts",
+              "graph-preview",
+              "orders.cpp",
+            ).fsPath,
+          )
+        : Buffer.from(
+            "int leaf(int value) { return value + 1; }\nint submit(int value) { if (value > 0) return leaf(value); return 0; }\n",
+          ),
     );
     await vscode.window.showTextDocument(
       await vscode.workspace.openTextDocument(graphFile),
@@ -104,6 +113,37 @@ export async function run(): Promise<void> {
         JSON.stringify(state.graph),
       );
       assert.ok((state.graph.rendered?.nodeCount ?? 0) > 1);
+      if (kind === "callgraph" && process.env.CTK_TEST_GRAPHS_LARGE === "1") {
+        const model = state.graph.model;
+        assert.ok(model);
+        assert.equal(model.nodes.length, 302);
+        await api.details.receive({
+          type: "graph-fullscreen",
+          key: model.key,
+          state: JSON.stringify({
+            expanded: { out: model.nodes.map((n) => n.id), in: [model.root] },
+            trail: [model.root],
+          }),
+        });
+        const deadline = Date.now() + 60000;
+        while (
+          Date.now() < deadline &&
+          astState().graph.rendered?.nodeCount !== 302
+        )
+          await new Promise((done) => setTimeout(done, 40));
+        assert.equal(
+          astState().graph.rendered?.nodeCount,
+          302,
+          JSON.stringify(astState().graph),
+        );
+        await vscode.commands.executeCommand(
+          "workbench.action.closeActiveEditor",
+        );
+        assert.equal(
+          JSON.parse(astState().graph.uiState).expanded.out.length,
+          302,
+        );
+      }
       if (kind === "cfg") {
         assert.ok(state.graph.rendered?.labels.includes("True"));
         assert.ok(state.graph.rendered?.labels.includes("False"));

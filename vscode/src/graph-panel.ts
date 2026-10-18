@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { AnalysisGraph } from "./graph-model.js";
 
 const messages = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("graph-rendered") }).passthrough(),
   z.object({ type: z.literal("ready") }),
   z.object({ type: z.literal("graph-close") }),
   z.object({
@@ -16,6 +17,7 @@ export async function openGraphPanel(
   graph: AnalysisGraph,
   initial: string,
   returned: (state: string) => void,
+  rendered: (state: unknown) => void = () => {},
 ): Promise<vscode.WebviewPanel> {
   const panel = vscode.window.createWebviewPanel(
     "ctk.graph",
@@ -30,11 +32,12 @@ export async function openGraphPanel(
   const nonce = randomBytes(18).toString("base64");
   const media = (file: string) =>
     panel.webview.asWebviewUri(vscode.Uri.joinPath(uri, "media", file));
-  panel.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}' ${panel.webview.cspSource};"><link rel="stylesheet" href="${media("graph.css")}"></head><body class="graph-window"><main id="graph" class="graph-panel"></main><script nonce="${nonce}" src="${media("elk.bundled.js")}"></script><script type="module" nonce="${nonce}" src="${media("graph-only.js")}"></script></body></html>`;
+  panel.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}' ${panel.webview.cspSource}; worker-src blob:;"><link rel="stylesheet" href="${media("graph.css")}"></head><body class="graph-window"><main id="graph" class="graph-panel"></main><script nonce="${nonce}" src="${media("elk-api.js")}"></script><script type="module" nonce="${nonce}" src="${media("graph-only.js")}"></script></body></html>`;
   let state = initial;
   panel.webview.onDidReceiveMessage((input: unknown) => {
     const message = messages.safeParse(input);
     if (!message.success) return;
+    if (message.data.type === "graph-rendered") rendered(message.data);
     if (message.data.type === "ready")
       void panel.webview.postMessage({
         type: "graph",

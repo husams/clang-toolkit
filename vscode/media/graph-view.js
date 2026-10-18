@@ -1,3 +1,4 @@
+import workerSource from "./elk-worker-source.js";
 import { GraphCanvas } from "./graph-canvas.js";
 import { layoutGraph } from "./graph-layout.js";
 import { GraphState } from "./graph-state.js";
@@ -307,9 +308,24 @@ export class GraphView {
   async render(restore) {
     if (!this.plot?.clientWidth || !this.plot.clientHeight) return;
     const sequence = ++this.sequence;
+    const previous = { ...this.canvas.view },
+      previousFunction = this.state.current;
     this.plot.setAttribute("aria-busy", "true");
     try {
-      this.elk ||= new globalThis.ELK();
+      if (!this.elk) {
+        const url = URL.createObjectURL(
+          new Blob([workerSource], { type: "text/javascript" }),
+        );
+        this.elk = new globalThis.ELK({ workerUrl: url });
+        window.addEventListener(
+          "unload",
+          () => {
+            this.elk?.terminateWorker();
+            URL.revokeObjectURL(url);
+          },
+          { once: true },
+        );
+      }
       const graph = this.state.visible(),
         key = JSON.stringify([
           this.state.model.key,
@@ -324,6 +340,18 @@ export class GraphView {
           this.cache.delete(this.cache.keys().next().value);
       }
       if (sequence !== this.sequence) return;
+      if (
+        this.canvas.layout &&
+        (this.state.current !== previousFunction ||
+          ["x", "y", "scale"].some((k) => this.canvas.view[k] !== previous[k]))
+      ) {
+        const id =
+            this.state.current !== previousFunction
+              ? this.state.current
+              : restore?.id || this.state.current,
+          camera = this.canvas.camera(id);
+        if (camera) restore = { id, camera };
+      }
       this.canvas.set(layout, this.state);
       if (!restore?.camera || !this.canvas.restore(restore.id, restore.camera))
         this.canvas.fit(restore?.frame);
