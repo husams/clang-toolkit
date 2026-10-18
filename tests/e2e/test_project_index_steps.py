@@ -112,6 +112,8 @@ def console_index_inventory(indexed_project):
         assert str(indexed_project["root"]) in output
         assert "Total projects: 1" in output
         assert "PAUSED" in output and "3/3 indexed" in output
+        assert any(line.split()[:2] == [indexed_project["root"].name, str(indexed_project["root"])]
+                   for line in output.splitlines())
         assert "Projects in progress" in output and "Indexed translation units" in output
         output = _console(indexed_project, "let projects = index list; print $projects.total_count", engine)
         assert output.strip() == "1"

@@ -27,8 +27,10 @@ def test_index_list_displays_count_and_preserves_project_values(tmp_path, engine
     try:
         output = runtime.execute("index list")
         assert f"Total projects: {len(projects)}" in output
+        assert output.splitlines()[1].split() == ["Project", "Path", "State", "Indexed"]
         if populated:
-            assert "/remote/project  INDEXING  2/5 indexed" in output
+            assert output.splitlines()[2].split() == [
+                "project", "/remote/project", "INDEXING", "2/5", "indexed"]
         else:
             assert "No indexed projects." in output
         client.list_project_indexes.assert_called_once_with()
