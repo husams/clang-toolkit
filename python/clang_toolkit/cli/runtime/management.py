@@ -85,11 +85,15 @@ def _index_rows(status: pb.ServerStatusResponse) -> list[tuple[str, str]]:
     if not status.HasField("project_indexes"):
         return [("Project indexes", "Unavailable")]
     indexes = status.project_indexes
-    active = {index_pb.INDEX_STATE_QUEUED, index_pb.INDEX_STATE_INDEXING}
+    active = {index_pb.INDEX_STATE_QUEUED, index_pb.INDEX_STATE_CHECKING, index_pb.INDEX_STATE_INDEXING}
     rows = [
         ("Total projects", str(indexes.total_count)),
         ("Projects in progress", str(sum(p.state in active for p in indexes.projects))),
         ("Indexed translation units", str(sum(p.translation_units_indexed for p in indexes.projects))),
+        ("Reused this pass", str(sum(p.translation_units_skipped for p in indexes.projects))),
+        ("Newly indexed this pass", str(sum(max(0, p.translation_units_completed - p.translation_units_skipped)
+                                          for p in indexes.projects))),
+        ("Currently indexing", str(sum(p.translation_units_indexing for p in indexes.projects))),
         ("Pending translation units", str(sum(p.translation_units_pending for p in indexes.projects))),
     ]
     for project in indexes.projects:
@@ -97,7 +101,10 @@ def _index_rows(status: pb.ServerStatusResponse) -> list[tuple[str, str]]:
         rows.append(("Project", project.project_root))
         rows.append(("Progress",
                      f"{state}, {project.translation_units_indexed}/{project.translation_units_total} indexed, "
-                     f"{project.translation_units_pending} pending, {project.translation_units_failed} failed"))
+                     f"{project.translation_units_pending} pending, {project.translation_units_failed} failed, "
+                     f"{project.translation_units_skipped} reused, "
+                     f"{max(0, project.translation_units_completed - project.translation_units_skipped)} newly indexed, "
+                     f"{project.translation_units_indexing} indexing"))
         if project.current_translation_unit:
             rows.append(("Current translation unit", project.current_translation_unit))
     return rows

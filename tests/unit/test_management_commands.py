@@ -15,20 +15,26 @@ def test_status_shows_project_inventory_and_active_progress():
 
     status = pb.ServerStatusResponse(project_indexes=index_pb.ListProjectIndexesResponse(
         total_count=3, projects=[
-            index_pb.ProjectIndexStatus(project_root="/complete", state=index_pb.INDEX_STATE_IDLE,
-                                        translation_units_indexed=5, translation_units_total=5),
+            index_pb.ProjectIndexStatus(project_root="/complete", state=index_pb.INDEX_STATE_CHECKING,
+                                        translation_units_indexed=5, translation_units_total=5,
+                                        translation_units_completed=4, translation_units_skipped=4),
             index_pb.ProjectIndexStatus(project_root="/active", state=index_pb.INDEX_STATE_INDEXING,
                                         translation_units_indexed=2, translation_units_total=7,
-                                        translation_units_pending=5, current_translation_unit="/active/a.cc"),
+                                        translation_units_completed=2, translation_units_skipped=1,
+                                        translation_units_indexing=2, translation_units_pending=5, current_translation_unit="/active/a.cc"),
             index_pb.ProjectIndexStatus(project_root="/paused", state=index_pb.INDEX_STATE_PAUSED),
         ]))
     rendered = _render_status(status)
     assert "Project indexing" in rendered
-    for label, value in [("Total projects", "3"), ("Projects in progress", "1"),
+    for label, value in [("Total projects", "3"), ("Projects in progress", "2"),
+                         ("Reused this pass", "5"), ("Newly indexed this pass", "1"),
+                         ("Currently indexing", "2"),
                          ("Indexed translation units", "7"), ("Pending translation units", "5")]:
         assert any(line.startswith(label + " ") and line.endswith(value)
                    for line in rendered.splitlines())
     assert "INDEXING, 2/7 indexed, 5 pending, 0 failed" in rendered
+    assert "CHECKING" in rendered
+    assert "1 reused, 1 newly indexed, 2 indexing" in rendered
     assert "/active/a.cc" in rendered
     assert "Unavailable" in _render_status(pb.ServerStatusResponse())
 

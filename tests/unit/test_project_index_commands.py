@@ -19,6 +19,7 @@ def test_index_list_displays_count_and_preserves_project_values(tmp_path, engine
     projects = [pb.ProjectIndexStatus(
         project_root="/remote/project", state=pb.INDEX_STATE_INDEXING,
         translation_units_indexed=2, translation_units_total=5,
+        translation_units_completed=2, translation_units_skipped=1, translation_units_indexing=2,
     )] if populated else []
     client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(
         projects=projects, total_count=len(projects))
@@ -27,10 +28,10 @@ def test_index_list_displays_count_and_preserves_project_values(tmp_path, engine
     try:
         output = runtime.execute("index list")
         assert f"Total projects: {len(projects)}" in output
-        assert output.splitlines()[1].split() == ["Project", "Path", "State", "Indexed"]
+        assert output.splitlines()[1].split() == ["Project", "Path", "State", "Indexed", "Reused", "Newly", "indexed", "Indexing"]
         if populated:
             assert output.splitlines()[2].split() == [
-                "project", "/remote/project", "INDEXING", "2/5", "indexed"]
+                "project", "/remote/project", "INDEXING", "2/5", "indexed", "1", "1", "2"]
         else:
             assert "No indexed projects." in output
         client.list_project_indexes.assert_called_once_with()

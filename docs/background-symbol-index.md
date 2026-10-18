@@ -44,6 +44,12 @@ again to revalidate their coverage. Listing never parses project sources.
 the number of projects in progress (queued or indexing), indexed and pending
 translation-unit counts, and the current translation unit when available.
 
+Freshness reconciliation shows `CHECKING`; `INDEXING` means extraction is in
+flight. Saved indexed coverage is separate from this pass's reused entries,
+newly indexed entries, and currently indexing entries. Pending entries may only
+need freshness checks; they do not imply that saved entries will be extracted
+again. Reused and newly indexed counts reset at the start of each pass.
+
 ## Python and UI gRPC clients
 
 ```python

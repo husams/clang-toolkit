@@ -2335,6 +2335,64 @@ TEST_F(ProjectIndexServiceTest, MonitorsProjectsAndControlsThemIndependently) {
   EXPECT_EQ(start_and_wait(service).translation_units_failed(), 0);
 }
 
+TEST_F(ProjectIndexServiceTest, DistinguishesCheckingFromExtractionAndReuse) {
+  const auto counter = root / "phase-counter";
+  const auto release_listing = root / "release-listing";
+  const auto release_extraction = root / "release-extraction";
+  const auto wrapper = worker_wrapper(
+      counter, "starts=$(wc -c < '" + counter.string() + "')\n"
+               "if [ \"$starts\" -eq 1 ]; then\n"
+               "  while [ ! -e '" + release_listing.string() +
+                   "' ]; do sleep 0.01; done\n"
+               "else\n"
+               "  while [ ! -e '" + release_extraction.string() +
+                   "' ]; do sleep 0.01; done\nfi\n");
+  std::uint64_t saved_revision = 0;
+  {
+    IndexServiceAdapter service(storage, {}, wrapper, 1);
+    StartProjectIndexRequest start;
+    start.set_project_root(project.string());
+    start.set_poll_interval_seconds(3600);
+    ProjectIndexStatus status;
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.StartProjectIndex(&context, &start, &status).ok());
+    ProjectIndexRequest request;
+    request.set_project_root(project.string());
+    const auto wait_for = [&](IndexState state) {
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+      do {
+        grpc::ServerContext ctx;
+        EXPECT_TRUE(service.GetProjectIndexStatus(&ctx, &request, &status).ok());
+        if (status.state() == state)
+          return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      } while (std::chrono::steady_clock::now() < deadline);
+      return false;
+    };
+    ASSERT_TRUE(wait_for(INDEX_STATE_CHECKING)) << status.DebugString();
+    EXPECT_EQ(status.translation_units_indexing(), 0);
+    std::ofstream(release_listing).put('x');
+    ASSERT_TRUE(wait_for(INDEX_STATE_INDEXING)) << status.DebugString();
+    EXPECT_EQ(status.translation_units_indexing(), 1);
+    EXPECT_EQ(status.translation_units_skipped(), 0);
+    std::ofstream(release_extraction).put('x');
+    ASSERT_TRUE(wait_for(INDEX_STATE_COMPLETE)) << status.DebugString();
+    EXPECT_EQ(status.translation_units_completed(), 3);
+    EXPECT_EQ(status.translation_units_skipped(), 0);
+    EXPECT_EQ(status.translation_units_indexing(), 0);
+    saved_revision = status.revision();
+  }
+  IndexServiceAdapter restarted(storage, {}, wrapper, 1);
+  const auto reused = start_and_wait(restarted);
+  EXPECT_EQ(reused.translation_units_skipped(), 3);
+  EXPECT_EQ(reused.translation_units_completed(), 3);
+  EXPECT_EQ(reused.translation_units_indexing(), 0);
+  EXPECT_EQ(reused.revision(), saved_revision);
+  std::ifstream launches(counter);
+  // Two discovery calls, but extraction only on the first pass.
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(), 5);
+}
+
 TEST_F(ProjectIndexServiceTest, SharesWorkerLimitAcrossConcurrentProjects) {
   const auto first = project;
   const auto second = second_project();
