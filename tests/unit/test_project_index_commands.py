@@ -19,6 +19,7 @@ def test_index_list_displays_count_and_preserves_project_values(tmp_path, engine
     projects = [pb.ProjectIndexStatus(
         project_root="/remote/project", state=pb.INDEX_STATE_INDEXING,
         translation_units_indexed=2, translation_units_total=5,
+        translation_units_completed=2, translation_units_skipped=1, translation_units_indexing=2,
     )] if populated else []
     client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(
         projects=projects, total_count=len(projects))
@@ -27,10 +28,10 @@ def test_index_list_displays_count_and_preserves_project_values(tmp_path, engine
     try:
         output = runtime.execute("index list")
         assert f"Total projects: {len(projects)}" in output
-        assert output.splitlines()[1].split() == ["Project", "Path", "State", "Indexed"]
+        assert output.splitlines()[1].split() == ["Project", "Path", "State", "Indexed", "Reused", "Newly", "indexed", "Indexing"]
         if populated:
             assert output.splitlines()[2].split() == [
-                "project", "/remote/project", "INDEXING", "2/5", "indexed"]
+                "project", "/remote/project", "INDEXING", "2/5", "indexed", "1", "1", "2"]
         else:
             assert "No indexed projects." in output
         client.list_project_indexes.assert_called_once_with()
@@ -89,5 +90,55 @@ def test_project_symbol_lookup_routes_without_parsing(tmp_path):
         runtime.execute('index lookup "c:@F@leaf#" in "."')
         client.lookup_symbol.assert_called_once_with(str(tmp_path), "c:@F@leaf#")
         client.parse.assert_not_called()
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+@pytest.mark.parametrize("target", ["ctk-lab", "/remote/ctk-lab", "./ctk-lab", "../ctk-lab"])
+def test_index_status_resolves_listed_names_and_preserves_paths(tmp_path, engine, target):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(projects=[
+        pb.ProjectIndexStatus(project_root="/remote/ctk-lab"),
+    ])
+    expected = ("/remote/ctk-lab" if target in {"ctk-lab", "/remote/ctk-lab"}
+                else str((tmp_path / target).resolve()))
+    client.project_index_status.return_value = pb.ProjectIndexStatus(project_root=expected)
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        assert expected in runtime.execute(f'index status "{target}"')
+        client.project_index_status.assert_called_once_with(expected)
+        assert client.list_project_indexes.call_count == (1 if target == "ctk-lab" else 0)
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+@pytest.mark.parametrize("roots, message", [
+    (["/one/ctk-lab", "/two/ctk-lab"], "Ambiguous project name"),
+    (["/one/other"], "No indexed project named"),
+])
+def test_index_status_rejects_ambiguous_or_unknown_names(tmp_path, engine, roots, message):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(projects=[
+        pb.ProjectIndexStatus(project_root=root) for root in roots
+    ])
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        with pytest.raises(Exception, match=message) as error:
+            runtime.execute('index status "ctk-lab"')
+        if len(roots) > 1:
+            assert all(root in str(error.value) for root in roots)
+        client.project_index_status.assert_not_called()
     finally:
         runtime.close()

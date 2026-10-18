@@ -20,13 +20,16 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
     if str(node.data) == "index_list":
         result = runtime.client.list_project_indexes()
         lines = ["Indexed projects"]
-        rows = [("Project", "Path", "State", "Indexed")]
+        rows = [("Project", "Path", "State", "Indexed", "Reused", "Newly indexed", "Indexing")]
         for project in result.projects:
             state = pb.IndexState.Name(project.state).removeprefix("INDEX_STATE_")
             rows.append((Path(project.project_root).name or project.project_root,
                          project.project_root, state,
-                         f"{project.translation_units_indexed}/{project.translation_units_total} indexed"))
-        widths = [max(len(row[column]) for row in rows) for column in range(4)]
+                         f"{project.translation_units_indexed}/{project.translation_units_total} indexed",
+                         str(project.translation_units_skipped),
+                         str(max(0, project.translation_units_completed - project.translation_units_skipped)),
+                         str(project.translation_units_indexing)))
+        widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
         lines.extend("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip()
                      for row in rows)
         if not result.projects:
@@ -36,7 +39,20 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
 
     strings = [runtime._string(str(child)) for child in node.children
                if isinstance(child, Token) and child.type == "STRING"]
-    root = Path(strings[-1]).expanduser()
+    target = strings[-1]
+    if (str(node.data) == "index_status" and target not in {"", ".", "..", "~"}
+            and "/" not in target and not target.startswith("~")):
+        projects = runtime.client.list_project_indexes().projects
+        matches = sorted({item.project_root for item in projects
+                          if Path(item.project_root).name == target})
+        if len(matches) > 1:
+            raise ValueError(
+                f"Ambiguous project name {target!r}; use a full path: " + ", ".join(matches))
+        if not matches:
+            raise ValueError(
+                f"No indexed project named {target!r}; use index list or an explicit path.")
+        target = matches[0]
+    root = Path(target).expanduser()
     project = str(root if root.is_absolute() else runtime.cwd / root)
     # Normalize local console paths lexically without requiring them to exist.
     project = os.path.normpath(project)
@@ -65,6 +81,9 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
         state = pb.IndexState.Name(result.state).removeprefix("INDEX_STATE_")
         lines = [f"Project index {state}", f"Project  {result.project_root}",
                  f"Indexed  {result.translation_units_indexed}/{result.translation_units_total}",
+                 f"Reused   {result.translation_units_skipped}",
+                 f"Newly indexed {max(0, result.translation_units_completed - result.translation_units_skipped)}",
+                 f"Indexing {result.translation_units_indexing}",
                  f"Pending  {result.translation_units_pending}",
                  f"Failed   {result.translation_units_failed}",
                  f"Revision {result.revision}"]

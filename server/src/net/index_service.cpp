@@ -529,6 +529,15 @@ private:
       changed_.wait_for(lock, std::chrono::milliseconds(50));
     }
   }
+  void end_extraction(const Job &job) {
+    std::lock_guard lock(mutex_);
+    if (job.epoch != job_.epoch)
+      return;
+    const auto active = status_.translation_units_indexing();
+    status_.set_translation_units_indexing(active ? active - 1 : 0);
+    if (status_.state() == INDEX_STATE_INDEXING && active <= 1)
+      status_.set_state(INDEX_STATE_CHECKING);
+  }
   IndexWorkerResponse execute(const Job &job, IndexWorkerRequest request,
                               const fs::path &directory,
                               const std::function<bool()> &stop = {}) {
@@ -544,6 +553,24 @@ private:
     } release_slot{worker_slots_};
     if ((stop && stop()) || !admitted(job))
       throw Interrupted();
+    // Count actual worker permits, not scheduled futures waiting for a slot.
+    // Destruction runs after the worker is stopped and reaped on every exit.
+    struct ExtractionStatus {
+      ProjectSymbolMonitor &owner;
+      const Job &job;
+      bool active = false;
+      ~ExtractionStatus() {
+        if (active)
+          owner.end_extraction(job);
+      }
+    } extraction_status{*this, job};
+    if (!request.list_translation_units()) {
+      progress(job, [](auto &s) {
+        s.set_translation_units_indexing(s.translation_units_indexing() + 1);
+        s.set_state(INDEX_STATE_INDEXING);
+      });
+      extraction_status.active = true;
+    }
     fs::create_directories(directory);
     const auto request_path = directory / "worker.request";
     const auto result_path = directory / "worker.result";
@@ -698,7 +725,7 @@ private:
         total = std::stoull(row.text(0));
     }
     progress(job, [&](auto &s) {
-      s.set_state(INDEX_STATE_INDEXING);
+      s.set_state(INDEX_STATE_CHECKING);
       s.set_translation_units_indexed(saved_count);
       s.set_translation_units_total(total);
       s.set_translation_units_pending(total);
@@ -937,7 +964,6 @@ private:
                          "s.is_definition=symbol.is_definition)");
     remove.bind(1, id);
     remove.step();
-    progress(job, [](auto &s) { s.set_state(INDEX_STATE_INDEXING); });
     bump(db);
   }
   void replace(const Job &job, Database &db,
@@ -1014,6 +1040,15 @@ private:
     commit(job, transaction, {}, expected_generation);
   }
   void reconcile(const Job &job, Database &db, const fs::path &directory) {
+    progress(job, [](auto &s) {
+      s.set_state(INDEX_STATE_CHECKING);
+      s.set_translation_units_indexing(0);
+      s.set_translation_units_completed(0);
+      s.set_translation_units_skipped(0);
+      s.set_translation_units_failed(0);
+      s.set_translation_units_pending(s.translation_units_total());
+      s.clear_current_translation_unit();
+    });
     IndexWorkerRequest listing;
     listing.set_list_translation_units(true);
     listing.set_compile_commands_directory(job.commands);
@@ -1037,7 +1072,7 @@ private:
     // contain unrelated build metadata and must not invalidate every TU.
     auto saved_revision = revision(db), saved_count = count_units(db);
     progress(job, [&](auto &s) {
-      s.set_state(INDEX_STATE_INDEXING);
+      s.set_state(INDEX_STATE_CHECKING);
       s.set_translation_units_total(total);
       s.set_translation_units_completed(0);
       s.set_translation_units_skipped(0);
@@ -1692,6 +1727,7 @@ private:
     saved_revision = revision(db);
     saved_count = count_units(db);
     progress(job, [&](auto &s) {
+      s.set_translation_units_indexing(0);
       s.set_state(failed ? INDEX_STATE_FAILED : INDEX_STATE_COMPLETE);
       s.clear_current_translation_unit();
       s.set_last_reconciled_unix_seconds(timestamp());
@@ -1746,6 +1782,7 @@ private:
           } catch (const std::exception &error) {
             progress(job, [&](auto &s) {
               s.set_state(INDEX_STATE_FAILED);
+              s.set_translation_units_indexing(0);
               s.set_error(error.what());
             });
           }
@@ -1765,6 +1802,7 @@ private:
         std::lock_guard lock(mutex_);
         if (job.epoch == job_.epoch) {
           status_.set_state(INDEX_STATE_FAILED);
+          status_.set_translation_units_indexing(0);
           status_.set_error(error.what());
           cancelled_ = true;
         }

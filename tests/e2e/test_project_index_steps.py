@@ -115,8 +115,13 @@ def console_index_inventory(indexed_project):
         assert any(line.split()[:2] == [indexed_project["root"].name, str(indexed_project["root"])]
                    for line in output.splitlines())
         assert "Projects in progress" in output and "Indexed translation units" in output
+        assert "Reused this pass" in output and "Newly indexed this pass" in output
+        assert "Currently indexing" in output
         output = _console(indexed_project, "let projects = index list; print $projects.total_count", engine)
         assert output.strip() == "1"
+        output = _console(indexed_project, 'index status "project"', engine)
+        assert str(indexed_project["root"]) in output
+        assert "PAUSED" in output and "Indexed  3/3" in output
 
 
 @then("symbol lookup remains available and foreground parsing still works")
@@ -215,7 +220,8 @@ def foreground_during_indexing(indexed_project):
             status = client.server_status()
             assert status.project_indexes.total_count == 1
             progress = status.project_indexes.projects[0]
-            assert progress.state in (pb.INDEX_STATE_INDEXING, pb.INDEX_STATE_QUEUED)
+            assert progress.state in (pb.INDEX_STATE_CHECKING, pb.INDEX_STATE_INDEXING,
+                                      pb.INDEX_STATE_QUEUED)
             assert progress.translation_units_pending >= 1
             assert progress.current_translation_unit.endswith("one.cc")
             started = time.monotonic()
@@ -283,7 +289,8 @@ def verify_independent_monitors(indexed_project) -> None:
         assert listed.total_count == 2
         states = {entry.project_root: entry.state for entry in listed.projects}
         assert states[str(first)] == pb.INDEX_STATE_CANCELLED
-        assert states[str(second)] in (pb.INDEX_STATE_INDEXING, pb.INDEX_STATE_COMPLETE)
+        assert states[str(second)] in (pb.INDEX_STATE_CHECKING, pb.INDEX_STATE_INDEXING,
+                                       pb.INDEX_STATE_COMPLETE)
         status = client.server_status()
         assert {entry.project_root for entry in status.project_indexes.projects} == {str(first), str(second)}
     output = _console(indexed_project, "index list; server status", "compiled")

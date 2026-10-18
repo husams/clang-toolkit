@@ -21,6 +21,7 @@ enum IndexState {
   INDEX_STATE_COMPLETE = 5;
   INDEX_STATE_CANCELLED = 6;
   INDEX_STATE_FAILED = 7;
+  INDEX_STATE_CHECKING = 8;
 }
 
 message StartProjectIndexRequest {
@@ -50,6 +51,8 @@ message ProjectIndexStatus {
   uint64 translation_units_pending = 11;
   string paused_reason = 12;
   uint64 translation_units_indexed = 13;
+  // Extractions in flight in this reconciliation; excludes freshness checks.
+  uint64 translation_units_indexing = 14;
 }
 message FindSymbolsRequest {
   string project_root = 1;
