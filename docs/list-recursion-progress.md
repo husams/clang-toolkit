@@ -1,6 +1,7 @@
 # General recursive list functions
 
-Implemented on `codex/general-list-recursion`, based on main `70ea55d`.
+Implemented on `codex/general-list-recursion`, initially based on main `70ea55d`
+and rebased onto main `b145e88` before publication.
 
 - [x] Generated resumable Python bodies and explicit continuations for non-tail self calls.
 - [x] Tail-call loop and indexed private tails, with no copy per tail traversal.
@@ -15,10 +16,9 @@ Implemented on `codex/general-list-recursion`, based on main `70ea55d`.
   The same scenario also timed out against the unchanged primary package. With
   the large concurrent runs stopped, all three legacy/tree/compiled cases passed
   unchanged (13.04 seconds).
-- Final recursive-list and existing pattern coverage: 250 cases. The combined
-  run passed 248; two new scalar-hook tests used ambiguous bare-string host
-  syntax in the combined parser. After replacing that syntax with an explicit
-  empty-string binding, all eight scalar/cancellation-hook cases passed.
+- After rebasing onto current main, all 250 recursive-list and existing pattern
+  tests passed together (37.67 seconds), and all four real-terminal list-pattern
+  and recursive-list scenarios passed in both engines (22.52 seconds).
 - Native suite: all 440 distinct cases passed, using isolated temporary and
   storage directories for parallel batches.
 - Acceptance suite: all 209 distinct cases passed across the full run and focused
