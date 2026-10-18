@@ -1,4 +1,4 @@
-// Tail calls reuse one execution frame; the accumulator is an ordinary list.
+// Recognized accumulator functions compile to direct indexed Python loops.
 let map_into = {
     ([], f, out) out
     (h : t, f, out) {
@@ -17,7 +17,7 @@ let filter_into = {
 }
 let filter_list(xs, keep) = filter_into(xs, keep, [])
 
-// Non-tail recursion keeps pending work in an explicit continuation stack.
+// Recognized reverse compiles to descent/unwind loops without continuations.
 let reverse_list = {
     ([]) []
     (h : t) {
