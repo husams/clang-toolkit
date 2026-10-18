@@ -2067,7 +2067,7 @@ Validation:
 - The full Python unit run reports 3,069 passes and five timing failures.
   Four prompt-modified-enter cases pass a focused retry, resolving the two
   additional prompt failures; the remaining three are the previously recorded
-  batch/compiled-workspace timeouts from v0.2.40. Their assertions and deadlines
+  batch and workspace timeouts from v0.2.40. Their assertions and deadlines
   remain unchanged, and the full suite is not claimed green.
 - All 466 C++ cases are exercised across the focused cursor run, isolated
   per-case runs and a final combined run of the remaining 202 cases. 465 pass;
@@ -2079,6 +2079,15 @@ Validation:
   still exceeds its unchanged 30-second overall test deadline. The resulting
   teardown reports an already-running action. These timing failures are recorded
   without relaxing their deadlines or claiming the entire live suite green.
+- All 34 Python E2E modules were attempted with the matching Homebrew Clang
+  compiler. 29 modules finish successfully; durable-batch, native-traversal and
+  workspace-console modules finish with timing failures. The callgraph and
+  network modules reach the runner's six-minute module budget after partial
+  progress, so the full E2E suite is incomplete and is not claimed green.
+  Completed modules report 125 passes and three failures. A separate retry of
+  the last callgraph scenario also hits its unchanged 60-second CLI deadline.
+  Node-navigation E2E coverage passes all six cases with the new unlimited
+  defaults. No unrelated console/batch deadlines or assertions were changed.
 
 The original remote source remains inaccessible. Local validation uses LLVM's
 SemaDecl.cpp and a source with 100,005 actual AST children.
