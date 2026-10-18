@@ -224,6 +224,24 @@ TEST_F(IndexWorkerProcess, SuspendCachesAlreadyCompletedWorkersForOnePoll) {
   EXPECT_FALSE(worker.poll());
 }
 
+TEST_F(IndexWorkerProcess, RapidSuspendResumePreservesImmediateExitStatus) {
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    IndexWorker worker(script("exit 7\n"), root / "request", root / "result");
+    worker.suspend();
+    worker.resume();
+
+    std::optional<int> status;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!(status = worker.poll()) &&
+           std::chrono::steady_clock::now() < deadline)
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    ASSERT_TRUE(status) << "attempt " << attempt;
+    EXPECT_EQ(*status, 7) << "attempt " << attempt;
+    EXPECT_FALSE(worker.running());
+  }
+}
+
 TEST_F(IndexWorkerProcess, StopKillsAndReapsIsolatedExtraction) {
   IndexWorker worker(script("exec sleep 60\n"), root / "request",
                      root / "result");

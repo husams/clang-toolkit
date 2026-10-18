@@ -1193,6 +1193,239 @@ TEST_F(ProjectIndexServiceTest,
 }
 
 TEST_F(ProjectIndexServiceTest,
+       ConflictingSharedManifestFallsBackPerTranslationUnit) {
+  {
+    IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+    const auto initial = start_and_wait(service);
+    ASSERT_EQ(initial.translation_units_failed(), 0);
+  }
+
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  const auto source = fs::canonical(project / "one.cpp").string();
+  sqlite3_stmt *dependency = nullptr;
+  ASSERT_EQ(sqlite3_prepare_v2(
+                db,
+                "SELECT t.id,j.key FROM translation_unit t,"
+                "json_each(t.dependencies_json) j WHERE t.main_file=? AND "
+                "t.indexed_at>0 AND j.key LIKE '%/shared.h' LIMIT 1",
+                -1, &dependency, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(
+      sqlite3_bind_text(dependency, 1, source.c_str(), -1, SQLITE_TRANSIENT),
+      SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(dependency), SQLITE_ROW);
+  const auto id =
+      reinterpret_cast<const char *>(sqlite3_column_text(dependency, 0));
+  const auto dependency_path =
+      reinterpret_cast<const char *>(sqlite3_column_text(dependency, 1));
+  ASSERT_NE(id, nullptr);
+  ASSERT_NE(dependency_path, nullptr);
+  const std::string translation_unit_id(id);
+  const std::string manifest_path =
+      "$.\"" + std::string(dependency_path) + "\"";
+  sqlite3_finalize(dependency);
+
+  sqlite3_stmt *update = nullptr;
+  ASSERT_EQ(sqlite3_prepare_v2(
+                db,
+                "UPDATE translation_unit SET dependencies_json=json_set("
+                "dependencies_json,?1,?2) WHERE id=?3",
+                -1, &update, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(
+      sqlite3_bind_text(update, 1, manifest_path.c_str(), -1, SQLITE_TRANSIENT),
+      SQLITE_OK);
+  ASSERT_EQ(sqlite3_bind_text(update, 2, "deliberately-conflicting-hash", -1,
+                              SQLITE_STATIC),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_bind_text(update, 3, translation_unit_id.c_str(), -1,
+                              SQLITE_TRANSIENT),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(update), SQLITE_DONE);
+  EXPECT_EQ(sqlite3_changes(db), 1);
+  sqlite3_finalize(update);
+  sqlite3_close(db);
+  write("two.cpp",
+        "#include \"shared.h\"\nint changedWhileFallback(){return 9;}\n");
+
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto status = start_and_wait(service);
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(status.translation_units_skipped(), 1);
+  EXPECT_EQ(status.translation_units_completed(), 3);
+  EXPECT_EQ(status.translation_units_indexed(), 3);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 1);
+  EXPECT_EQ(find(service, "changedWhileFallback", false).symbols_size(), 1);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       SkipWindowRevalidatesAfterAdmissionWaitWithFourWorkersLive) {
+  constexpr int translation_units = 24;
+  constexpr int prechanged_start = 20;
+  constexpr int changed_workers = 4;
+  for (const int edited_index : {0, 15}) {
+    const auto scenario_storage =
+        root / ("skip-window-storage-" + std::to_string(edited_index));
+    storage = scenario_storage;
+    const auto compiler = quote(CTK_TEST_CLANG_TOOL_PATH);
+    const auto directory = quote(project.string());
+    std::ofstream commands(project / "compile_commands.json");
+    commands << '[';
+    for (int i = 0; i < translation_units; ++i) {
+      const auto name = "unit" + (i < 10 ? std::string("0") : std::string()) +
+                        std::to_string(i) + ".cpp";
+      const auto source_path = project / name;
+      write(name.c_str(),
+            "int original" + std::to_string(i) + "(){return 1;}\n");
+      if (i)
+        commands << ',';
+      const auto source = quote(source_path.string());
+      commands << "{\"directory\":" << directory << ",\"file\":" << source
+               << ",\"arguments\":[" << compiler
+               << ",\"-std=c++20\",\"-DVAR=" << i << "\",\"-c\"," << source
+               << "]}";
+    }
+    commands << ']';
+    commands.close();
+
+    const auto lock = root / "skip-window-worker-lock";
+    const auto active_file = root / "skip-window-worker-active";
+    const auto maximum_file = root / "skip-window-worker-maximum";
+    const auto counter = root / "skip-window-worker-starts";
+    std::ofstream(active_file) << "0\n";
+    std::ofstream(maximum_file) << "0\n";
+    const auto shell_word = [](const std::string &value) {
+      std::string out = "'";
+      for (char c : value)
+        out += c == '\'' ? "'\"'\"'" : std::string(1, c);
+      return out + "'";
+    };
+    const auto lock_word = shell_word(lock.string());
+    const auto active_word = shell_word(active_file.string());
+    const auto maximum_word = shell_word(maximum_file.string());
+    const auto wrapper = root / "skip-window-worker-wrapper";
+    std::ofstream(wrapper)
+        << "#!/bin/sh\nprintf . >> " << shell_word(counter.string()) << '\n'
+        << "while ! mkdir " << lock_word
+        << " 2>/dev/null; do sleep 0.001; done\n"
+        << "active=$(cat " << active_word << ")\n"
+        << "active=$((active + 1))\necho $active > " << active_word << "\n"
+        << "maximum=$(cat " << maximum_word << ")\n"
+        << "if [ $active -gt $maximum ]; then echo $active > " << maximum_word
+        << "; fi\nrmdir " << lock_word << "\nsleep 1\n"
+        << shell_word(CTK_TEST_INDEX_WORKER) << " \"$@\"\nstatus=$?\n"
+        << "while ! mkdir " << lock_word
+        << " 2>/dev/null; do sleep 0.001; done\n"
+        << "active=$(cat " << active_word << ")\n"
+        << "active=$((active - 1))\necho $active > " << active_word << '\n'
+        << "rmdir " << lock_word << "\nexit $status\n";
+    fs::permissions(wrapper, fs::perms::owner_all);
+
+    std::uint64_t initial_revision = 0;
+    {
+      IndexServiceAdapter initial(scenario_storage, {}, wrapper, 4);
+      const auto initial_status = start_and_wait(initial);
+      ASSERT_EQ(initial_status.translation_units_total(), translation_units);
+      ASSERT_EQ(initial_status.translation_units_failed(), 0);
+      initial_revision = initial_status.revision();
+    }
+    const auto database = database_file();
+    ASSERT_FALSE(database.empty());
+    std::ofstream(counter, std::ios::trunc);
+    std::ofstream(active_file, std::ios::trunc) << "0\n";
+    std::ofstream(maximum_file, std::ios::trunc) << "0\n";
+
+    for (int i = prechanged_start; i < prechanged_start + changed_workers;
+         ++i) {
+      const auto name = "unit" + (i < 10 ? std::string("0") : std::string()) +
+                        std::to_string(i) + ".cpp";
+      write(name.c_str(),
+            "int changedLater" + std::to_string(i) + "(){return 2;}\n");
+    }
+
+    PipelineTrace trace;
+    trace.database = database;
+    trace.counter = counter;
+    trace.required_workers = changed_workers + 1; // Listing plus four extracts.
+    trace.edit_file =
+        project / ("unit" + (edited_index < 10 ? std::string("0") : "") +
+                   std::to_string(edited_index) + ".cpp");
+    trace.edit_contents = "int changedAfterSkipPlanning(){return 3;}\n";
+    PipelineTraceRegistration registration(trace);
+    ASSERT_TRUE(registration.registered());
+
+    sqlite3 *db = nullptr;
+    ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
+    ASSERT_EQ(
+        sqlite3_exec(
+            db,
+            "UPDATE translation_unit SET status='failed' WHERE main_file "
+            "IN (SELECT main_file FROM translation_unit ORDER BY main_file "
+            "LIMIT 12) AND indexed_at>0;",
+            nullptr, nullptr, nullptr),
+        SQLITE_OK);
+    char *error = nullptr;
+    const auto trigger_status = sqlite3_exec(
+        db,
+        "CREATE TRIGGER gate_skip_commit BEFORE UPDATE ON translation_unit "
+        "WHEN OLD.status='failed' AND NEW.status='ready' BEGIN "
+        "SELECT block_index_publication(); END;",
+        nullptr, nullptr, &error);
+    const std::string trigger_error = error ? error : "";
+    sqlite3_free(error);
+    sqlite3_close(db);
+    ASSERT_EQ(trigger_status, SQLITE_OK) << trigger_error;
+
+    using Clock = std::chrono::steady_clock;
+    using Tick = Clock::duration::rep;
+    std::atomic<bool> admission_wait_started{false};
+    std::atomic<Tick> admission_wait_until{0};
+    IndexServiceAdapter service(
+        scenario_storage,
+        [&] {
+          std::error_code error;
+          const bool workers_live =
+              fs::file_size(counter, error) >= trace.required_workers && !error;
+          if (trace.publication_gate_entered.load(std::memory_order_acquire) &&
+              workers_live &&
+              !admission_wait_started.exchange(true, std::memory_order_acq_rel))
+            admission_wait_until.store((Clock::now() + std::chrono::seconds(2))
+                                           .time_since_epoch()
+                                           .count(),
+                                       std::memory_order_release);
+          const auto until =
+              admission_wait_until.load(std::memory_order_acquire);
+          return until != 0 && Clock::now().time_since_epoch().count() < until;
+        },
+        wrapper, 4);
+
+    const auto status = start_and_wait(service);
+    EXPECT_EQ(status.translation_units_total(), translation_units);
+    EXPECT_EQ(status.translation_units_completed(), translation_units);
+    EXPECT_EQ(status.translation_units_failed(), 0);
+    EXPECT_EQ(status.translation_units_skipped(), translation_units - 5);
+    EXPECT_EQ(status.revision(), initial_revision + 5);
+    EXPECT_TRUE(trace.publication_gate_entered.load(std::memory_order_acquire));
+    EXPECT_TRUE(admission_wait_started.load(std::memory_order_acquire));
+    if (edited_index == 0) {
+      EXPECT_EQ(find(service, "original0", false).symbols_size(), 0);
+      EXPECT_EQ(find(service, "changedAfterSkipPlanning", false).symbols_size(),
+                1);
+    } else {
+      EXPECT_EQ(find(service, "original15", false).symbols_size(), 0);
+      EXPECT_EQ(find(service, "changedAfterSkipPlanning", false).symbols_size(),
+                1);
+    }
+    EXPECT_EQ(find(service, "changedLater20", false).symbols_size(), 1);
+    std::ifstream maximum_input(maximum_file);
+    std::size_t maximum_workers = 0;
+    maximum_input >> maximum_workers;
+    EXPECT_EQ(maximum_workers, 4u);
+  }
+}
+
+TEST_F(ProjectIndexServiceTest,
        ForegroundBurstResumesExtractionWithoutRediscovery) {
   const auto counter = root / "worker-launches";
   const auto wrapper = worker_wrapper(counter, "sleep 0.3\n");

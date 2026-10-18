@@ -1,0 +1,24 @@
+{
+  "case": "fresh",
+  "storage": "/private/tmp/ctk-mqualified-20261018/fresh/storage",
+  "storage_metadata": {
+    "mode": "fresh-empty",
+    "file_count": 0
+  },
+  "endpoint": "unix:///private/tmp/ctk-mqualified-20261018/fresh/ctk.sock",
+  "server_yaml": "/private/tmp/ctk-mqualified-20261018/fresh/server.yaml",
+  "service_plist": "/private/tmp/ctk-mqualified-20261018/fresh/service.plist",
+  "service_label": "com.ctk.index-compare.ctk-mqualified-20261018.fresh",
+  "process_type": "Interactive",
+  "worker_cap_expected": 4,
+  "worker_nice_expected": 15,
+  "rlimit_nofile_soft": 8192,
+  "rlimit_nofile_hard": 9223372036854775807,
+  "shared_snapshot": "/private/tmp/ctk-mqualified-20261018/shared/shared.json",
+  "compile_commands_sha256": "25a9cd8f183165ac9ec204a278e0cf7d4f14b0681b3d646c9de2c1360532d139",
+  "binary_sha256": {
+    "ctk-server": "d75f78eafb34f70a302c1ecdbd46e5d1d6b93c645dced7e28b747da53515f9d5",
+    "ctk-index-worker": "57bf4b31c39f0da6f02c73fbb04798b83edb37556752e1b83dbf846533d507d4"
+  },
+  "index_control_owner": "caller; this prepare tool does not launch or control indexing"
+}

@@ -1,0 +1,29 @@
+{
+  "source_commit": "8044a5a9ff201d579199c3e61f31ec4c42444f9c",
+  "integrated_base": "d8271b259e45d269ed4baf6743eea425b84733bb",
+  "source_and_test_hashes_unchanged": true,
+  "native": {
+    "passed": 511,
+    "failed": 0,
+    "seconds": 950.87,
+    "command": "CTK_STORAGE_ROOT=<isolated absolute directory> ctest --test-dir build/release --output-on-failure"
+  },
+  "python_unit": {
+    "passed": 3287,
+    "failed": 0,
+    "seconds": 314.43
+  },
+  "index_grpc_e2e": {
+    "passed": 3,
+    "failed": 0,
+    "seconds": 44.21
+  },
+  "index_pch_e2e": {
+    "passed": 1,
+    "failed": 0,
+    "seconds": 3.66
+  },
+  "source_review": "approved after non-head skip correction",
+  "evidence_review": "approved",
+  "full_index_timing_repeated_after_review_correction": false
+}

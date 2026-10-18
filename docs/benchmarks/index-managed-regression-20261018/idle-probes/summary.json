@@ -1,0 +1,146 @@
+{
+  "endpoint": "unix:///private/tmp/ctk-mqualified-20261018/fresh/ctk.sock",
+  "project_root": "/Users/husam/workspace/clang-toolkit",
+  "started_utc": "2026-10-18T09:46:45.285+00:00",
+  "duration_bound_seconds": 30.0,
+  "bursts": 6,
+  "control_calls": [],
+  "failures": [],
+  "latency_ms": {
+    "exact": {
+      "count": 6,
+      "p50_ms": 6.365,
+      "p95_ms": 12.447,
+      "max_ms": 12.447
+    },
+    "fresh_parse_and_match": {
+      "count": 6,
+      "p50_ms": 45.117,
+      "p95_ms": 53.039,
+      "max_ms": 53.039
+    },
+    "index_status": {
+      "count": 6,
+      "p50_ms": 0.95,
+      "p95_ms": 1.504,
+      "max_ms": 1.504
+    },
+    "out_of_line_definition": {
+      "count": 6,
+      "p50_ms": 3.793,
+      "p95_ms": 5.078,
+      "max_ms": 5.078
+    },
+    "prefix": {
+      "count": 6,
+      "p50_ms": 6.189,
+      "p95_ms": 8.464,
+      "max_ms": 8.464
+    },
+    "server_status": {
+      "count": 6,
+      "p50_ms": 8.398,
+      "p95_ms": 16.899,
+      "max_ms": 16.899
+    },
+    "usr": {
+      "count": 6,
+      "p50_ms": 3.736,
+      "p95_ms": 4.743,
+      "max_ms": 4.743
+    }
+  },
+  "index_progress": [
+    {
+      "state": "INDEX_STATE_COMPLETE",
+      "translation_units_total": 628,
+      "translation_units_completed": 628,
+      "translation_units_indexed": 628,
+      "translation_units_pending": 0,
+      "translation_units_failed": 0,
+      "translation_units_skipped": 0,
+      "revision": 628,
+      "error": "",
+      "sampled_utc": "2026-10-18T09:46:45.286+00:00",
+      "elapsed_seconds": 0.003,
+      "latency_ms": 1.504
+    },
+    {
+      "state": "INDEX_STATE_COMPLETE",
+      "translation_units_total": 628,
+      "translation_units_completed": 628,
+      "translation_units_indexed": 628,
+      "translation_units_pending": 0,
+      "translation_units_failed": 0,
+      "translation_units_skipped": 0,
+      "revision": 628,
+      "error": "",
+      "sampled_utc": "2026-10-18T09:46:50.291+00:00",
+      "elapsed_seconds": 5.007,
+      "latency_ms": 1.075
+    },
+    {
+      "state": "INDEX_STATE_COMPLETE",
+      "translation_units_total": 628,
+      "translation_units_completed": 628,
+      "translation_units_indexed": 628,
+      "translation_units_pending": 0,
+      "translation_units_failed": 0,
+      "translation_units_skipped": 0,
+      "revision": 628,
+      "error": "",
+      "sampled_utc": "2026-10-18T09:46:55.297+00:00",
+      "elapsed_seconds": 10.012,
+      "latency_ms": 0.536
+    },
+    {
+      "state": "INDEX_STATE_COMPLETE",
+      "translation_units_total": 628,
+      "translation_units_completed": 628,
+      "translation_units_indexed": 628,
+      "translation_units_pending": 0,
+      "translation_units_failed": 0,
+      "translation_units_skipped": 0,
+      "revision": 628,
+      "error": "",
+      "sampled_utc": "2026-10-18T09:47:00.302+00:00",
+      "elapsed_seconds": 15.016,
+      "latency_ms": 0.826
+    },
+    {
+      "state": "INDEX_STATE_COMPLETE",
+      "translation_units_total": 628,
+      "translation_units_completed": 628,
+      "translation_units_indexed": 628,
+      "translation_units_pending": 0,
+      "translation_units_failed": 0,
+      "translation_units_skipped": 0,
+      "revision": 628,
+      "error": "",
+      "sampled_utc": "2026-10-18T09:47:05.308+00:00",
+      "elapsed_seconds": 20.021,
+      "latency_ms": 0.707
+    },
+    {
+      "state": "INDEX_STATE_COMPLETE",
+      "translation_units_total": 628,
+      "translation_units_completed": 628,
+      "translation_units_indexed": 628,
+      "translation_units_pending": 0,
+      "translation_units_failed": 0,
+      "translation_units_skipped": 0,
+      "revision": 628,
+      "error": "",
+      "sampled_utc": "2026-10-18T09:47:10.312+00:00",
+      "elapsed_seconds": 25.026,
+      "latency_ms": 1.282
+    }
+  ],
+  "selected_cross_tu_query": [
+    "antlr4::ANTLRInputStream",
+    "c:@N@antlr4@S@ANTLRInputStream"
+  ],
+  "samples_jsonl": "/private/tmp/ctk-mqualified-20261018/fresh/idle-probes/samples.jsonl",
+  "private_client_storage": "/private/tmp/ctk-mqualified-20261018/fresh/idle-probes/client-storage",
+  "read_only_index_control": true
+}

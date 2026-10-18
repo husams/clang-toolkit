@@ -1,0 +1,54 @@
+{
+  "shared": {
+    "created_utc": "2026-10-18T09:36:02+00:00",
+    "project_root": "/Users/husam/workspace/clang-toolkit",
+    "source_compile_commands": "/Users/husam/workspace/clang-toolkit/build/dev/compile_commands.json",
+    "copied_compile_commands": "/private/tmp/ctk-mqualified-20261018/shared/cdb/compile_commands.json",
+    "compile_commands_sha256": "25a9cd8f183165ac9ec204a278e0cf7d4f14b0681b3d646c9de2c1360532d139",
+    "entry_count": 628,
+    "unique_source_count": 627,
+    "working_directories": [
+      "/Users/husam/workspace/clang-toolkit/build/dev"
+    ],
+    "pch_inputs": [
+      "/Users/husam/workspace/clang-toolkit/build/dev/server/CMakeFiles/ctk_clang.dir/cmake_pch.hxx.pch"
+    ],
+    "project_revision": "4b3ded853a9a6db6103fd645312d3d77454fc8b4",
+    "binary_sources": {
+      "ctk-server": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/server/ctk-server",
+      "ctk-index-worker": "/Users/husam/.claude/worktrees/clang-toolkit/index-definitions-context-reuse/build/release/server/ctk-index-worker"
+    },
+    "binary_sha256": {
+      "ctk-server": "d75f78eafb34f70a302c1ecdbd46e5d1d6b93c645dced7e28b747da53515f9d5",
+      "ctk-index-worker": "57bf4b31c39f0da6f02c73fbb04798b83edb37556752e1b83dbf846533d507d4"
+    },
+    "input_hash_count": 2291
+  },
+  "cases": {
+    "fresh": {
+      "case": "fresh",
+      "storage": "/private/tmp/ctk-mqualified-20261018/fresh/storage",
+      "storage_metadata": {
+        "mode": "fresh-empty",
+        "file_count": 0
+      },
+      "endpoint": "unix:///private/tmp/ctk-mqualified-20261018/fresh/ctk.sock",
+      "server_yaml": "/private/tmp/ctk-mqualified-20261018/fresh/server.yaml",
+      "service_plist": "/private/tmp/ctk-mqualified-20261018/fresh/service.plist",
+      "service_label": "com.ctk.index-compare.ctk-mqualified-20261018.fresh",
+      "process_type": "Interactive",
+      "worker_cap_expected": 4,
+      "worker_nice_expected": 15,
+      "rlimit_nofile_soft": 8192,
+      "rlimit_nofile_hard": 9223372036854775807,
+      "shared_snapshot": "/private/tmp/ctk-mqualified-20261018/shared/shared.json",
+      "compile_commands_sha256": "25a9cd8f183165ac9ec204a278e0cf7d4f14b0681b3d646c9de2c1360532d139",
+      "binary_sha256": {
+        "ctk-server": "d75f78eafb34f70a302c1ecdbd46e5d1d6b93c645dced7e28b747da53515f9d5",
+        "ctk-index-worker": "57bf4b31c39f0da6f02c73fbb04798b83edb37556752e1b83dbf846533d507d4"
+      },
+      "index_control_owner": "caller; this prepare tool does not launch or control indexing"
+    }
+  },
+  "launch_note": "Root controls launchctl bootstrap and StartProjectIndex. Each prepared case has a unique Unix socket and CTK_STORAGE_ROOT."
+}
