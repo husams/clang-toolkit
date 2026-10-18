@@ -30,15 +30,19 @@ struct DirectoryWatch::Impl {
       return;
     // Keep descriptors available to foreground RPCs. Raising only the soft
     // limit never reduces the existing application allowance.
-    if (limit.rlim_cur < 4096) {
+    if (limit.rlim_cur < 8192) {
       const auto previous = limit.rlim_cur;
-      limit.rlim_cur = std::min<rlim_t>(limit.rlim_max, 4096);
+      limit.rlim_cur = std::min<rlim_t>(limit.rlim_max, 8192);
       if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
         limit.rlim_cur = previous;
     }
-    budget = limit.rlim_cur > 256
-                 ? std::min<std::size_t>(1024, (limit.rlim_cur - 256) / 2)
-                 : 0;
+    if (limit.rlim_cur <= 256) {
+      budget = 0;
+    } else {
+      const auto reserve = std::min<rlim_t>(1024, limit.rlim_cur / 2);
+      budget = std::min<std::size_t>(
+          2048, static_cast<std::size_t>((limit.rlim_cur - reserve) / 2));
+    }
     queue = kqueue();
     if (queue >= 0)
       fcntl(queue, F_SETFD, FD_CLOEXEC);

@@ -20,6 +20,15 @@ using ctk::net::index_detail::FileDigestCache;
 using ctk::platform::TemporaryDirectory;
 
 namespace {
+bool supports_reader_reuse(const fs::path &path) {
+  const int descriptor = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+  if (descriptor < 0)
+    return false;
+  const bool supported = ctk::platform::supports_index_input_reuse(descriptor);
+  close(descriptor);
+  return supported;
+}
+
 void write_file(const fs::path &path, const std::string &value) {
   std::ofstream output(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(output.good());
@@ -39,7 +48,14 @@ TEST(IndexFileDigestCache, ReusesOpenReaderButRehashesEveryCall) {
   ASSERT_FALSE(first.empty());
   EXPECT_EQ(cache.digest(file.string()), first);
   EXPECT_EQ(cache.counters().hashes, 2u);
-  EXPECT_EQ(cache.counters().hits, 1u);
+  if (supports_reader_reuse(file)) {
+    EXPECT_EQ(cache.counters().hits, 1u);
+    EXPECT_EQ(cache.size(), 1u);
+  } else {
+    EXPECT_EQ(cache.counters().hits, 0u);
+    EXPECT_EQ(cache.counters().uncached, 2u);
+    EXPECT_EQ(cache.size(), 0u);
+  }
 }
 
 TEST(IndexFileDigestCache, ReusesOnlyOnSupportedLocalFilesystems) {
@@ -97,8 +113,13 @@ TEST(IndexFileDigestCache, ReopensReaderAfterSameInodeMetadataChange) {
   ASSERT_EQ(before.st_ino, after.st_ino);
 
   EXPECT_EQ(cache.digest(file.string()), first);
-  EXPECT_EQ(cache.counters().invalidations, 1u);
-  EXPECT_EQ(cache.counters().cached, 2u);
+  if (supports_reader_reuse(file)) {
+    EXPECT_EQ(cache.counters().invalidations, 1u);
+    EXPECT_EQ(cache.counters().cached, 2u);
+  } else {
+    EXPECT_EQ(cache.size(), 0u);
+    EXPECT_EQ(cache.counters().uncached, 2u);
+  }
 }
 
 TEST(IndexFileDigestCache, ReadsMmapWritesOnAlreadyDirtySharedPage) {
@@ -238,6 +259,18 @@ TEST(IndexFileDigestCache, LowDescriptorLimitFallsBackInChildProcess) {
     rlimit limit{};
     if (getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_max < 512)
       _exit(77);
+    if (limit.rlim_max >= 4096) {
+      limit.rlim_cur = 4096;
+      if (setrlimit(RLIMIT_NOFILE, &limit) != 0 ||
+          ctk::platform::IndexFileReader::descriptor_budget(2048) != 1536)
+        _exit(4);
+    }
+    if (limit.rlim_max >= 8192) {
+      limit.rlim_cur = 8192;
+      if (setrlimit(RLIMIT_NOFILE, &limit) != 0 ||
+          ctk::platform::IndexFileReader::descriptor_budget(2048) != 2048)
+        _exit(5);
+    }
     limit.rlim_cur = 512;
     if (setrlimit(RLIMIT_NOFILE, &limit) != 0 ||
         ctk::platform::IndexFileReader::descriptor_budget(2048) != 128 ||

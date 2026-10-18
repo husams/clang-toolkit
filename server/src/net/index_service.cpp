@@ -143,7 +143,14 @@ public:
       throw std::invalid_argument("symbol query cannot be empty");
     if (query.size() > 4096)
       throw std::invalid_argument("symbol query exceeds 4096 bytes");
-    Database db(database_path(key), false);
+    const auto path = database_path(key);
+    FindSymbolsResponse response;
+    std::error_code path_error;
+    if (!fs::exists(path, path_error) || path_error) {
+      response.set_stale(true);
+      return response;
+    }
+    Database db(path, false);
     // Cold index pages may require disk I/O while the background writer is
     // active. Keep a bounded budget without rejecting otherwise cheap queries
     // at the former 250ms cutoff; client deadlines/cancellation still win.
@@ -165,7 +172,17 @@ public:
         },
         &budget);
     db.exec("BEGIN");
-    FindSymbolsResponse response;
+    {
+      Statement tables(
+          db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND "
+              "name IN ('metadata','translation_unit','symbol')");
+      tables.step();
+      if (tables.number(0) != 3) {
+        db.exec("ROLLBACK");
+        response.set_stale(true);
+        return response;
+      }
+    }
     response.set_revision(revision(db));
     response.set_translation_units_indexed(count_units(db));
     {
@@ -673,13 +690,10 @@ private:
     }
     return response;
   }
-  void replace(const Job &job, Database &db,
-               const IndexWorkerTranslationUnit &unit, const std::string &id,
-               const std::string &command_hash,
-               const IndexWorkerResponse &response,
-               const std::string &commands_digest,
-               fs::file_time_type worker_time,
-               std::uint64_t expected_generation) {
+  void stage_replace(const Job &job, Database &db,
+                     const IndexWorkerTranslationUnit &unit,
+                     const std::string &id, const std::string &command_hash,
+                     const IndexWorkerResponse &response) {
     std::map<std::string, std::vector<const Symbol *>> files, owners;
     std::map<std::string, std::string> header_files;
     for (const auto &symbol : response.symbols())
@@ -710,8 +724,6 @@ private:
           owner);
     }
     const auto encoded = json(manifest);
-    await_admission(job);
-    Transaction transaction(db);
     std::set<std::string> previous_groups;
     {
       Statement previous(
@@ -828,9 +840,24 @@ private:
     remove.step();
     progress(job, [](auto &s) { s.set_state(INDEX_STATE_INDEXING); });
     bump(db);
+  }
+  void replace(const Job &job, Database &db,
+               const IndexWorkerTranslationUnit &unit, const std::string &id,
+               const std::string &command_hash,
+               const IndexWorkerResponse &response,
+               const std::string &commands_digest,
+               fs::file_time_type worker_time,
+               std::uint64_t expected_generation) {
+    google::protobuf::Struct manifest;
+    for (const auto &dependency : response.dependencies())
+      (*manifest.mutable_fields())[dependency.path()].set_string_value(
+          dependency.sha256());
+    const auto input_manifest = dependencies(json(manifest));
+    await_admission(job);
+    Transaction transaction(db);
+    stage_replace(job, db, unit, id, command_hash, response);
     // Input validation belongs after commit admission: a foreground burst or
     // pause may otherwise change an input while the staged writer waits.
-    const auto input_manifest = dependencies(encoded);
     commit(
         job, transaction,
         [&] {
@@ -979,6 +1006,8 @@ private:
       UnitPlan plan;
       std::exception_ptr planning_error;
       std::unique_ptr<PendingExtraction> extraction;
+      std::optional<IndexWorkerResponse> response;
+      std::exception_ptr extraction_error;
       std::uint64_t generation = 0;
     };
     struct SchedulerWindow {
@@ -1019,6 +1048,92 @@ private:
         scheduled.items.push_back(std::move(item));
       }
     };
+    const auto ensure_response = [&](ScheduledUnit &item) {
+      if (item.response)
+        return;
+      if (item.extraction_error)
+        std::rethrow_exception(item.extraction_error);
+      try {
+        if (item.planning_error)
+          std::rethrow_exception(item.planning_error);
+        const auto &unit = *item.plan.unit;
+        if (item.plan.migrate &&
+            symbol_groups(item.plan.previous_manifest).empty()) {
+          item.response = stored_response(job, db, item.plan.id,
+                                          item.plan.previous_manifest);
+        } else if (item.extraction) {
+          item.response = item.extraction->get();
+        } else {
+          item.response = execute(
+              job, make_request(unit),
+              directory / "units" / item.plan.id /
+                  std::to_string(item.generation));
+        }
+      } catch (const Interrupted &) {
+        throw;
+      } catch (...) {
+        item.extraction_error = std::current_exception();
+        throw;
+      }
+    };
+    const auto publish_batch = [&](const std::vector<ScheduledUnit *> &batch) {
+      if (batch.size() < 2)
+        return false;
+      std::map<std::string, std::string> manifest;
+      for (const auto *item : batch) {
+        for (const auto &dependency : item->response->dependencies()) {
+          const auto [found, inserted] =
+              manifest.emplace(dependency.path(), dependency.sha256());
+          if (!inserted && found->second != dependency.sha256())
+            return false;
+        }
+      }
+      const auto expected_generation = batch.front()->generation;
+      if (!admitted(job, expected_generation) ||
+          commands_digest != digest_file(
+                                 (fs::path(job.commands) /
+                                  "compile_commands.json")
+                                     .string()))
+        throw Interrupted();
+      await_admission(job);
+      Transaction transaction(db);
+      try {
+        for (const auto *item : batch) {
+          progress(job, [&](auto &s) {
+            s.set_current_translation_unit(item->plan.unit->source());
+          });
+          stage_replace(job, db, *item->plan.unit, item->plan.id,
+                        item->plan.command_hash, *item->response);
+        }
+        const auto validate_commands = [&] {
+          for (;;) {
+            if (!manifest_current(job, manifest))
+              throw Interrupted();
+            bool waited = await_admission(job);
+            const auto current_commands = digest_file(
+                (fs::path(job.commands) / "compile_commands.json").string(),
+                [&] {
+                  waited = await_admission(job) || waited;
+                  return true;
+                });
+            if (waited)
+              continue;
+            if (commands_digest != current_commands ||
+                worker_time != fs::last_write_time(executable_))
+              throw Interrupted();
+            return;
+          }
+        };
+        commit(job, transaction, validate_commands, expected_generation);
+      } catch (const Interrupted &) {
+        throw;
+      } catch (const std::exception &) {
+        // The transaction rolls back. The caller falls back to the existing
+        // single-TU publication path, preserving its failure isolation.
+        return false;
+      }
+      return true;
+    };
     for (int unit_index = 0; unit_index < units.size(); ++unit_index) {
       // Plan on the controller, and keep the database and digest caches out of
       // worker threads. Fill a bounded ordered window before publishing rows.
@@ -1032,6 +1147,49 @@ private:
       if (!admitted(job, item.generation))
         throw Interrupted();
       const auto &unit = *item.plan.unit;
+      if (!item.plan.unchanged && !item.planning_error) {
+        std::vector<ScheduledUnit *> batch;
+        const auto limit = std::min(max_workers_, scheduled.items.size());
+        for (std::size_t i = 0; i < limit; ++i) {
+          auto &candidate = scheduled.items[i];
+          if (candidate.plan.unchanged || candidate.planning_error ||
+              candidate.generation != item.generation)
+            break;
+          try {
+            ensure_response(candidate);
+          } catch (const Interrupted &) {
+            throw;
+          } catch (...) {
+            break;
+          }
+          batch.push_back(&candidate);
+        }
+        // The batch's extraction workers have joined. Refill their slots
+        // before opening the writer transaction so parsing overlaps with
+        // publication, while the bounded window still caps live workers.
+        while (batch.size() > 1 && next_unit < units.size() &&
+               scheduled.items.size() < max_workers_ + batch.size())
+          enqueue_next();
+        if (batch.size() > 1 && publish_batch(batch)) {
+          completed += batch.size();
+          saved_revision = revision(db);
+          saved_count = count_units(db);
+          progress(job, [&](auto &s) {
+            s.set_translation_units_completed(completed);
+            s.set_translation_units_skipped(skipped);
+            s.set_translation_units_failed(failed);
+            s.set_translation_units_pending(total - completed - failed);
+            s.set_revision(saved_revision);
+            s.set_translation_units_indexed(saved_count);
+          });
+          checkpoint(job, db);
+          const auto published = batch.size();
+          for (std::size_t i = 0; i < published; ++i)
+            scheduled.items.pop_front();
+          unit_index += static_cast<int>(published) - 1;
+          continue;
+        }
+      }
       auto plan = std::move(item.plan);
       if (plan.unchanged) {
         // Revalidate each preplanned skip immediately before consumption.
@@ -1059,16 +1217,20 @@ private:
             auto error = std::exchange(item.planning_error, {});
             std::rethrow_exception(error);
           }
+          if (item.extraction_error)
+            std::rethrow_exception(item.extraction_error);
           IndexWorkerResponse response;
-          if (plan.migrate && symbol_groups(plan.previous_manifest).empty())
-            response = stored_response(job, db, id, plan.previous_manifest);
-          else {
-            if (item.extraction) {
-              response = item.extraction->get();
-            } else {
-              response =
-                  execute(job, make_request(unit), directory / "units" / id);
-            }
+          if (item.response) {
+            response = std::move(*item.response);
+          } else if (plan.migrate &&
+                     symbol_groups(plan.previous_manifest).empty()) {
+            response =
+                stored_response(job, db, id, plan.previous_manifest);
+          } else if (item.extraction) {
+            response = item.extraction->get();
+          } else {
+            response = execute(job, make_request(unit),
+                               directory / "units" / id);
           }
           // Replace the consumed head before publication, so extraction
           // capacity stays full while the controller writes this TU. The

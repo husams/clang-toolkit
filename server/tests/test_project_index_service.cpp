@@ -425,6 +425,124 @@ TEST_F(ProjectIndexServiceTest,
 }
 
 TEST_F(ProjectIndexServiceTest,
+       LookupBeforeIndexSchemaExistsReturnsEmptyStaleResult) {
+  const auto key = ctk::net::index_detail::root_key(project.string());
+  const auto database = storage / "symbol-index" /
+                        ctk::net::index_detail::digest_text(key) /
+                        "symbols.sqlite3";
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto missing = find(service, "alphaOnly", false);
+  EXPECT_TRUE(missing.stale());
+  EXPECT_EQ(missing.symbols_size(), 0);
+
+  fs::create_directories(database.parent_path());
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
+  ASSERT_EQ(sqlite3_exec(db,
+                         "CREATE TABLE temporary(value); "
+                         "DROP TABLE temporary;",
+                         nullptr, nullptr, nullptr),
+            SQLITE_OK);
+  sqlite3_close(db);
+  const auto before = find(service, "alphaOnly", false);
+  EXPECT_TRUE(before.stale());
+  EXPECT_EQ(before.symbols_size(), 0);
+  const auto indexed = start_and_wait(service);
+  EXPECT_EQ(indexed.translation_units_failed(), 0);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       ReadyUnitsPublishAtomicallyAfterSharedDependencyValidation) {
+  ProjectIndexStatus first;
+  {
+    IndexServiceAdapter initial(storage, {}, CTK_TEST_INDEX_WORKER);
+    first = start_and_wait(initial);
+  }
+  ASSERT_EQ(first.translation_units_total(), 3);
+
+  const auto database = database_file();
+  ASSERT_FALSE(database.empty());
+  const auto counter = root / "batch-worker-counter";
+  std::ofstream(counter);
+  const auto release_file = root / "release-batch-publication";
+  PipelineTrace trace;
+  trace.database = database;
+  trace.counter = counter;
+  trace.release_file = release_file;
+  trace.required_workers = 0;
+  PipelineTraceRegistration registration(trace);
+  ASSERT_TRUE(registration.registered());
+
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
+  const auto trigger =
+      "CREATE TRIGGER block_last_batch_unit BEFORE INSERT ON symbol WHEN "
+      "NEW.file_path='" +
+      (project / "two.cpp").string() +
+      "' BEGIN SELECT block_index_publication(); END;";
+  char *error = nullptr;
+  const auto trigger_status =
+      sqlite3_exec(db, trigger.c_str(), nullptr, nullptr, &error);
+  const std::string trigger_error = error ? error : "";
+  sqlite3_free(error);
+  sqlite3_close(db);
+  ASSERT_EQ(trigger_status, SQLITE_OK) << trigger_error;
+
+  write("one.cpp", "#include \"shared.h\"\nint batchOne(){return 11;}\n");
+  write("two.cpp", "#include \"shared.h\"\nint batchTwo(){return 22;}\n");
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER, 4);
+  ReleaseFileGuard release_on_exit(release_file);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(service.StartProjectIndex(&start_context, &start, &status).ok());
+
+  const auto gate_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  while (!trace.publication_gate_entered.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < gate_deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  ASSERT_TRUE(trace.publication_gate_entered.load(std::memory_order_acquire));
+  EXPECT_EQ(find(service, "batchOne", false).symbols_size(), 0);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 2);
+  std::ofstream(release_file) << "continue\n";
+
+  ProjectIndexRequest status_request;
+  status_request.set_project_root(project.string());
+  const auto completion_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  do {
+    grpc::ServerContext context;
+    ASSERT_TRUE(service.GetProjectIndexStatus(&context, &status_request, &status)
+                    .ok());
+    if (status.state() == INDEX_STATE_COMPLETE ||
+        status.state() == INDEX_STATE_FAILED)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  } while (std::chrono::steady_clock::now() < completion_deadline);
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  EXPECT_EQ(status.translation_units_failed(), 0);
+  EXPECT_EQ(find(service, "batchOne", false).symbols_size(), 2);
+  EXPECT_EQ(find(service, "batchTwo", false).symbols_size(), 1);
+  EXPECT_EQ(find(service, "alphaOnly", false).symbols_size(), 0);
+  EXPECT_EQ(status.revision(), first.revision() + 3);
+  ASSERT_EQ(sqlite3_open(database.c_str(), &db), SQLITE_OK);
+  sqlite3_stmt *tables = nullptr;
+  ASSERT_EQ(sqlite3_prepare_v2(
+                db,
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND "
+                "name NOT LIKE 'sqlite_%'",
+                -1, &tables, nullptr),
+            SQLITE_OK);
+  ASSERT_EQ(sqlite3_step(tables), SQLITE_ROW);
+  EXPECT_EQ(sqlite3_column_int(tables, 0), 3);
+  sqlite3_finalize(tables);
+  sqlite3_close(db);
+}
+
+TEST_F(ProjectIndexServiceTest,
        StartsNextChangedUnitDuringCurrentSymbolPublication) {
   const auto counter = root / "worker-starts";
   const auto lock = root / "worker-lock";

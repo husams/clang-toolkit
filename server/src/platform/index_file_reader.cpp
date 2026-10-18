@@ -80,7 +80,9 @@ std::size_t IndexFileReader::descriptor_budget(std::size_t requested) {
   rlimit limit{};
   if (getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_cur <= 256)
     return 0;
-  const auto available = static_cast<std::size_t>((limit.rlim_cur - 256) / 2);
+  const auto reserve = std::min<rlim_t>(1024, limit.rlim_cur / 2);
+  const auto available =
+      static_cast<std::size_t>((limit.rlim_cur - reserve) / 2);
   return std::min(requested, available);
 }
 
