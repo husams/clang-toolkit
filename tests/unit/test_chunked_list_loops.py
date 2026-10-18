@@ -240,6 +240,18 @@ def test_shared_loop_has_no_per_operation_branches():
     branches = [node for node in body if isinstance(node, (ast.If, ast.IfExp))]
     assert len(branches) == 1, "the shared loop should only branch for cancellation"
     assert "cancel" in ast.unparse(branches[0].test)
+    calls = [node for node in body if isinstance(node, ast.Call)]
+    assert (
+        sum(
+            isinstance(node.func, ast.Name) and node.func.id == "settle"
+            for node in calls
+        )
+        == 1
+    )
+    assert not any(
+        isinstance(node, ast.Name) and node.id == "checkpoint"
+        for node in ast.walk(tree)
+    ), "checkpoint preparation belongs to setup/settlement"
     assert not any(
         isinstance(node, ast.Name) and node.id in {"reverse", "filtering"}
         for node in ast.walk(tree)
@@ -247,7 +259,7 @@ def test_shared_loop_has_no_per_operation_branches():
 
 
 @pytest.mark.parametrize("target,expression", CASES)
-@pytest.mark.parametrize("size", [0, 257])
+@pytest.mark.parametrize("size", [0, 1, 128, 129, 256, 257])
 def test_operation_policy_is_selected_once_and_owns_chunk_transitions(
     execute, monkeypatch, target, expression, size
 ):
@@ -262,14 +274,11 @@ def test_operation_policy_is_selected_once_and_owns_chunk_transitions(
         target
     ]
     policy = policies[kind]
+    assert not hasattr(policy, "checkpoint")
 
     def setup(run, items):
         events.append("setup")
         return policy.setup(run, items)
-
-    def checkpoint(run):
-        events.append("checkpoint")
-        return policy.checkpoint(run)
 
     def settle(run, count, before, keep):
         events.append(("settle", count))
@@ -285,9 +294,7 @@ def test_operation_policy_is_selected_once_and_owns_chunk_transitions(
             return super().__getitem__(key)
 
     configured = SelectedPolicies(policies)
-    configured[kind] = replace(
-        policy, setup=setup, checkpoint=checkpoint, settle=settle, finish=finish
-    )
+    configured[kind] = replace(policy, setup=setup, settle=settle, finish=finish)
     monkeypatch.setattr(plain_list_loops, "_CHUNK_POLICIES", configured)
     result = execute(expression, context)
     values = list(range(size))
@@ -301,11 +308,7 @@ def test_operation_policy_is_selected_once_and_owns_chunk_transitions(
     assert selections == [kind]
     assert events == (
         ["setup"]
-        + [
-            event
-            for count in ([128, 128, 1] if size else [])
-            for event in ("checkpoint", ("settle", count))
-        ]
+        + [("settle", min(128, size - start)) for start in range(0, size, 128)]
         + ["finish"]
     )
     assert context.call_depth == context.consume_depth == 0
