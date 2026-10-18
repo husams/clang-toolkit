@@ -30,6 +30,45 @@ struct Job {
   unsigned interval = 2;
   std::uint64_t epoch = 0;
 };
+// WAL cleanup after a monitor stops can briefly hold an exclusive lock. Keep
+// foreground reads retryable within their existing deadline/cancellation
+// budget.
+class ReadBudget {
+public:
+  explicit ReadBudget(grpc::ServerContext &context)
+      : context_(context), deadline_(std::min(context.deadline(),
+                                              std::chrono::system_clock::now() +
+                                                  std::chrono::seconds(1))) {}
+  bool interrupted() const {
+    return context_.IsCancelled() ||
+           std::chrono::system_clock::now() >= deadline_;
+  }
+  void wait_for_locks(Database &db) {
+    sqlite3_busy_handler(
+        db.handle,
+        [](void *raw, int) {
+          auto &budget = *static_cast<ReadBudget *>(raw);
+          if (budget.interrupted())
+            return 0;
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          return budget.interrupted() ? 0 : 1;
+        },
+        this);
+  }
+  void limit_query(Database &db) {
+    wait_for_locks(db);
+    sqlite3_progress_handler(
+        db.handle, 1000,
+        [](void *raw) {
+          return static_cast<ReadBudget *>(raw)->interrupted() ? 1 : 0;
+        },
+        this);
+  }
+
+private:
+  grpc::ServerContext &context_;
+  std::chrono::system_clock::time_point deadline_;
+};
 std::string escaped_prefix(const std::string &value) {
   std::string pattern;
   for (char c : value) {
@@ -79,6 +118,7 @@ public:
     return storage_ / digest_text(root) / "symbols.sqlite3";
   }
   ListProjectIndexesResponse list(grpc::ServerContext &context) {
+    ReadBudget budget(context);
     std::map<std::string, ProjectIndexStatus> projects;
     // Only index metadata is read; never hold the controller mutex during I/O.
     // A database may still be being initialized by the background worker.
@@ -90,6 +130,7 @@ public:
         if (!entry.is_directory() || !fs::is_regular_file(path))
           continue;
         Database db(path, false);
+        budget.wait_for_locks(db);
         db.exec("BEGIN");
         Statement schema(db, "SELECT count(*) FROM sqlite_master WHERE "
                              "type='table' AND name IN "
@@ -210,27 +251,11 @@ public:
       response.set_stale(true);
       return response;
     }
+    // Cold pages and brief WAL cleanup locks share the same bounded budget;
+    // client deadlines and cancellation still win.
+    ReadBudget budget(context);
     Database db(path, false);
-    // Cold index pages may require disk I/O while the background writer is
-    // active. Keep a bounded budget without rejecting otherwise cheap queries
-    // at the former 250ms cutoff; client deadlines/cancellation still win.
-    const auto deadline =
-        std::min(context.deadline(),
-                 std::chrono::system_clock::now() + std::chrono::seconds(1));
-    struct QueryBudget {
-      grpc::ServerContext &context;
-      std::chrono::system_clock::time_point deadline;
-    } budget{context, deadline};
-    sqlite3_progress_handler(
-        db.handle, 1000,
-        [](void *raw) {
-          auto &value = *static_cast<QueryBudget *>(raw);
-          return value.context.IsCancelled() ||
-                         std::chrono::system_clock::now() >= value.deadline
-                     ? 1
-                     : 0;
-        },
-        &budget);
+    budget.limit_query(db);
     db.exec("BEGIN");
     {
       Statement schema(

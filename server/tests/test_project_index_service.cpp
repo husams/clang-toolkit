@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <iterator>
 #include <mutex>
@@ -2230,6 +2231,53 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_EQ(find(service, "NewChoice", false).symbols_size(), 2);
   EXPECT_EQ(find(service, "OldChoice", false).symbols_size(), 0);
 }
+TEST_F(ProjectIndexServiceTest, ReadersWaitForBriefDatabaseLocks) {
+  {
+    IndexServiceAdapter initial(storage, {}, CTK_TEST_INDEX_WORKER);
+    start_and_wait(initial);
+  }
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto database = database_file();
+  for (bool listing : {false, true}) {
+    sqlite3 *raw = nullptr;
+    ASSERT_EQ(sqlite3_open(database.c_str(), &raw), SQLITE_OK);
+    std::unique_ptr<sqlite3, decltype(&sqlite3_close_v2)> locked(
+        raw, sqlite3_close_v2);
+    ASSERT_EQ(sqlite3_exec(locked.get(),
+                           "PRAGMA locking_mode=EXCLUSIVE; "
+                           "BEGIN EXCLUSIVE; "
+                           "UPDATE metadata SET value=value "
+                           "WHERE key='revision'",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK)
+        << sqlite3_errmsg(locked.get());
+    FindSymbolsRequest request;
+    request.set_project_root(project.string());
+    request.set_query("alphaOnly");
+    FindSymbolsResponse symbols;
+    ListProjectIndexesResponse projects;
+    auto result = std::async(std::launch::async, [&] {
+      grpc::ServerContext context;
+      if (listing) {
+        ListProjectIndexesRequest list;
+        return service.ListProjectIndexes(&context, &list, &projects);
+      }
+      return service.FindSymbols(&context, &request, &symbols);
+    });
+    EXPECT_EQ(result.wait_for(std::chrono::milliseconds(20)),
+              std::future_status::timeout);
+    locked.reset();
+    const auto status = result.get();
+    ASSERT_TRUE(status.ok()) << status.error_message();
+    if (listing)
+      EXPECT_EQ(projects.total_count(), 1u);
+    else {
+      EXPECT_EQ(symbols.symbols_size(), 2);
+      EXPECT_TRUE(symbols.stale());
+    }
+  }
+}
+
 TEST_F(ProjectIndexServiceTest, MonitorsProjectsAndControlsThemIndependently) {
   const auto first = project;
   const auto second = second_project();
