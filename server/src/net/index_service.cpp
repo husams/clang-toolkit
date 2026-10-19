@@ -1910,6 +1910,7 @@ private:
         };
         arm_inputs();
         inputs.arm();
+        auto armed_revision = revision(db);
         while (current(job)) {
           try {
             upgrade_symbols(job, db);
@@ -1928,10 +1929,16 @@ private:
             });
           }
           // Newly discovered inputs need one guarded validation pass after
-          // arming. Afterwards idle projects do no per-file work until an
-          // event or the bounded safety sweep (also covers lost watches).
-          const bool new_inputs = arm_inputs();
+          // arming. Re-read persisted manifests only when reconciliation
+          // published a new revision; source paths discovered from the
+          // compile database were armed directly during reconciliation. Keep
+          // this baseline across interrupted retries so partial publications
+          // cannot appear already covered before their dependencies are armed.
+          const bool index_changed = revision(db) != armed_revision;
+          const bool new_inputs = index_changed && arm_inputs();
           inputs.arm();
+          if (index_changed)
+            armed_revision = revision(db);
           // Watch budgets bound resource use, not the reconciliation interval.
           // Missing/lost notifications are covered by the same five-minute
           // sweep.
@@ -1948,8 +1955,22 @@ private:
             lock.unlock();
             if (resumed)
               await_admission(job);
-            if (resumed || inputs.changed() || inventories_.inputs_changed() ||
-                std::chrono::steady_clock::now() >= deadline) {
+            const bool input_changed = inputs.changed();
+            const bool inventory_changed = inventories_.inputs_changed();
+            const bool fallback_due =
+                std::chrono::steady_clock::now() >= deadline;
+            if (resumed || input_changed || inventory_changed || fallback_due) {
+              // The periodic fallback validates the existing input set and
+              // refreshes include inventories. Keep directory registrations
+              // so an unchanged project does not rebuild every watch every
+              // five minutes. Notifications, resume, or overflow still
+              // rebuild them so replacements and newly created paths remain
+              // covered.
+              if (fallback_due && !resumed && !input_changed &&
+                  !inventory_changed) {
+                inventories_.refresh_for_reconciliation();
+                break;
+              }
               // Reopen watches after rename/delete/revoke/overflow. Retaining
               // the old descriptors would miss later edits to replacements.
               inventories_.reset();
@@ -1957,6 +1978,7 @@ private:
               watched.clear();
               arm_inputs();
               inputs.arm();
+              armed_revision = revision(db);
               break;
             }
           }
