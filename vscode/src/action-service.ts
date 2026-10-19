@@ -5,6 +5,7 @@ import {
   type ActionReport,
   type ArgumentValue,
   actionReportSchema,
+  actionResultSchema,
   type NodeAction,
 } from "./actions.js";
 import {
@@ -60,6 +61,17 @@ const responseSchema = z.object({
       ),
     })
     .optional(),
+  actionResults: z
+    .object({
+      resultHandle: z.string().min(1),
+      offset: z.number().int().nonnegative(),
+      limit: z.number().int().positive(),
+      totalMatches: z.number().int().nonnegative(),
+      results: z.array(actionResultSchema),
+      hasMore: z.boolean(),
+      complete: z.boolean(),
+    })
+    .optional(),
   reset: z.boolean().optional(),
   inspection: astInspectionSchema.optional(),
   graph: graphSchema.optional(),
@@ -67,10 +79,12 @@ const responseSchema = z.object({
   keptAlive: z.number().int().nonnegative().optional(),
 });
 type Response = z.infer<typeof responseSchema>;
+export type ActionResultsPage = NonNullable<Response["actionResults"]>;
 interface Pending {
   resolve(value: Response): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
+  cancellationGraceMs: number;
   progress(text: string): void;
 }
 export class ActionService {
@@ -128,6 +142,7 @@ export class ActionService {
     inputId?: string,
     batch = false,
     profiles?: Record<string, ActionFileProfile>,
+    resumeManifest?: string,
   ): Promise<ActionReport> {
     const response = await this.request(
       {
@@ -140,10 +155,12 @@ export class ActionService {
         ...(inputId ? { inputId } : {}),
         ...(batch ? { batch: true } : {}),
         ...(profiles ? { profiles } : {}),
+        ...(resumeManifest ? { resumeManifest } : {}),
       },
       settings.directory,
       Math.max(30000, settings.timeoutMs * Math.max(1, files.length) + 10000),
       progress,
+      batch ? settings.timeoutMs + 10000 : 5000,
     );
     if (!response.report)
       throw new Error("Action worker returned no matches report");
@@ -151,8 +168,25 @@ export class ActionService {
   }
   async reset(): Promise<void> {
     this.stopHeartbeat();
+    this.clearKillTimer();
     if (this.child)
       await this.request({ type: "reset" }, process.cwd(), 15000, () => {});
+  }
+  async pageActionResults(
+    settings: ActionSettings,
+    resultHandle: string,
+    offset: number,
+    limit: number,
+  ): Promise<ActionResultsPage> {
+    const response = await this.request(
+      { type: "pageActionResults", settings, resultHandle, offset, limit },
+      settings.directory,
+      settings.timeoutMs + 10000,
+      () => {},
+    );
+    if (!response.actionResults)
+      throw new Error("Action worker returned no results page");
+    return response.actionResults;
   }
   async search(
     settings: ActionSettings,
@@ -309,7 +343,7 @@ export class ActionService {
         }
         this.pending.delete(response.id);
         clearTimeout(pending.timer);
-        clearTimeout(this.killTimer);
+        this.clearKillTimer();
         for (const text of response.output ?? []) if (text) this.output(text);
         if (response.error) {
           if (
@@ -322,7 +356,12 @@ export class ActionService {
             );
           pending.reject(new Error(response.error));
         } else {
-          if (response.inspection || response.report || response.searchReport)
+          if (
+            response.inspection ||
+            response.report ||
+            response.searchReport ||
+            response.actionResults
+          )
             this.startHeartbeat();
           pending.resolve(response);
         }
@@ -363,6 +402,7 @@ export class ActionService {
     directory: string,
     timeout: number,
     progress: (text: string) => void,
+    cancellationGraceMs = 5000,
   ): Promise<Response> {
     if (this.disposed)
       return Promise.reject(new Error("Action session closed"));
@@ -381,19 +421,34 @@ export class ActionService {
         );
         child.kill();
       }, timeout);
-      this.pending.set(id, { resolve, reject, timer, progress });
+      this.pending.set(id, {
+        resolve,
+        reject,
+        timer,
+        cancellationGraceMs,
+        progress,
+      });
       child.stdin.write(`${JSON.stringify({ ...value, id })}\n`);
     });
   }
   cancel(): void {
     if (!this.pending.size || !this.child) return;
-    this.child.kill("SIGINT");
-    this.killTimer = setTimeout(() => this.child?.kill("SIGKILL"), 5000);
+    const child = this.child;
+    const pending = this.pending.values().next().value as Pending | undefined;
+    child.kill("SIGINT");
+    this.clearKillTimer();
+    this.killTimer = setTimeout(() => {
+      if (this.child === child) child.kill("SIGKILL");
+    }, pending?.cancellationGraceMs ?? 5000);
     this.killTimer.unref();
+  }
+  private clearKillTimer(): void {
+    if (this.killTimer) clearTimeout(this.killTimer);
+    this.killTimer = undefined;
   }
   private fail(error: Error): void {
     this.stopHeartbeat();
-    clearTimeout(this.killTimer);
+    this.clearKillTimer();
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(error);

@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as vscode from "vscode";
 import { z } from "zod";
@@ -76,6 +76,11 @@ const messages = z.discriminatedUnion("type", [
   z.object({ type: z.literal("nodeSelect"), id: z.string() }),
   z.object({ type: z.literal("nodeRoot") }),
   z.object({ type: z.literal("nodeBack") }),
+  z.object({
+    type: z.literal("nodePage"),
+    direction: z.enum(["first", "previous", "next", "last"]),
+  }),
+  z.object({ type: z.literal("nodeOpenResults") }),
   z.object({ type: z.literal("nodeRefresh") }),
   z.object({ type: z.literal("nodeClose") }),
   z.object({ type: z.literal("nodeEdit") }),
@@ -240,6 +245,21 @@ export class ActionsController implements vscode.Disposable {
       batch: this.report?.batch ?? false,
       files: this.report?.files ?? 0,
       errors: this.report?.errors ?? [],
+      totalMatches: this.report?.totalMatches ?? this.report?.matches ?? 0,
+      pageOffset: this.report?.pageOffset ?? 0,
+      pageSize: this.report?.pageSize ?? this.report?.results.length ?? 0,
+      hasMore: this.report?.hasMore ?? false,
+      complete: this.report?.complete ?? true,
+      coverageComplete: this.report?.coverageComplete ?? true,
+      cancelled: this.report?.cancelled ?? false,
+      completedFiles: this.report?.completedFiles,
+      failedFiles: this.report?.failedFiles,
+      attemptedFiles: this.report?.attemptedFiles,
+      unattemptedFiles: this.report?.unattemptedFiles ?? 0,
+      fileStatuses: this.report?.fileStatuses ?? [],
+      resultHandle: this.report?.resultHandle,
+      resultFile: this.report?.resultFile,
+      resultIndexFile: this.report?.resultIndexFile,
       input: this.input
         ? {
             ...this.input,
@@ -411,6 +431,12 @@ export class ActionsController implements vscode.Disposable {
           break;
         case "nodeBack":
           this.back();
+          break;
+        case "nodePage":
+          await this.changeResultsPage(message.direction);
+          break;
+        case "nodeOpenResults":
+          await this.openCompleteResults();
           break;
         case "nodeRefresh":
           await this.refresh();
@@ -786,10 +812,16 @@ export class ActionsController implements vscode.Disposable {
     action?: NodeAction,
     values?: Record<string, string>,
     target?: vscode.Uri,
+    resumeManifest?: string,
   ): Promise<void> {
     if (this.execution)
       return Promise.reject(new Error("An action is already running."));
-    const execution = this.executeAction(action, values, target);
+    const execution = this.executeAction(
+      action,
+      values,
+      target,
+      resumeManifest,
+    );
     this.execution = execution;
     this.changed();
     return execution
@@ -809,6 +841,7 @@ export class ActionsController implements vscode.Disposable {
     action?: NodeAction,
     values?: Record<string, string>,
     target?: vscode.Uri,
+    resumeManifest?: string,
   ): Promise<void> {
     if (this.busy) throw new Error("An action is already running.");
     if (!vscode.workspace.isTrusted)
@@ -978,9 +1011,21 @@ export class ActionsController implements vscode.Disposable {
         inputId,
         discovered.batch && !followsNode,
         profiles,
+        resumeManifest,
       );
       const report = {
         ...response,
+        matches: response.totalMatches ?? response.matches,
+        totalMatches: response.totalMatches ?? response.matches,
+        pageOffset: response.pageOffset ?? 0,
+        pageSize: response.pageSize ?? response.results.length,
+        hasMore: response.hasMore ?? false,
+        complete: response.complete ?? true,
+        coverageComplete: response.coverageComplete ?? true,
+        cancelled: response.cancelled ?? false,
+        attemptedFiles: response.attemptedFiles ?? response.completedFiles ?? 0,
+        unattemptedFiles: response.unattemptedFiles ?? 0,
+        fileStatuses: response.fileStatuses ?? [],
         input:
           this.input?.id === response.input.id
             ? { ...response.input, label: this.input.label }
@@ -1024,6 +1069,83 @@ export class ActionsController implements vscode.Disposable {
     this.selected = selected;
     this.changed();
     await this.show(selected);
+  }
+  private async changeResultsPage(
+    direction: "first" | "previous" | "next" | "last",
+  ): Promise<void> {
+    const report = this.report;
+    const service = this.service;
+    const resultHandle = report?.resultHandle;
+    const pageSize = report?.pageSize ?? 0;
+    const offset = report?.pageOffset ?? 0;
+    if (!report || !service || !resultHandle || pageSize < 1 || this.busy)
+      return;
+    const lastOffset =
+      Math.floor(
+        Math.max(0, (report.totalMatches ?? report.matches) - 1) / pageSize,
+      ) * pageSize;
+    const nextOffset =
+      direction === "first"
+        ? 0
+        : direction === "last"
+          ? lastOffset
+          : direction === "next"
+            ? offset + pageSize
+            : Math.max(0, offset - pageSize);
+    if (nextOffset === offset || (direction === "next" && !report.hasMore))
+      return;
+    const settings = this.sessionSettings ?? this.settings(report.input.file);
+    this.busy = true;
+    this.error = "";
+    this.changed();
+    try {
+      const page = await service.pageActionResults(
+        settings,
+        resultHandle,
+        nextOffset,
+        pageSize,
+      );
+      this.report = {
+        ...report,
+        results: page.results,
+        matches: page.totalMatches,
+        totalMatches: page.totalMatches,
+        pageOffset: page.offset,
+        pageSize: page.limit,
+        hasMore: page.hasMore,
+        complete: page.complete,
+      };
+      this.selected = undefined;
+    } finally {
+      this.busy = false;
+      this.changed();
+    }
+  }
+  private async openCompleteResults(): Promise<void> {
+    const file = this.report?.resultFile;
+    if (!file) throw new Error("This action has no complete results file.");
+    const fileInfo = await stat(file);
+    const document =
+      !file.endsWith(".gz") && fileInfo.size <= 32 * 1024 * 1024
+        ? await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+        : this.report?.resultIndexFile
+          ? await vscode.workspace.openTextDocument(
+              vscode.Uri.file(this.report.resultIndexFile),
+            )
+          : await vscode.workspace.openTextDocument({
+              language: "markdown",
+              content: [
+                "# Complete action results",
+                "",
+                `The full JSONL result file is ${(fileInfo.size / (1024 * 1024)).toFixed(1)} MiB, so it was not loaded into the editor.`,
+                "",
+                `- Matches: ${this.report?.totalMatches ?? this.report?.matches ?? 0}`,
+                `- Completed files: ${this.report?.completedFiles ?? "unknown"}`,
+                `- Failed files: ${this.report?.failedFiles ?? "unknown"}`,
+                `- Full result file: [${file}](${vscode.Uri.file(file).toString()})`,
+              ].join("\n"),
+            });
+    await vscode.window.showTextDocument(document, { preview: false });
   }
   async inspect(id: string) {
     return this.inspectNative(async (service, settings) => {

@@ -234,6 +234,44 @@ export const actionReportSchema = z.object({
   errors: z
     .array(z.object({ file: z.string(), message: z.string() }))
     .optional(),
+  totalMatches: z.number().int().nonnegative().optional(),
+  pageOffset: z.number().int().nonnegative().optional(),
+  pageSize: z.number().int().positive().optional(),
+  hasMore: z.boolean().optional(),
+  complete: z.boolean().optional(),
+  coverageComplete: z.boolean().optional(),
+  cancelled: z.boolean().optional(),
+  completedFiles: z.number().int().nonnegative().optional(),
+  resumedFiles: z.number().int().nonnegative().optional(),
+  failedFiles: z.number().int().nonnegative().optional(),
+  attemptedFiles: z.number().int().nonnegative().optional(),
+  unattemptedFiles: z.number().int().nonnegative().optional(),
+  fileStatuses: z
+    .array(
+      z.object({
+        file: z.string(),
+        status: z.enum([
+          "pending",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "cleanup_unknown",
+          "unattempted",
+        ]),
+        attempted: z.boolean(),
+        resumed: z.boolean().optional(),
+        totalMatches: z.number().int().nonnegative(),
+        fullResultPath: z.string().nullable(),
+        canonicalFile: z.string().optional(),
+        matches: z.number().int().nonnegative().optional(),
+        message: z.string().optional(),
+      }),
+    )
+    .max(5000)
+    .optional(),
+  resultHandle: z.string().min(1).optional(),
+  resultFile: z.string().min(1).optional(),
+  resultIndexFile: z.string().min(1).optional(),
 });
 export type ActionReport = z.infer<typeof actionReportSchema>;
 

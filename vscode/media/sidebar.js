@@ -109,6 +109,48 @@ for (const [id, type] of [
   ["node-edit", "nodeEdit"],
 ])
   element(id).addEventListener("click", () => post(type));
+const resultToolbar = document.querySelector(".result-toolbar");
+const pageInfo = document.createElement("span");
+pageInfo.id = "node-page-info";
+pageInfo.className = "muted";
+pageInfo.setAttribute("role", "status");
+pageInfo.setAttribute("aria-live", "polite");
+const firstPage = document.createElement("button");
+firstPage.id = "node-page-first";
+firstPage.textContent = "First";
+firstPage.addEventListener("click", () =>
+  post("nodePage", { direction: "first" }),
+);
+const previousPage = document.createElement("button");
+previousPage.id = "node-page-previous";
+previousPage.textContent = "Previous";
+previousPage.addEventListener("click", () =>
+  post("nodePage", { direction: "previous" }),
+);
+const nextPage = document.createElement("button");
+nextPage.id = "node-page-next";
+nextPage.textContent = "Next";
+nextPage.addEventListener("click", () =>
+  post("nodePage", { direction: "next" }),
+);
+const lastPage = document.createElement("button");
+lastPage.id = "node-page-last";
+lastPage.textContent = "Last";
+lastPage.addEventListener("click", () =>
+  post("nodePage", { direction: "last" }),
+);
+const openCompleteResults = document.createElement("button");
+openCompleteResults.id = "node-open-results";
+openCompleteResults.textContent = "Open complete results";
+openCompleteResults.addEventListener("click", () => post("nodeOpenResults"));
+resultToolbar.append(
+  pageInfo,
+  firstPage,
+  previousPage,
+  nextPage,
+  lastPage,
+  openCompleteResults,
+);
 function paragraph(parent, text, className = "muted") {
   const p = document.createElement("p");
   p.className = className;
@@ -348,11 +390,43 @@ function renderActions() {
   element("node-back").hidden = !a.back;
   element("node-root").hidden = !a.root;
   element("node-error").textContent = a.error;
+  const resultQualifier = a.batch
+    ? a.complete
+      ? ""
+      : ` · partial${a.cancelled ? " · cancelled" : ""}`
+    : a.truncated
+      ? " · limit reached"
+      : "";
   element("node-count").textContent = a.completed
-    ? `${a.matches} ${a.matches === 1 ? "match" : "matches"}${a.truncated ? " · limit reached" : ""}`
+    ? `${a.totalMatches} ${a.totalMatches === 1 ? "match" : "matches"}${resultQualifier}`
     : "";
+  const pageSize = a.pageSize ?? 0;
+  const pageOffset = a.pageOffset ?? 0;
+  const pageCount =
+    pageSize > 0 ? Math.max(1, Math.ceil(a.totalMatches / pageSize)) : 0;
+  const pageNumber = pageSize > 0 ? Math.floor(pageOffset / pageSize) + 1 : 0;
+  const pageGroups = a.matchFiles.reduce(
+    (count, file) => count + file.matches.length,
+    0,
+  );
+  pageInfo.textContent = a.completed
+    ? `Page ${pageNumber || 1}${pageCount ? ` of ${pageCount}` : ""} · ${pageGroups} matches · ${a.results.length} binding rows`
+    : "";
+  firstPage.hidden = !a.resultHandle;
+  firstPage.disabled = a.running || pageOffset <= 0;
+  previousPage.hidden = !a.resultHandle;
+  previousPage.disabled = a.running || pageOffset <= 0;
+  nextPage.hidden = !a.resultHandle;
+  nextPage.disabled = a.running || !a.hasMore;
+  lastPage.hidden = !a.resultHandle;
+  lastPage.disabled = a.running || !a.hasMore;
+  openCompleteResults.hidden = !a.resultFile;
+  openCompleteResults.disabled = a.running;
+  const cancelledFiles = (a.fileStatuses ?? []).filter(
+    (file) => file.status === "cancelled",
+  ).length;
   element("node-batch-summary").textContent = a.batch
-    ? `${a.scope === "directory" ? "Directory" : "Workspace"} batch · ${a.files} files · ${a.errors.length} ${a.errors.length === 1 ? "error" : "errors"}`
+    ? `${a.scope === "directory" ? "Directory" : "Workspace"} batch · ${a.completedFiles ?? Math.max(0, a.files - a.errors.length)} succeeded · ${a.failedFiles ?? a.errors.length} failed · ${cancelledFiles} cancelled · ${a.unattemptedFiles ?? 0} not attempted · ${a.coverageComplete ? "all files attempted" : "coverage incomplete"}`
     : "";
   element("node-batch-errors").replaceChildren();
   for (const error of a.errors ?? [])
