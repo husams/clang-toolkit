@@ -128,3 +128,15 @@ def test_assigned_foreach_is_a_value_in_both_engines():
     selection = Node("get", "index", (Node("index", children=(ref("rows"), lit(2))),))
     p = program(Node("let", "rows", (loop,)), selection)
     assert run_both(p) == [(2, {"rows": [{"index": 0}, {"index": 1}, {"index": 2}]}, [], 23)] * 2
+
+
+def test_compiler_uses_python_short_circuiting_without_expression_closures():
+    import ast
+
+    p = program(Node("let", "x", (binary("and", lit(True), ref("enabled")),)))
+    function = compile_program(p)
+    assert any(isinstance(node, ast.BoolOp) for node in ast.walk(function.__ctk_ast__))
+    assert not any(isinstance(node, ast.Lambda) for node in ast.walk(function.__ctk_ast__))
+    assert "context.lookup" in function.__ctk_source__
+    assert "context.define" in function.__ctk_source__
+    assert run_both(p, {"enabled": False})[0] == run_both(p, {"enabled": False})[1]

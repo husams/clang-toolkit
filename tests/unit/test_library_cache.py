@@ -167,3 +167,104 @@ def test_cache_prunes_old_entries(monkeypatch: pytest.MonkeyPatch) -> None:
         library_cache.parse_library(f"let answer = {value}")
     assert len(list(library_cache._directory().glob("*.json"))) == 2
     assert not list(library_cache._directory().glob(".script-*"))
+
+
+def test_warm_library_loads_python_without_lowering(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    source = 'let offset = arg.offset\nlet add(value) = { value + offset }'
+    (tmp_path / "helpers.ctk").write_text(source)
+    first = runtime(tmp_path)
+    first.bindings["arg"] = {"offset": 2}
+    preload_libraries(first, tmp_path)
+    first.close()
+    assert list(library_cache._directory().glob("*.python.json"))
+
+    def no_lowering(self):
+        pytest.fail("warm library must load generated Python")
+    with monkeypatch.context() as warm:
+        warm.setattr(compiler._Lowerer, "module", no_lowering)
+        second = runtime(tmp_path)
+        second.bindings["arg"] = {"offset": 40}
+        preload_libraries(second, tmp_path)
+    assert dispatch_result(second.client, "add(2)", second).output == "42"
+    second.close()
+
+
+@pytest.mark.parametrize("damage", ["truncated", "python", "permissions", "wrong-body"])
+def test_damaged_python_cache_recompiles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, damage: str) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    (tmp_path / "helpers.ctk").write_text("let answer = 42")
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    destination = next(library_cache._directory().glob("*.python.json"))
+    if damage == "truncated":
+        destination.write_text("{")
+    elif damage == "python":
+        destination.write_text(destination.read_text().replace("42", "99"))
+    elif damage == "wrong-body":
+        destination.write_text('{"body": [], "digest": "invalid"}')
+    else:
+        destination.chmod(0o666)
+    original = compiler._Lowerer.module
+    calls = []
+    def lower(self):
+        calls.append(True)
+        return original(self)
+    monkeypatch.setattr(compiler._Lowerer, "module", lower)
+    second = runtime(tmp_path)
+    preload_libraries(second, tmp_path)
+    assert calls
+    assert second.bindings["answer"] == 42
+    second.close()
+
+
+def test_python_cache_preserves_host_metadata_and_imports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    parts = tmp_path / "parts"
+    parts.mkdir()
+    (parts / "prefix.ctk").write_text('let prefix = "Hi "')
+    (tmp_path / "helpers.ctk").write_text(
+        'import "parts/prefix.ctk"\nlet greet(name) = { "{prefix}{name}" }'
+    )
+    for _ in range(2):
+        instance = runtime(tmp_path)
+        preload_libraries(instance, tmp_path)
+        assert dispatch_result(instance.client, 'greet("Ada")', instance).output == "Hi Ada"
+        instance.close()
+
+
+def test_warm_templates_and_host_blocks_skip_parsing_and_lowering(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    (tmp_path / "helpers.ctk").write_text(
+        'let greet(name) = { "Hi {name}" }\n'
+        'let functions(target) = {\nlet rows = match functionDecl() in target\nrows\n}'
+    )
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    with monkeypatch.context() as warm:
+        warm.setattr(repl_language, "parse", Mock(side_effect=AssertionError("unexpected parse")))
+        warm.setattr(compiler._Lowerer, "module", Mock(side_effect=AssertionError("unexpected lowering")))
+        second = runtime(tmp_path)
+        preload_libraries(second, tmp_path)
+    assert dispatch_result(second.client, 'greet("Ada")', second).output == "Hi Ada"
+    assert "functions" in second.bindings
+    second.close()
+
+
+def test_warm_slice_library_reuses_compiled_python(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    (tmp_path / "helpers.ctk").write_text("let tail(values) = { values[1:] }")
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    with monkeypatch.context() as warm:
+        warm.setattr(compiler._Lowerer, "module", Mock(side_effect=AssertionError("unexpected lowering")))
+        second = runtime(tmp_path)
+        preload_libraries(second, tmp_path)
+    assert dispatch_result(second.client, "tail([1, 2, 3])", second).output == "2\n3"
+    second.close()

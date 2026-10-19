@@ -22,11 +22,6 @@ def _tick(context: Context, node: Any) -> None:
     context.tick(node)
 
 
-def _value(context: Context, node: Any, thunk: Callable[[], Any]) -> Any:
-    context.tick(node)
-    return thunk()
-
-
 def _literal(context: Context, node: Any, value: Any) -> Any:
     if type(value) is int:
         return _int(context, value, node)
@@ -66,16 +61,11 @@ def _make_dict(context: Context, node: Any, count: int, thunk: Callable[[], list
     return result
 
 
-def _get(context: Context, node: Any, base_thunk: Callable[[], Any], name: str) -> Any:
-    base = base_thunk()
+def _get(context: Context, node: Any, base: Any, name: str) -> Any:
     try:
         return binding_property_value(context, child(node, "base", 0), base, name)
     except Exception as error:
         raise _error(context, node, f"property {name!r} is unavailable on {type(base).__name__}: {error}") from error
-
-
-def _index(context: Context, node: Any, base_thunk: Callable[[], Any], key_thunk: Callable[[], Any]) -> Any:
-    return index_value(base_thunk(), key_thunk(), context, node)
 
 
 def _slice(context: Context, node: Any, start: Any, stop: Any, step: Any) -> slice:
@@ -89,15 +79,6 @@ def _slice(context: Context, node: Any, start: Any, stop: Any, step: Any) -> sli
 
 def _iterable(context: Context, node: Any, value: Any) -> Any:
     return iterable_value(context, node, value)
-
-
-def _logical(context: Context, node: Any, operator: str, left: Callable[[], Any], right: Callable[[], Any]) -> bool:
-    value = _as_bool(context, left(), node)
-    if operator == "and":
-        return _as_bool(context, right(), node) if value else False
-    if operator == "or":
-        return True if value else _as_bool(context, right(), node)
-    raise _error(context, node, f"unknown logical operator {operator!r}")
 
 
 def _call(context: Context, node: Any, name: str, args: Callable[[], list[Any]]) -> Any:
@@ -144,14 +125,6 @@ def _conditional(context: Context, node: Any, condition: Callable[[], Any], true
 def _print(context: Context, value: Callable[[], Any], node: Any) -> Any:
     result = value()
     return context.emit(result, node)
-
-
-def _lookup(context: Context, node: Any, name: str) -> Any:
-    return context.lookup(name, node)
-
-
-def _define(context: Context, name: str, value: Any) -> Any:
-    return context.define(name, value)
 
 
 def _assign_ref(context: Context, node: Any, name: str, operator: str, value: Callable[[], Any]) -> Any:
@@ -258,7 +231,11 @@ class _Lowerer:
         return ast.Lambda(ast.arguments([], [], None, [], [], None, []), expr)
 
     def ticked(self, node: Any, expr: ast.expr) -> ast.expr:
-        return self.call("_value", ast.Name("context", ast.Load()), self.node_ref(node), self.lambda0(expr))
+        # Python evaluates tuple elements left to right: charge the step before
+        # evaluating the expression, without allocating and calling a closure.
+        return ast.Subscript(ast.Tuple([
+            self.call("_tick", ast.Name("context", ast.Load()), self.node_ref(node)), expr,
+        ], ast.Load()), ast.Constant(1), ast.Load())
 
     def emit_expr(self, node: Any) -> ast.expr:
         kind = _kind(node)
@@ -267,7 +244,7 @@ class _Lowerer:
         if kind == "literal":
             expr = self.call("_literal", context, nref, self.value_ref(getattr(node, "value", None)))
         elif kind == "ref":
-            expr = self.call("_lookup", context, nref, ast.Constant(_name(node)))
+            expr = ast.Call(ast.Attribute(context, "lookup", ast.Load()), [ast.Constant(_name(node)), nref], [])
         elif kind == "list":
             items = child_values(node)
             expr = self.call("_make_list", context, nref, ast.Constant(len(items)), self.lambda0(ast.List([self.emit_expr(x) for x in items], ast.Load())))
@@ -291,9 +268,9 @@ class _Lowerer:
                 pairs.append(ast.Tuple([key_expr, self.emit_expr(value)], ast.Load()))
             expr = self.call("_make_dict", context, nref, ast.Constant(len(pairs)), self.lambda0(ast.List(pairs, ast.Load())))
         elif kind == "get":
-            expr = self.call("_get", context, nref, self.lambda0(self.emit_expr(child(node, "base", 0))), ast.Constant(str(getattr(node, "value", None))))
+            expr = self.call("_get", context, nref, self.emit_expr(child(node, "base", 0)), ast.Constant(str(getattr(node, "value", None))))
         elif kind == "index":
-            expr = self.call("_index", context, nref, self.lambda0(self.emit_expr(child(node, "base", 0))), self.lambda0(self.emit_expr(child(node, "key", 1))))
+            expr = self.call("_index", self.emit_expr(child(node, "base", 0)), self.emit_expr(child(node, "key", 1)), context, nref)
         elif kind == "omitted":
             from .selection import OMITTED
 
@@ -342,7 +319,10 @@ class _Lowerer:
             op = str(getattr(node, "value", None))
             left, right = child(node, "lhs", 0), child(node, "rhs", 1)
             if op in {"and", "or"}:
-                expr = self.call("_logical", context, nref, ast.Constant(op), self.lambda0(self.emit_expr(left)), self.lambda0(self.emit_expr(right)))
+                expr = ast.BoolOp(ast.And() if op == "and" else ast.Or(), [
+                    self.call("_as_bool", context, self.emit_expr(operand), nref)
+                    for operand in (left, right)
+                ])
             else:
                 expr = self.call("_binary", context, ast.Constant(op), self.emit_expr(left), self.emit_expr(right), nref)
         elif kind == "predicate":
@@ -516,7 +496,7 @@ class _Lowerer:
         if kind == "block":
             return [ast.Assign([ast.Name("last", ast.Store())], self.call("_run_scoped", context, ast.Name(self.emit_block_function(node), ast.Load())))]
         if kind == "let":
-            expr = self.call("_define", context, ast.Constant(_name(node)), self.emit_expr(child(node, "expr", 0)))
+            expr = ast.Call(ast.Attribute(context, "define", ast.Load()), [ast.Constant(_name(node)), self.emit_expr(child(node, "expr", 0))], [])
         elif kind == "destructure":
             expr = self.call("_define_pattern", context, nref, self.emit_expr(child(node, "expr", 0)))
         elif kind == "runnable":
@@ -544,22 +524,33 @@ class _Lowerer:
         return ast.Module([*self.functions, main], [])
 
 
-def compile_program(program: Node) -> Callable[[Context], Any]:
-    lowerer = _Lowerer(program)
-    module = lowerer.module()
-    ast.fix_missing_locations(module)
+def compile_program(program: Node, *, cache_key: str | None = None) -> Callable[[Context], Any]:
+    from .library_cache import load_python, store_python
+
+    artifact = load_python(cache_key, program) if cache_key is not None else None
+    if artifact is None:
+        lowerer = _Lowerer(program)
+        module = lowerer.module()
+        ast.fix_missing_locations(module)
+        source = ast.unparse(module)
+        code = compile(module, "<ctk-prototype-compiled>", "exec")
+        nodes, values = lowerer.nodes, lowerer.values
+        if cache_key is not None:
+            store_python(cache_key, program, source, code, nodes, values)
+    else:
+        source, code, module, nodes, values = artifact
     namespace: dict[str, Any] = {
-        "__builtins__": {}, "nodes": lowerer.nodes, "values": lowerer.values,
-        "_tick": _tick, "_value": _value, "_literal": _literal,
+        "__builtins__": {}, "nodes": nodes, "values": values,
+        "_tick": _tick, "_literal": _literal,
         "_host": host_value, "_observe": observe_statement, "_consume": consumed_value,
-        "_lookup": _lookup, "_define": _define, "_make_list": _make_list,
+        "_make_list": _make_list,
         "_define_pattern": define_pattern,
         "_define_runnable": define_runnable, "_create_runnable": create_runnable,
         "_create_clauses": create_clause_runnable,
         "_recover": recover, "_cleanup": cleanup, "_FatalErrors": FATAL_ERRORS,
         "_Exception": Exception, "_LoopBreak": LoopBreak, "_LoopContinue": LoopContinue,
-        "_make_dict": _make_dict, "_make_tuple": _make_tuple, "_get": _get, "_index": _index, "_slice": _slice, "_iterable": _iterable,
-        "_logical": _logical, "_binary": _binary, "_unary": _unary,
+        "_make_dict": _make_dict, "_make_tuple": _make_tuple, "_get": _get, "_index": index_value, "_slice": _slice, "_iterable": _iterable,
+        "_as_bool": _as_bool, "_binary": _binary, "_unary": _unary,
         "_predicate": _predicate, "_predicate_binding": _predicate_binding,
         "_call": _call, "_invoke": _invoke, "_pipe": _pipe, "_conditional": _conditional, "_run_scoped": _run_scoped,
         "_print": _print, "_assign_ref": _assign_ref, "_assign_index": _assign_index, "_assign_get": _assign_get,
@@ -567,9 +558,9 @@ def compile_program(program: Node) -> Callable[[Context], Any]:
         "_bad_target": _bad_target, "_check_items": _check_items, "len": len, "enumerate": enumerate,
         "_push_loop_scope": lambda context, node, pattern, item, ordinal: context.push_pattern_loop_scope(pattern, item, ordinal, node),
     }
-    exec(compile(module, "<ctk-prototype-compiled>", "exec"), namespace)
+    exec(code, namespace)
     function = namespace["_ctk_compiled_program"]
-    function.__ctk_source__ = ast.unparse(module)
+    function.__ctk_source__ = source
     function.__ctk_ast__ = module
     return function
 

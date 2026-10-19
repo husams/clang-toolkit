@@ -1,14 +1,18 @@
-"""Persist library syntax as data; compile fresh Python code for each runtime."""
+"""Persist library syntax and generated Python; keep runtime bindings fresh."""
 
 from __future__ import annotations
 
+import ast
+import base64
 import hashlib
 import json
+import marshal
 import os
 import sys
 import tempfile
 from functools import cache
 from pathlib import Path
+from types import CodeType
 from typing import Any
 
 import lark
@@ -62,6 +66,9 @@ def _encode(value: Any) -> Any:
         return ["dict", [[_encode(key), _encode(item)] for key, item in value.items()]]
     if value is None or type(value) in {str, int, float, bool}:
         return value
+    from .selection import OMITTED
+    if value is OMITTED:
+        return ["omitted"]
     raise TypeError(f"unsupported cached syntax: {type(value).__name__}")
 
 
@@ -71,6 +78,9 @@ def _decode(value: Any) -> Any:
     if not isinstance(value, list) or not value:
         raise ValueError("invalid cached syntax")
     match value:
+        case ["omitted"]:
+            from .selection import OMITTED
+            return OMITTED
         case ["node", str(kind), raw, raw_children, int(line), int(column), raw_span]:
             children = _decode(raw_children)
             span = _decode(raw_span)
@@ -141,7 +151,9 @@ def parse_library(source: str) -> Node:
                 temporary = Path(output.name)
                 output.write(payload)
             temporary.replace(destination)
-            entries = sorted(directory.glob("*.json"), key=lambda path: path.stat().st_mtime)
+            entries = sorted((path for path in directory.glob("*.json")
+                              if not path.name.endswith(".python.json")),
+                             key=lambda path: path.stat().st_mtime)
             for obsolete in entries[:-_MAX_ENTRIES]:
                 obsolete.unlink(missing_ok=True)
         except (OSError, ValueError, TypeError, RecursionError):
@@ -153,3 +165,118 @@ def parse_library(source: str) -> Node:
                 except OSError:
                     pass
     return program
+
+
+def _objects(program: Node) -> dict[tuple[Any, ...], Any]:
+    """Address compiler operands in the prepared tree, retaining object identity.
+
+    Host metadata contains session-local executables and templates. Referencing
+    the current tree instead of serializing operands keeps those objects fresh.
+    """
+    objects: dict[tuple[Any, ...], Any] = {}
+
+    def visit(value: Any, path: tuple[Any, ...]) -> None:
+        objects[path] = value
+        if isinstance(value, Node):
+            visit(value.value, (*path, "value"))
+            visit(value.children, (*path, "children"))
+        elif isinstance(value, Tree):
+            visit(value.children, (*path, "children"))
+        elif isinstance(value, (tuple, list)):
+            for index, item in enumerate(value):
+                visit(item, (*path, index))
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if isinstance(key, str):
+                    visit(item, (*path, key))
+
+    visit(program, ())
+    return objects
+
+
+def _python_path(source: str) -> Path:
+    key = hashlib.sha256((_fingerprint() + source).encode("utf-8")).hexdigest()
+    return _directory() / f"{key}.python.json"
+
+
+def _private(path: Path) -> bool:
+    """Executable caches must belong to this user and exclude other writers."""
+    info = path.lstat()
+    return not path.is_symlink() and info.st_uid == os.getuid() and not info.st_mode & 0o022
+
+
+def load_python(source: str, program: Node) -> tuple[str, CodeType, ast.Module, list[Any], list[Any]] | None:
+    """Load generated Python without running the DSL lowerer on warm startup."""
+    try:
+        path = _python_path(source)
+        if not _private(path.parent) or not _private(path) or path.stat().st_size > _MAX_BYTES:
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        body = payload["body"]
+        if hashlib.sha256(body.encode()).hexdigest() != payload["digest"]:
+            return None
+        artifact = json.loads(body)
+        if artifact["fingerprint"] != _fingerprint() or artifact["source"] != source:
+            return None
+        objects = _objects(program)
+        def operands(records: list[Any]) -> list[Any]:
+            if not isinstance(records, list):
+                raise ValueError("invalid compiler operands")
+            values = []
+            for record in records:
+                if not isinstance(record, list) or len(record) != 2:
+                    raise ValueError("invalid compiler operand")
+                if record[0] == "path":
+                    values.append(objects[tuple(record[1])])
+                elif record[0] == "data":
+                    values.append(_decode(record[1]))
+                else:
+                    raise ValueError("unknown compiler operand")
+            return values
+        python = artifact["python"]
+        if not isinstance(python, str):
+            return None
+        code = marshal.loads(base64.b64decode(artifact["code"], validate=True))
+        if not isinstance(code, CodeType):
+            return None
+        return python, code, ast.parse(python), operands(artifact["nodes"]), operands(artifact["values"])
+    except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError,
+            RecursionError, SyntaxError, EOFError, OverflowError):
+        return None
+
+
+def store_python(source: str, program: Node, python: str, code: CodeType, nodes: list[Any], values: list[Any]) -> None:
+    """Atomically persist Python and operand addresses, never runtime bindings."""
+    temporary = None
+    try:
+        path = _python_path(source)
+        paths = {id(value): location for location, value in _objects(program).items()}
+        def operands(items: list[Any]) -> list[Any]:
+            return [["path", paths[id(item)]] if id(item) in paths else ["data", _encode(item)]
+                    for item in items]
+        body = json.dumps({"fingerprint": _fingerprint(), "source": source,
+                           "python": python, "code": base64.b64encode(marshal.dumps(code)).decode("ascii"),
+                           "nodes": operands(nodes), "values": operands(values)},
+                          ensure_ascii=True, separators=(",", ":"))
+        payload = json.dumps({"body": body, "digest": hashlib.sha256(body.encode()).hexdigest()})
+        if len(payload) > _MAX_BYTES:
+            return
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if not _private(path.parent):
+            return
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=".python-", delete=False) as output:
+            temporary = Path(output.name)
+            output.write(payload)
+        temporary.replace(path)
+        entries = sorted(path.parent.glob("*.python.json"), key=lambda item: item.stat().st_mtime)
+        for obsolete in entries[:-_MAX_ENTRIES]:
+            obsolete.unlink(missing_ok=True)
+    except (OSError, ValueError, TypeError, RecursionError):
+        pass
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
