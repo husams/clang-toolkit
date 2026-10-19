@@ -25,9 +25,7 @@ public:
             // The inventory also guards the root parent for cache identity;
             // idle notifications must not react to unrelated sibling entries.
             if (directory != root.parent_path())
-              notifications_available_ =
-                  notifications_.add_directory(directory) &&
-                  notifications_available_;
+              notifications_.add_directory(directory);
           });
       const auto value = digest_text(inventory);
       const auto after = platform::DirectoryWatch::identity(root);
@@ -54,10 +52,8 @@ public:
   }
   void reset() {
     notifications_.reset();
-    notifications_available_ = true;
     invalidate();
   }
-  bool notifications_available() const { return notifications_available_; }
 
   bool refresh() {
     if (!watch_.changed())
@@ -79,7 +75,6 @@ private:
   };
   platform::DirectoryWatch watch_;
   platform::DirectoryWatch notifications_;
-  bool notifications_available_ = true;
   std::uint64_t generation_ = 0;
   std::map<fs::path, Entry> entries_;
 };
