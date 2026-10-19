@@ -87,6 +87,9 @@ message FindSymbolsRequest {
   Kind kind = 5;
   // Return one representative per definition instead of per translation unit.
   bool unique_symbols = 6;
+  bool source_only = 8;
+  uint64 offset = 9;
+  uint64 expected_revision = 10;
 }
 message LookupSymbolRequest { string project_root = 1; string usr = 2; }
 message Symbol {
@@ -112,6 +115,7 @@ message FindSymbolsResponse {
   uint64 translation_units_indexed = 4;
   uint64 translation_units_total = 5;
   bool truncated = 6;
+  uint64 next_offset = 7;
 }
 
 // Internal request/result files used by ctk-index-worker. They are not RPCs.

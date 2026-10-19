@@ -12,13 +12,17 @@
 #include <deque>
 #include <fstream>
 #include <future>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <semaphore>
 #include <set>
 #include <thread>
+#include <unordered_map>
 #include <utility>
+
+#include <google/protobuf/util/json_util.h>
 
 namespace ctk::net {
 namespace {
@@ -36,10 +40,12 @@ struct Job {
 // budget.
 class ReadBudget {
 public:
-  explicit ReadBudget(grpc::ServerContext &context)
+  explicit ReadBudget(
+      grpc::ServerContext &context,
+      std::chrono::seconds operation_budget = std::chrono::seconds(1))
       : context_(context), deadline_(std::min(context.deadline(),
                                               std::chrono::system_clock::now() +
-                                                  std::chrono::seconds(1))) {}
+                                                  operation_budget)) {}
   bool interrupted() const {
     return context_.IsCancelled() ||
            std::chrono::system_clock::now() >= deadline_;
@@ -93,6 +99,127 @@ void load_last_pass(Database &db, ProjectIndexStatus &status) {
     *status.mutable_last_completed_pass() = summary;
     status.set_last_reconciled_unix_seconds(summary.finished_unix_seconds());
   }
+}
+
+struct SourcePathFilter {
+  explicit SourcePathFilter(const fs::path &root)
+      : lexical_root_(root.lexically_normal()) {
+    std::error_code error;
+    root_ = fs::weakly_canonical(root, error);
+    if (error)
+      root_.clear();
+  }
+
+  bool contains(const std::string &raw_path) {
+    if (const auto found = cache_.find(raw_path); found != cache_.end())
+      return found->second;
+    const auto result = compute(raw_path);
+    cache_.emplace(raw_path, result);
+    return result;
+  }
+
+private:
+  bool compute(const std::string &raw_path) const {
+    if (root_.empty() || raw_path.empty())
+      return false;
+    const auto raw = fs::path(raw_path).lexically_normal();
+    auto relative = raw.lexically_relative(lexical_root_);
+    if (relative.empty() || relative.is_absolute() ||
+        *relative.begin() == "..") {
+      // A logical/physical alias such as /var vs /private/var needs the
+      // filesystem fallback below before deciding containment.
+      relative.clear();
+    } else if (excluded(relative)) {
+      return false;
+    }
+    const auto parent = raw.parent_path();
+    const auto parent_key = parent.string();
+    auto parent_result = directory_cache_.find(parent_key);
+    if (parent_result == directory_cache_.end()) {
+      std::error_code parent_error;
+      auto canonical_parent = fs::weakly_canonical(parent, parent_error);
+      parent_result = directory_cache_
+                          .emplace(parent_key,
+                                   parent_error
+                                       ? std::optional<fs::path>{}
+                                       : std::optional<fs::path>{
+                                             std::move(canonical_parent)})
+                          .first;
+    }
+    if (!parent_result->second)
+      return false;
+    const auto &canonical_parent = *parent_result->second;
+    auto canonical = canonical_parent / raw.filename();
+    std::error_code status_error;
+    const auto final_status = fs::symlink_status(raw, status_error);
+    const bool missing =
+        status_error == std::errc::no_such_file_or_directory ||
+        final_status.type() == fs::file_type::not_found;
+    if (status_error && !missing)
+      return false;
+    if (!missing && fs::is_symlink(final_status)) {
+      std::error_code canonical_error;
+      canonical = fs::weakly_canonical(raw, canonical_error);
+      if (canonical_error)
+        return false;
+    }
+    relative = canonical.lexically_relative(root_);
+    if (relative.empty() || relative.is_absolute())
+      return false;
+    return !excluded(relative);
+  }
+
+  static bool excluded(const fs::path &relative) {
+    for (const auto &part : relative) {
+      const auto component = part.string();
+      if (component == ".." || component == ".git" ||
+          component == "node_modules" || component == ".venv" ||
+          component == ".cache" || component == "dist" ||
+          component == "build" || component == "vendor" ||
+          component == "third_party" || component == "_deps" ||
+          component.starts_with("build-") ||
+          component.starts_with("cmake-build-"))
+        return true;
+    }
+    return false;
+  }
+
+  fs::path lexical_root_;
+  fs::path root_;
+  std::unordered_map<std::string, bool> cache_;
+  mutable std::unordered_map<std::string, std::optional<fs::path>>
+      directory_cache_;
+};
+
+void source_path_sqlite(sqlite3_context *context, int argc,
+                        sqlite3_value **argv) noexcept {
+  if (argc != 1 || sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+    sqlite3_result_int(context, 0);
+    return;
+  }
+  auto *filter = static_cast<SourcePathFilter *>(sqlite3_user_data(context));
+  const auto *value = sqlite3_value_text(argv[0]);
+  if (!filter || !value) {
+    sqlite3_result_int(context, 0);
+    return;
+  }
+  try {
+    sqlite3_result_int(
+        context, filter->contains(reinterpret_cast<const char *>(value)) ? 1
+                                                                         : 0);
+  } catch (const std::bad_alloc &) {
+    sqlite3_result_error_nomem(context);
+  } catch (...) {
+    sqlite3_result_error(context, "cannot classify indexed source path", -1);
+  }
+}
+
+void register_source_path_filter(Database &db, SourcePathFilter &filter) {
+  const auto status = sqlite3_create_function_v2(
+      db.handle, "ctk_source_path", 1, SQLITE_UTF8, &filter,
+      source_path_sqlite, nullptr, nullptr, nullptr);
+  if (status != SQLITE_OK)
+    throw std::runtime_error(sqlite3_errmsg(db.handle));
 }
 } // namespace
 
@@ -259,7 +386,8 @@ public:
        const std::string &query, std::uint32_t requested_limit, bool prefix,
        bool by_usr,
        FindSymbolsRequest::Kind kind = FindSymbolsRequest::KIND_ANY,
-       bool unique_symbols = false) {
+       bool unique_symbols = false, bool source_only = false,
+       std::uint64_t offset = 0, std::uint64_t expected_revision = 0) {
     std::string kind_filter;
     switch (kind) {
     case FindSymbolsRequest::KIND_ANY:
@@ -285,7 +413,8 @@ public:
       throw std::invalid_argument("invalid symbol kind filter");
     }
     const auto key = root_key(root);
-    if (query.empty())
+    if (query.empty() &&
+        !(prefix && kind == FindSymbolsRequest::KIND_ALIAS && !by_usr))
       throw std::invalid_argument("symbol query cannot be empty");
     if (query.size() > 4096)
       throw std::invalid_argument("symbol query exceeds 4096 bytes");
@@ -296,19 +425,28 @@ public:
       response.set_stale(true);
       return response;
     }
-    // Cold pages and brief WAL cleanup locks share the same bounded budget;
-    // client deadlines and cancellation still win.
-    ReadBudget budget(context);
+    // Source classification may consult filesystem metadata for distinct
+    // indexed paths. Parent-path caching bounds that work, with a longer
+    // finite budget than ordinary index reads under storage contention.
+    // Client deadlines and cancellation still take precedence.
+    const auto operation_budget =
+        source_only || query.empty() ? std::chrono::seconds(5)
+                                    : std::chrono::seconds(1);
+    ReadBudget budget(context, operation_budget);
+    std::optional<SourcePathFilter> source_paths;
     Database db(path, false);
+    if (source_only) {
+      source_paths.emplace(key);
+      register_source_path_filter(db, *source_paths);
+    }
     budget.limit_query(db);
     db.exec("BEGIN");
     {
-      Statement schema(
-          db, "SELECT count(*) FROM sqlite_master WHERE "
-              "(type='table' AND name IN "
-              "('metadata','translation_unit','symbol')) OR "
-              "(type='index' AND name IN "
-              "('symbol_name_prefix','symbol_qualified_prefix'))");
+      Statement schema(db, "SELECT count(*) FROM sqlite_master WHERE "
+                           "(type='table' AND name IN "
+                           "('metadata','translation_unit','symbol')) OR "
+                           "(type='index' AND name IN "
+                           "('symbol_name_prefix','symbol_qualified_prefix'))");
       schema.step();
       if (schema.number(0) != 5) {
         db.exec("ROLLBACK");
@@ -317,6 +455,9 @@ public:
       }
     }
     response.set_revision(revision(db));
+    if (expected_revision && expected_revision != response.revision())
+      throw std::logic_error(
+          "symbol index revision changed; restart pagination");
     response.set_translation_units_indexed(count_units(db));
     {
       Statement total(db, "SELECT value FROM metadata WHERE key='total'");
@@ -348,21 +489,34 @@ public:
             ? " GROUP BY "
               "usr,file_path,byte_offset,is_definition,qualified_name "
             : " ";
-    const std::string columns = projection + " WHERE " + kind_filter;
+    std::string source_filter;
+    if (source_only)
+      source_filter = "ctk_source_path(file_path)=1 AND ";
+    const std::string filtered_columns =
+        projection + " WHERE " + kind_filter + source_filter;
     const std::string name_columns =
-        unique_symbols
-            ? projection + " INDEXED BY symbol_name_prefix WHERE " + kind_filter
-            : columns;
+        unique_symbols ? projection + " INDEXED BY symbol_name_prefix WHERE " +
+                             kind_filter + source_filter
+                       : filtered_columns;
     const std::string qualified_columns =
         unique_symbols
             ? projection + " INDEXED BY symbol_qualified_prefix WHERE " +
-                  kind_filter
-            : columns;
+                  kind_filter + source_filter
+            : filtered_columns;
     const std::string order =
-        prefix ? "qualified_name COLLATE NOCASE,file_path,byte_offset,tu_id"
-               : "qualified_name,file_path,byte_offset,tu_id";
+        std::string(
+            prefix ? "qualified_name COLLATE NOCASE,file_path,byte_offset,tu_id"
+                   : "qualified_name,file_path,byte_offset,tu_id") +
+        ",usr,is_definition,qualified_name COLLATE BINARY";
+    const bool browse_aliases =
+        query.empty() && prefix && kind == FindSymbolsRequest::KIND_ALIAS &&
+        !by_usr;
     std::string sql;
-    if (prefix) {
+    if (browse_aliases) {
+      sql = "WITH selected AS MATERIALIZED (" + projection +
+            " NOT INDEXED WHERE " + kind_filter + source_filter + "1" + group +
+            "ORDER BY " + order + " LIMIT ?3), ";
+    } else if (prefix) {
       sql = "WITH name_matches AS MATERIALIZED (" + name_columns +
             "name LIKE ?1 ESCAPE '\\'" + group + "ORDER BY " + order +
             " LIMIT ?3), qualified_matches AS MATERIALIZED (" +
@@ -376,15 +530,17 @@ public:
       // Keep the BINARY test residual so the existing NOCASE index can seek.
       sql = "WITH selected AS MATERIALIZED (" + projection +
             " INDEXED BY symbol_name_prefix WHERE " + kind_filter +
+            source_filter +
             "name=?1 COLLATE NOCASE AND +name=?1 COLLATE BINARY" + group +
             "UNION " + projection +
             " INDEXED BY symbol_qualified_prefix WHERE " + kind_filter +
+            source_filter +
             "qualified_name=?2 COLLATE NOCASE AND +qualified_name=?2 COLLATE "
             "BINARY" +
             group + "ORDER BY " + order + " LIMIT ?3), ";
     } else {
-      sql = "WITH selected AS MATERIALIZED (" + columns + "usr=?1" + group +
-            "ORDER BY " + order + " LIMIT ?2), ";
+      sql = "WITH selected AS MATERIALIZED (" + filtered_columns + "usr=?1" +
+            group + "ORDER BY " + order + " LIMIT ?2), ";
     }
     if (unique_symbols) {
       // Group physical definitions before LIMIT, so repeated TU contributions
@@ -398,8 +554,9 @@ public:
           std::string(prefix ? " COLLATE NOCASE" : "") +
           " DESC,file_path DESC,byte_offset DESC LIMIT 1), "
           "candidates AS MATERIALIZED (SELECT * FROM selected UNION " +
-          projection +
-          " INDEXED BY symbol_qualified_prefix WHERE qualified_name="
+          projection + " INDEXED BY symbol_qualified_prefix WHERE " +
+          kind_filter + source_filter +
+          "qualified_name="
           "(SELECT qualified_name FROM boundary) COLLATE NOCASE " +
           (prefix ? std::string()
                   : "AND +qualified_name=(SELECT qualified_name FROM boundary) "
@@ -407,11 +564,15 @@ public:
           "AND file_path=(SELECT file_path FROM boundary) AND byte_offset="
           "(SELECT byte_offset FROM boundary) AND " +
           kind_filter +
-          (by_usr   ? "usr=?1"
-           : prefix ? "(name LIKE ?1 ESCAPE '\\' OR qualified_name LIKE ?2 "
-                      "ESCAPE '\\')"
-                    : "(name=?1 COLLATE BINARY OR qualified_name=?2 COLLATE "
-                      "BINARY)") +
+          (browse_aliases
+               ? "1"
+           : by_usr
+               ? "usr=?1"
+           : prefix
+               ? "(name LIKE ?1 ESCAPE '\\' OR qualified_name LIKE ?2 "
+                 "ESCAPE '\\')"
+               : "(name=?1 COLLATE BINARY OR qualified_name=?2 COLLATE "
+                 "BINARY)") +
           "), ";
     }
     // Older stores remain readable before their background schema upgrade.
@@ -468,18 +629,32 @@ public:
         "AND s.is_definition=c.is_definition "
         "JOIN units t ON t.id=c.tu_id ORDER BY s.qualified_name" +
         std::string(prefix ? " COLLATE NOCASE" : "") +
-        ",s.file_path,s.byte_offset,t.id";
+        ",s.file_path,s.byte_offset,t.id,s.usr,s.is_definition,s.qualified_"
+        "name COLLATE BINARY";
     Statement symbols(db, sql.c_str());
     const auto pattern = prefix ? escaped_prefix(query) : query;
-    symbols.bind(1, pattern);
-    if (!by_usr)
-      symbols.bind(2, pattern);
+    if (!browse_aliases) {
+      symbols.bind(1, pattern);
+      if (!by_usr)
+        symbols.bind(2, pattern);
+    }
     const auto limit =
         std::clamp(requested_limit ? requested_limit : 100u, 1u, 1000u);
-    symbols.bind(by_usr ? 2 : 3, static_cast<std::uint64_t>(limit + 1));
+    if (offset >
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) -
+            limit - 1)
+      throw std::invalid_argument("symbol offset exceeds supported range");
+    const auto candidate_limit = offset + limit + 1;
+    symbols.bind(by_usr ? 2 : 3, candidate_limit);
+    std::uint64_t skipped = 0;
     while (symbols.step()) {
+      if (skipped < offset) {
+        ++skipped;
+        continue;
+      }
       if (response.symbols_size() == static_cast<int>(limit)) {
         response.set_truncated(true);
+        response.set_next_offset(offset + limit);
         break;
       }
       auto *symbol = response.add_symbols();
@@ -498,6 +673,8 @@ public:
       symbol->set_stale(response.stale() || symbols.text(12) != "ready");
       symbol->set_index_revision(response.revision());
     }
+    if (response.truncated())
+      response.set_next_offset(offset + response.symbols_size());
     return response;
   }
 
@@ -2083,11 +2260,12 @@ public:
   find(grpc::ServerContext &context, const std::string &root,
        const std::string &query, std::uint32_t limit, bool prefix, bool by_usr,
        FindSymbolsRequest::Kind kind = FindSymbolsRequest::KIND_ANY,
-       bool unique_symbols = false) {
+       bool unique_symbols = false, bool source_only = false,
+       std::uint64_t offset = 0, std::uint64_t expected_revision = 0) {
     auto monitor = project(root);
     return (monitor ? *monitor : reader_)
         .find(context, root, query, limit, prefix, by_usr, kind,
-              unique_symbols);
+              unique_symbols, source_only, offset, expected_revision);
   }
 
 private:
@@ -2190,7 +2368,8 @@ grpc::Status IndexServiceAdapter::FindSymbols(grpc::ServerContext *context,
     *out = indexer_->find(
         *context, request->project_root(), request->query(), request->limit(),
         request->match_mode() == FindSymbolsRequest::MATCH_MODE_PREFIX, false,
-        request->kind(), request->unique_symbols());
+        request->kind(), request->unique_symbols(), request->source_only(),
+        request->offset(), request->expected_revision());
   });
 }
 grpc::Status

@@ -2116,3 +2116,75 @@ and VSIX packaging pass. Real VS Code again verifies the identical retained
 node ID and parseCount=1 on LLVM SemaDecl.cpp, and closes its test processes.
 Independent review reports no remaining blocker. Earlier broad-suite timing
 failures remain recorded above; they are not claimed resolved by these fixes.
+
+## Directory/workspace complete-results experiment — 2026-10-19
+
+The isolated `codex/vscode-workspace-actions` worktree keeps the existing
+Semantic Analysis tabs, result grouping and Inspector layout. Workspace and
+directory actions now process every discovered translation unit independently
+of the displayed result page size. Live matches are spilled inside the native
+resource scope, with compressed complete exports, indexed match-group pages,
+per-file coverage, and cleanup before the next input. Single-file action limits
+remain explicit.
+
+- [x] Preserve complete results beyond the scoped batch's 1 MiB detached-value limit.
+- [x] Verify first/last and cross-file pages without splitting match bindings.
+- [x] Verify failure and cooperative cancellation cleanup against a real server.
+- [x] Validate the stale benchmark through a private source/VFS correction;
+  the real checkout is unchanged. A private C++23 profile parses the C smoke fixture.
+- [x] Complete Python checks: 3,477 passed and 18 subtests passed; all 14
+  checkpoint validation checks pass, including both additional stale-report guards.
+- [x] Extension unit checks: 162 passed; live batch checks: 3 passed.
+- [x] Verify all 10,067 native fixture matches across 101 pages and the final
+  67-match page; verify all 5,441 benchmark matches through the private VFS fix.
+- [x] Verify interruption rollback and cancellation during per-file compression
+  preserve aggregate counts, unique matches and valid per-file export paths.
+- [x] Preserve 352 completed exports after the private server's Clang worker
+  overflowed its 512 KiB stack. Verify the restored 8,014,301,901 gzip bytes and
+  293,114,496 index bytes against the immutable checkpoint before continuing.
+  The recovered private process uses a measured 16 MiB default worker stack;
+  its local helper changes no primary server or extension installation.
+- [x] Complete the exact function-definition action across all 449 real inputs:
+  20,748,420 match groups, 449 successful outcomes and no failures. Included-header
+  matches and both native bindings remain in the complete export.
+- [x] Verify the rendered first 100 groups and final 20 groups (offset 20,748,400)
+  against exact DOM match/binding IDs, with no source-change warning. Batch
+  inputs, cursors, active/queued work, reservations and accounted bytes return to zero.
+- [x] Verify all 449 outcomes, archive integrity and the final page in the
+  isolated experimental window; leave its complete report open. Full gzip
+  inflation verifies CRCs and exactly 20,748,420 records; all 449 per-file
+  exports match their audited originals. The 9,102,253,221-byte aggregate's
+  SHA-256 matches the preserved native export.
+
+Live evidence and private compilation profiles are ignored local artifacts under
+`vscode/artifacts/workspace-actions-preview/`; they are not part of the extension
+package or the main checkout.
+
+## Source-only indexed symbol search — 2026-10-19
+
+The existing Symbol Search Options gain a Source files only checkbox for project
+and global index searches. The server filters source paths before limiting
+results. Leaving the name blank with only Aliases selected lists every indexed
+alias through revision-pinned pages; ordinary name searches retain their limits.
+
+- [x] Add the checkbox and preserve source scope when switching indexed projects.
+- [x] Add server source filtering and revision-pinned pagination.
+- [x] Pass native (526 checks, plus 45 index follow-ups), Python unit (3,439),
+  extension unit (163), native index integration (2), Python adapter (73 and 18
+  subtests), and end-to-end (215) verification. Five end-to-end timeout/setup
+  failures passed focused retries with the matching compiler and short fixture
+  paths where required; no unrelated console or test changes were needed.
+- [x] Verify all four scope/filter combinations through the actual controls in
+  the existing isolated window: 59 source aliases and 4,693 indexed aliases in
+  both scopes, with every rendered row matching the private index and no
+  duplicate declaration IDs. All 59 source locations are distinct. The same
+  action service retains the completed 449-file, 20,748,420-match workspace run.
+
+Canonical parent paths are cached within each search, including file-symlink
+checks. Source-filtered and empty-alias browse reads have a five-second bound
+that still respects client deadlines and cancellation; ordinary lookups retain
+their existing bound. Background freshness changes no longer reject complete
+pages when revision and indexed coverage remain stable.
+
+Source-only acceptance records and test logs are saved with the ignored local
+preview artifacts under `vscode/artifacts/workspace-actions-preview/source-option/`.
