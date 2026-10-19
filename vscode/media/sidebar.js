@@ -34,6 +34,7 @@ function search(type) {
         (input) => input.value,
       ),
       exact: false,
+      sourceOnly: element("source-only").checked,
     });
     return;
   }
@@ -59,6 +60,7 @@ element("symbols-panel").addEventListener("change", (event) => {
   if (
     event.target.id === "scope" ||
     event.target.id === "index-project" ||
+    event.target.id === "source-only" ||
     event.target.closest("#kinds")
   )
     search("update");
@@ -236,6 +238,8 @@ function renderSearch() {
         : !["file", "workspace"].includes(option.value);
   scope.value = indexed ? (search.scope ?? "project") : state.scope;
   element("index-project-label").hidden = !indexed || scope.value === "global";
+  element("source-only-label").hidden = !indexed;
+  element("source-only").checked = indexed && Boolean(search.sourceOnly);
   const projects = element("index-project");
   projects.replaceChildren();
   for (const item of search.projects ?? []) {
@@ -247,8 +251,14 @@ function renderSearch() {
   projects.value = search.project ?? "";
   projects.disabled =
     !indexed || !(search.projects ?? []).length || scope.value === "global";
+  const aliasesOnly =
+    indexed &&
+    (search.kinds ?? []).length === 1 &&
+    search.kinds[0] === "aliases";
   element("target").textContent = indexed
-    ? "Search indexed project symbols."
+    ? aliasesOnly
+      ? "Search indexed project symbols. Leave the name blank to list all aliases."
+      : "Search indexed project symbols."
     : state.target || "Open a C++ file to search.";
   for (const input of document.querySelectorAll("#kinds input"))
     input.checked = indexed
@@ -276,7 +286,14 @@ function renderSearch() {
     paragraph(element("errors"), error, "");
   const results = indexed ? (search.results ?? []) : state.results;
   const complete = indexed ? Boolean(search.completed) : state.completed;
-  const resultKey = JSON.stringify([results, complete, indexed]);
+  const resultKey = JSON.stringify([
+    results,
+    complete,
+    indexed,
+    indexed ? search.scope : state.scope,
+    indexed ? search.project : "",
+    indexed ? Boolean(search.sourceOnly) : false,
+  ]);
   if (resultKey !== searchResults) {
     searchResults = resultKey;
     element("results").replaceChildren();
@@ -296,7 +313,9 @@ function renderSearch() {
         complete
           ? "No matches."
           : indexed
-            ? "Search indexed symbols by name."
+            ? search.kinds?.includes("aliases") && !search.query
+              ? "Choose Aliases to browse indexed aliases, or enter a name to search."
+              : "Search indexed symbols by name."
             : "Search for a variable, class or function.",
       );
   }

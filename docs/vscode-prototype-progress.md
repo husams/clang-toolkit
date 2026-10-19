@@ -2159,3 +2159,32 @@ remain explicit.
 Live evidence and private compilation profiles are ignored local artifacts under
 `vscode/artifacts/workspace-actions-preview/`; they are not part of the extension
 package or the main checkout.
+
+## Source-only indexed symbol search — 2026-10-19
+
+The existing Symbol Search Options gain a Source files only checkbox for project
+and global index searches. The server filters source paths before limiting
+results. Leaving the name blank with only Aliases selected lists every indexed
+alias through revision-pinned pages; ordinary name searches retain their limits.
+
+- [x] Add the checkbox and preserve source scope when switching indexed projects.
+- [x] Add server source filtering and revision-pinned pagination.
+- [x] Pass native (526 checks, plus 45 index follow-ups), Python unit (3,439),
+  extension unit (163), native index integration (2), Python adapter (73 and 18
+  subtests), and end-to-end (215) verification. Five end-to-end timeout/setup
+  failures passed focused retries with the matching compiler and short fixture
+  paths where required; no unrelated console or test changes were needed.
+- [x] Verify all four scope/filter combinations through the actual controls in
+  the existing isolated window: 59 source aliases and 4,693 indexed aliases in
+  both scopes, with every rendered row matching the private index and no
+  duplicate declaration IDs. All 59 source locations are distinct. The same
+  action service retains the completed 449-file, 20,748,420-match workspace run.
+
+Canonical parent paths are cached within each search, including file-symlink
+checks. Source-filtered and empty-alias browse reads have a five-second bound
+that still respects client deadlines and cancellation; ordinary lookups retain
+their existing bound. Background freshness changes no longer reject complete
+pages when revision and indexed coverage remain stable.
+
+Source-only acceptance records and test logs are saved with the ignored local
+preview artifacts under `vscode/artifacts/workspace-actions-preview/source-option/`.

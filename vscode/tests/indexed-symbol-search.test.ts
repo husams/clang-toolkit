@@ -66,6 +66,41 @@ describe("IndexedSymbolSearch", () => {
     expect(search.state.completed).toBe(true);
   });
 
+  it("defaults source-only off and preserves it across indexed scope changes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctk-index-source-only-"));
+    temporaryDirectories.push(directory);
+    const script = join(directory, "worker.py");
+    await writeFile(
+      script,
+      `import json, sys\nrequest = json.load(sys.stdin)\nprint(json.dumps({"projects": ["/repo"], "results": [], "errors": [], "status": json.dumps({"sourceOnly": request.get("sourceOnly", False), "scope": request["scope"], "project": request["project"]}), "truncated": False}))\n`,
+    );
+    const search = new IndexedSymbolSearch(
+      script,
+      "python3",
+      { directory, timeoutMs: 1000, maxResults: 100 },
+      () => {},
+    );
+    expect(search.state.sourceOnly).toBe(false);
+    await search.search({
+      query: "",
+      scope: "project",
+      project: "/repo",
+      kinds: ["aliases"],
+      sourceOnly: true,
+    });
+    expect(JSON.parse(search.state.status)).toEqual({
+      sourceOnly: true,
+      scope: "project",
+      project: "/repo",
+    });
+    await search.search({ scope: "global", project: "/repo" });
+    expect(JSON.parse(search.state.status)).toEqual({
+      sourceOnly: true,
+      scope: "global",
+      project: "/repo",
+    });
+  });
+
   it("defaults the selected project to the root containing its working directory", async () => {
     const directory = await mkdtemp(join(tmpdir(), "ctk-index-roots-"));
     temporaryDirectories.push(directory);

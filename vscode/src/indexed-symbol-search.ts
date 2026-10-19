@@ -61,6 +61,7 @@ export interface IndexedSearchState {
   scope: "project" | "global";
   project: string;
   kinds: ("variables" | "classes" | "functions" | "aliases")[];
+  sourceOnly: boolean;
   exact: boolean;
   running: boolean;
   status: string;
@@ -75,6 +76,7 @@ interface SearchRequest {
   project: string;
   kinds: IndexedSearchState["kinds"];
   exact: boolean;
+  sourceOnly: boolean;
   maximum: number;
   timeoutMs: number;
   directory: string;
@@ -191,6 +193,7 @@ export class IndexedSymbolSearch {
     project: "",
     kinds: ["variables", "classes", "functions", "aliases"],
     exact: false,
+    sourceOnly: false,
     running: false,
     status: "Connect to the CTK server to search indexed symbols.",
     errors: [],
@@ -204,7 +207,14 @@ export class IndexedSymbolSearch {
     private readonly python: string,
     private readonly settings: Omit<
       SearchRequest,
-      "mode" | "query" | "scope" | "project" | "kinds" | "exact" | "maximum"
+      | "mode"
+      | "query"
+      | "scope"
+      | "project"
+      | "kinds"
+      | "exact"
+      | "sourceOnly"
+      | "maximum"
     > & { maxResults: number },
     private readonly publish: () => void,
   ) {}
@@ -216,6 +226,7 @@ export class IndexedSymbolSearch {
       project: this.state.project,
       kinds: this.state.kinds,
       exact: false,
+      sourceOnly: false,
       maximum: Math.min(1000, this.settings.maxResults),
     });
   }
@@ -223,7 +234,7 @@ export class IndexedSymbolSearch {
     update: Partial<
       Pick<
         IndexedSearchState,
-        "query" | "scope" | "project" | "kinds" | "exact"
+        "query" | "scope" | "project" | "kinds" | "exact" | "sourceOnly"
       >
     >,
   ): Promise<void> {
@@ -239,6 +250,7 @@ export class IndexedSymbolSearch {
       project: this.state.project,
       kinds: this.state.kinds,
       exact: this.state.exact,
+      sourceOnly: this.state.sourceOnly,
       maximum: Math.min(1000, this.settings.maxResults),
     });
   }
@@ -254,7 +266,14 @@ export class IndexedSymbolSearch {
   private async execute(
     request: Pick<
       SearchRequest,
-      "mode" | "query" | "scope" | "project" | "kinds" | "exact" | "maximum"
+      | "mode"
+      | "query"
+      | "scope"
+      | "project"
+      | "kinds"
+      | "exact"
+      | "sourceOnly"
+      | "maximum"
     >,
   ): Promise<void> {
     const revision = ++this.revision;

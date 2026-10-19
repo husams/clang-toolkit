@@ -54,6 +54,7 @@ const messageSchema = z.discriminatedUnion("type", [
     project: z.string().max(4096),
     kinds: z.array(z.enum(["variables", "classes", "functions", "aliases"])),
     exact: z.boolean(),
+    sourceOnly: z.boolean().default(false),
   }),
   z.object({
     type: z.literal("rendered"),
@@ -353,6 +354,7 @@ export class Prototype {
         project: "",
         kinds: ["variables", "classes", "functions", "aliases"],
         exact: false,
+        sourceOnly: false,
         running: false,
         status: this.indexedSearchError || "Loading indexed projects…",
         errors: this.indexedSearchError ? [this.indexedSearchError] : [],

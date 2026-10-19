@@ -78,30 +78,65 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         const root = resolve(directory, name);
         roots.push(root);
         await mkdir(root);
+        const include = resolve(root, "include");
+        const build = resolve(root, "build");
+        const dependency = resolve(directory, "dependency");
+        await mkdir(include);
+        await mkdir(build);
+        await mkdir(dependency, { recursive: true });
+        await writeFile(
+          resolve(include, "shared.hpp"),
+          `namespace ${ns} { using SharedHeaderAlias = int; }\n`,
+        );
+        await writeFile(
+          resolve(build, "generated.hpp"),
+          `namespace ${ns} { using BuildDirectoryAlias = int; }\n`,
+        );
+        await writeFile(
+          resolve(dependency, "external.hpp"),
+          `namespace ${ns} { using ExternalDependencyAlias = int; }\n`,
+        );
+        const bulkCount = name === "alpha" ? 1007 : 1;
+        const bulkAliases = Array.from(
+          { length: bulkCount },
+          (_, index) => `using Bulk${String(index).padStart(4, "0")} = int;`,
+        ).join(" ");
         const source = resolve(root, "main.cpp");
+        const helper = resolve(root, "helper.cpp");
+        const generated = resolve(build, "generated.cpp");
         await writeFile(
           source,
-          `namespace ${ns} { int AliasFunction(int x) { return x; } using AliasType = int; AliasType value; }\n`,
+          `#include "shared.hpp"\n#include "external.hpp"\nnamespace ${ns} { int AliasFunction(int x) { return x; } using AliasType = int; AliasType value; ${bulkAliases} }\n`,
+        );
+        await writeFile(
+          helper,
+          `#include "shared.hpp"\nint helper() { return 0; }\n`,
+        );
+        await writeFile(
+          generated,
+          `#include "generated.hpp"\nint generated() { return 0; }\n`,
         );
         const compileCommands = resolve(root, "compile_commands.json");
         await writeFile(
           compileCommands,
-          JSON.stringify([
-            {
+          JSON.stringify(
+            [source, helper, generated].map((file) => ({
               directory: root,
-              file: source,
+              file,
               arguments: [
                 process.env.CTK_TEST_CLANG ?? "clang++",
                 "-std=c++20",
+                `-I${include}`,
+                `-I${dependency}`,
                 "-c",
-                source,
+                file,
               ],
-            },
-          ]),
+            })),
+          ),
         );
       }
       await pythonCall(
-        `import json, sys, time\nfrom clang_toolkit import Client\nfrom clang_toolkit._generated.index.v1 import index_service_pb2 as pb\nrequest = json.loads(sys.stdin.readline())\nclient = Client(request["endpoint"])\ntry:\n  ready = time.monotonic() + 15\n  while True:\n    try:\n      client.server_status()\n      break\n    except Exception:\n      if time.monotonic() >= ready: raise\n      time.sleep(0.1)\n  for root, compile_commands in request["projects"]:\n    client.start_project_index(root, compile_commands=compile_commands)\n  for root, _ in request["projects"]:\n    deadline = time.monotonic() + 45\n    while time.monotonic() < deadline:\n      status = client.project_index_status(root)\n      if status.state == pb.INDEX_STATE_COMPLETE: break\n      if status.state in (pb.INDEX_STATE_FAILED, pb.INDEX_STATE_CANCELLED): raise RuntimeError(status.error or root)\n      time.sleep(0.05)\n    else: raise RuntimeError("index timed out: " + root)\n    if status.translation_units_indexed != 1: raise RuntimeError("unexpected indexed coverage: " + str(status.translation_units_indexed))\n  print(json.dumps({"projects": len(request["projects"])}))\nfinally:\n  client.close()`,
+        `import json, sys, time\nfrom clang_toolkit import Client\nfrom clang_toolkit._generated.index.v1 import index_service_pb2 as pb\nrequest = json.loads(sys.stdin.readline())\nclient = Client(request["endpoint"])\ntry:\n  ready = time.monotonic() + 15\n  while True:\n    try:\n      client.server_status()\n      break\n    except Exception:\n      if time.monotonic() >= ready: raise\n      time.sleep(0.1)\n  for root, compile_commands in request["projects"]:\n    client.start_project_index(root, compile_commands=compile_commands)\n  for root, _ in request["projects"]:\n    deadline = time.monotonic() + 45\n    while time.monotonic() < deadline:\n      status = client.project_index_status(root)\n      if status.state == pb.INDEX_STATE_COMPLETE: break\n      if status.state in (pb.INDEX_STATE_FAILED, pb.INDEX_STATE_CANCELLED): raise RuntimeError(status.error or root)\n      time.sleep(0.05)\n    else: raise RuntimeError("index timed out: " + root)\n    if status.translation_units_indexed != 3: raise RuntimeError("unexpected indexed coverage: " + str(status.translation_units_indexed))\n  print(json.dumps({"projects": len(request["projects"])}))\nfinally:\n  client.close()`,
         {
           endpoint,
           projects: roots.map((root) => [
@@ -160,6 +195,83 @@ describe.skipIf(process.env.CTK_INTEGRATION !== "1")(
         expect(
           search.state.results.every((item) => item.kind === "TypeAlias"),
         ).toBe(true);
+      } finally {
+        search.cancel();
+      }
+    }, 60000);
+
+    it("enumerates every blank alias page by scope and source-only mode", async () => {
+      const search = new IndexedSymbolSearch(
+        resolve("console/indexed_symbol_search.py"),
+        python,
+        {
+          directory,
+          endpoint,
+          timeoutMs: 30000,
+          maxResults: 100,
+        },
+        () => {},
+      );
+      try {
+        await search.projects();
+        for (const scope of ["global", "project"] as const) {
+          for (const sourceOnly of [false, true]) {
+            await search.search({
+              query: "",
+              scope,
+              project: roots[0] ?? "",
+              kinds: ["aliases"],
+              exact: true,
+              sourceOnly,
+            });
+            expect(search.state.errors).toEqual([]);
+            expect(search.state.truncated).toBe(false);
+            const results = search.state.results;
+            expect(results.length).toBeGreaterThan(100);
+            const expectedProjects = scope === "global" ? roots : [roots[0]];
+            expect(
+              [...new Set(results.map((item) => item.project))].sort(),
+            ).toEqual([...expectedProjects].sort());
+            for (const root of expectedProjects) {
+              const ns = root === roots[0] ? "alpha" : "beta";
+              expect(
+                results.filter(
+                  (item) => item.name === `${ns}::SharedHeaderAlias`,
+                ),
+              ).toHaveLength(1);
+            }
+            const sourceResults = results.filter(
+              (item) => item.project === roots[0],
+            );
+            const sourceNamespace = sourceOnly
+              ? ["main.cpp", "shared.hpp"]
+              : ["main.cpp", "shared.hpp", "generated.hpp", "external.hpp"];
+            for (const name of sourceNamespace) {
+              expect(
+                sourceResults.some((item) => item.file.endsWith(name)),
+              ).toBe(true);
+            }
+            if (sourceOnly) {
+              expect(
+                sourceResults.some((item) => item.file.includes("/build/")),
+              ).toBe(false);
+              expect(
+                sourceResults.some((item) =>
+                  item.file.endsWith("external.hpp"),
+                ),
+              ).toBe(false);
+            } else {
+              expect(
+                sourceResults.some((item) => item.file.includes("/build/")),
+              ).toBe(true);
+              expect(
+                sourceResults.some((item) =>
+                  item.file.endsWith("external.hpp"),
+                ),
+              ).toBe(true);
+            }
+          }
+        }
       } finally {
         search.cancel();
       }

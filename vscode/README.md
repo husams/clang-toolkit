@@ -12,7 +12,7 @@ Workspace and directory batches process the complete discovered manifest. `ctk.m
 
 Complete exports use one `ctk-match-protobuf-v1` JSONL envelope per match group, containing its ID, translation unit and the base64-encoded native `MatchResult` protobuf. Result pages decode those payloads into the existing binding rows. This preserves every native binding while keeping large workspace runs bounded in memory.
 
-**Symbol Search** uses the server index for **Project** and **Global** searches. Select an indexed project under the existing Options and choose Variables, Classes, Functions, or Aliases. Project selection stays fixed when switching editors. Start or resume the server project index if none is available; partial or stale coverage is reported. Opening an indexed match loads its originating translation unit for inspection.
+**Symbol Search** uses the server index for **Project** and **Global** searches. Select an indexed project under the existing Options and choose Variables, Classes, Functions, or Aliases. Project selection stays fixed when switching editors. Start or resume the server project index if none is available; partial or stale coverage is reported. Opening an indexed match loads its originating translation unit for inspection. **Source files only** excludes build output and external dependencies in both Project and Global scope. Leave the name blank with only Aliases selected to list all indexed aliases; clearing Source files only includes generated/build and dependency declarations. Complete alias lists use revision-pinned server pages, so the normal search result limit does not hide later aliases. Each indexed declaration appears once per project, while distinct declaration locations remain separate.
 
 ## Run
 

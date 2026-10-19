@@ -59,6 +59,13 @@ def _index_state(project: Any, stale: bool) -> dict[str, Any]:
     }
 
 
+def _page_integer(response: Any, field: str) -> int:
+    value = getattr(response, field, None)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"Alias search returned an invalid {field}.")
+    return value
+
+
 def execute(request: dict[str, Any]) -> dict[str, Any]:
     from clang_toolkit.client import Client
     from clang_toolkit.cursors import CursorError
@@ -105,7 +112,8 @@ def execute(request: dict[str, Any]) -> dict[str, Any]:
                 "status": "Select at least one symbol kind.",
             }
         query = request["query"]
-        if not query.strip():
+        enumerate_aliases = not query.strip() and kinds == {"aliases"}
+        if not query.strip() and not enumerate_aliases:
             return {"projects": sorted({item.project_root for item in projects}),
                     "results": [], "errors": [], "status": "Enter a symbol name or prefix."}
         maximum = request["maximum"]
@@ -116,6 +124,7 @@ def execute(request: dict[str, Any]) -> dict[str, Any]:
         stale = False
         stale_by_root = {root: False for root in roots}
         truncated = False
+        source_only = bool(request.get("sourceOnly", False))
         kind_by_category = {
             "variables": "variable", "classes": "class",
             "functions": "function", "aliases": "alias",
@@ -125,33 +134,71 @@ def execute(request: dict[str, Any]) -> dict[str, Any]:
                 if category not in kinds:
                     continue
                 try:
-                    response = client.find_symbols(
-                        root, query, limit=min(1000, maximum),
-                        prefix=not request["exact"], kind=kind,
-                        unique_symbols=True,
-                    )
-                    any_coverage = any_coverage or response.translation_units_indexed > 0
-                    stale = stale or response.stale
-                    stale_by_root[root] = stale_by_root[root] or response.stale
-                    truncated = truncated or response.truncated
-                    results.extend(_symbol(item, root, sources) for item in response.symbols)
-                    if len(results) > maximum:
-                        results = results[:maximum + 1]
+                    offset = 0
+                    expected_revision = 0
+                    revision_pinned = False
+                    seen_offsets: set[int] = set()
+                    indexed_count: int | None = None
+                    while True:
+                        response = client.find_symbols(
+                            root, "" if enumerate_aliases else query,
+                            limit=1000 if enumerate_aliases else min(1000, maximum),
+                            prefix=True if enumerate_aliases else not request["exact"], kind=kind,
+                            unique_symbols=True, source_only=source_only,
+                            offset=offset, expected_revision=expected_revision,
+                        )
+                        translation_units = int(response.translation_units_indexed)
+                        page_stale = bool(response.stale)
+                        if indexed_count is not None and translation_units != indexed_count:
+                            raise ValueError("Alias search indexed coverage changed during enumeration.")
+                        indexed_count = translation_units
+                        any_coverage = any_coverage or translation_units > 0
+                        stale = stale or page_stale
+                        stale_by_root[root] = stale_by_root[root] or page_stale
+                        results.extend(_symbol(item, root, sources) for item in response.symbols)
+                        if not enumerate_aliases:
+                            truncated = truncated or bool(response.truncated)
+                            break
+                        revision = _page_integer(response, "revision")
+                        if not revision_pinned:
+                            expected_revision = revision
+                            revision_pinned = True
+                        elif revision != expected_revision:
+                            raise ValueError("Alias index revision changed during enumeration.")
+                        next_offset = _page_integer(response, "next_offset")
+                        if not bool(response.truncated):
+                            if next_offset != 0:
+                                raise ValueError("Alias search returned a nonzero next_offset on the final page.")
+                            break
+                        if next_offset <= offset or next_offset in seen_offsets:
+                            raise ValueError("Alias search returned a repeated or non-advancing next_offset.")
+                        if next_offset != offset + len(response.symbols):
+                            raise ValueError("Alias search returned an invalid next_offset for the page.")
+                        seen_offsets.add(offset)
+                        offset = next_offset
                 except CursorError as error:
                     errors.append(f"{root}: {error}")
+                    if enumerate_aliases:
+                        truncated = True
+                except ValueError as error:
+                    errors.append(f"{root}: {error}")
+                    if enumerate_aliases:
+                        truncated = True
         # The same header declaration can be returned through several TUs.
         # The key retains overload USRs and distinct definition locations.
         results = list({item["id"]: item for item in results}.values())
         results.sort(key=lambda item: (item["project"], item["file"], item["line"], item["column"]))
-        if len(results) > maximum:
+        if not enumerate_aliases and len(results) > maximum:
             truncated = True
             results = results[:maximum]
         status = ""
         if stale:
             status = "These results came from a stale index. Reindex the project to refresh them."
-        if truncated:
+        if truncated and not enumerate_aliases:
             warning = "Results were truncated at the server limit. Narrow the name or search one project at a time."
             status = f"{status} {warning}".strip()
+        elif errors and enumerate_aliases:
+            status = f"{status} Alias enumeration is incomplete; see errors for the pages that failed.".strip()
         if not any_coverage and not errors:
             status = "This project index has no indexed translation units yet. Start or resume indexing, then search again."
         return {"projects": sorted({item.project_root for item in projects}),

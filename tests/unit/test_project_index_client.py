@@ -95,3 +95,45 @@ def test_unknown_kind_fails_before_rpc():
         finally:
             await client.aclose()
     asyncio.run(exercise())
+
+
+def test_source_only_symbol_search_forwards_paging_contract():
+    async def exercise():
+        client = AsyncClient("unix:///tmp/not-connected-index-test.sock")
+        client._index_call = AsyncMock(return_value=pb.FindSymbolsResponse())
+        try:
+            await client.find_symbols("/project", "", prefix=True, kind="alias",
+                                      source_only=True, offset=17, expected_revision=42)
+            request = client._index_call.call_args.args[1]
+            assert request.query == "" and request.source_only
+            assert request.offset == 17 and request.expected_revision == 42
+        finally:
+            await client.aclose()
+    asyncio.run(exercise())
+
+
+def test_sync_client_forwards_source_only_paging_options(monkeypatch):
+    client = Client("unix:///tmp/not-connected-index-test.sock")
+    calls = []
+    monkeypatch.setattr(client, "_cursor_call", lambda *args, **kwargs: calls.append((args, kwargs)))
+    client.find_symbols("/project", "", prefix=True, kind="alias", source_only=True,
+                        offset=9, expected_revision=12)
+    assert calls == [(("find_symbols", "/project", ""), {
+        "limit": 100, "prefix": True, "kind": "alias", "unique_symbols": False,
+        "source_only": True, "offset": 9, "expected_revision": 12,
+    })]
+    client.close()
+
+
+@pytest.mark.parametrize("name,value", [("offset", -1), ("expected_revision", -1)])
+def test_source_only_symbol_search_rejects_negative_paging_values(name, value):
+    async def exercise():
+        client = AsyncClient("unix:///tmp/not-connected-index-test.sock")
+        client._index_call = AsyncMock()
+        try:
+            with pytest.raises(ValueError, match=name):
+                await client.find_symbols("/project", "name", **{name: value})
+            client._index_call.assert_not_called()
+        finally:
+            await client.aclose()
+    asyncio.run(exercise())
