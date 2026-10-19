@@ -2725,3 +2725,29 @@ TEST_F(ProjectIndexServiceTest, IdleMonitorWaitsForSourceAndHeaderNotifications)
   EXPECT_GT(find(service, "notificationHeader", false).symbols_size(), 0);
 }
 } // namespace ctk::net
+
+namespace ctk::net {
+TEST_F(ProjectIndexServiceTest, IncompleteWatchCoverageKeepsFiveMinuteFallback) {
+  // Exceed the per-monitor macOS content-watch allowance, as clang-toolkit's
+  // real dependency manifest does. This must not shorten idle time to a minute.
+  fs::create_directories(project / "headers");
+  std::ofstream shared(project / "shared.h");
+  for (unsigned i = 0; i != 1100; ++i) {
+    const auto name = "headers/input" + std::to_string(i) + ".h";
+    write(name.c_str(), "#pragma once\n");
+    shared << "#include \"" << name << "\"\n";
+  }
+  shared.close();
+  const auto counter = root / "budget-worker-count";
+  IndexServiceAdapter service(storage, {}, worker_wrapper(counter), 1);
+  const auto first = start_and_wait(service);
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  const auto settled = fs::file_size(counter);
+  // Cross the former 60-second fallback without changing any inputs.
+  std::this_thread::sleep_for(std::chrono::seconds(65));
+  EXPECT_EQ(fs::file_size(counter), settled);
+  write("one.cpp", "#include \"shared.h\"\nint budgetEdit(){return 1;}\n");
+  wait_for_revision(service, first.revision() + 1);
+  EXPECT_EQ(find(service, "budgetEdit", false).symbols_size(), 2);
+}
+} // namespace ctk::net

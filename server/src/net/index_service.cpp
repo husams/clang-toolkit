@@ -1877,11 +1877,10 @@ private:
         // Arm before reconciling, so edits during extraction remain queued.
         platform::DirectoryWatch inputs;
         std::set<std::string> watched;
-        bool fully_watched = true;
         auto arm_input = [&](const std::string &path) {
           if (!watched.insert(path).second)
             return false;
-          fully_watched = inputs.add_file(path) && fully_watched;
+          inputs.add_file(path);
           return true;
         };
         auto arm_inputs = [&] {
@@ -1901,7 +1900,6 @@ private:
             } catch (const std::runtime_error &) {
               // Reconciliation handles corrupt manifests per TU, preserving
               // valid publications from the rest of the project.
-              fully_watched = false;
             }
           }
           bool added = false;
@@ -1931,20 +1929,12 @@ private:
           // Newly discovered inputs need one guarded validation pass after
           // arming. Afterwards idle projects do no per-file work until an
           // event or the bounded safety sweep (also covers lost watches).
-          {
-            std::lock_guard lock(mutex_);
-            // A failed first extraction may not know all header inputs yet.
-            fully_watched = fully_watched && status_.state() != INDEX_STATE_FAILED;
-          }
           const bool new_inputs = arm_inputs();
-          const auto deadline =
-              std::chrono::steady_clock::now() +
-              std::chrono::seconds(
-                  new_inputs
-                      ? 2
-                      : (fully_watched && inventories_.notifications_available()
-                             ? 300
-                             : 60));
+          // Watch budgets bound resource use, not the reconciliation interval.
+          // Missing/lost notifications are covered by the same five-minute
+          // sweep.
+          const auto deadline = std::chrono::steady_clock::now() +
+                                std::chrono::seconds(new_inputs ? 2 : 300);
           while (current(job)) {
             std::unique_lock lock(mutex_);
             changed_.wait_for(
@@ -1963,7 +1953,6 @@ private:
               inventories_.reset();
               inputs.reset();
               watched.clear();
-              fully_watched = true;
               arm_inputs();
               break;
             }
