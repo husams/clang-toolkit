@@ -216,6 +216,17 @@ protected:
   void write(const char *name, const std::string &body) {
     std::ofstream(project / name) << body;
   }
+  void atomic_write(const fs::path &path, const std::string &body) {
+    auto replacement = path;
+    replacement += ".replacement";
+    {
+      std::ofstream output(replacement, std::ios::binary | std::ios::trunc);
+      output << body;
+      output.close();
+      ASSERT_TRUE(output.good());
+    }
+    fs::rename(replacement, path);
+  }
   std::string quote(const std::string &v) {
     std::string out = "\"";
     for (char c : v) {
@@ -375,13 +386,14 @@ protected:
     project = first;
     return second;
   }
-  ProjectIndexStatus wait_for_revision(IndexServiceAdapter &service,
-                                       std::uint64_t minimum_revision) {
+  ProjectIndexStatus
+  wait_for_revision(IndexServiceAdapter &service,
+                    std::uint64_t minimum_revision,
+                    std::chrono::seconds timeout = std::chrono::seconds(30)) {
     ProjectIndexRequest request;
     request.set_project_root(project.string());
     ProjectIndexStatus status;
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
     do {
       grpc::ServerContext context;
       EXPECT_TRUE(
@@ -2749,5 +2761,104 @@ TEST_F(ProjectIndexServiceTest, IncompleteWatchCoverageKeepsFiveMinuteFallback) 
   write("one.cpp", "#include \"shared.h\"\nint budgetEdit(){return 1;}\n");
   wait_for_revision(service, first.revision() + 1);
   EXPECT_EQ(find(service, "budgetEdit", false).symbols_size(), 2);
+}
+} // namespace ctk::net
+
+
+namespace ctk::net {
+TEST_F(ProjectIndexServiceTest,
+       NotificationReindexesLateHeaderBeyondFormerFileLimit) {
+  fs::create_directories(project / "headers");
+  std::string includes;
+  for (unsigned i = 0; i != 1100; ++i) {
+    const auto name = "headers/input" + std::to_string(i) + ".h";
+    write(name.c_str(), "#pragma once\n");
+    includes += "#include \"" + name + "\"\n";
+  }
+  write("headers/input1099.h",
+        "#pragma once\nstruct Header1099 { long value; };\n"
+        "using LateHeader = Header1099;\n");
+
+  write("one.cpp",
+        includes + "int lateHeaderUse(){return sizeof(Header1099);}\n");
+  const auto counter = root / "late-header-worker-count";
+  IndexServiceAdapter service(storage, {}, worker_wrapper(counter), 1);
+  const auto first = start_and_wait(service);
+  ASSERT_EQ(first.translation_units_total(), 3);
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  write("headers/input1099.h",
+        "#pragma once\nstruct Header1099 { long value; int extra; };\n"
+        "using LateHeader = Header1099;\n");
+  const auto changed = wait_for_revision(service, first.revision() + 2,
+                                         std::chrono::seconds(20));
+  ASSERT_TRUE(changed.has_last_completed_pass());
+  EXPECT_EQ(changed.last_completed_pass().total(), 3);
+  EXPECT_EQ(changed.last_completed_pass().newly_indexed(), 2);
+  EXPECT_EQ(changed.last_completed_pass().reused(), 1);
+  EXPECT_EQ(changed.translation_units_total(), 3);
+  EXPECT_EQ(changed.translation_units_indexed(), 3);
+  EXPECT_EQ(find(service, "LateHeader", false).symbols_size(), 2);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       AtomicSourceAndCommandReplacementsReindexAffectedUnitsAndSettle) {
+  const auto counter = root / "atomic-input-worker-count";
+  IndexServiceAdapter service(storage, {}, worker_wrapper(counter), 1);
+  const auto first = start_and_wait(service);
+  ASSERT_EQ(first.translation_units_total(), 3);
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  // Deleting and recreating a watched source exercises re-arming after the
+  // original path disappears. The following atomic saves must still wake it.
+  fs::remove(project / "one.cpp");
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  atomic_write(project / "one.cpp",
+               "#include \"shared.h\"\nint readdedSource(){return 31;}\n");
+  auto previous = wait_for_revision(service, first.revision() + 2,
+                                    std::chrono::seconds(20));
+  ASSERT_TRUE(previous.has_last_completed_pass());
+  EXPECT_EQ(previous.translation_units_total(), 3);
+  EXPECT_EQ(previous.translation_units_indexed(), 3);
+  EXPECT_EQ(find(service, "readdedSource", false).symbols_size(), 2);
+
+  for (int save = 0; save != 2; ++save) {
+    const auto revision = previous.revision();
+    atomic_write(project / "one.cpp",
+                 "#include \"shared.h\"\nint repeatedSourceSave" +
+                     std::to_string(save) + "(){return " +
+                     std::to_string(40 + save) + ";}\n");
+    previous =
+        wait_for_revision(service, revision + 2, std::chrono::seconds(20));
+    ASSERT_TRUE(previous.has_last_completed_pass());
+    EXPECT_EQ(previous.last_completed_pass().newly_indexed(), 2);
+    EXPECT_EQ(previous.last_completed_pass().reused(), 1);
+    EXPECT_EQ(previous.translation_units_total(), 3);
+    EXPECT_EQ(previous.translation_units_indexed(), 3);
+  }
+
+  for (int save = 0; save != 2; ++save) {
+    const auto revision = previous.revision();
+    std::ifstream input(project / "compile_commands.json");
+    std::string commands(std::istreambuf_iterator<char>{input}, {});
+    const auto from = "-DFLAVOR=" + std::to_string(2 + save);
+    const auto to = "-DFLAVOR=" + std::to_string(3 + save);
+    const auto position = commands.find(from);
+    ASSERT_NE(position, std::string::npos);
+    commands.replace(position, from.size(), to);
+    atomic_write(project / "compile_commands.json", commands);
+    previous =
+        wait_for_revision(service, revision + 1, std::chrono::seconds(20));
+    ASSERT_TRUE(previous.has_last_completed_pass());
+    EXPECT_EQ(previous.last_completed_pass().newly_indexed(), 1);
+    EXPECT_EQ(previous.last_completed_pass().reused(), 2);
+    EXPECT_EQ(previous.translation_units_total(), 3);
+    EXPECT_EQ(previous.translation_units_indexed(), 3);
+  }
+
+  const auto settled_workers = fs::file_size(counter);
+  std::this_thread::sleep_for(std::chrono::seconds(4));
+  EXPECT_EQ(fs::file_size(counter), settled_workers)
+      << "unchanged projects must return to idle after notification passes";
 }
 } // namespace ctk::net

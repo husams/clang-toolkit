@@ -90,6 +90,7 @@ if(CTK_BUILD_NETWORK)
     src/net/query_call_state.cpp
     src/platform/index_worker.cpp
     src/platform/directory_watch.cpp
+    src/platform/index_input_watch.cpp
     src/platform/index_file_reader.cpp
     src/platform/index_filesystem.cpp
     src/net/network_service.cpp)
@@ -99,6 +100,9 @@ if(CTK_BUILD_NETWORK)
   target_link_libraries(ctk_core PUBLIC ctk_query_api ctk_analysis_api)
   target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto
     PRIVATE ctk::sqlite)
+  if(APPLE)
+    target_link_libraries(ctk_network PRIVATE "-framework CoreServices")
+  endif()
 endif()
 
 if(CTK_WITH_CLANG)

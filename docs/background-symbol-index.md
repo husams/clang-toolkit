@@ -98,20 +98,23 @@ the entries whose manifests include that header. Reconciliation checks command
 changes and removed entries as well as file changes. Shared header declarations
 may appear under several TUs so their compilation context is preserved.
 
-After initial reconciliation, monitors wait for kernel filesystem notifications
-(kqueue on macOS, inotify on Linux) for source/header contents, compilation
-databases, the worker executable, and include-directory entries. The poll
-interval controls notification sampling, capped at two seconds; it no longer
-requests a full scan every tick. Unchanged projects keep their completed status
-and last-pass counts. A five-minute safety reconciliation covers missed events;
-the interval remains five minutes even when watch coverage is incomplete. New dependencies
-receive one additional guarded validation pass after watches are installed.
-Pause/resume and cancellation remain interruptible. On macOS, watch queues
-share inode-validated descriptors. Persistent watches and digest readers use
-one process-wide allowance, leaving capacity for traversal, databases, and
-foreground requests.
-Each monitor prioritizes source files before spending its 1,024 content-watch
-allowance on headers; incomplete coverage uses the five-minute safety fallback.
+After initial reconciliation, monitors wait for filesystem notifications for
+source/header contents, compilation databases, the worker executable, and
+include-directory entries. macOS uses path-based FSEvents streams; Linux uses
+inotify directory events. Idle monitoring does not retain a descriptor for each
+file or impose a 1,024-file coverage limit. Temporary-file-and-rename saves,
+deletions, and recreation are detected by path, including successive replacements.
+Independent projects retain independent event queues, and idle notifications do
+not compete with cached readers for the index descriptor allowance.
+
+The poll interval controls notification sampling, capped at two seconds; it does
+not request a full scan every tick. Unchanged projects keep their completed
+status and last-pass counts. A five-minute safety reconciliation covers missed
+or dropped events and unavailable OS notifications. Newly discovered dependencies
+receive one additional guarded validation pass. Pause/resume and cancellation
+remain interruptible. Include-inventory cache validation still uses synchronous,
+inode-validated directory guards; asynchronous idle notifications do not decide
+publication freshness, and dependency contents are freshly validated as before.
 
 The server monitors multiple projects independently. Start each project with
 `index start`; pause, resume, and cancel affect only the named project. All
