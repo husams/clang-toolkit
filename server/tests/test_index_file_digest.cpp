@@ -6,10 +6,12 @@
 #include <gtest/gtest.h>
 
 #include <cerrno>
+#include <chrono>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -391,10 +393,34 @@ TEST(IncludeInventoryCache, IdleNotificationsIgnoreUnrelatedAncestorEntries) {
   IncludeInventoryCache cache;
   const auto before = cache.digest(include);
   ASSERT_FALSE(before.empty());
+  // Idle notifications are asynchronous. A notification resets this cache's
+  // watch registrations, so re-digest after draining one and require a quiet
+  // window before testing that unrelated ancestor entries are ignored.
+  const auto settle_deadline = std::chrono::steady_clock::now() +
+                               std::chrono::seconds(5);
+  auto quiet_since = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() < settle_deadline &&
+         std::chrono::steady_clock::now() - quiet_since <
+             std::chrono::milliseconds(500)) {
+    if (cache.inputs_changed()) {
+      EXPECT_EQ(cache.digest(include), before);
+      quiet_since = std::chrono::steady_clock::now();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_FALSE(cache.inputs_changed())
+      << "watch registrations must remain armed after settling";
   write_file(temporary.path() / "unrelated", "not an index input");
   EXPECT_FALSE(cache.inputs_changed());
   write_file(include / "two.hpp", "int two;");
-  EXPECT_TRUE(cache.inputs_changed());
+  bool notified = false;
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds(5);
+  while (!notified && std::chrono::steady_clock::now() < deadline) {
+    notified = cache.inputs_changed();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  EXPECT_TRUE(notified);
   const auto after = cache.digest(include);
   EXPECT_NE(after, before);
   // A safety sweep discards cached directory inventories even without events.

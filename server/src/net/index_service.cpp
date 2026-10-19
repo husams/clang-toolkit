@@ -1,5 +1,5 @@
 #include "ctk/net/index_service.hpp"
-#include "ctk/platform/directory_watch.hpp"
+#include "../platform/index_input_watch.hpp"
 #include "ctk/platform/index_worker.hpp"
 #include "file_digest_cache.hpp"
 #include "include_inventory_cache.hpp"
@@ -1875,7 +1875,7 @@ private:
         Database db(database_path(job.root), true);
         metadata(db, "project_root", job.root);
         // Arm before reconciling, so edits during extraction remain queued.
-        platform::DirectoryWatch inputs;
+        platform::IndexInputWatch inputs;
         std::set<std::string> watched;
         auto arm_input = [&](const std::string &path) {
           if (!watched.insert(path).second)
@@ -1890,8 +1890,8 @@ private:
           Statement rows(db, "SELECT main_file,dependencies_json FROM "
                              "translation_unit WHERE indexed_at>0");
           while (rows.step()) {
-            // Prioritize every source before spending the remaining watch
-            // allowance on shared/system headers.
+            // Register sources and dependencies by path; idle notifications
+            // do not retain a descriptor for every input file.
             arm_input(rows.text(0));
             try {
               for (const auto &[path, digest] : dependencies(rows.text(1)))
@@ -1909,6 +1909,7 @@ private:
           return added;
         };
         arm_inputs();
+        inputs.arm();
         while (current(job)) {
           try {
             upgrade_symbols(job, db);
@@ -1930,6 +1931,7 @@ private:
           // arming. Afterwards idle projects do no per-file work until an
           // event or the bounded safety sweep (also covers lost watches).
           const bool new_inputs = arm_inputs();
+          inputs.arm();
           // Watch budgets bound resource use, not the reconciliation interval.
           // Missing/lost notifications are covered by the same five-minute
           // sweep.
@@ -1954,6 +1956,7 @@ private:
               inputs.reset();
               watched.clear();
               arm_inputs();
+              inputs.arm();
               break;
             }
           }

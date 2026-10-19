@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ctk/platform/directory_watch.hpp"
+#include "../platform/index_input_watch.hpp"
 #include "project_index_store.hpp"
 
 namespace ctk::net::index_detail {
@@ -19,6 +20,8 @@ public:
           found->second.identity == *before)
         return found->second.digest;
       bool monitored = true;
+      notifications_.add_directory(root);
+      notifications_.arm();
       const auto inventory = cache::include_inventory(
           root, allowed, [&](const fs::path &directory) {
             monitored = watch_.add(directory) && monitored;
@@ -27,6 +30,7 @@ public:
             if (directory != root.parent_path())
               notifications_.add_directory(directory);
           });
+      notifications_.arm();
       const auto value = digest_text(inventory);
       const auto after = platform::DirectoryWatch::identity(root);
       if (watch_.changed() || before != after) {
@@ -74,7 +78,7 @@ private:
     std::string digest;
   };
   platform::DirectoryWatch watch_;
-  platform::DirectoryWatch notifications_;
+  platform::IndexInputWatch notifications_;
   std::uint64_t generation_ = 0;
   std::map<fs::path, Entry> entries_;
 };
