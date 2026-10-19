@@ -135,7 +135,7 @@
         },
         {
           "submenu": "ctk.fileActions",
-          "when": "resourceScheme == file && resourceIsFolder",
+          "when": "resourceScheme == file && explorerResourceIsFolder",
           "group": "navigation@90"
         }
       ],
@@ -150,12 +150,12 @@
         {"command":"ctk.runAction","group":"1_run@0"},
         {
           "command": "ctk.runScript",
-          "when": "!resourceIsFolder",
+          "when": "!explorerResourceIsFolder",
           "group": "1_run@1"
         },
         {
           "command": "ctk.runPredefined",
-          "when": "!resourceIsFolder",
+          "when": "!explorerResourceIsFolder",
           "group": "1_run@2"
         }
       ],
