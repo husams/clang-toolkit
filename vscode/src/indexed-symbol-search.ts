@@ -17,6 +17,20 @@ const resultSchema = z.object({
 });
 export const indexedSearchResponseSchema = z.object({
   projects: z.array(z.string()).default([]),
+  indexStates: z
+    .array(
+      z.object({
+        root: z.string(),
+        state: z.number().int(),
+        indexed: z.number().int().nonnegative(),
+        total: z.number().int().nonnegative(),
+        completed: z.number().int().nonnegative(),
+        skipped: z.number().int().nonnegative(),
+        failed: z.number().int().nonnegative(),
+        stale: z.boolean(),
+      }),
+    )
+    .default([]),
   results: z.array(resultSchema).default([]),
   errors: z.array(z.string()).default([]),
   status: z.string().default(""),
@@ -69,6 +83,43 @@ interface SearchRequest {
   compilationDatabase?: string;
 }
 type Response = z.infer<typeof indexedSearchResponseSchema>;
+const STALE_WARNING =
+  "These results came from a stale index. Reindex the project to refresh them.";
+const INDEX_STATE_CHECKING = 8;
+function searchStatus(
+  response: Response,
+  request: Pick<SearchRequest, "mode" | "scope">,
+): string {
+  if (
+    request.mode === "projects" ||
+    !response.status.includes(STALE_WARNING) ||
+    response.errors.length
+  )
+    return response.status;
+  const states = response.indexStates;
+  const expected = request.scope === "global" ? response.projects.length : 1;
+  const stale = states.filter((project) => project.stale);
+  if (
+    states.length !== expected ||
+    !stale.length ||
+    stale.some(
+      (project) =>
+        project.state !== INDEX_STATE_CHECKING ||
+        project.total === 0 ||
+        project.indexed !== project.total ||
+        project.failed !== 0,
+    )
+  )
+    return response.status;
+  const checked = stale.reduce((sum, project) => sum + project.completed, 0);
+  const total = stale.reduce((sum, project) => sum + project.total, 0);
+  const reused = stale.reduce((sum, project) => sum + project.skipped, 0);
+  const updated = checked - reused;
+  return response.status.replace(
+    STALE_WARNING,
+    `Checking source changes; saved index results may be outdated (${checked}/${total} checked, ${reused} reused, ${updated} updated).`,
+  );
+}
 interface ActiveRun {
   child: ChildProcessWithoutNullStreams;
   completion: Promise<Response>;
@@ -235,7 +286,7 @@ export class IndexedSymbolSearch {
       }));
       this.state.errors = response.errors;
       this.state.status =
-        response.status ||
+        searchStatus(response, request) ||
         (request.mode === "projects"
           ? `${this.state.projects.length} indexed ${this.state.projects.length === 1 ? "project" : "projects"} available.`
           : `${this.state.results.length} indexed ${this.state.results.length === 1 ? "symbol" : "symbols"} found${response.truncated ? " · result limit reached" : ""}.`);

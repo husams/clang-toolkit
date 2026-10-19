@@ -40,7 +40,22 @@ class FakeClient:
         return FakeConfig()
 
     def list_project_indexes(self) -> object:
-        return SimpleNamespace(projects=[SimpleNamespace(project_root=root) for root in self.roots])
+        states = {
+            "/projects/a": (8, 7, 10, 9, 2, 0),
+            "/projects/b": (5, 4, 4, 4, 0, 0),
+        }
+        return SimpleNamespace(projects=[
+            SimpleNamespace(
+                project_root=root,
+                state=states.get(root, (1, 0, 0, 0, 0, 0))[0],
+                translation_units_indexed=states.get(root, (1, 0, 0, 0, 0, 0))[1],
+                translation_units_total=states.get(root, (1, 0, 0, 0, 0, 0))[2],
+                translation_units_completed=states.get(root, (1, 0, 0, 0, 0, 0))[3],
+                translation_units_skipped=states.get(root, (1, 0, 0, 0, 0, 0))[4],
+                translation_units_failed=states.get(root, (1, 0, 0, 0, 0, 0))[5],
+            )
+            for root in self.roots
+        ])
 
     def find_symbols(self, root: str, query: str, **kwargs: object) -> object:
         self.calls.append((root, query, kwargs))
@@ -94,6 +109,12 @@ def test_global_search_filters_selected_kinds_and_keeps_translation_unit(monkeyp
     assert len(response["results"]) == 1
     assert all(call[2]["kind"] == "alias" and call[2]["unique_symbols"] is True for call in FakeClient.calls)
     assert all(call[2]["limit"] == 100 for call in FakeClient.calls)
+    assert response["indexStates"] == [
+        {"root": "/projects/a", "state": 8, "indexed": 7, "total": 10,
+         "completed": 9, "skipped": 2, "failed": 0, "stale": False},
+        {"root": "/projects/b", "state": 5, "indexed": 4, "total": 4,
+         "completed": 4, "skipped": 0, "failed": 0, "stale": False},
+    ]
 
 
 def test_project_scope_uses_selected_project_and_reports_missing_index(monkeypatch: object) -> None:
@@ -135,6 +156,28 @@ def test_all_selected_kinds_use_server_filters_and_stale_coverage_is_reported(mo
     )
     stale = search.execute(request(kinds=["aliases"]))
     assert "stale index" in stale["status"]
+    assert [state["stale"] for state in stale["indexStates"]] == [True, True]
+
+
+def test_index_states_include_only_searched_project_and_attribute_staleness(monkeypatch: object) -> None:
+    install_client(monkeypatch)
+
+    def find_symbols(self: FakeClient, root: str, query: str, **kwargs: object) -> object:
+        return SimpleNamespace(
+            symbols=[], translation_units_indexed=1, truncated=False,
+            stale=root == "/projects/b",
+        )
+
+    monkeypatch.setattr(FakeClient, "find_symbols", find_symbols)
+    response = search.execute(
+        request(scope="project", project="/projects/b", kinds=["aliases"])
+    )
+
+    assert response["projects"] == ["/projects/a", "/projects/b"]
+    assert response["indexStates"] == [
+        {"root": "/projects/b", "state": 5, "indexed": 4, "total": 4,
+         "completed": 4, "skipped": 0, "failed": 0, "stale": True},
+    ]
 
 
 def test_stale_status_keeps_the_truncation_warning(monkeypatch: object) -> None:

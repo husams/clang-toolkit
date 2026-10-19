@@ -8,7 +8,12 @@ import {
 } from "./action-argument-completion.js";
 import { groupActionMatches } from "./action-results.js";
 import { ActionService, type ActionSettings } from "./action-service.js";
-import { pathIsWithin, selectActionTargets } from "./action-targets.js";
+import {
+  type ActionSourceContext,
+  isRelevantActionSource,
+  pathIsWithin,
+  selectActionTargets,
+} from "./action-targets.js";
 import {
   type ActionNode,
   type ActionReport,
@@ -147,7 +152,12 @@ export class ActionsController implements vscode.Disposable {
       "Open Semantic Analysis; the native server is contacted when an action runs";
     this.status.command = "ctk.openAnalysis";
     this.status.show();
-    const mark = () => {
+    const mark = (uri?: vscode.Uri) => {
+      if (
+        uri &&
+        !isRelevantActionSource(uri.fsPath, this.sourceChangeContext())
+      )
+        return;
       this.argumentCompletion?.invalidate();
       this.markStale(
         "Source changed; refresh analysis to parse the current files.",
@@ -171,11 +181,18 @@ export class ActionsController implements vscode.Disposable {
       this.status,
       watcher,
       watcher.onDidChange(mark),
+      watcher.onDidCreate(mark),
       watcher.onDidDelete(mark),
       vscode.workspace.onDidChangeTextDocument(
         ({ document, contentChanges }) => {
           if (!contentChanges.length) return;
-          if (CXX.test(document.uri.fsPath)) mark();
+          if (
+            isRelevantActionSource(
+              document.uri.fsPath,
+              this.sourceChangeContext(),
+            )
+          )
+            mark();
           this.documentChanged(document);
         },
       ),
@@ -252,6 +269,18 @@ export class ActionsController implements vscode.Disposable {
     this.error = reason;
     this.status.text = "$(warning) CTK · refresh";
     this.changed();
+  }
+  private sourceChangeContext(): ActionSourceContext {
+    return {
+      scope: this.scope,
+      workspaceRoots: (vscode.workspace.workspaceFolders ?? []).map(
+        (folder) => folder.uri.fsPath,
+      ),
+      ...(this.target ? { target: this.target.fsPath } : {}),
+      ...(this.directoryTarget
+        ? { directoryTarget: this.directoryTarget.fsPath }
+        : {}),
+    };
   }
   private fail(error: unknown): void {
     this.error = error instanceof Error ? error.message : String(error);

@@ -45,6 +45,20 @@ def _symbol(symbol: Any, project: str, source_lines: dict[str, list[str]]) -> di
     return result
 
 
+def _index_state(project: Any, stale: bool) -> dict[str, Any]:
+    """Expose the fetched lifecycle and coverage counters to the VS Code view."""
+    return {
+        "root": project.project_root,
+        "state": int(project.state),
+        "indexed": int(project.translation_units_indexed),
+        "total": int(project.translation_units_total),
+        "completed": int(project.translation_units_completed),
+        "skipped": int(project.translation_units_skipped),
+        "failed": int(project.translation_units_failed),
+        "stale": stale,
+    }
+
+
 def execute(request: dict[str, Any]) -> dict[str, Any]:
     from clang_toolkit.client import Client
     from clang_toolkit.cursors import CursorError
@@ -59,7 +73,8 @@ def execute(request: dict[str, Any]) -> dict[str, Any]:
     )
     try:
         projects = client.list_project_indexes().projects
-        roots = sorted({item.project_root for item in projects})
+        project_by_root = {item.project_root: item for item in projects}
+        roots = sorted(project_by_root)
         if request["mode"] == "projects":
             return {"projects": roots, "results": [], "errors": [], "status": ""}
         if not roots:
@@ -99,6 +114,7 @@ def execute(request: dict[str, Any]) -> dict[str, Any]:
         sources: dict[str, list[str]] = {}
         any_coverage = False
         stale = False
+        stale_by_root = {root: False for root in roots}
         truncated = False
         kind_by_category = {
             "variables": "variable", "classes": "class",
@@ -116,6 +132,7 @@ def execute(request: dict[str, Any]) -> dict[str, Any]:
                     )
                     any_coverage = any_coverage or response.translation_units_indexed > 0
                     stale = stale or response.stale
+                    stale_by_root[root] = stale_by_root[root] or response.stale
                     truncated = truncated or response.truncated
                     results.extend(_symbol(item, root, sources) for item in response.symbols)
                     if len(results) > maximum:
@@ -139,7 +156,11 @@ def execute(request: dict[str, Any]) -> dict[str, Any]:
             status = "This project index has no indexed translation units yet. Start or resume indexing, then search again."
         return {"projects": sorted({item.project_root for item in projects}),
                 "results": results, "errors": errors, "status": status,
-                "truncated": truncated}
+                "truncated": truncated,
+                "indexStates": [
+                    _index_state(project_by_root[root], stale_by_root[root])
+                    for root in roots
+                ]}
     finally:
         client.close()
 

@@ -48,3 +48,49 @@ The initial parallel native run passed 524/525 cases. The directory-inventory wa
 ## Isolation
 
 The primary checkout and the installed extension are unchanged by this experiment. The matching experimental server is `build/dev/server/ctk-server` in this worktree. [Download the experimental VSIX](/Users/husam/.claude/worktrees/clang-toolkit/vscode-workspace-actions/vscode/artifacts/clang-toolkit-workspace-actions-experiment.vsix). It has not been installed into the existing editor profile.
+
+## Real-checkout warning follow-up — 2026-10-19
+
+The original real-checkout batch was still running when checked and had not
+published a report. It was cancelled to reload the warning fixes; its status is
+preserved in `artifacts/workspace-actions-preview/original-long-batch-status.json`.
+The same unfiltered function-definition action was rerun with a 25-match result
+cap against all 449 discovered inputs. The bounded run finished with 25 matches,
+two parsed translation units and one per-file error, and explicitly reports
+`truncated=true`. This is not a completed analysis of all 449 inputs. The error
+is the documentation benchmark's missing `ctk/platform/file_watch.hpp` under its
+current compilation profile. Included-header function matches remain part of the
+unchanged action.
+
+Actions now ignore unrelated implementation-file events in excluded build and
+metadata directories, while retaining source edits in the active scope,
+explicitly selected build files/directories, and conservative header invalidation
+(including generated headers). Create, change and delete events use the same
+policy. The original triggering event URI was not captured, so no particular
+background writer is identified.
+
+Indexed searches now carry the fetched per-project lifecycle and coverage state
+through the private bridge. A fully covered index in CHECKING is described as a
+freshness check with checked/reused/updated counters; it no longer instructs the
+user to reindex merely because foreground work delays that check. Failed,
+incomplete and otherwise stale indexes retain their warning. Completed counts
+already include reused inputs and are not added to skipped counts.
+
+The real isolated extension host verifies that editing/saving an unrelated
+generated C++ artifact leaves the report current, editing a generated header
+marks it stale, and Refresh followed by the same capped rerun clears it. The
+final Actions view has 25 rendered rows and no source-change warning. Global
+Aliases search for `ctk::script::` returns five real project aliases in four
+rendered file groups, without truncation. The report and the existing Actions
+view are open in the private window; the installed extension and primary checkout
+remain unchanged.
+
+Live evidence and the displayed report are under
+`artifacts/workspace-actions-preview/real-followup-evidence.json` and
+`artifacts/workspace-actions-preview/Workspace Batch Results.md`. The experimental
+VSIX was rebuilt. TypeScript build/check, 159 extension tests (31 optional cases
+skipped), six bridge tests and all 3,427 combined Python checks pass. All 525
+native cases pass: 234 completed serially, then the remaining 291 completed with
+four workers and separate storage per case. The interrupted in-flight case was
+rerun, not omitted. There are no unresolved failures. Native evidence is in
+`/private/tmp/ctk-warning-fix-native-WIQGI2/summary.json`.

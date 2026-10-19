@@ -23,6 +23,21 @@ async function setup() {
     () => {},
   );
 }
+async function setupResponse(response: object) {
+  const directory = await mkdtemp(join(tmpdir(), "ctk-index-status-"));
+  temporaryDirectories.push(directory);
+  const script = join(directory, "worker.py");
+  await writeFile(
+    script,
+    `print(${JSON.stringify(JSON.stringify(response))})\n`,
+  );
+  return new IndexedSymbolSearch(
+    script,
+    "python3",
+    { directory, timeoutMs: 1000, maxResults: 100 },
+    () => {},
+  );
+}
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories
@@ -83,5 +98,117 @@ describe("IndexedSymbolSearch", () => {
     await pending;
     expect(search.state.results).toEqual([]);
     expect(search.state.status).toBe("Search cancelled.");
+  });
+
+  it("explains a checking index with saved results and reused progress", async () => {
+    const search = await setupResponse({
+      projects: ["/repo"],
+      results: [
+        {
+          id: "a",
+          name: "Alias",
+          kind: "TypeAlias",
+          file: "/repo/a.hpp",
+          line: 3,
+          column: 2,
+          excerpt: "using Alias = int;",
+          project: "/repo",
+        },
+      ],
+      errors: [],
+      status:
+        "These results came from a stale index. Reindex the project to refresh them. Results were truncated at the server limit.",
+      truncated: true,
+      indexStates: [
+        {
+          root: "/repo",
+          state: 8,
+          indexed: 629,
+          total: 629,
+          completed: 560,
+          skipped: 559,
+          failed: 0,
+          stale: true,
+        },
+      ],
+    });
+    await search.search({ query: "Alias", scope: "project", project: "/repo" });
+    expect(search.state.results).toHaveLength(1);
+    expect(search.state.status).toContain(
+      "Checking source changes; saved index results may be outdated (560/629 checked, 559 reused, 1 updated).",
+    );
+    expect(search.state.status).toContain("Results were truncated");
+    expect(search.state.status).not.toContain("Reindex the project");
+  });
+
+  it.each([
+    { state: 7, indexed: 629, total: 629, failed: 1 },
+    { state: 5, indexed: 629, total: 629, failed: 0 },
+    { state: 8, indexed: 628, total: 629, failed: 0 },
+  ])(
+    "keeps a real stale warning for state $state with incomplete or failed coverage",
+    async ({ state, indexed, total, failed }) => {
+      const warning =
+        "These results came from a stale index. Reindex the project to refresh them.";
+      const search = await setupResponse({
+        projects: ["/repo"],
+        results: [],
+        errors: [],
+        status: warning,
+        indexStates: [
+          {
+            root: "/repo",
+            state,
+            indexed,
+            total,
+            completed: 560,
+            skipped: 559,
+            failed,
+            stale: true,
+          },
+        ],
+      });
+      await search.search({
+        query: "Alias",
+        scope: "project",
+        project: "/repo",
+      });
+      expect(search.state.status).toBe(warning);
+    },
+  );
+
+  it("keeps the stale warning when a global search also has a failed project", async () => {
+    const warning =
+      "These results came from a stale index. Reindex the project to refresh them.";
+    const search = await setupResponse({
+      projects: ["/one", "/two"],
+      results: [],
+      errors: [],
+      status: warning,
+      indexStates: [
+        {
+          root: "/one",
+          state: 8,
+          indexed: 629,
+          total: 629,
+          completed: 560,
+          skipped: 560,
+          failed: 0,
+          stale: true,
+        },
+        {
+          root: "/two",
+          state: 7,
+          indexed: 8,
+          total: 8,
+          completed: 7,
+          skipped: 0,
+          failed: 1,
+          stale: true,
+        },
+      ],
+    });
+    await search.search({ query: "Alias", scope: "global" });
+    expect(search.state.status).toBe(warning);
   });
 });
