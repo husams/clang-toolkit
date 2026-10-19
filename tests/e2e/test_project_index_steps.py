@@ -106,6 +106,8 @@ def console_index_inventory(indexed_project):
         assert len(indexes.projects) == 1
         assert indexes.projects[0].project_root == str(indexed_project["root"])
         assert indexes.projects[0].state == pb.INDEX_STATE_PAUSED
+        assert indexes.projects[0].HasField("last_completed_pass")
+        assert indexes.projects[0].last_completed_pass.total == 3
         status = client.server_status()
         assert status.HasField("project_indexes")
         assert status.project_indexes == indexes
@@ -113,7 +115,7 @@ def console_index_inventory(indexed_project):
         output = _console(indexed_project, "index list; server status", engine)
         assert str(indexed_project["root"]) in output
         assert "Total projects: 1" in output
-        assert "PAUSED" in output and "3/3 indexed" in output
+        assert "PAUSED" in output and "Saved files" in output
         assert any(line.split()[:2] == [indexed_project["root"].name, str(indexed_project["root"])]
                    for line in output.splitlines())
         assert "Projects in progress" in output and "Indexed translation units" in output
@@ -123,7 +125,9 @@ def console_index_inventory(indexed_project):
         assert output.strip() == "1"
         output = _console(indexed_project, 'index status "project"', engine)
         assert str(indexed_project["root"]) in output
-        assert "PAUSED" in output and "Indexed  3/3" in output
+        assert "PAUSED" in output and "Saved index  3 files" in output
+        assert "Last pass total 3; reused" in output
+        assert "Current pass checked" in output
         output = _console(indexed_project, 'index find "flow::clamp" in "project"', engine)
         assert "flow::clamp" in output and str(indexed_project["root"]) in output
 
@@ -378,3 +382,91 @@ def console_alias_unique_search(indexed_project):
             assert output.count("AliasTemplate  [TypeAlias]") == 1
         output = _console(indexed_project, 'index find "SharedBefore" exact kind class in "project"', engine)
         assert output.count("SharedBefore  [CXXRecord]") == 1
+
+
+@then("unchanged indexing stays complete until a source notification refreshes it")
+def notifications_refresh_idle_project(indexed_project):
+    root = indexed_project["root"]
+    with Client(indexed_project["server"].endpoint) as client:
+        client.start_project_index(root, poll_interval_seconds=1)
+        _until(lambda: client.project_index_status(root).state == pb.INDEX_STATE_COMPLETE)
+        # The first pass discovers and arms dependency files, then validates
+        # those inputs once before becoming idle.
+        def settled():
+            status = client.project_index_status(root)
+            return (status if status.state == pb.INDEX_STATE_COMPLETE
+                    and status.last_completed_pass.reused == 3 else None)
+
+        before = _until(settled)
+        assert before.state == pb.INDEX_STATE_COMPLETE
+        time.sleep(4)
+        after = client.project_index_status(root)
+        assert after.state == pb.INDEX_STATE_COMPLETE
+        assert after.last_completed_pass == before.last_completed_pass
+        assert after.revision == before.revision
+        (root / "unrelated.cc").write_text(
+            "int notificationArrived() {return 7;}\n", encoding="utf-8")
+        _until(lambda: client.project_index_status(root).revision > before.revision)
+        result = client.find_symbols(root, "notificationArrived")
+        assert len(result.symbols) == 1
+
+
+@then("readded sources refresh immediately after repeated atomic saves and return to idle")
+def atomic_saves_refresh_readded_source(indexed_project):
+    root = indexed_project["root"]
+    source = root / "unrelated.cc"
+    database = root / "compile_commands.json"
+    original_commands = database.read_text(encoding="utf-8")
+    original_source = source.read_text(encoding="utf-8")
+
+    def atomic_save(path, content):
+        replacement = path.with_name(path.name + ".save-temp")
+        replacement.write_text(content, encoding="utf-8")
+        replacement.replace(path)
+
+    with Client(indexed_project["server"].endpoint) as client:
+        client.start_project_index(root, poll_interval_seconds=1)
+        _until(lambda: client.project_index_status(root).state == pb.INDEX_STATE_COMPLETE)
+        _until(lambda: client.project_index_status(root).last_completed_pass.reused == 3)
+        before = client.project_index_status(root)
+        commands = json.loads(original_commands)
+        atomic_save(database, json.dumps([
+            row for row in commands if Path(row["file"]) != source]))
+        removed = _until(lambda: (
+            s if (s := client.project_index_status(root)).state == pb.INDEX_STATE_COMPLETE
+            and s.translation_units_indexed == 2 and s.revision > before.revision
+            else None), timeout=20)
+        assert removed.last_completed_pass.newly_indexed == 0
+        assert not client.find_symbols(root, "flow::clamp").symbols
+        atomic_save(database, original_commands)
+        restored = _until(lambda: (
+            s if (s := client.project_index_status(root)).state == pb.INDEX_STATE_COMPLETE
+            and s.translation_units_indexed == 3 and s.revision > removed.revision
+            else None), timeout=20)
+        assert restored.last_completed_pass.newly_indexed == 1
+        assert restored.last_completed_pass.reused == 2
+        try:
+            for save in range(2):
+                previous = client.project_index_status(root)
+                atomic_save(source, f"int atomicSaveProbe{save}() {{return {save};}}\n")
+                updated = _until(lambda: (
+                    s if (s := client.project_index_status(root)).state == pb.INDEX_STATE_COMPLETE
+                    and s.revision > previous.revision else None), timeout=20)
+                assert updated.last_completed_pass.newly_indexed == 1
+                assert updated.last_completed_pass.reused == 2
+                assert len(client.find_symbols(root, f"atomicSaveProbe{save}").symbols) == 1
+                assert client.find_symbols(root, "one").symbols
+                assert client.find_symbols(root, "two").symbols
+                time.sleep(3)
+                idle = client.project_index_status(root)
+                assert idle.state == pb.INDEX_STATE_COMPLETE
+                assert idle.revision == updated.revision
+                assert idle.last_completed_pass == updated.last_completed_pass
+        finally:
+            atomic_save(source, original_source)
+        final = _until(lambda: (
+            s if (s := client.project_index_status(root)).state == pb.INDEX_STATE_COMPLETE
+            and s.revision > updated.revision else None), timeout=20)
+        assert final.last_completed_pass.newly_indexed == 1
+        assert final.last_completed_pass.reused == 2
+        assert client.find_symbols(root, "flow::clamp").symbols

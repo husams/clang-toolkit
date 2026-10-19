@@ -6,10 +6,12 @@
 #include <gtest/gtest.h>
 
 #include <cerrno>
+#include <chrono>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -355,4 +357,165 @@ TEST(IncludeInventoryCache, CachesInventoriesAbovePreviousWatchBudget) {
   });
   EXPECT_NE(changed, second);
   EXPECT_GT(changed_walk_entries, 0u);
+}
+
+TEST(IndexInputWatch, DetectsContentWritesReplacementAndDeletion) {
+  TemporaryDirectory temporary{"ctk-input-watch"};
+  const auto file = temporary.path() / "input.cpp";
+  write_file(file, "before");
+  ctk::platform::DirectoryWatch watch;
+  ASSERT_TRUE(watch.add_file(file));
+  EXPECT_FALSE(watch.changed());
+  const timespec access_only[2]{{1, 0}, {0, UTIME_OMIT}};
+  ASSERT_EQ(utimensat(AT_FDCWD, file.c_str(), access_only, 0), 0);
+  EXPECT_FALSE(watch.changed()) << "access metadata must not wake idle monitors";
+  write_file(file, "after!");
+  EXPECT_TRUE(watch.changed());
+  watch.reset();
+  ASSERT_TRUE(watch.add_file(file));
+  const auto replacement = temporary.path() / "replacement";
+  write_file(replacement, "replacement");
+  fs::rename(replacement, file);
+  EXPECT_TRUE(watch.changed());
+  watch.reset();
+  ASSERT_TRUE(watch.add_file(file));
+  fs::remove(file);
+  EXPECT_TRUE(watch.changed());
+  watch.reset();
+  EXPECT_FALSE(watch.add_file(file));
+}
+
+TEST(IncludeInventoryCache, IdleNotificationsIgnoreUnrelatedAncestorEntries) {
+  TemporaryDirectory temporary{"ctk-inventory-notification"};
+  const auto include = temporary.path() / "include";
+  fs::create_directory(include);
+  write_file(include / "one.hpp", "int one;");
+  IncludeInventoryCache cache;
+  const auto before = cache.digest(include);
+  ASSERT_FALSE(before.empty());
+  // Idle notifications are asynchronous. A notification resets this cache's
+  // watch registrations, so re-digest after draining one and require a quiet
+  // window before testing that unrelated ancestor entries are ignored.
+  const auto settle_deadline = std::chrono::steady_clock::now() +
+                               std::chrono::seconds(5);
+  auto quiet_since = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() < settle_deadline &&
+         std::chrono::steady_clock::now() - quiet_since <
+             std::chrono::milliseconds(500)) {
+    if (cache.inputs_changed()) {
+      EXPECT_EQ(cache.digest(include), before);
+      quiet_since = std::chrono::steady_clock::now();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_FALSE(cache.inputs_changed())
+      << "watch registrations must remain armed after settling";
+  write_file(temporary.path() / "unrelated", "not an index input");
+  EXPECT_FALSE(cache.inputs_changed());
+  write_file(include / "two.hpp", "int two;");
+  bool notified = false;
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds(5);
+  while (!notified && std::chrono::steady_clock::now() < deadline) {
+    notified = cache.inputs_changed();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  EXPECT_TRUE(notified);
+  const auto after = cache.digest(include);
+  EXPECT_NE(after, before);
+  // A safety sweep discards cached directory inventories even without events.
+  cache.reset();
+  EXPECT_EQ(cache.digest(include), after);
+}
+
+TEST(IndexInputWatch, SharesDescriptorsWithoutSharingQueuedEvents) {
+#ifndef __APPLE__
+  GTEST_SKIP() << "inotify watches do not retain per-path file descriptors";
+#else
+  TemporaryDirectory temporary{"ctk-shared-watch"};
+  const auto file = temporary.path() / "input.cpp";
+  write_file(file, "original");
+  ctk::platform::DirectoryWatch first, second;
+  const auto open_count = [] {
+    rlimit limit{};
+    EXPECT_EQ(getrlimit(RLIMIT_NOFILE, &limit), 0);
+    unsigned count = 0;
+    for (unsigned fd = 0; fd < std::min<rlim_t>(limit.rlim_cur, 8192); ++fd)
+      count += fcntl(fd, F_GETFD) != -1;
+    return count;
+  };
+  ASSERT_TRUE(first.add_file(file));
+  const auto before = open_count();
+  ASSERT_TRUE(second.add_file(file));
+  EXPECT_EQ(open_count(), before);
+  write_file(file, "modified");
+  EXPECT_TRUE(first.changed());
+  EXPECT_TRUE(second.changed());
+  const auto replacement = temporary.path() / "replacement";
+  write_file(replacement, "replacement");
+  fs::rename(replacement, file);
+  first.reset();
+  ASSERT_TRUE(first.add_file(file));
+  EXPECT_FALSE(first.changed());
+  write_file(file, "new inode must be watched");
+  EXPECT_TRUE(first.changed());
+#endif
+}
+
+TEST(IndexInputWatch, ProcessWideBudgetPreservesTraversalAndForegroundDescriptors) {
+#ifndef __APPLE__
+  GTEST_SKIP() << "inotify watches do not retain per-path file descriptors";
+#else
+  TemporaryDirectory temporary{"ctk-watch-reserve"};
+  for (unsigned i = 0; i != 400; ++i)
+    write_file(temporary.path() / std::to_string(i), "input");
+  const auto child = fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    rlimit limit{512, 512};
+    if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
+      _exit(77);
+    std::vector<std::unique_ptr<ctk::platform::DirectoryWatch>> watches;
+    bool unavailable = false;
+    for (unsigned group = 0; group != 4; ++group) {
+      auto watch = std::make_unique<ctk::platform::DirectoryWatch>();
+      for (unsigned i = group * 100; i != (group + 1) * 100; ++i)
+        unavailable = !watch->add_file(temporary.path() / std::to_string(i)) || unavailable;
+      watches.push_back(std::move(watch));
+    }
+    if (!unavailable)
+      _exit(1);
+    std::vector<std::unique_ptr<ctk::platform::IndexFileReader>> readers;
+    for (unsigned i = 0; i != 128; ++i) {
+      auto reader = std::make_unique<ctk::platform::IndexFileReader>(temporary.path() / "0");
+      if (!reader->valid())
+        _exit(5);
+      if (reader->cacheable())
+        readers.push_back(std::move(reader));
+    }
+    std::vector<int> foreground;
+    for (unsigned i = 0; i != 128; ++i) {
+      const int descriptor = open("/dev/null", O_RDONLY | O_CLOEXEC);
+      if (descriptor < 0)
+        _exit(2);
+      foreground.push_back(descriptor);
+    }
+    try {
+      unsigned entries = 0;
+      for (const auto &entry : fs::directory_iterator(temporary.path())) {
+        (void)entry;
+        ++entries;
+      }
+      _exit(entries == 400 ? 0 : 3);
+    } catch (...) {
+      _exit(4);
+    }
+  }
+  int status = 0;
+  ASSERT_EQ(waitpid(child, &status, 0), child);
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 77)
+    GTEST_SKIP() << "cannot set isolated child descriptor limit";
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(WEXITSTATUS(status), 0);
+#endif
 }

@@ -37,6 +37,15 @@ message ListProjectIndexesResponse {
   repeated ProjectIndexStatus projects = 1;
   uint64 total_count = 2;
 }
+// Statistics from a fully finished reconciliation, retained during later work
+// and across server restarts. Presence distinguishes no recorded pass from zero.
+message IndexPassSummary {
+  uint64 total = 1;
+  uint64 reused = 2;
+  uint64 newly_indexed = 3;
+  uint64 failed = 4;
+  uint64 finished_unix_seconds = 5;
+}
 message ProjectIndexStatus {
   string project_root = 1;
   IndexState state = 2;
@@ -53,6 +62,9 @@ message ProjectIndexStatus {
   uint64 translation_units_indexed = 13;
   // Extractions in flight in this reconciliation; excludes freshness checks.
   uint64 translation_units_indexing = 14;
+  // Current-pass counters above reset on each reconciliation; saved coverage
+  // (translation_units_indexed) and this completed summary do not.
+  IndexPassSummary last_completed_pass = 15;
 }
 message FindSymbolsRequest {
   string project_root = 1;

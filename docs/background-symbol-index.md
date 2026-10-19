@@ -36,7 +36,8 @@ contract; an extension can call the same service directly.
 
 `index list` lists all saved project indexes in this server's storage plus its
 current monitors, sorted by project path, with the folder name and full path in
-separate columns, state, indexed/total translation units
+separate columns, state, saved indexed files, current-pass checked/total,
+active extractions, and last completed pass reused/newly indexed/failed counts
 and a total project count. It includes paused, failed and cancelled jobs. Saved
 indexes without a current monitor (including after restart) show `IDLE`; start them
 again to revalidate their coverage. Listing never parses project sources.
@@ -48,7 +49,12 @@ Freshness reconciliation shows `CHECKING`; `INDEXING` means extraction is in
 flight. Saved indexed coverage is separate from this pass's reused entries,
 newly indexed entries, and currently indexing entries. Pending entries may only
 need freshness checks; they do not imply that saved entries will be extracted
-again. Reused and newly indexed counts reset at the start of each pass.
+again. Current-pass counters reset at the start of each pass; last completed
+pass counts stay visible throughout checking, pausing, or cancellation. The
+completed summary is persisted atomically in existing index metadata and survives
+server restarts. Older indexes show a dash (not zero) until a full pass finishes.
+`index status` includes the completed pass timestamp and detailed current progress.
+A completed pass may include failures; an interrupted pass never replaces the summary.
 
 ## Python and UI gRPC clients
 
@@ -91,6 +97,24 @@ digests. A source edit invalidates its compile entries; a header edit invalidate
 the entries whose manifests include that header. Reconciliation checks command
 changes and removed entries as well as file changes. Shared header declarations
 may appear under several TUs so their compilation context is preserved.
+
+After initial reconciliation, monitors wait for filesystem notifications for
+source/header contents, compilation databases, the worker executable, and
+include-directory entries. macOS uses path-based FSEvents streams; Linux uses
+inotify directory events. Idle monitoring does not retain a descriptor for each
+file or impose a 1,024-file coverage limit. Temporary-file-and-rename saves,
+deletions, and recreation are detected by path, including successive replacements.
+Independent projects retain independent event queues, and idle notifications do
+not compete with cached readers for the index descriptor allowance.
+
+The poll interval controls notification sampling, capped at two seconds; it does
+not request a full scan every tick. Unchanged projects keep their completed
+status and last-pass counts. A five-minute safety reconciliation covers missed
+or dropped events and unavailable OS notifications. Newly discovered dependencies
+receive one additional guarded validation pass. Pause/resume and cancellation
+remain interruptible. Include-inventory cache validation still uses synchronous,
+inode-validated directory guards; asynchronous idle notifications do not decide
+publication freshness, and dependency contents are freshly validated as before.
 
 The server monitors multiple projects independently. Start each project with
 `index start`; pause, resume, and cancel affect only the named project. All
@@ -242,3 +266,34 @@ The Python API keeps per-TU provenance by default. Opt into the console behavior
 with `find_symbols(project, query, kind="alias", unique_symbols=True)`.
 `index lookup` remains a provenance lookup and can still return per-TU entries.
 No stored index schema or worker extraction change is required.
+
+## Keeping status changes out of the native PCH
+
+`ctk/clang/tooling.hpp` includes the stable `cache_resources.pb.h` cache-inventory
+contract, not the match-service RPC header. `CacheResources` lives in
+`match/v1/cache_resources.proto`; the match service imports that schema publicly so
+existing Python `match_service_pb2.CacheResources` constructors and protobuf
+fully qualified names/field numbers stay compatible.
+
+The CMake match-schema generator emits each module independently, so editing an
+RPC schema does not rewrite unchanged resource/parse headers. This keeps
+`ProjectIndexStatus` and `ServerStatusResponse` out of the shared
+native precompiled header. Status-only API changes may still rebuild the small
+set of files that directly consume those RPC contracts, but must not rebuild the
+native PCH or all serializers. Cache-resource or native input changes remain
+real dependencies. Moving to this layout requires one PCH rebuild and normal
+revalidation of affected indexed files; later status changes use the separated
+layout. The extractor fingerprint and existing compilation arguments are unchanged;
+the leaf schema adds one generated cache-inventory translation unit.
+
+`tests/unit/test_index_build_identity.py` checks the cache contract's dependency
+closure, legacy Python constructor compatibility, and the actual Ninja PCH
+dependency list when a native build is available. Incremental validation also
+adds temporary fields to project, server, and resource status messages, rebuilds, checks the PCH and
+serializer objects remain unchanged, then restores the schemas and rebuilds.
+
+A controlled rebuild with temporary fields in all three status responses rebuilt
+21 of 323 native objects: the shared PCH (including its timestamp), all serializer
+objects, existing compile arguments, and extractor identity remained unchanged.
+Restoring the schemas and rebuilding also left the PCH unchanged. These counts
+measure dependency isolation, not a claim that every RPC consumer avoids rebuilds.

@@ -216,6 +216,17 @@ protected:
   void write(const char *name, const std::string &body) {
     std::ofstream(project / name) << body;
   }
+  void atomic_write(const fs::path &path, const std::string &body) {
+    auto replacement = path;
+    replacement += ".replacement";
+    {
+      std::ofstream output(replacement, std::ios::binary | std::ios::trunc);
+      output << body;
+      output.close();
+      ASSERT_TRUE(output.good());
+    }
+    fs::rename(replacement, path);
+  }
   std::string quote(const std::string &v) {
     std::string out = "\"";
     for (char c : v) {
@@ -375,13 +386,14 @@ protected:
     project = first;
     return second;
   }
-  ProjectIndexStatus wait_for_revision(IndexServiceAdapter &service,
-                                       std::uint64_t minimum_revision) {
+  ProjectIndexStatus
+  wait_for_revision(IndexServiceAdapter &service,
+                    std::uint64_t minimum_revision,
+                    std::chrono::seconds timeout = std::chrono::seconds(30)) {
     ProjectIndexRequest request;
     request.set_project_root(project.string());
     ProjectIndexStatus status;
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
     do {
       grpc::ServerContext context;
       EXPECT_TRUE(
@@ -2091,6 +2103,14 @@ TEST_F(ProjectIndexServiceTest,
     std::this_thread::sleep_for(std::chrono::milliseconds(25));
   } while (std::chrono::steady_clock::now() < failure_deadline);
   ASSERT_EQ(status.state(), INDEX_STATE_FAILED);
+  ASSERT_TRUE(status.has_last_completed_pass());
+  EXPECT_EQ(status.last_completed_pass().failed(),
+            status.translation_units_failed());
+  EXPECT_GT(status.last_completed_pass().failed(), 0);
+  EXPECT_EQ(status.last_completed_pass().reused() +
+                status.last_completed_pass().newly_indexed() +
+                status.last_completed_pass().failed(),
+            status.last_completed_pass().total());
   const auto stale = find(service, "alphaOnly", false);
   EXPECT_EQ(stale.symbols_size(), 2);
   EXPECT_TRUE(stale.stale());
@@ -2340,12 +2360,15 @@ TEST_F(ProjectIndexServiceTest, DistinguishesCheckingFromExtractionAndReuse) {
   const auto release_listing = root / "release-listing";
   const auto release_extraction = root / "release-extraction";
   const auto wrapper = worker_wrapper(
-      counter, "starts=$(wc -c < '" + counter.string() + "')\n"
-               "if [ \"$starts\" -eq 1 ]; then\n"
-               "  while [ ! -e '" + release_listing.string() +
+      counter, "starts=$(wc -c < '" + counter.string() +
+                   "')\n"
+                   "if [ \"$starts\" -eq 1 ] || [ \"$starts\" -eq 5 ]; then\n"
+                   "  while [ ! -e '" +
+                   release_listing.string() +
                    "' ]; do sleep 0.01; done\n"
-               "else\n"
-               "  while [ ! -e '" + release_extraction.string() +
+                   "else\n"
+                   "  while [ ! -e '" +
+                   release_extraction.string() +
                    "' ]; do sleep 0.01; done\nfi\n");
   std::uint64_t saved_revision = 0;
   {
@@ -2370,6 +2393,7 @@ TEST_F(ProjectIndexServiceTest, DistinguishesCheckingFromExtractionAndReuse) {
       return false;
     };
     ASSERT_TRUE(wait_for(INDEX_STATE_CHECKING)) << status.DebugString();
+    EXPECT_FALSE(status.has_last_completed_pass());
     EXPECT_EQ(status.translation_units_indexing(), 0);
     std::ofstream(release_listing).put('x');
     ASSERT_TRUE(wait_for(INDEX_STATE_INDEXING)) << status.DebugString();
@@ -2380,14 +2404,67 @@ TEST_F(ProjectIndexServiceTest, DistinguishesCheckingFromExtractionAndReuse) {
     EXPECT_EQ(status.translation_units_completed(), 3);
     EXPECT_EQ(status.translation_units_skipped(), 0);
     EXPECT_EQ(status.translation_units_indexing(), 0);
+    ASSERT_TRUE(status.has_last_completed_pass());
+    EXPECT_EQ(status.last_completed_pass().total(), 3);
+    EXPECT_EQ(status.last_completed_pass().newly_indexed(), 3);
+    EXPECT_EQ(status.last_completed_pass().reused(), 0);
+    EXPECT_GT(status.last_completed_pass().finished_unix_seconds(), 0);
     saved_revision = status.revision();
   }
   IndexServiceAdapter restarted(storage, {}, wrapper, 1);
+  ProjectIndexRequest request;
+  request.set_project_root(project.string());
+  ProjectIndexStatus status;
+  grpc::ServerContext idle_context;
+  ASSERT_TRUE(
+      restarted.GetProjectIndexStatus(&idle_context, &request, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_IDLE);
+  EXPECT_EQ(status.translation_units_indexed(), 3);
+  ASSERT_TRUE(status.has_last_completed_pass());
+  EXPECT_EQ(status.last_completed_pass().newly_indexed(), 3);
+  fs::remove(release_listing);
+  StartProjectIndexRequest start;
+  start.set_project_root(project.string());
+  start.set_poll_interval_seconds(3600);
+  grpc::ServerContext start_context;
+  ASSERT_TRUE(
+      restarted.StartProjectIndex(&start_context, &start, &status).ok());
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(15);
+  do {
+    grpc::ServerContext context;
+    ASSERT_TRUE(
+        restarted.GetProjectIndexStatus(&context, &request, &status).ok());
+    if (status.state() == INDEX_STATE_CHECKING &&
+        status.has_last_completed_pass())
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  } while (std::chrono::steady_clock::now() < deadline);
+  EXPECT_EQ(status.state(), INDEX_STATE_CHECKING);
+  EXPECT_EQ(status.translation_units_completed(), 0);
+  EXPECT_EQ(status.translation_units_skipped(), 0);
+  EXPECT_EQ(status.last_completed_pass().newly_indexed(), 3);
+  grpc::ServerContext list_context;
+  ListProjectIndexesRequest list_request;
+  ListProjectIndexesResponse listed;
+  ASSERT_TRUE(
+      restarted.ListProjectIndexes(&list_context, &list_request, &listed).ok());
+  ASSERT_EQ(listed.projects_size(), 1);
+  EXPECT_EQ(listed.projects(0).last_completed_pass().newly_indexed(), 3);
+  std::ofstream(release_listing).put('x');
   const auto reused = start_and_wait(restarted);
   EXPECT_EQ(reused.translation_units_skipped(), 3);
   EXPECT_EQ(reused.translation_units_completed(), 3);
   EXPECT_EQ(reused.translation_units_indexing(), 0);
   EXPECT_EQ(reused.revision(), saved_revision);
+  EXPECT_EQ(reused.last_completed_pass().reused(), 3);
+  EXPECT_EQ(reused.last_completed_pass().newly_indexed(), 0);
+  grpc::ServerContext cancel_context;
+  ASSERT_TRUE(
+      restarted.CancelProjectIndex(&cancel_context, &request, &status).ok());
+  EXPECT_EQ(status.state(), INDEX_STATE_CANCELLED);
+  EXPECT_EQ(status.last_completed_pass().reused(), 3);
+  EXPECT_EQ(status.last_completed_pass().newly_indexed(), 0);
   std::ifstream launches(counter);
   // Two discovery calls, but extraction only on the first pass.
   EXPECT_EQ(std::string(std::istreambuf_iterator<char>(launches), {}).size(), 5);
@@ -2781,4 +2858,149 @@ template<class T> using AliasTemplate = T;
 }
 
 } // namespace
+} // namespace ctk::net
+
+namespace ctk::net {
+TEST_F(ProjectIndexServiceTest, IdleMonitorWaitsForSourceAndHeaderNotifications) {
+  const auto counter = root / "notification-worker-count";
+  IndexServiceAdapter service(storage, {}, worker_wrapper(counter), 1);
+  const auto first = start_and_wait(service);
+  // Allow the one guarded pass for newly discovered dependency watches.
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  const auto settled = fs::file_size(counter);
+  std::this_thread::sleep_for(std::chrono::seconds(4));
+  EXPECT_EQ(fs::file_size(counter), settled)
+      << "unchanged projects must not launch listing workers every poll";
+  write("one.cpp", "#include \"shared.h\"\nint notificationEdit(){return 1;}\n");
+  const auto edited = wait_for_revision(service, first.revision() + 1);
+  EXPECT_EQ(find(service, "notificationEdit", false).symbols_size(), 2);
+  write("shared.h", "inline int notificationHeader(){return 2;}\n");
+  wait_for_revision(service, edited.revision() + 1);
+  EXPECT_GT(find(service, "notificationHeader", false).symbols_size(), 0);
+}
+} // namespace ctk::net
+
+namespace ctk::net {
+TEST_F(ProjectIndexServiceTest, IncompleteWatchCoverageKeepsFiveMinuteFallback) {
+  // Exceed the per-monitor macOS content-watch allowance, as clang-toolkit's
+  // real dependency manifest does. This must not shorten idle time to a minute.
+  fs::create_directories(project / "headers");
+  std::ofstream shared(project / "shared.h");
+  for (unsigned i = 0; i != 1100; ++i) {
+    const auto name = "headers/input" + std::to_string(i) + ".h";
+    write(name.c_str(), "#pragma once\n");
+    shared << "#include \"" << name << "\"\n";
+  }
+  shared.close();
+  const auto counter = root / "budget-worker-count";
+  IndexServiceAdapter service(storage, {}, worker_wrapper(counter), 1);
+  const auto first = start_and_wait(service);
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  const auto settled = fs::file_size(counter);
+  // Cross the former 60-second fallback without changing any inputs.
+  std::this_thread::sleep_for(std::chrono::seconds(65));
+  EXPECT_EQ(fs::file_size(counter), settled);
+  write("one.cpp", "#include \"shared.h\"\nint budgetEdit(){return 1;}\n");
+  wait_for_revision(service, first.revision() + 1);
+  EXPECT_EQ(find(service, "budgetEdit", false).symbols_size(), 2);
+}
+} // namespace ctk::net
+
+
+namespace ctk::net {
+TEST_F(ProjectIndexServiceTest,
+       NotificationReindexesLateHeaderBeyondFormerFileLimit) {
+  fs::create_directories(project / "headers");
+  std::string includes;
+  for (unsigned i = 0; i != 1100; ++i) {
+    const auto name = "headers/input" + std::to_string(i) + ".h";
+    write(name.c_str(), "#pragma once\n");
+    includes += "#include \"" + name + "\"\n";
+  }
+  write("headers/input1099.h",
+        "#pragma once\nstruct Header1099 { long value; };\n"
+        "using LateHeader = Header1099;\n");
+
+  write("one.cpp",
+        includes + "int lateHeaderUse(){return sizeof(Header1099);}\n");
+  const auto counter = root / "late-header-worker-count";
+  IndexServiceAdapter service(storage, {}, worker_wrapper(counter), 1);
+  const auto first = start_and_wait(service);
+  ASSERT_EQ(first.translation_units_total(), 3);
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  write("headers/input1099.h",
+        "#pragma once\nstruct Header1099 { long value; int extra; };\n"
+        "using LateHeader = Header1099;\n");
+  const auto changed = wait_for_revision(service, first.revision() + 2,
+                                         std::chrono::seconds(20));
+  ASSERT_TRUE(changed.has_last_completed_pass());
+  EXPECT_EQ(changed.last_completed_pass().total(), 3);
+  EXPECT_EQ(changed.last_completed_pass().newly_indexed(), 2);
+  EXPECT_EQ(changed.last_completed_pass().reused(), 1);
+  EXPECT_EQ(changed.translation_units_total(), 3);
+  EXPECT_EQ(changed.translation_units_indexed(), 3);
+  EXPECT_EQ(find(service, "LateHeader", false).symbols_size(), 2);
+}
+
+TEST_F(ProjectIndexServiceTest,
+       AtomicSourceAndCommandReplacementsReindexAffectedUnitsAndSettle) {
+  const auto counter = root / "atomic-input-worker-count";
+  IndexServiceAdapter service(storage, {}, worker_wrapper(counter), 1);
+  const auto first = start_and_wait(service);
+  ASSERT_EQ(first.translation_units_total(), 3);
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  // Deleting and recreating a watched source exercises re-arming after the
+  // original path disappears. The following atomic saves must still wake it.
+  fs::remove(project / "one.cpp");
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  atomic_write(project / "one.cpp",
+               "#include \"shared.h\"\nint readdedSource(){return 31;}\n");
+  auto previous = wait_for_revision(service, first.revision() + 2,
+                                    std::chrono::seconds(20));
+  ASSERT_TRUE(previous.has_last_completed_pass());
+  EXPECT_EQ(previous.translation_units_total(), 3);
+  EXPECT_EQ(previous.translation_units_indexed(), 3);
+  EXPECT_EQ(find(service, "readdedSource", false).symbols_size(), 2);
+
+  for (int save = 0; save != 2; ++save) {
+    const auto revision = previous.revision();
+    atomic_write(project / "one.cpp",
+                 "#include \"shared.h\"\nint repeatedSourceSave" +
+                     std::to_string(save) + "(){return " +
+                     std::to_string(40 + save) + ";}\n");
+    previous =
+        wait_for_revision(service, revision + 2, std::chrono::seconds(20));
+    ASSERT_TRUE(previous.has_last_completed_pass());
+    EXPECT_EQ(previous.last_completed_pass().newly_indexed(), 2);
+    EXPECT_EQ(previous.last_completed_pass().reused(), 1);
+    EXPECT_EQ(previous.translation_units_total(), 3);
+    EXPECT_EQ(previous.translation_units_indexed(), 3);
+  }
+
+  for (int save = 0; save != 2; ++save) {
+    const auto revision = previous.revision();
+    std::ifstream input(project / "compile_commands.json");
+    std::string commands(std::istreambuf_iterator<char>{input}, {});
+    const auto from = "-DFLAVOR=" + std::to_string(2 + save);
+    const auto to = "-DFLAVOR=" + std::to_string(3 + save);
+    const auto position = commands.find(from);
+    ASSERT_NE(position, std::string::npos);
+    commands.replace(position, from.size(), to);
+    atomic_write(project / "compile_commands.json", commands);
+    previous =
+        wait_for_revision(service, revision + 1, std::chrono::seconds(20));
+    ASSERT_TRUE(previous.has_last_completed_pass());
+    EXPECT_EQ(previous.last_completed_pass().newly_indexed(), 1);
+    EXPECT_EQ(previous.last_completed_pass().reused(), 2);
+    EXPECT_EQ(previous.translation_units_total(), 3);
+    EXPECT_EQ(previous.translation_units_indexed(), 3);
+  }
+
+  const auto settled_workers = fs::file_size(counter);
+  std::this_thread::sleep_for(std::chrono::seconds(4));
+  EXPECT_EQ(fs::file_size(counter), settled_workers)
+      << "unchanged projects must return to idle after notification passes";
+}
 } // namespace ctk::net

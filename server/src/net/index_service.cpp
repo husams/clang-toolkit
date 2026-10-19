@@ -1,4 +1,5 @@
 #include "ctk/net/index_service.hpp"
+#include "../platform/index_input_watch.hpp"
 #include "ctk/platform/index_worker.hpp"
 #include "file_digest_cache.hpp"
 #include "include_inventory_cache.hpp"
@@ -20,6 +21,8 @@
 #include <thread>
 #include <unordered_map>
 #include <utility>
+
+#include <google/protobuf/util/json_util.h>
 
 namespace ctk::net {
 namespace {
@@ -86,6 +89,16 @@ std::uint64_t count_units(Database &db) {
   Statement row(db, "SELECT count(*) FROM translation_unit WHERE indexed_at>0");
   row.step();
   return row.number(0);
+}
+void load_last_pass(Database &db, ProjectIndexStatus &status) {
+  Statement row(db,
+                "SELECT value FROM metadata WHERE key='last_completed_pass'");
+  IndexPassSummary summary;
+  if (row.step() &&
+      google::protobuf::util::JsonStringToMessage(row.text(0), &summary).ok()) {
+    *status.mutable_last_completed_pass() = summary;
+    status.set_last_reconciled_unix_seconds(summary.finished_unix_seconds());
+  }
 }
 
 struct SourcePathFilter {
@@ -274,6 +287,7 @@ public:
         saved.set_state(INDEX_STATE_IDLE);
         saved.set_revision(revision(db));
         saved.set_translation_units_indexed(count_units(db));
+        load_last_pass(db, saved);
         Statement total(db, "SELECT value FROM metadata WHERE key='total'");
         if (total.step())
           saved.set_translation_units_total(std::stoull(total.text(0)));
@@ -324,14 +338,21 @@ public:
   }
   ProjectIndexStatus status(const std::string &root) {
     const auto key = root_key(root);
-    std::lock_guard lock(mutex_);
-    if (job_.root.empty() || key != job_.root) {
-      ProjectIndexStatus idle;
-      idle.set_project_root(key);
-      idle.set_state(INDEX_STATE_IDLE);
-      return idle;
+    {
+      std::lock_guard lock(mutex_);
+      if (!job_.root.empty() && key == job_.root)
+        return status_;
     }
-    return status_;
+    grpc::ServerContext context;
+    const auto saved_projects = list(context);
+    for (const auto &saved : saved_projects.projects()) {
+      if (saved.project_root() == key)
+        return saved;
+    }
+    ProjectIndexStatus idle;
+    idle.set_project_root(key);
+    idle.set_state(INDEX_STATE_IDLE);
+    return idle;
   }
   ProjectIndexStatus control(const std::string &root, int action) {
     const auto key = root_key(root);
@@ -1272,7 +1293,10 @@ private:
     }
     commit(job, transaction, {}, expected_generation);
   }
-  void reconcile(const Job &job, Database &db, const fs::path &directory) {
+  void reconcile(const Job &job, Database &db, const fs::path &directory,
+                 const std::function<void(const std::string &)> &watch_input) {
+    ProjectIndexStatus saved_status;
+    load_last_pass(db, saved_status);
     progress(job, [](auto &s) {
       s.set_state(INDEX_STATE_CHECKING);
       s.set_translation_units_indexing(0);
@@ -1281,6 +1305,13 @@ private:
       s.set_translation_units_failed(0);
       s.set_translation_units_pending(s.translation_units_total());
       s.clear_current_translation_unit();
+    });
+    progress(job, [&](auto &s) {
+      if (saved_status.has_last_completed_pass()) {
+        *s.mutable_last_completed_pass() = saved_status.last_completed_pass();
+        s.set_last_reconciled_unix_seconds(
+            saved_status.last_reconciled_unix_seconds());
+      }
     });
     IndexWorkerRequest listing;
     listing.set_list_translation_units(true);
@@ -1316,6 +1347,8 @@ private:
       s.clear_error();
     });
     for (const auto &unit : listing_result.translation_units()) {
+      // Failed first-time extractions have no saved manifest yet.
+      watch_input(unit.source());
       const auto command_hash = digest_text(unit.compile_context());
       active.insert(digest_text(unit.source() + '\n' + command_hash));
     }
@@ -1959,11 +1992,27 @@ private:
     }
     saved_revision = revision(db);
     saved_count = count_units(db);
+    IndexPassSummary summary;
+    summary.set_total(total);
+    summary.set_reused(skipped);
+    summary.set_newly_indexed(completed - skipped);
+    summary.set_failed(failed);
+    summary.set_finished_unix_seconds(timestamp());
+    std::string summary_json;
+    if (!google::protobuf::util::MessageToJsonString(summary, &summary_json)
+             .ok())
+      throw std::runtime_error("cannot encode completed index pass");
+    {
+      Transaction transaction(db);
+      metadata(db, "last_completed_pass", summary_json);
+      commit(job, transaction);
+    }
     progress(job, [&](auto &s) {
       s.set_translation_units_indexing(0);
       s.set_state(failed ? INDEX_STATE_FAILED : INDEX_STATE_COMPLETE);
       s.clear_current_translation_unit();
-      s.set_last_reconciled_unix_seconds(timestamp());
+      *s.mutable_last_completed_pass() = summary;
+      s.set_last_reconciled_unix_seconds(summary.finished_unix_seconds());
       s.set_revision(saved_revision);
       s.set_translation_units_indexed(saved_count);
     });
@@ -2002,11 +2051,47 @@ private:
                         fs::perm_options::replace);
         Database db(database_path(job.root), true);
         metadata(db, "project_root", job.root);
+        // Arm before reconciling, so edits during extraction remain queued.
+        platform::IndexInputWatch inputs;
+        std::set<std::string> watched;
+        auto arm_input = [&](const std::string &path) {
+          if (!watched.insert(path).second)
+            return false;
+          inputs.add_file(path);
+          return true;
+        };
+        auto arm_inputs = [&] {
+          arm_input((fs::path(job.commands) / "compile_commands.json").string());
+          arm_input(executable_.string());
+          std::set<std::string> paths;
+          Statement rows(db, "SELECT main_file,dependencies_json FROM "
+                             "translation_unit WHERE indexed_at>0");
+          while (rows.step()) {
+            // Register sources and dependencies by path; idle notifications
+            // do not retain a descriptor for every input file.
+            arm_input(rows.text(0));
+            try {
+              for (const auto &[path, digest] : dependencies(rows.text(1)))
+                if (!path.starts_with("@include-tree:"))
+                  paths.insert(path);
+            } catch (const std::runtime_error &) {
+              // Reconciliation handles corrupt manifests per TU, preserving
+              // valid publications from the rest of the project.
+            }
+          }
+          bool added = false;
+          for (const auto &path : paths) {
+            added = arm_input(path) || added;
+          }
+          return added;
+        };
+        arm_inputs();
+        inputs.arm();
         while (current(job)) {
           try {
             upgrade_symbols(job, db);
             metadata(db, "schema_version", "2");
-            reconcile(job, db, directory);
+            reconcile(job, db, directory, arm_input);
           } catch (const Interrupted &) {
             if (!current(job))
               break;
@@ -2019,14 +2104,38 @@ private:
               s.set_error(error.what());
             });
           }
-          std::unique_lock lock(mutex_);
-          changed_.wait_for(lock, std::chrono::seconds(job.interval), [&] {
-            return stopping_ || cancelled_ || paused_ ||
-                   job.epoch != job_.epoch;
-          });
-          if (paused_) {
+          // Newly discovered inputs need one guarded validation pass after
+          // arming. Afterwards idle projects do no per-file work until an
+          // event or the bounded safety sweep (also covers lost watches).
+          const bool new_inputs = arm_inputs();
+          inputs.arm();
+          // Watch budgets bound resource use, not the reconciliation interval.
+          // Missing/lost notifications are covered by the same five-minute
+          // sweep.
+          const auto deadline = std::chrono::steady_clock::now() +
+                                std::chrono::seconds(new_inputs ? 2 : 300);
+          while (current(job)) {
+            std::unique_lock lock(mutex_);
+            changed_.wait_for(
+                lock, std::chrono::seconds(std::min(job.interval, 2u)), [&] {
+                  return stopping_ || cancelled_ || paused_ ||
+                         job.epoch != job_.epoch;
+                });
+            const bool resumed = paused_;
             lock.unlock();
-            await_admission(job);
+            if (resumed)
+              await_admission(job);
+            if (resumed || inputs.changed() || inventories_.inputs_changed() ||
+                std::chrono::steady_clock::now() >= deadline) {
+              // Reopen watches after rename/delete/revoke/overflow. Retaining
+              // the old descriptors would miss later edits to replacements.
+              inventories_.reset();
+              inputs.reset();
+              watched.clear();
+              arm_inputs();
+              inputs.arm();
+              break;
+            }
           }
         }
       } catch (const Interrupted &) {
@@ -2187,9 +2296,10 @@ IndexServiceAdapter::IndexServiceAdapter(fs::path root,
           std::move(root), std::move(foreground_busy), std::move(executable),
           max_workers)) {}
 IndexServiceAdapter::~IndexServiceAdapter() = default;
-grpc::Status IndexServiceAdapter::ListProjectIndexes(
-    grpc::ServerContext *context, const ListProjectIndexesRequest *,
-    ListProjectIndexesResponse *out) {
+grpc::Status
+IndexServiceAdapter::ListProjectIndexes(grpc::ServerContext *context,
+                                        const ListProjectIndexesRequest *,
+                                        ListProjectIndexesResponse *out) {
   // Inventory reads do not require the native extraction backend. In
   // particular, ServerStatus must remain available in builds without Clang.
   try {

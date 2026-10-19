@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ctk/platform/directory_watch.hpp"
+#include "../platform/index_input_watch.hpp"
 #include "project_index_store.hpp"
 
 namespace ctk::net::index_detail {
@@ -19,10 +20,17 @@ public:
           found->second.identity == *before)
         return found->second.digest;
       bool monitored = true;
+      notifications_.add_directory(root);
+      notifications_.arm();
       const auto inventory = cache::include_inventory(
           root, allowed, [&](const fs::path &directory) {
             monitored = watch_.add(directory) && monitored;
+            // The inventory also guards the root parent for cache identity;
+            // idle notifications must not react to unrelated sibling entries.
+            if (directory != root.parent_path())
+              notifications_.add_directory(directory);
           });
+      notifications_.arm();
       const auto value = digest_text(inventory);
       const auto after = platform::DirectoryWatch::identity(root);
       if (watch_.changed() || before != after) {
@@ -38,6 +46,17 @@ public:
     // A changing tree cannot validate the old extracted inputs. The caller
     // retries the TU rather than publishing an unguarded cached digest.
     return {};
+  }
+
+  bool inputs_changed() {
+    if (!notifications_.changed())
+      return false;
+    reset();
+    return true;
+  }
+  void reset() {
+    notifications_.reset();
+    invalidate();
   }
 
   bool refresh() {
@@ -59,6 +78,7 @@ private:
     std::string digest;
   };
   platform::DirectoryWatch watch_;
+  platform::IndexInputWatch notifications_;
   std::uint64_t generation_ = 0;
   std::map<fs::path, Entry> entries_;
 };

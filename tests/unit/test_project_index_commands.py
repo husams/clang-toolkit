@@ -20,6 +20,8 @@ def test_index_list_displays_count_and_preserves_project_values(tmp_path, engine
         project_root="/remote/project", state=pb.INDEX_STATE_INDEXING,
         translation_units_indexed=2, translation_units_total=5,
         translation_units_completed=2, translation_units_skipped=1, translation_units_indexing=2,
+        last_completed_pass=pb.IndexPassSummary(total=5, reused=4, newly_indexed=1,
+                                              finished_unix_seconds=100),
     )] if populated else []
     client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(
         projects=projects, total_count=len(projects))
@@ -28,10 +30,10 @@ def test_index_list_displays_count_and_preserves_project_values(tmp_path, engine
     try:
         output = runtime.execute("index list")
         assert f"Total projects: {len(projects)}" in output
-        assert output.splitlines()[1].split() == ["Project", "Path", "State", "Indexed", "Reused", "Newly", "indexed", "Indexing"]
+        assert output.splitlines()[1].split() == ["Project", "Path", "State", "Saved", "files", "Pass", "checked", "Extracting", "Last", "reused", "Last", "newly", "indexed", "Last", "failed"]
         if populated:
             assert output.splitlines()[2].split() == [
-                "project", "/remote/project", "INDEXING", "2/5", "indexed", "1", "1", "2"]
+                "project", "/remote/project", "INDEXING", "2", "2/5", "2", "4", "1", "0"]
         else:
             assert "No indexed projects." in output
         client.list_project_indexes.assert_called_once_with()
@@ -303,5 +305,45 @@ def test_unknown_console_kind_fails_before_rpc(tmp_path, engine):
             runtime.execute('index find "demo" kind unknown')
         client.find_symbols.assert_not_called()
         client.list_project_indexes.assert_not_called()
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+@pytest.mark.parametrize("recorded", [False, True])
+def test_status_keeps_last_pass_separate_from_current_checking(tmp_path, engine, recorded):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    status = pb.ProjectIndexStatus(
+        project_root=str(tmp_path), state=pb.INDEX_STATE_CHECKING,
+        translation_units_indexed=628, translation_units_total=628,
+        translation_units_completed=368, translation_units_skipped=368,
+        translation_units_pending=260,
+    )
+    if recorded:
+        status.last_completed_pass.CopyFrom(pb.IndexPassSummary(
+            total=628, reused=620, newly_indexed=8, failed=0, finished_unix_seconds=100))
+    client.project_index_status.return_value = status
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(
+        projects=[status], total_count=1)
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        output = runtime.execute('index status "."')
+        assert "Saved index  628 files" in output
+        assert "Current pass checked  368/628" in output
+        assert "Current pass remaining  260" in output
+        assert "Last pass total 628; reused 620; newly indexed 8; failed 0" in output if recorded else "Not recorded" in output
+        first = runtime.execute("index list").splitlines()[2].split()
+        current = client.list_project_indexes.return_value.projects[0]
+        current.translation_units_completed = 1
+        current.translation_units_skipped = 1
+        second = runtime.execute("index list").splitlines()[2].split()
+        assert first[3] == second[3] == "628"
+        assert first[4] == "368/628" and second[4] == "1/628"
+        assert first[-3:] == second[-3:] == (["620", "8", "0"] if recorded else ["-", "-", "-"])
     finally:
         runtime.close()

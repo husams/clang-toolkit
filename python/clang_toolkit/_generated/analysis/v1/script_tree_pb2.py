@@ -23,6 +23,10 @@ _sym_db = _symbol_database.Default()
 
 
 from ...match.v1 import match_service_pb2 as match_dot_v1_dot_match__service__pb2
+try:
+  match_dot_v1_dot_cache__resources__pb2 = match_dot_v1_dot_match__service__pb2.match_dot_v1_dot_cache__resources__pb2
+except AttributeError:
+  match_dot_v1_dot_cache__resources__pb2 = match_dot_v1_dot_match__service__pb2.match.v1.cache_resources_pb2
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x61nalysis/v1/script_tree.proto\x12\x0f\x63tk.analysis.v1\x1a\x1cmatch/v1/match_service.proto\"9\n\nScriptTree\x12+\n\x04\x66ile\x18\x01 \x01(\x0b\x32\x1d.ctk.match.v1.FileMatchTargetb\x06proto3')

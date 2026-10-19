@@ -20,6 +20,10 @@ public:
   DirectoryWatch(const DirectoryWatch &) = delete;
   DirectoryWatch &operator=(const DirectoryWatch &) = delete;
   bool add(const std::filesystem::path &directory);
+  // Direct entry watches exclude unrelated ancestor and access-time events.
+  bool add_directory(const std::filesystem::path &directory);
+  // Monitor content writes as well as replacement via the parent directory.
+  bool add_file(const std::filesystem::path &file);
   bool changed();
   void reset();
   static std::optional<Identity> identity(const std::filesystem::path &path);
