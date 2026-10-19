@@ -59,6 +59,13 @@ public:
     invalidate();
   }
 
+  // A periodic reconciliation must enumerate inventories afresh to recover
+  // from missed notifications, while retaining healthy notification watches.
+  void refresh_for_reconciliation() {
+    ++generation_;
+    entries_.clear();
+  }
+
   bool refresh() {
     if (!watch_.changed())
       return false;
@@ -66,10 +73,12 @@ public:
     return true;
   }
   std::uint64_t generation() const { return generation_; }
+  std::uint64_t watch_generation() const { return watch_generation_; }
 
 private:
   void invalidate() {
     ++generation_;
+    ++watch_generation_;
     entries_.clear();
     watch_.reset();
   }
@@ -80,6 +89,7 @@ private:
   platform::DirectoryWatch watch_;
   platform::IndexInputWatch notifications_;
   std::uint64_t generation_ = 0;
+  std::uint64_t watch_generation_ = 0;
   std::map<fs::path, Entry> entries_;
 };
 } // namespace ctk::net::index_detail

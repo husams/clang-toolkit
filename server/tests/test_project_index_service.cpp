@@ -985,7 +985,7 @@ TEST_F(ProjectIndexServiceTest,
 }
 
 TEST_F(ProjectIndexServiceTest,
-       PauseStopsPendingWorkerWhileForegroundLookupRemainsResponsive) {
+       PauseResumeArmsNewHeaderDependencyAndReindexesEdits) {
   const auto counter = root / "worker-starts";
   const auto lock = root / "worker-lock";
   const auto overlap = root / "worker-overlap";
@@ -1020,7 +1020,9 @@ TEST_F(ProjectIndexServiceTest,
   sqlite3_free(error);
   sqlite3_close(db);
   ASSERT_EQ(trigger_status, SQLITE_OK) << trigger_error;
-  write("shared.h", "#if FLAVOR == 1\n#define ALPHA_FEATURE 1\n"
+  write("pause_added.h", "struct AddedDuringPauseDependency { int value; };\n");
+  write("shared.h", "#include \"pause_added.h\"\n"
+                    "#if FLAVOR == 1\n#define ALPHA_FEATURE 1\n"
                     "#else\n#define BETA_FEATURE 1\n#endif\n"
                     "struct ChangedHeader { int value; };\n");
 
@@ -1099,7 +1101,45 @@ TEST_F(ProjectIndexServiceTest,
       break;
     std::this_thread::sleep_for(std::chrono::milliseconds(25));
   } while (std::chrono::steady_clock::now() < completion_deadline);
-  EXPECT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  ASSERT_EQ(status.state(), INDEX_STATE_COMPLETE) << status.error();
+  ASSERT_EQ(find(service, "AddedDuringPauseDependency", false).symbols_size(),
+            3);
+
+  // The guarded post-arm pass must finish unchanged before the header edit;
+  // that shows the retry armed the newly published dependency manifest.
+  const auto completed_revision = status.revision();
+  const auto completed_reconciliation = status.last_reconciled_unix_seconds();
+  ProjectIndexStatus guarded;
+  const auto arm_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(15);
+  do {
+    grpc::ServerContext guarded_context;
+    ASSERT_TRUE(
+        service.GetProjectIndexStatus(&guarded_context, &control, &guarded)
+            .ok());
+    if (guarded.state() == INDEX_STATE_COMPLETE &&
+        guarded.revision() == completed_revision &&
+        guarded.last_reconciled_unix_seconds() > completed_reconciliation)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < arm_deadline);
+  ASSERT_EQ(guarded.state(), INDEX_STATE_COMPLETE) << guarded.DebugString();
+  ASSERT_GT(guarded.last_reconciled_unix_seconds(), completed_reconciliation);
+  ASSERT_TRUE(guarded.has_last_completed_pass());
+  EXPECT_EQ(guarded.last_completed_pass().reused(), 3);
+  EXPECT_EQ(guarded.last_completed_pass().newly_indexed(), 0);
+
+  write("pause_added.h",
+        "struct EditedDuringPauseDependency { long value; int extra; };\n");
+  const auto edited = wait_for_revision(service, completed_revision + 3,
+                                        std::chrono::seconds(20));
+  ASSERT_TRUE(edited.has_last_completed_pass());
+  EXPECT_EQ(edited.last_completed_pass().newly_indexed(), 3);
+  EXPECT_EQ(edited.last_completed_pass().reused(), 0);
+  EXPECT_EQ(find(service, "AddedDuringPauseDependency", false).symbols_size(),
+            0);
+  EXPECT_EQ(find(service, "EditedDuringPauseDependency", false).symbols_size(),
+            3);
 }
 
 TEST_F(ProjectIndexServiceTest,

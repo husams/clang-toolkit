@@ -428,6 +428,47 @@ TEST(IncludeInventoryCache, IdleNotificationsIgnoreUnrelatedAncestorEntries) {
   EXPECT_EQ(cache.digest(include), after);
 }
 
+TEST(IncludeInventoryCache, ReconciliationRefreshRetainsWatchRegistrations) {
+  TemporaryDirectory temporary{"ctk-inventory-reconciliation"};
+  const auto include = temporary.path() / "include";
+  fs::create_directory(include);
+  write_file(include / "one.hpp", "struct One {};\n");
+
+  IncludeInventoryCache cache;
+  const auto before = cache.digest(include);
+  ASSERT_FALSE(before.empty());
+  const auto watch_generation = cache.watch_generation();
+
+  // Model the five-minute safety sweep without sleeping for five minutes.
+  // It must force a fresh inventory walk while preserving active watches.
+  cache.refresh_for_reconciliation();
+  EXPECT_EQ(cache.watch_generation(), watch_generation);
+  std::size_t walked = 0;
+  const auto revalidated = cache.digest(include, [&] {
+    ++walked;
+    return true;
+  });
+  EXPECT_EQ(revalidated, before);
+  EXPECT_GT(walked, 0u) << "reconciliation must walk the inventory again";
+  EXPECT_EQ(cache.watch_generation(), watch_generation)
+      << "fresh validation must not recreate healthy watch registrations";
+
+  write_file(include / "two.hpp", "struct Two {};\n");
+  bool notified = false;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!notified && std::chrono::steady_clock::now() < deadline) {
+    notified = cache.inputs_changed();
+    if (!notified)
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  ASSERT_TRUE(notified)
+      << "the retained directory registration must report later header changes";
+  EXPECT_GT(cache.watch_generation(), watch_generation)
+      << "a real notification should rebuild registrations for recovery";
+  EXPECT_NE(cache.digest(include), before);
+}
+
 TEST(IndexInputWatch, SharesDescriptorsWithoutSharingQueuedEvents) {
 #ifndef __APPLE__
   GTEST_SKIP() << "inotify watches do not retain per-path file descriptors";
