@@ -76,6 +76,8 @@ KEYWORDS = {
     "CURSOR_SCOPE",
     "REVISION",
     "LABEL",
+    "INDEX", "FIND", "LOOKUP", "EXACT", "KIND", "CANCEL",
+    "START", "PAUSE", "RESUME",
     "MODE",
     "REPLACE",
     "JOIN_WITH",

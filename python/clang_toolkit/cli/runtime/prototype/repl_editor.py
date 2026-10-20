@@ -17,6 +17,8 @@ from prompt_toolkit.validation import ValidationError, Validator
 
 from clang_toolkit.cli.highlight import TOKEN_STYLES
 from clang_toolkit.cli.completion_candidates import _REGEX_LITERALS
+from clang_toolkit.cli.completion_context import accepted_after
+from clang_toolkit.cli.completion_cursor import cursor_context
 from clang_toolkit.cli.matcher_catalog import MATCHER_METADATA
 from clang_toolkit.cli.input_state import InputState
 from clang_toolkit.cli.runtime.prototype.repl_language import (
@@ -422,20 +424,22 @@ class PrototypeCompleter(Completer):
         )
         existing = list(self.base.get_completions(document, complete_event))
         tokens = lex(before)
+        native = next(
+            (
+                token
+                for token in reversed(tokens)
+                if str(token) in {
+                    "match", "parse", "cfg", "callgraph", "traverse",
+                    "help", "let", "index",
+                }
+            ),
+            None,
+        )
         if not existing and not in_literal and (
             not tokens or _kind(tokens[-1]) not in {"COMMENT", "OPEN_STRING"}
         ):
             # A runnable header is outside the legacy parser. Recover the
             # native operand's grammar context from its lossless token spans.
-            native = next(
-                (
-                    token
-                    for token in reversed(tokens)
-                    if str(token)
-                    in {"match", "parse", "cfg", "callgraph", "traverse", "help", "let"}
-                ),
-                None,
-            )
             if native is not None and int(native.start_pos) > 0:
                 start = int(native.start_pos)
                 existing = list(
@@ -468,6 +472,20 @@ class PrototypeCompleter(Completer):
             return
         if tokens and _kind(tokens[-1]) in {"COMMENT", "OPEN_STRING"}:
             return
+        if native is not None and str(native) == "index":
+            start = int(native.start_pos)
+            context = cursor_context(document.text[start:], cursor - start)
+            if (
+                context is not None
+                and not any(
+                    token.type in {"BATCH_SEPARATOR", "SEMICOLON"}
+                    for token in context.prefix_tokens
+                )
+                and accepted_after(context.prefix_tokens)
+            ):
+                # Index operands are command syntax, not script expressions.
+                # Keep unrelated bindings, functions and keywords out of menus.
+                return
         help_query = re.search(
             r"(?:^|[;\n])\s*help\s+([A-Za-z_][A-Za-z0-9_]*)?$", before
         )

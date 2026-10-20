@@ -110,6 +110,50 @@ def editor_evidence(editor_server, tmp_path):
 
     try:
         wait_for(lambda: "Session open" in visible())
+        # Index completion must work in the shipped compiled workspace,
+        # including automatic menus after whitespace and optional keywords.
+        os.write(master, b'index find "flow" kind ')
+        kind_picker = wait_for(
+            lambda: all(
+                name in visible() for name in ("function", "class", "variable", "alias")
+            )
+            and "symbol kind" in visible()
+        )
+        (tmp_path / "index-kinds.txt").write_text(kind_picker)
+        os.write(master, b"\x1b\x03")
+        wait_for(lambda: "Input 1:1" in visible())
+        for prefix, completed in [
+            ('index find "flow" k', 'index find "flow" kind'),
+            ('index find "flow" e', 'index find "flow" exact'),
+            ('index find "flow" kind a', 'index find "flow" kind alias'),
+            ('index ca', 'index cancel'),
+        ]:
+            os.write(master, prefix.encode())
+            wait_for(lambda: "language keyword" in visible() or "symbol kind" in visible())
+            os.write(master, b"\t")
+            wait_for(lambda: completed in visible())
+            os.write(master, b"\x1b\x03")
+            wait_for(lambda: "Input 1:1" in visible())
+        colored_index = 'index find "flow" exact kind function in "ctk-lab"'
+        paste(colored_index)
+        wait_for(lambda: colored_index in visible())
+        index_row = next(
+            i for i, line in enumerate(screen.display) if colored_index in line
+        )
+        index_line = screen.display[index_row]
+        index_colors = {
+            token: screen.buffer[index_row][index_line.index(token)].fg
+            for token in ("index", "find", "exact", "kind", '"flow"', "function")
+        }
+        assert len({
+            index_colors[token] for token in ("index", "find", "exact", "kind")
+        }) == 1
+        assert len({
+            index_colors["kind"], index_colors['"flow"'], index_colors["function"]
+        }) == 3
+        (tmp_path / "index-colors.txt").write_text(visible())
+        os.write(master, b"\x1b\x03")
+        wait_for(lambda: "Input 1:1" in visible())
         for prefix, expected in [
             ("match fun", "functionDecl"),
             ("match cxxR", "cxxRecordDecl"),
