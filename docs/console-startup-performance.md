@@ -183,3 +183,9 @@ without parser construction, typing and redraws during blocked completion in
 both engines, contextual help visibility/tokenization, and the redirected
 output deadlock. The native server connection could not be validated in this
 session because the environment rejected the Unix socket connection.
+
+Integration with `main` at `ab03fd5` preserves its indexed-project completion:
+catalog refresh requests from completion workers are scheduled on the owning
+UI loop, where RPCs, menu updates and request coalescing remain serialized.
+Queued refreshes recheck shutdown before starting. All 112 targeted startup,
+index editor and project completion tests passed after this integration.

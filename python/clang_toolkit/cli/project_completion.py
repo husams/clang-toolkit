@@ -195,20 +195,37 @@ class ProjectCompletionCache:
         self._loader: Callable[[], Awaitable[Iterable[str]]] | None = None
         self._on_update: Callable[[], None] | None = None
         self._task: asyncio.Task[None] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def bind(
         self,
         loader: Callable[[], Awaitable[Iterable[str]]],
         on_update: Callable[[], None],
     ) -> None:
+        self._loop = asyncio.get_running_loop()
         self._loader = loader
         self._on_update = on_update
 
     def get(self) -> tuple[str, ...]:
+        loop = self._loop
+        if self._loader is not None and loop is not None and time.monotonic() >= self._next_refresh:
+            try:
+                current = asyncio.get_running_loop()
+            except RuntimeError:
+                current = None
+            if current is loop:
+                self._start_refresh()
+            elif not loop.is_closed():
+                # Completion runs in a worker, but RPCs and menu updates belong
+                # to the UI loop. Return the immutable snapshot immediately.
+                loop.call_soon_threadsafe(self._start_refresh)
+        return self._roots
+
+    def _start_refresh(self) -> None:
+        # Recheck after crossing threads: close or another refresh may win.
         if self._loader is not None and time.monotonic() >= self._next_refresh:
             if self._task is None or self._task.done():
                 self._task = asyncio.get_running_loop().create_task(self._refresh())
-        return self._roots
 
     async def _refresh(self) -> None:
         loader = self._loader
