@@ -19,8 +19,11 @@ The existing content/runtime fingerprint invalidates both syntax and executable
 entries. Files are written atomically; malformed, unavailable, oversized or
 unsafe executable entries are ignored. Executable files and their containing
 cache directory must belong to the current user and exclude other writers.
-Syntax and executable caches each retain at most 128 entries, with a 16 MiB
-limit per entry. The tree engine retains its syntax-only cache.
+Libraries, interpolation templates and embedded blocks have separate cache
+namespaces. Syntax and executable caches in each namespace retain at most 128
+entries, with a 16 MiB limit per entry. Interpolation cannot evict a library's
+parsed program. The tree engine uses syntax caching for programs and compiled
+caching for interpolation.
 
 Generated expressions no longer allocate a lambda just to charge an execution
 step. A left-to-right Python expression charges the step before evaluating its
@@ -37,14 +40,16 @@ uv run python scripts/benchmark_console_startup.py
 uv run python scripts/benchmark_console_startup.py --library-dir ~/.ctk/lib
 ```
 
-Each run starts with an empty temporary disk cache. The reported startup interval
-includes runtime construction and library preload after module imports; it is
-not a full terminal-launch measurement. Warm samples use fresh runtimes and the
-same disk cache. Runtime samples reuse one context per sample to avoid measuring
+Each run starts with an empty temporary disk cache. Every preload sample runs
+in a new Python process. The process interval includes interpreter startup,
+module imports, runtime construction, preload and process exit; the separately
+reported preload interval excludes interpreter startup and imports. This does
+not measure terminal setup or a server connection. Warm samples share only the
+disk cache. Runtime samples reuse one context per sample to avoid measuring
 context setup instead of expression execution.
 
 Against baseline commit `97c4671`, a four-definition library containing arithmetic,
-interpolation, short-circuiting and indexing gave these initial measurements:
+interpolation, short-circuiting and indexing gave these initial in-process measurements (before the fresh-process benchmark was added):
 
 | Measurement | Before | After |
 | --- | ---: | ---: |
@@ -87,3 +92,43 @@ The session could not write the original repository's Git metadata or create
 its normal worktree, so a shared clone and its worktree were created under
 `/tmp`. The original checkout's source and existing untracked files were
 preserved.
+
+## Follow-up review
+
+The review found and fixed two issues:
+
+- Interpolation expressions and embedded block artifacts shared the library's
+  cache budget. With a budget of two, one library containing two interpolation
+  expressions evicted its own parsed program and reparsed at every startup.
+  Separate library, template and block namespaces now preserve their independent
+  working sets. Regression tests disable parsing and lowering during the warm
+  load, including a library with two actual embedded batch blocks.
+- Cache loading checked a pathname and then reopened it, and did not exclude
+  non-regular files. A FIFO at a cache pathname could block startup. Reads now
+  open without following symlinks and without blocking on FIFOs, check ownership,
+  permissions, file type and size on the opened descriptor, and bound the read.
+  Reads, atomic publication and pruning operate relative to a checked directory
+  descriptor. Tests cover path replacement, FIFO recovery, untouched symlink
+  targets and concurrent writers.
+
+A new subprocess regression proves that cached syntax and bytecode are usable
+in a different Python process without parsing or lowering and with fresh
+argument bindings. The benchmark now launches a new interpreter for every
+sample and reports both process lifetime and preload time. It also keeps cache
+environment overrides local to the worker processes.
+
+One local run of the reviewed code measured a 3.38-second cold process lifetime
+and a 2.21-second median warm process lifetime. The preload portions were
+1.035 seconds and 23 milliseconds respectively. Imports, interpreter startup,
+and process exit remain outside the preload timing. These observations are
+not a before/after speedup comparison and do not measure an interactive console
+or server connection. The earlier 64-times figure applies only to the original
+in-process preload microbenchmark.
+
+Review validation: the complete Python unit suite, excluding the two previously
+confirmed environment-blocked `test_server_lifecycle.py` cases, passed 3,442
+tests with one skip. A final focused run covering cache, compiler, preloads,
+handlers and generated help passed all 235 tests, including the additional
+embedded-block and concurrent-writer regressions. Whitespace checks passed.
+No C++ or protocol code changed during this review; the earlier native and
+end-to-end validation limitations remain.

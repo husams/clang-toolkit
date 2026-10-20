@@ -524,10 +524,14 @@ class _Lowerer:
         return ast.Module([*self.functions, main], [])
 
 
-def compile_program(program: Node, *, cache_key: str | None = None) -> Callable[[Context], Any]:
+def compile_program(program: Node, *, cache_key: str | None = None,
+                    cache_namespace: str = "libraries") -> Callable[[Context], Any]:
     from .library_cache import load_python, store_python
 
-    artifact = load_python(cache_key, program) if cache_key is not None else None
+    artifact = (
+        load_python(cache_key, program, namespace=cache_namespace)
+        if cache_key is not None else None
+    )
     if artifact is None:
         lowerer = _Lowerer(program)
         module = lowerer.module()
@@ -536,7 +540,7 @@ def compile_program(program: Node, *, cache_key: str | None = None) -> Callable[
         code = compile(module, "<ctk-prototype-compiled>", "exec")
         nodes, values = lowerer.nodes, lowerer.values
         if cache_key is not None:
-            store_python(cache_key, program, source, code, nodes, values)
+            store_python(cache_key, program, source, code, nodes, values, namespace=cache_namespace)
     else:
         source, code, module, nodes, values = artifact
     namespace: dict[str, Any] = {

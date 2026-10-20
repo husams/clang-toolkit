@@ -341,8 +341,11 @@ class ReplSession:
                                    else child for child in tree.children], meta=tree.meta)
             if tree.data == "statement_block" and tree.children and isinstance(tree.children[0], Node):
                 node = tree.children[0]
-                key = f"host:{node.line}:{node.column}:{source}" if library else None
-                tree.meta.ctk_executable = compile_program(node, cache_key=key) if self.engine == "compiled" else None
+                key = f"{node.line}:{node.column}:{source}" if library else None
+                tree.meta.ctk_executable = (
+                    compile_program(node, cache_key=key, cache_namespace="blocks")
+                    if self.engine == "compiled" else None
+                )
             return tree
         def prepare(node: Node) -> Node:
             if node.kind == "host":
