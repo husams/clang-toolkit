@@ -107,6 +107,7 @@ class ReplCompleter(Completer):
             complete_event is not None
             and not complete_event.completion_requested
             and "$END" in accepted
+            and not context.partial
             and source[:cursor]
             and not source[cursor - 1].isspace()
         ):

@@ -1,5 +1,8 @@
 """Regressions for the VS Code adapter using the console's real engine."""
 import importlib.util
+import base64
+from contextlib import nullcontext
+import gzip
 import json
 from pathlib import Path
 import subprocess
@@ -8,17 +11,23 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 import weakref
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from google.protobuf.json_format import MessageToDict
 
 spec = importlib.util.spec_from_file_location('editor_service', Path(__file__).parents[1] / 'console/editor_service.py')
 service = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(service)
 
 # The editor adapter bootstrap installs its console/client module paths first.
-from action_service import ActionError, ActionHost  # noqa: E402
+from action_service import (  # noqa: E402
+    ActionError, ActionHost, _batch_worker_input_limit, _install_report_output,
+)
 from ast_inspector import AstInspector  # noqa: E402
+from run_service import Results  # noqa: E402
 from search_service import search  # noqa: E402
-from clang_toolkit._generated.match.v1.match_result_pb2 import MatchBinding  # noqa: E402
+from clang_toolkit._generated.match.v1.match_result_pb2 import MatchBinding, MatchResult  # noqa: E402
+from clang_toolkit._row_store import RowStore  # noqa: E402
+from clang_toolkit.match_values import MatchValue  # noqa: E402
 
 
 class SearchRows(list):
@@ -59,6 +68,465 @@ class InputValidationTests(unittest.TestCase):
             with self.host.validated_inputs():
                 self.host.check_input('second')
         self.assertIsNone(self.host._fingerprints)
+
+
+class WorkspaceResultPagingTests(unittest.TestCase):
+    def _run_batch_with_compression_interrupt(self, input_count):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = []
+            descriptors = {}
+            for index in range(input_count):
+                file = root / f'unit-{index}.cpp'
+                file.write_text(f'int unit_{index}() {{ return {index}; }}\n')
+                files.append(str(file.resolve()))
+                descriptors[files[-1]] = SimpleNamespace(path=files[-1])
+
+            settings = {'directory': str(root), 'compileArguments': [],
+                        'compilationDatabase': None}
+            host = ActionHost.__new__(ActionHost)
+            host.settings = settings
+            host.runtime = SimpleNamespace(
+                clear_batch_cancel=Mock(), request_batch_cancel=Mock(),
+                _active_resource_scope=None)
+            host.buffers = SimpleNamespace(arguments=[], fingerprint=Mock(return_value='source-hash'))
+            host.client = Mock()
+            host.client.resource_status.return_value = SimpleNamespace(max_inputs=2)
+            host.client.discover_files.side_effect = lambda paths, **kwargs: SimpleNamespace(
+                inputs=[descriptors[paths[0]]], diagnostics=[])
+            host._fingerprints = None
+            host.batch_inputs = {}
+            host.base_bindings = {}
+            host._result_directory = root / 'spool'
+            host._result_directory.mkdir()
+            host._batch_runs = {}
+
+            def run_file(_worker, descriptor, _action, _values, staged_file,
+                         run_id, file_index):
+                staged_file.write_text(json.dumps({
+                    'matchId': f'{run_id}:{file_index}:0',
+                    'binding': 'function',
+                }) + '\n')
+                return {'status': 'succeeded', 'matches': 1, 'parseCount': 1}
+
+            compress = ActionHost._compress_staged_results
+            interrupted = False
+
+            def interrupt_first_compress(staged_file):
+                nonlocal interrupted
+                if not interrupted:
+                    interrupted = True
+                    staged_file.with_suffix(staged_file.suffix + '.gz.tmp').write_bytes(b'partial')
+                    raise KeyboardInterrupt()
+                return compress(staged_file)
+
+            request = {
+                'settings': settings, 'files': files, 'profiles': {}, 'values': {},
+                'maximum': 25,
+            }
+            action = {'title': 'Test action', 'arguments': []}
+            with patch.object(ActionHost, '_run_batch_file', new=run_file), \
+                    patch.object(ActionHost, '_compress_staged_results',
+                                  new=staticmethod(interrupt_first_compress)):
+                report = host._run_batch(request, action, lambda _value: None)
+
+            self.assertTrue(report['cancelled'])
+            self.assertEqual(report['matches'], sum(
+                status['totalMatches'] for status in report['fileStatuses']
+                if status['status'] == 'succeeded'))
+            self.assertTrue(Path(report['resultIndexFile']).exists())
+            self.assertGreater(Path(report['resultFile']).stat().st_size, 0)
+            index_path = host._batch_runs[report['resultHandle']]['indexPath']
+            self.assertEqual(Path(index_path).stat().st_size, report['matches'] * 16)
+            with gzip.open(report['resultFile'], 'rt') as aggregate:
+                rows = [json.loads(line) for line in aggregate]
+            self.assertEqual(len(rows), report['matches'])
+            self.assertEqual(len({row['matchId'] for row in rows}), report['matches'])
+            self.assertFalse(any(
+                Path(status.get('fullResultPath', '')).name.endswith('.gz.tmp')
+                for status in report['fileStatuses']))
+            return report
+
+    def test_compression_interrupt_commits_single_final_manifest_item_once(self):
+        report = self._run_batch_with_compression_interrupt(1)
+
+        self.assertEqual(report['matches'], 1)
+        self.assertEqual([status['status'] for status in report['fileStatuses']], ['succeeded'])
+
+    def test_compression_interrupt_does_not_remerge_before_later_outcome(self):
+        report = self._run_batch_with_compression_interrupt(2)
+
+        self.assertIn(report['matches'], {1, 2})
+        self.assertEqual(report['fileStatuses'][0]['status'], 'succeeded')
+        self.assertIn(report['fileStatuses'][1]['status'], {'unattempted', 'succeeded'})
+
+    def test_worker_close_error_preserves_partial_batch_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = []
+            descriptors = {}
+            for index in range(2):
+                file = root / f'unit-{index}.cpp'
+                file.write_text(f'int unit_{index}() {{ return {index}; }}\n')
+                files.append(str(file.resolve()))
+                descriptors[files[-1]] = SimpleNamespace(path=files[-1])
+
+            settings = {'directory': str(root), 'compileArguments': [],
+                        'compilationDatabase': None}
+            host = ActionHost.__new__(ActionHost)
+            host.settings = settings
+            host.runtime = SimpleNamespace(
+                clear_batch_cancel=Mock(), request_batch_cancel=Mock(),
+                _active_resource_scope=None)
+            host.buffers = SimpleNamespace(arguments=[], fingerprint=Mock(return_value='source-hash'))
+            host.client = Mock()
+            host.client.resource_status.return_value = SimpleNamespace(max_inputs=4)
+            host.client.discover_files.side_effect = lambda paths, **kwargs: SimpleNamespace(
+                inputs=[descriptors[paths[0]]], diagnostics=[])
+            host._fingerprints = None
+            host.batch_inputs = {}
+            host.base_bindings = {}
+            host._result_directory = root / 'spool'
+            host._result_directory.mkdir()
+            host._batch_runs = {}
+
+            def init_worker(worker, worker_settings):
+                worker.settings = worker_settings
+                worker.runtime = SimpleNamespace(
+                    clear_batch_cancel=Mock(), request_batch_cancel=Mock(),
+                    _active_resource_scope=None)
+                worker.base_bindings = {}
+                worker.close = Mock(side_effect=ConnectionError('server unavailable'))
+
+            def run_file(_worker, descriptor, _action, _values, staged_file,
+                         run_id, file_index):
+                if file_index == 1:
+                    staged_file.write_text(json.dumps({
+                        'matchId': f'{run_id}:{file_index}:0',
+                        'binding': 'function',
+                    }) + '\n')
+                    return {'status': 'succeeded', 'matches': 1, 'parseCount': 1}
+                return {'status': 'cleanup_unknown',
+                        'message': 'Native server disappeared before cleanup confirmation'}
+
+            request = {
+                'settings': settings, 'files': files, 'profiles': {}, 'values': {},
+                'maximum': 10,
+            }
+            action = {'title': 'Test action', 'arguments': []}
+            with patch.object(ActionHost, '__init__', new=init_worker), \
+                    patch.object(ActionHost, '_run_batch_file', new=run_file):
+                report = host._run_batch(request, action, lambda _value: None)
+
+            self.assertFalse(report['complete'])
+            self.assertEqual(report['matches'], 1)
+            self.assertEqual(report['completedFiles'], 1)
+            self.assertEqual(report['fileStatuses'][0]['status'], 'succeeded')
+            self.assertEqual(report['fileStatuses'][1]['status'], 'cleanup_unknown')
+            self.assertEqual(len(report['workerCleanupErrors']), 1)
+            self.assertIn('server unavailable', report['workerCleanupErrors'][0])
+            self.assertTrue(Path(report['resultIndexFile']).exists())
+            self.assertTrue(Path(report['resultFile']).exists())
+
+    def test_active_worker_does_not_clear_a_cancel_at_task_entry(self):
+        runtime = SimpleNamespace(bindings={}, cancelled=True)
+        runtime.clear_batch_cancel = Mock(side_effect=lambda: setattr(runtime, 'cancelled', False))
+
+        class Session:
+            def dispatch(self, source):
+                if '__ctk_batch_report' in source:
+                    runtime.bindings['__ctk_batch_report'] = {
+                        'cleanup_acknowledged': True,
+                        'completed_files': 1,
+                        'status': 'succeeded',
+                        'failed_groups': 0,
+                        'results': [0],
+                        'result_group_indices': [1],
+                    }
+                return SimpleNamespace(success=True, output='')
+
+        runtime._prototype_session = Session()
+        host = ActionHost.__new__(ActionHost)
+        host.runtime = runtime
+        host.base_bindings = {}
+        with patch('action_service.script_source', return_value=nullcontext()), \
+                patch('action_service.FileSet', return_value='input'):
+            outcome = host._run_batch_file(
+                SimpleNamespace(path='/unit.cpp'),
+                {'arguments': [], 'generated': '', 'path': '', 'callable': 'action'},
+                {}, Path('/tmp/unit.jsonl'), 'run', 1)
+
+        self.assertEqual(outcome['status'], 'succeeded')
+        self.assertTrue(runtime.cancelled)
+        runtime.clear_batch_cancel.assert_not_called()
+
+    def test_unknown_native_cursor_budget_defaults_to_one_worker(self):
+        client = Mock()
+        client.resource_status.side_effect = RuntimeError('resource status unavailable')
+
+        self.assertEqual(_batch_worker_input_limit(client), 2)
+
+        client.resource_status.side_effect = None
+        client.resource_status.return_value = SimpleNamespace(max_inputs=16)
+        self.assertEqual(_batch_worker_input_limit(client), 16)
+
+    def test_batch_cancellation_signals_runtime_and_active_native_scope(self):
+        scope = Mock()
+        runtime = SimpleNamespace(
+            request_batch_cancel=Mock(),
+            _active_resource_scope=scope,
+        )
+        host = ActionHost.__new__(ActionHost)
+        host.runtime = runtime
+
+        host.request_batch_cancel()
+
+        runtime.request_batch_cancel.assert_called_once_with()
+        scope.cancel.assert_called_once_with()
+
+    def test_report_output_is_present_on_success_and_recovered_partial_reports(self):
+        report = {'actionOutput': ['action output']}
+
+        result = _install_report_output(report, 'console output\n')
+
+        self.assertEqual(result, ['action output\nconsole output'])
+        self.assertEqual(report['output'], result)
+
+    def test_pages_keep_all_bindings_for_a_match_together(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'results.jsonl'
+            records = [
+                {'matchId': f'run:{match}', 'binding': binding}
+                for match in range(4)
+                for binding in ('function', 'translationUnit')
+            ]
+            path.write_text(''.join(json.dumps(item) + '\n' for item in records))
+
+            first, next_offset = ActionHost._read_match_page(path, 0, 2, 4)
+            second, final_offset = ActionHost._read_match_page(path, next_offset, 2, 4)
+
+            self.assertEqual([item['matchId'] for item in first],
+                             ['run:0', 'run:0', 'run:1', 'run:1'])
+            self.assertEqual([item['matchId'] for item in second],
+                             ['run:2', 'run:2', 'run:3', 'run:3'])
+            self.assertEqual((next_offset, final_offset), (2, 4))
+
+    def test_pages_cover_a_result_file_larger_than_the_detach_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'large-results.jsonl'
+            payload = 'x' * 20_000
+            with path.open('w') as output:
+                for match in range(80):
+                    output.write(json.dumps({'matchId': f'run:{match}',
+                                             'payload': payload}) + '\n')
+
+            self.assertGreater(path.stat().st_size, 1_000_000)
+            all_rows = []
+            offset = 0
+            while offset < 80:
+                page, next_offset = ActionHost._read_match_page(path, offset, 7, 80)
+                all_rows.extend(page)
+                self.assertGreater(next_offset, offset)
+                offset = next_offset
+
+            self.assertEqual(len(all_rows), 80)
+            self.assertEqual(all_rows[-1]['matchId'], 'run:79')
+
+    def test_compressed_aggregate_pages_match_groups_across_members(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            aggregate = root / 'all-results.jsonl.gz'
+            offsets = root / 'all-results.offsets'
+            aggregate.touch()
+            offsets.touch()
+            expected = []
+            for file_index in range(2):
+                staged = root / f'file-{file_index}.jsonl'
+                rows = [
+                    {'matchId': f'run:{file_index}:{match}', 'binding': binding}
+                    for match in range(2)
+                    for binding in ('function', 'translationUnit')
+                ]
+                expected.extend(rows)
+                staged.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+                ActionHost._append_staged_results(staged, aggregate, offsets)
+
+            actual = []
+            offset = 0
+            while offset < 4:
+                page, next_offset = ActionHost._read_match_page(
+                    aggregate, offset, 1, 4, offsets)
+                actual.extend(page)
+                self.assertEqual(len({row['matchId'] for row in page}), 1)
+                self.assertGreater(next_offset, offset)
+                offset = next_offset
+
+            self.assertEqual(actual, expected)
+            with gzip.open(aggregate, 'rt') as result:
+                self.assertEqual([json.loads(line) for line in result], expected)
+
+    def test_interrupted_aggregate_append_rolls_back_results_and_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            staged = root / 'staged.jsonl'
+            aggregate = root / 'all-results.jsonl.gz'
+            offsets = root / 'all-results.offsets'
+            staged.write_text(''.join(json.dumps({'matchId': f'run:{index}'}) + '\n'
+                                     for index in range(2)))
+            aggregate.write_bytes(b'previous-aggregate')
+            offsets.write_bytes(b'previous-index')
+            original_aggregate = aggregate.read_bytes()
+            original_offsets = offsets.read_bytes()
+            original_loads = json.loads
+            calls = 0
+
+            def interrupt_after_first_group(line):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise KeyboardInterrupt()
+                return original_loads(line)
+
+            with patch('action_service.json.loads', side_effect=interrupt_after_first_group):
+                with self.assertRaises(KeyboardInterrupt):
+                    ActionHost._append_staged_results(staged, aggregate, offsets)
+
+            self.assertEqual(aggregate.read_bytes(), original_aggregate)
+            self.assertEqual(offsets.read_bytes(), original_offsets)
+            self.assertTrue(staged.exists())
+
+    def test_compressed_index_last_page_of_more_than_ten_thousand_groups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            aggregate = root / 'all-results.jsonl.gz'
+            offsets = root / 'all-results.offsets'
+            aggregate.touch()
+            offsets.touch()
+            group_counts = (5_000, 5_167)
+            for file_index, count in enumerate(group_counts):
+                staged = root / f'file-{file_index}.jsonl'
+                with staged.open('w') as output:
+                    for match in range(count):
+                        output.write(json.dumps({
+                            'matchId': f'file-{file_index}:{match}',
+                            'binding': 'function',
+                        }) + '\n')
+                ActionHost._append_staged_results(staged, aggregate, offsets)
+
+            page, next_offset = ActionHost._read_match_page(
+                aggregate, 10_100, 100, 10_167, offsets)
+
+            self.assertEqual(next_offset, 10_167)
+            self.assertEqual(len(page), 67)
+            self.assertEqual(page[0]['matchId'], 'file-1:5100')
+            self.assertEqual(page[-1]['matchId'], 'file-1:5166')
+
+    def test_live_match_spill_writes_all_rows_above_the_detach_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = 'x' * 20_000
+            store = RowStore()
+            for index in range(80):
+                match = MatchResult()
+                match.bindings['function'].CopyFrom(MatchBinding(documentation=f'{index}:{payload}'))
+                store.append(match.SerializeToString(), binding_names=match.bindings)
+            value = MatchValue(store, None)
+            host = ActionHost.__new__(ActionHost)
+            host.sources = {}
+            path = Path(directory) / 'spill.jsonl'
+            try:
+                written = host._spill_batch_matches(value, str(path), '/unit.cpp', 'run', 0)
+            finally:
+                store.close()
+
+            self.assertEqual(written, 80)
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual(len(records), 80)
+            self.assertTrue(all(record['format'] == 'ctk-match-protobuf-v1'
+                                for record in records))
+            rows, next_offset = ActionHost._read_match_page(path, 0, 80, 80)
+            self.assertEqual(next_offset, 80)
+            self.assertEqual(len(rows), 80)
+            self.assertEqual(rows[-1]['matchId'], 'run:79')
+            self.assertEqual(rows[-1]['id'], 'run:79:function')
+            last_match = MatchResult.FromString(base64.b64decode(records[-1]['protobuf']))
+            self.assertEqual(last_match.bindings['function'].documentation,
+                             f'79:{payload}')
+
+    def test_protobuf_spool_preserves_optional_source_match_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = RowStore()
+            match = MatchResult(source_match_index=37)
+            match.bindings['function'].documentation = 'function facts'
+            store.append(match.SerializeToString(), binding_names=match.bindings)
+            value = MatchValue(store, None)
+            host = ActionHost.__new__(ActionHost)
+            host.sources = {}
+            path = Path(directory) / 'spill.jsonl'
+            try:
+                host._spill_batch_matches(value, str(path), '/unit.cpp', 'run', 0)
+            finally:
+                store.close()
+
+            record = json.loads(path.read_text())
+            restored = MatchResult.FromString(base64.b64decode(record['protobuf']))
+            self.assertTrue(restored.HasField('source_match_index'))
+            self.assertEqual(restored.source_match_index, 37)
+            page, next_offset = ActionHost._read_match_page(path, 0, 1, 1)
+            self.assertEqual(next_offset, 1)
+            self.assertEqual(page[0]['raw']['match']['source_match_index'], '37')
+            self.assertEqual(page[0]['raw']['match']['bindings']['function']['documentation'],
+                             'function facts')
+
+    def test_protobuf_page_hydration_matches_legacy_flat_json_shape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            match = MatchResult(source_match_index=2)
+            binding = match.bindings['function']
+            binding.documentation = 'function facts'
+            binding.location.file = '/unit.cpp'
+            binding.location.line = 4
+            binding.location.column = 2
+            binding.location.valid = True
+            record = {
+                'format': 'ctk-match-protobuf-v1',
+                'matchId': 'run:2',
+                'translationUnit': '/unit.cpp',
+                'protobuf': base64.b64encode(match.SerializeToString()).decode('ascii'),
+            }
+            protobuf_path = Path(directory) / 'protobuf.jsonl'
+            protobuf_path.write_text(json.dumps(record) + '\n')
+            hydrated, _ = ActionHost._read_match_page(protobuf_path, 0, 1, 1)
+
+            display = Results(1)
+            display.add(binding)
+            item = display.items[0]
+            legacy = {**item, 'id': 'random-old-id', 'nodeId': 'random-old-id',
+                      'matchId': 'run:2', 'binding': 'function',
+                      'translationUnit': '/unit.cpp', 'detached': True,
+                      'raw': {'binding': item['raw'],
+                              'match': MessageToDict(match, preserving_proto_field_name=True)}}
+            def normalize(row):
+                return {key: value for key, value in row.items()
+                        if key not in {'id', 'nodeId'}}
+
+            self.assertEqual(normalize(hydrated[0]), normalize(legacy))
+            self.assertEqual(hydrated[0]['id'], 'run:2:function')
+
+    def test_compressed_per_file_spool_retains_every_row_and_releases_plain_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'file-results.jsonl'
+            with path.open('w') as output:
+                for match in range(80):
+                    output.write(json.dumps({'matchId': f'run:{match}',
+                                             'payload': 'x' * 20_000}) + '\n')
+
+            compressed = ActionHost._compress_staged_results(path)
+
+            self.assertFalse(path.exists())
+            self.assertTrue(compressed.exists())
+            with gzip.open(compressed, 'rt') as result:
+                rows = [json.loads(line) for line in result]
+            self.assertEqual(len(rows), 80)
+            self.assertEqual(rows[-1]['matchId'], 'run:79')
 
 
 class SearchRetentionTests(unittest.TestCase):

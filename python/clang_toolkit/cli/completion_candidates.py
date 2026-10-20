@@ -11,6 +11,7 @@ from lark.exceptions import UnexpectedInput
 from clang_toolkit.cli.completion_context import reference_base
 from clang_toolkit.cli.completion_cursor import CursorContext
 from clang_toolkit.cli.language import parser, reference_parser
+from clang_toolkit.cli.index_kinds import INDEX_SYMBOL_KINDS
 
 _REGEX_LITERALS = {
     "FILE": "file",
@@ -92,6 +93,7 @@ _REGEX_LITERALS = {
     "LIST": "list", "ATTACH": "attach", "SERVER": "server", "STATUS": "status",
     "CACHE": "cache", "PRUNE": "prune", "BINDINGS": "bindings", "BINDING": "binding",
     "INDEX": "index", "FIND": "find", "LOOKUP": "lookup",
+    "EXACT": "exact", "KIND": "kind", "CANCEL": "cancel",
     "DROP": "drop", "RENAME": "rename", "APPEND": "append",
     "START": "start",
     "PAUSE": "pause",
@@ -153,6 +155,10 @@ def candidates_for(
     previous = context.prefix_tokens[-1].type if context.prefix_tokens else None
     if "NAME" in accepted and previous == "DOLLAR":
         names.extend((name, False, False, None) for name in references)
+    elif "NAME" in accepted and previous == "KIND":
+        names.extend(
+            (name, False, False, "symbol kind") for name in INDEX_SYMBOL_KINDS
+        )
     elif "NAME" in accepted and previous == "CURSOR_SCOPE":
         options = ("children", "root_only", "subtree")
         if not any(token.type == "CURSOR" for token in context.prefix_tokens):

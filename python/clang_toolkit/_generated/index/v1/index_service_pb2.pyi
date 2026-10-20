@@ -105,7 +105,7 @@ class ProjectIndexStatus(_message.Message):
     def __init__(self, project_root: _Optional[str] = ..., state: _Optional[_Union[IndexState, str]] = ..., translation_units_total: _Optional[int] = ..., translation_units_completed: _Optional[int] = ..., translation_units_skipped: _Optional[int] = ..., translation_units_failed: _Optional[int] = ..., current_translation_unit: _Optional[str] = ..., error: _Optional[str] = ..., last_reconciled_unix_seconds: _Optional[int] = ..., revision: _Optional[int] = ..., translation_units_pending: _Optional[int] = ..., paused_reason: _Optional[str] = ..., translation_units_indexed: _Optional[int] = ..., translation_units_indexing: _Optional[int] = ..., last_completed_pass: _Optional[_Union[IndexPassSummary, _Mapping]] = ...) -> None: ...
 
 class FindSymbolsRequest(_message.Message):
-    __slots__ = ("project_root", "query", "limit", "match_mode", "kind", "unique_symbols")
+    __slots__ = ("project_root", "query", "limit", "match_mode", "kind", "unique_symbols", "source_only", "offset", "expected_revision")
     class MatchMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
         MATCH_MODE_EXACT: _ClassVar[FindSymbolsRequest.MatchMode]
@@ -130,13 +130,19 @@ class FindSymbolsRequest(_message.Message):
     MATCH_MODE_FIELD_NUMBER: _ClassVar[int]
     KIND_FIELD_NUMBER: _ClassVar[int]
     UNIQUE_SYMBOLS_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_REVISION_FIELD_NUMBER: _ClassVar[int]
     project_root: str
     query: str
     limit: int
     match_mode: FindSymbolsRequest.MatchMode
     kind: FindSymbolsRequest.Kind
     unique_symbols: bool
-    def __init__(self, project_root: _Optional[str] = ..., query: _Optional[str] = ..., limit: _Optional[int] = ..., match_mode: _Optional[_Union[FindSymbolsRequest.MatchMode, str]] = ..., kind: _Optional[_Union[FindSymbolsRequest.Kind, str]] = ..., unique_symbols: _Optional[bool] = ...) -> None: ...
+    source_only: bool
+    offset: int
+    expected_revision: int
+    def __init__(self, project_root: _Optional[str] = ..., query: _Optional[str] = ..., limit: _Optional[int] = ..., match_mode: _Optional[_Union[FindSymbolsRequest.MatchMode, str]] = ..., kind: _Optional[_Union[FindSymbolsRequest.Kind, str]] = ..., unique_symbols: _Optional[bool] = ..., source_only: _Optional[bool] = ..., offset: _Optional[int] = ..., expected_revision: _Optional[int] = ...) -> None: ...
 
 class LookupSymbolRequest(_message.Message):
     __slots__ = ("project_root", "usr")
@@ -179,20 +185,22 @@ class Symbol(_message.Message):
     def __init__(self, usr: _Optional[str] = ..., name: _Optional[str] = ..., qualified_name: _Optional[str] = ..., kind: _Optional[str] = ..., file_path: _Optional[str] = ..., line: _Optional[int] = ..., column: _Optional[int] = ..., signature: _Optional[str] = ..., translation_unit: _Optional[str] = ..., compile_context: _Optional[str] = ..., byte_offset: _Optional[int] = ..., is_definition: _Optional[bool] = ..., index_revision: _Optional[int] = ..., stale: _Optional[bool] = ...) -> None: ...
 
 class FindSymbolsResponse(_message.Message):
-    __slots__ = ("symbols", "revision", "stale", "translation_units_indexed", "translation_units_total", "truncated")
+    __slots__ = ("symbols", "revision", "stale", "translation_units_indexed", "translation_units_total", "truncated", "next_offset")
     SYMBOLS_FIELD_NUMBER: _ClassVar[int]
     REVISION_FIELD_NUMBER: _ClassVar[int]
     STALE_FIELD_NUMBER: _ClassVar[int]
     TRANSLATION_UNITS_INDEXED_FIELD_NUMBER: _ClassVar[int]
     TRANSLATION_UNITS_TOTAL_FIELD_NUMBER: _ClassVar[int]
     TRUNCATED_FIELD_NUMBER: _ClassVar[int]
+    NEXT_OFFSET_FIELD_NUMBER: _ClassVar[int]
     symbols: _containers.RepeatedCompositeFieldContainer[Symbol]
     revision: int
     stale: bool
     translation_units_indexed: int
     translation_units_total: int
     truncated: bool
-    def __init__(self, symbols: _Optional[_Iterable[_Union[Symbol, _Mapping]]] = ..., revision: _Optional[int] = ..., stale: _Optional[bool] = ..., translation_units_indexed: _Optional[int] = ..., translation_units_total: _Optional[int] = ..., truncated: _Optional[bool] = ...) -> None: ...
+    next_offset: int
+    def __init__(self, symbols: _Optional[_Iterable[_Union[Symbol, _Mapping]]] = ..., revision: _Optional[int] = ..., stale: _Optional[bool] = ..., translation_units_indexed: _Optional[int] = ..., translation_units_total: _Optional[int] = ..., truncated: _Optional[bool] = ..., next_offset: _Optional[int] = ...) -> None: ...
 
 class IndexWorkerRequest(_message.Message):
     __slots__ = ("source", "compile_commands_directory", "list_translation_units", "working_directory", "compile_arguments", "header_cache_directory", "precomputed_include_inventories")

@@ -25,6 +25,10 @@ from clang_toolkit.cli.syntax_diagnostics import (
 from clang_toolkit.cli.batch import batch_requirements, execute_batch
 from clang_toolkit.cli.runtime.batch_execution import BatchInterrupted
 from clang_toolkit.cli.prompt import PersistentPromptHistory, create_session
+from clang_toolkit.cli.project_completion import (
+    ProjectCompletionCache,
+    refresh_project_menu,
+)
 from clang_toolkit.cli.runtime import EvaluationError, Runtime
 from clang_toolkit.cli.runtime.imports import preload_libraries, script_source
 from clang_toolkit.cli.runtime.config import ConfigError
@@ -769,6 +773,7 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
     if prompt_history is None:
         history_store = None
     runtime = None
+    project_cache = ProjectCompletionCache()
     try:
         runtime = _runtime_for_engine(client, args.script_engine, history=history_store)
         if args.compile_commands is not None:
@@ -783,6 +788,7 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
             references=runtime.completion_references,
             field_resolver=runtime.completion_suggestions,
             presence_resolver=runtime.completion_presence_fields,
+            indexed_projects=project_cache.get,
             matcher_functions=runtime.matcher_function_names,
             function_help=runtime.callable_help,
             history=prompt_history,
@@ -819,6 +825,19 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
                 client.bind_query_session(query_session)
 
                 workspace = None
+
+                async def indexed_project_roots() -> tuple[str, ...]:
+                    response = await async_client.list_project_indexes()
+                    return tuple(project.project_root for project in response.projects)
+
+                project_cache.bind(
+                    indexed_project_roots,
+                    lambda: refresh_project_menu(
+                        session.default_buffer,
+                        workspace.app if workspace is not None else session.app,
+                    ),
+                )
+                project_cache.get()
 
                 def display_event(event):
                     text = _format_event(event)
@@ -978,6 +997,7 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
                 except QueryError:
                     exit_code = 1
             finally:
+                await project_cache.aclose()
                 if query_session is not None:
                     cancel_stream = False
                     try:
@@ -1000,6 +1020,7 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
                         if session_reader is not None:
                             await asyncio.gather(session_reader, return_exceptions=True)
     finally:
+        await project_cache.aclose()
         await asyncio.to_thread(runtime.close)
         await asyncio.to_thread(client.close)
     return exit_code

@@ -346,6 +346,9 @@ editor_start: editor_token*
              | SERVER
              | INDEX
              | FIND
+             | EXACT
+             | KIND
+             | CANCEL
              | LOOKUP
              | STATUS
              | CACHE

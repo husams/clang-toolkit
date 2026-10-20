@@ -16,6 +16,10 @@ import { EditorSelectionSync } from "./editor-selection.js";
 import { FileInspectionSync } from "./file-inspection.js";
 import { GraphSessions } from "./graph-sessions.js";
 import {
+  IndexedSymbolSearch,
+  indexedNativeKind,
+} from "./indexed-symbol-search.js";
+import {
   bookmarkHeaders,
   bookmarkTree,
   type InspectorBookmark,
@@ -40,6 +44,18 @@ const CXX = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i;
 const EXCLUDE = "**/{.git,node_modules,build,.venv,.cache,dist}/**";
 const messageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
+  z.object({ type: z.literal("indexProjects") }),
+  z.object({ type: z.literal("indexCancel") }),
+  z.object({ type: z.literal("indexOpen"), id: z.string() }),
+  z.object({
+    type: z.enum(["indexUpdate", "indexRun"]),
+    query: z.string().max(512),
+    scope: z.enum(["project", "global"]),
+    project: z.string().max(4096),
+    kinds: z.array(z.enum(["variables", "classes", "functions", "aliases"])),
+    exact: z.boolean(),
+    sourceOnly: z.boolean().default(false),
+  }),
   z.object({
     type: z.literal("rendered"),
     action: z.string(),
@@ -97,6 +113,11 @@ export class Prototype {
   readonly details: DetailsView;
   readonly graphSessions: GraphSessions;
   private readonly searchAst: SearchAstAccess;
+  private indexedSearchActive = true;
+  private indexedSearch: IndexedSymbolSearch | undefined;
+  private indexedSearchInit: Promise<IndexedSymbolSearch> | undefined;
+  private indexedSearchGeneration = 0;
+  private indexedSearchError = "";
   private readonly sourceHighlight = new SourceHighlight();
   private readonly parseProblems = new ParseProblems();
   private readonly editorSelection: EditorSelectionSync;
@@ -176,6 +197,7 @@ export class Prototype {
       this.details,
       this.graphSessions,
       this.searchAst,
+      { dispose: () => this.indexedSearch?.cancel() },
       {
         dispose: () => {
           for (const session of this.fileSessions.values())
@@ -193,6 +215,27 @@ export class Prototype {
       }),
       vscode.window.registerWebviewViewProvider("ctk.result", this.details, {
         webviewOptions: { retainContextWhenHidden: true },
+      }),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (!event.affectsConfiguration("ctk")) return;
+        this.indexedSearchGeneration++;
+        this.indexedSearch?.cancel();
+        this.indexedSearch = undefined;
+        this.indexedSearchInit = undefined;
+        this.indexedSearchError = "";
+        const generation = this.indexedSearchGeneration;
+        void this.ensureIndexedSearch()
+          .then(async (search) => {
+            if (generation !== this.indexedSearchGeneration) return;
+            await search.projects();
+          })
+          .catch((error) => {
+            if (generation !== this.indexedSearchGeneration) return;
+            this.indexedSearchError =
+              error instanceof Error ? error.message : String(error);
+            this.publish();
+          });
+        this.publish();
       }),
     );
     const remember = (editor: vscode.TextEditor | undefined): void => {
@@ -303,6 +346,22 @@ export class Prototype {
   }
   snapshot(): unknown {
     return {
+      indexedSearch: this.indexedSearch?.state ?? {
+        projects: [],
+        results: [],
+        query: "",
+        scope: "project",
+        project: "",
+        kinds: ["variables", "classes", "functions", "aliases"],
+        exact: false,
+        sourceOnly: false,
+        running: false,
+        status: this.indexedSearchError || "Loading indexed projects…",
+        errors: this.indexedSearchError ? [this.indexedSearchError] : [],
+        truncated: false,
+        completed: false,
+      },
+      indexedSearchActive: this.indexedSearchActive,
       inspectorFiles: [...this.fileSessions].map(([file, session]) => ({
         file,
         stale: session.stale,
@@ -369,6 +428,33 @@ export class Prototype {
       this.publish();
       return;
     }
+    const indexed = messageSchema.safeParse(raw);
+    if (indexed.success) {
+      const message = indexed.data;
+      switch (message.type) {
+        case "indexCancel":
+          this.indexedSearch?.cancel();
+          return;
+        case "indexOpen":
+          await this.openIndexedResult(message.id);
+          return;
+        case "indexProjects":
+        case "indexRun":
+        case "indexUpdate":
+          if (message.type !== "indexProjects") this.indexedSearchActive = true;
+          try {
+            const search = await this.ensureIndexedSearch();
+            this.indexedSearchError = "";
+            if (message.type === "indexProjects") await search.projects();
+            else await search.search(message);
+          } catch (error) {
+            this.indexedSearchError =
+              error instanceof Error ? error.message : String(error);
+            this.publish();
+          }
+          return;
+      }
+    }
     if (await this.actions.receive(raw)) return;
     const message = messageSchema.parse(raw);
     switch (message.type) {
@@ -408,6 +494,7 @@ export class Prototype {
       case "update":
       case "run":
         if (this.active || this.preparing) return;
+        this.indexedSearchActive = false;
         this.values = message.values;
         this.scope = message.scope;
         this.kinds = message.kinds;
@@ -419,6 +506,74 @@ export class Prototype {
         if (message.type === "run") await this.execute();
         return;
     }
+  }
+  private async ensureIndexedSearch(): Promise<IndexedSymbolSearch> {
+    if (this.indexedSearch) return this.indexedSearch;
+    if (this.indexedSearchInit) return this.indexedSearchInit;
+    const generation = this.indexedSearchGeneration;
+    const init = (async () => {
+      if (!vscode.workspace.isTrusted)
+        throw new Error(
+          "Trust this workspace before searching the project index",
+        );
+      const directory = this.target
+        ? (vscode.workspace.getWorkspaceFolder(this.target)?.uri.fsPath ??
+          dirname(this.target.fsPath))
+        : (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd());
+      const config = vscode.workspace.getConfiguration("ctk");
+      const endpoint = config.get<string>("server", "");
+      const configPath = config.get<string>("configPath", "");
+      const compilationDatabase = config.get<string>("compilationDatabase", "");
+      const search = new IndexedSymbolSearch(
+        fileURLToPath(
+          new URL("../console/indexed_symbol_search.py", import.meta.url),
+        ),
+        await findPython(config.get<string>("pythonPath", ""), directory),
+        {
+          directory,
+          timeoutMs: config.get<number>("rpcTimeoutMs", 30000),
+          maxResults: config.get<number>("maxResults", 2000),
+          ...(endpoint ? { endpoint } : {}),
+          ...(configPath ? { configPath } : {}),
+          ...(compilationDatabase ? { compilationDatabase } : {}),
+        },
+        () => this.publish(),
+      );
+      if (generation !== this.indexedSearchGeneration) {
+        search.cancel();
+        return this.ensureIndexedSearch();
+      }
+      this.indexedSearch = search;
+      return search;
+    })();
+    const pending = init.finally(() => {
+      if (this.indexedSearchInit === pending)
+        this.indexedSearchInit = undefined;
+    });
+    this.indexedSearchInit = pending;
+    return pending;
+  }
+  private async openIndexedResult(id: string): Promise<void> {
+    const symbol = this.indexedSearch?.state.results.find(
+      (item) => item.id === id,
+    );
+    if (!symbol) return;
+    const nativeKind = indexedNativeKind(symbol.kind);
+    const result: Result = {
+      id: symbol.id,
+      name: symbol.name,
+      kind: nativeKind,
+      file: symbol.file,
+      line: symbol.line,
+      column: symbol.column,
+      excerpt: symbol.excerpt,
+      translationUnit: symbol.translationUnit,
+      raw: {
+        indexedSymbol: true,
+        binding: { node: { [nativeKind]: {} } },
+      },
+    };
+    await this.showResult(result);
   }
   async scripts(): Promise<Action[]> {
     const files = await vscode.workspace.findFiles("**/*.ctk", EXCLUDE, 500);
@@ -615,6 +770,7 @@ export class Prototype {
   }): Promise<void> {
     if (this.active || this.preparing)
       throw new Error("An analysis is already running");
+    this.indexedSearchActive = false;
     this.preparing = true;
     this.status = "Preparing analysis…";
     this.publish();
@@ -790,14 +946,17 @@ export class Prototype {
       result.translationUnit ?? this.target?.fsPath ?? result.file;
     let searchLoad: Awaited<ReturnType<SearchAstAccess["open"]>> | undefined;
     const actionId =
-      !result.translationUnit &&
+      (("detached" in result && result.detached === true) ||
+        !result.translationUnit) &&
       "nodeId" in result &&
       typeof result.nodeId === "string"
         ? result.nodeId
         : undefined;
-    this.inspectionFile = actionId
-      ? (this.actions.sourceFile ?? translationUnit)
-      : translationUnit;
+    this.inspectionFile =
+      result.translationUnit ??
+      (actionId
+        ? (this.actions.sourceFile ?? translationUnit)
+        : translationUnit);
     this.inspectionSources = new Set([this.inspectionFile]);
     const canonical = await realpath(this.inspectionFile).catch(
       () => this.inspectionFile,
@@ -827,9 +986,14 @@ export class Prototype {
           return selection
             ? this.actions.selectSource(id ?? actionId, selection)
             : this.actions.inspect(id ?? actionId);
-        searchLoad ??= result.translationUnit
-          ? this.searchAst.matched(result)
-          : await this.searchAst.open(result, translationUnit);
+        searchLoad ??=
+          result.raw &&
+          typeof result.raw === "object" &&
+          "indexedSymbol" in result.raw
+            ? await this.searchAst.open(result, translationUnit)
+            : result.translationUnit
+              ? this.searchAst.matched(result)
+              : await this.searchAst.open(result, translationUnit);
         return selection && id
           ? searchLoad.selectSource(id, selection)
           : searchLoad.inspect(id);

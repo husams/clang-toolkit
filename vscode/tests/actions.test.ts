@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   actionCompletionSource,
+  actionReportSchema,
   ctkLiteral,
   newActionName,
   parseNodeAction,
@@ -157,5 +158,74 @@ describe("YAML action files", () => {
       resolveArguments(action, { name: "x", count: "Infinity" }),
     ).toThrow("number");
     expect(ctkLiteral("a'b\\c\n{test}")).toBe("'a\\'b\\\\c\\n{test}'");
+  });
+});
+
+describe("workspace action result reports", () => {
+  const node = {
+    id: "node-1",
+    nodeId: "node-1",
+    matchId: "run:0",
+    binding: "function",
+    name: "main",
+    kind: "FunctionDecl",
+    file: "/workspace/main.cpp",
+    line: 1,
+    column: 1,
+    excerpt: "int main() {}",
+    raw: { binding: {} },
+    detached: true,
+    translationUnit: "/workspace/main.cpp",
+  };
+
+  it("accepts legacy action reports while exposing full-scan paging metadata", () => {
+    const legacy = actionReportSchema.parse({
+      results: [node],
+      output: [],
+      runId: "run",
+      input: { id: "input", label: "main.cpp", file: node.file },
+      matches: 1,
+      truncated: false,
+      parseCount: 1,
+    });
+    expect(legacy.totalMatches).toBeUndefined();
+
+    const paged = actionReportSchema.parse({
+      ...legacy,
+      matches: 1201,
+      totalMatches: 1201,
+      pageOffset: 500,
+      pageSize: 500,
+      hasMore: true,
+      complete: true,
+      coverageComplete: true,
+      cancelled: false,
+      completedFiles: 449,
+      failedFiles: 0,
+      attemptedFiles: 449,
+      unattemptedFiles: 0,
+      fileStatuses: Array.from({ length: 449 }, (_, index) => ({
+        file: `/workspace/${index}.cpp`,
+        status: "succeeded",
+        attempted: true,
+        totalMatches: 1,
+        matches: 1,
+        fullResultPath: `/tmp/run/file-${index}.jsonl`,
+        canonicalFile: `/workspace/${index}.cpp`,
+      })),
+      batch: true,
+      files: 449,
+      resultHandle: "run",
+      resultFile: "/tmp/ctk-action-results/run/all-results.jsonl",
+      resultIndexFile: "/tmp/ctk-action-results/run/summary.md",
+    });
+    expect(paged.matches).toBe(1201);
+    expect(paged.results).toHaveLength(1);
+    expect(paged.pageOffset).toBe(500);
+    expect(paged.completedFiles).toBe(449);
+    expect(paged.coverageComplete).toBe(true);
+    expect(paged.fileStatuses).toHaveLength(449);
+    expect(paged.resultIndexFile).toContain("summary.md");
+    expect(paged.results[0]?.translationUnit).toBe(node.translationUnit);
   });
 });

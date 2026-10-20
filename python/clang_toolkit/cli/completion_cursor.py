@@ -54,6 +54,8 @@ _WORD_TYPES = {
     "LIST", "ATTACH", "SERVER", "STATUS", "CACHE", "PRUNE", "BINDINGS", "BINDING",
     "DROP", "RENAME", "APPEND",
     "LABEL",
+    "INDEX", "FIND", "LOOKUP", "EXACT", "KIND", "CANCEL",
+    "START", "PAUSE", "RESUME",
     "MODE",
     "REPLACE",
     "JOIN_WITH",

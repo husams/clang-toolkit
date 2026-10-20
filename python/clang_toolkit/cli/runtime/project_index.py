@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from lark import Token, Tree
 
 from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+from clang_toolkit.cli.index_kinds import INDEX_SYMBOL_KINDS
 
 if TYPE_CHECKING:
     from .evaluator import Runtime
@@ -70,7 +71,7 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
         query = strings[0]
         symbol_kind = next((str(child) for child in node.children
                             if isinstance(child, Token) and child.type == "NAME"), "")
-        if symbol_kind not in {"", "function", "class", "variable", "alias"}:
+        if symbol_kind and symbol_kind not in INDEX_SYMBOL_KINDS:
             raise ValueError("kind must be function, class, variable, or alias")
         options: dict[str, Any] = {"unique_symbols": True}
         if symbol_kind:
