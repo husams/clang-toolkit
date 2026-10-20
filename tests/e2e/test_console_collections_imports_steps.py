@@ -133,7 +133,10 @@ def restart_with_cached_libraries(collection_fixture, engine: str, monkeypatch):
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
     first = run_preloaded_libraries(collection_fixture, engine)
     entries = list((cache / "clang-toolkit" / "scripts").glob("*.json"))
-    assert len(entries) == 2
+    syntax_entries = [path for path in entries if not path.name.endswith(".python.json")]
+    compiled_entries = [path for path in entries if path.name.endswith(".python.json")]
+    assert len(syntax_entries) == 2
+    assert len(compiled_entries) == (2 if engine == "compiled" else 0)
     written = {path: path.stat().st_mtime_ns for path in entries}
     second = run_preloaded_libraries(collection_fixture, engine)
     assert second == first

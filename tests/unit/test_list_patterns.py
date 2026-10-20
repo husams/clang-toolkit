@@ -28,16 +28,16 @@ def execute(request):
     ("let head : tail = [10, 20, 30]; (head, tail)", (10, [20, 30])),
     ("let a : b : rest = [10, 20, 30]; (a, b, rest)", (10, 20, [30])),
     ("let [a, (b, c)] = [10, (20, 30)]; a + b + c", 60),
-    ("let first(head : _) = head; first([10, 20])", 10),
-    ("let two(a : b : _) = a + b; two([10, 20, 30])", 30),
-    ("[[10, 20], [30, 40]] | map((head : _) head)", [10, 30]),
-    ("let total = { ([]) 0; (head : tail) head + total(tail) }; total([10, 20, 30])", 60),
-    ("let total = { ([]) 0; (head : tail) head + total(tail) }; total([])", 0),
-    ("let describe = { ([]) 0; ([x]) x; (head : tail) 99 }; [describe([]), describe([7]), describe([1, 2])]", [0, 7, 99]),
-    ("let f = { ([x], y) x + y; (head : tail, _) head }; f([10], 20)", 30),
+    ("let first((head : _)) = head; first([10, 20])", 10),
+    ("let two((a : b : _)) = a + b; two([10, 20, 30])", 30),
+    ("[[10, 20], [30, 40]] | map(((head : _)) head)", [10, 30]),
+    ("let total = { ([]) 0; ((head : tail)) head + total(tail) }; total([10, 20, 30])", 60),
+    ("let total = { ([]) 0; ((head : tail)) head + total(tail) }; total([])", 0),
+    ("let describe = { ([]) 0; ([x]) x; ((head : tail)) 99 }; [describe([]), describe([7]), describe([1, 2])]", [0, 7, 99]),
+    ("let f = { ([x], y) x + y; ((head : tail), _) head }; f([10], 20)", 30),
     ("let xs = [1, 2]; let h : tail = xs; tail[0] = 9; xs", [1, 2]),
     ("let f = { ([]) 1; (_) 2 }; let old = f; let f = { (_) 3 }; [old([]), f([])]", [1, 3]),
-    ("let only(head : []) = head; only([7])", 7),
+    ("let only((head : [])) = head; only([7])", 7),
     ("let f = { (_) 1; ([]) 2 }; f([])", 1),
     ("let make = { ([x]) (n) n + x; ([]) (n) n }; make([7])(3)", 10),
     ("let funcs = [{ ([x]) x; ([]) 0 }]; funcs[0]([7])", 7),
@@ -61,7 +61,7 @@ def test_no_matching_clause_and_single_clause_mismatch(execute):
     with pytest.raises(PrototypeError, match="matching clause"):
         execute("let f = { ([x]) x }; f([])")
     with pytest.raises(PrototypeError, match="pattern"):
-        execute("let first(head : _) = head; first([])")
+        execute("let first((head : _)) = head; first([])")
 
 
 def test_matching_body_failure_does_not_fall_through(execute):
@@ -70,7 +70,7 @@ def test_matching_body_failure_does_not_fall_through(execute):
 
 
 def test_recognized_numeric_right_fold_handles_large_lists_without_recursion(execute):
-    assert execute("let total = { ([]) 0; (head : tail) head + total(tail) }; total(range(5000))") == 12497500
+    assert execute("let total = { ([]) 0; ((head : tail)) head + total(tail) }; total(range(5000))") == 12497500
 
 
 def test_right_fold_preserves_arithmetic_order_and_does_not_slice(execute):
@@ -80,15 +80,15 @@ def test_right_fold_preserves_arithmetic_order_and_does_not_slice(execute):
             return super().__getitem__(index)
 
     context = Context(functions={"items": lambda: NoSlice([1e16, -1e16, 1.0])})
-    assert execute("let total = { ([]) 0; (head : tail) head + total(tail) }; total(items())", context) == 0.0
+    assert execute("let total = { ([]) 0; ((head : tail)) head + total(tail) }; total(items())", context) == 0.0
     assert "for index in range" in context.lookup("total").optimized.__ctk_source__
 
 
 def test_fold_preserves_checked_overflow_and_execution_budget(execute):
     with pytest.raises(PrototypeError, match="overflow"):
-        execute("let total = { ([]) 0; (head : tail) head + total(tail) }; total([9223372036854775807, 1])")
+        execute("let total = { ([]) 0; ((head : tail)) head + total(tail) }; total([9223372036854775807, 1])")
     with pytest.raises(PrototypeError, match="step limit"):
-        execute("let total = { ([]) 0; (head : tail) head + total(tail) }; total(range(100))", Context(max_steps=100))
+        execute("let total = { ([]) 0; ((head : tail)) head + total(tail) }; total(range(100))", Context(max_steps=100))
 
 
 def test_fold_checks_cancellation_while_combining_results(execute):
@@ -102,14 +102,14 @@ def test_fold_checks_cancellation_while_combining_results(execute):
 
     context = Context(cancel_hook=cancelled)
     with pytest.raises(PrototypeError, match="cancelled"):
-        execute("let total = {\n([]) 0\n(head : tail) head + total(tail)\n}; total([1, 2, 3])", context)
+        execute("let total = {\n([]) 0\n((head : tail)) head + total(tail)\n}; total([1, 2, 3])", context)
 
 
 def test_fold_and_recursive_execution_charge_equal_steps(execute):
     contexts = []
     for optimized in (True, False):
         context = Context()
-        execute("let total = { ([]) 0; (head : tail) head + total(tail) }", context)
+        execute("let total = { ([]) 0; ((head : tail)) head + total(tail) }", context)
         if not optimized:
             object.__setattr__(context.lookup("total"), "optimized", None)
         assert execute("total([1, 2, 3])", context) == 6
@@ -119,9 +119,9 @@ def test_fold_and_recursive_execution_charge_equal_steps(execute):
 
 def test_fold_does_not_optimize_a_shadowed_self_binding(execute):
     with pytest.raises(PrototypeError, match="not callable"):
-        execute("let total = { ([]) 0; (total : tail) total + total(tail) }; total([1])")
+        execute("let total = { ([]) 0; ((total : tail)) total + total(tail) }; total([1])")
     with pytest.raises(PrototypeError, match="not callable"):
-        execute("let total = { ([]) 0; (head : total) head + total(total) }; total([1])")
+        execute("let total = { ([]) 0; ((head : total)) head + total(total) }; total([1])")
 
 
 @pytest.mark.parametrize("engine", ["tree", "compiled"])
@@ -133,7 +133,7 @@ def test_console_wrappers_preserve_numeric_fold_compilation(tmp_path, engine):
     client = Client()
     runtime = PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={})
     try:
-        result = dispatch_result(client, "let total = { ([]) 0; (head : tail) head + total(tail) }; print total(range(5000))", runtime)
+        result = dispatch_result(client, "let total = { ([]) 0; ((head : tail)) head + total(tail) }; print total(range(5000))", runtime)
         assert result.success, result.output
         assert result.output == "12497500"
         assert runtime.bindings["total"].optimized is not None
@@ -154,7 +154,7 @@ def test_clause_preflight_and_argument_evaluation(execute):
 
 def test_clauses_remain_dormant(execute):
     effects = []
-    execute("let f = { ([]) touch(); (head : tail) touch() }; 42", Context(functions={"touch": lambda: effects.append(1)}))
+    execute("let f = { ([]) touch(); ((head : tail)) touch() }; 42", Context(functions={"touch": lambda: effects.append(1)}))
     assert effects == []
 
 
@@ -164,12 +164,12 @@ def test_discarded_tails_do_not_slice(execute):
             assert not isinstance(index, slice), "discarded tails must not be copied"
             return super().__getitem__(index)
 
-    assert execute("let first(h : _) = h; first(items())", Context(functions={"items": lambda: NoSlice([7, 8])})) == 7
+    assert execute("let first((h : _)) = h; first(items())", Context(functions={"items": lambda: NoSlice([7, 8])})) == 7
 
 
 @pytest.mark.parametrize("source", [
     "let [x, x] = [1, 2]",
-    "let f(x : x) = x",
+    "let f((x : x)) = x",
     "let f = { ([]) 0; (x, y) 1 }",
     "let f = { (x = 1) x; (_) 0 }",
 ])
@@ -179,12 +179,12 @@ def test_invalid_pattern_declarations_are_rejected(source):
 
 
 @pytest.mark.parametrize("source", [
-    "let run = { ([]) 0; (h : t) ctk('server status') }; run([1])",
-    "let run = { ([]) 0; (h : t) ctk('server status') }; [[1]] | map(run)",
-    "let run = { (head : _) head() }; run([() ctk('server status')])",
+    "let run = { ([]) 0; ((h : t)) ctk('server status') }; run([1])",
+    "let run = { ([]) 0; ((h : t)) ctk('server status') }; [[1]] | map(run)",
+    "let run = { ((head : _)) head() }; run([() ctk('server status')])",
     "let [run] = [() ctk('server status')]; run()",
     "let head : tail = if unknown then [() ctk('server status')] else [() 0]; head()",
-    "let run = { (head : _) head() }; run(if unknown then [() ctk('server status')] else [() 0])",
+    "let run = { ((head : _)) head() }; run(if unknown then [() ctk('server status')] else [() 0])",
 ])
 def test_admission_inspects_reachable_clause_and_destructured_callbacks(source):
     from clang_toolkit.cli.runtime.prototype.dependencies import execution_trees
@@ -196,7 +196,7 @@ def test_admission_bounds_previously_defined_recursive_group_aliases(execute):
     from clang_toolkit.cli.runtime.prototype.dependencies import execution_trees
 
     context = Context()
-    execute("let funcs = [{ ([]) 0; (h : t) f(t) }]; let f = funcs[0]", context)
+    execute("let funcs = [{ ([]) 0; ((h : t)) f(t) }]; let f = funcs[0]", context)
     assert list(execution_trees(parse("f([1])"), context.bindings)) == []
     assert list(execution_trees(parse("f([1])()"), context.bindings)) == []
 
@@ -205,7 +205,7 @@ def test_clause_groups_preserve_captures_when_scopes_are_snapshotted(execute):
     from clang_toolkit.cli.runtime.prototype.runnables import snapshot_scopes
 
     context = Context()
-    execute("let factor = 2; let total = { ([]) 0; (h : t) h * factor + total(t) }; let alias = total", context)
+    execute("let factor = 2; let total = { ([]) 0; ((h : t)) h * factor + total(t) }; let alias = total", context)
     captured = snapshot_scopes([context.bindings])[0]
     context.assign_binding("factor", 9)
     assert captured["total"] is captured["alias"]

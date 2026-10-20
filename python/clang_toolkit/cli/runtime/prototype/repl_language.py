@@ -119,6 +119,10 @@ def _combined_grammar() -> str:
         'postfix_part: soft_newlines "." soft_newlines MEMBER_NAME -> member_part',
     )
     proto_source = proto_source.replace(
+        'natural_postfix_part: "." CNAME -> member_part',
+        'natural_postfix_part: "." MEMBER_NAME -> member_part',
+    )
+    proto_source = proto_source.replace(
         'target_part: "." CNAME       -> target_member_part',
         'target_part: "." MEMBER_NAME       -> target_member_part',
     )

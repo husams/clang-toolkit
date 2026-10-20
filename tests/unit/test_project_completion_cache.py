@@ -227,7 +227,10 @@ def test_typing_stays_responsive_and_late_catalog_reopens_the_project_menu():
                 pipe.send_text('"ct')
                 await until(lambda: session.default_buffer.text == source + '"ct')
                 release.set()
-                await until(lambda: session.default_buffer.complete_state is not None)
+                await until(
+                    lambda: session.default_buffer.complete_state is not None
+                    and bool(session.default_buffer.complete_state.completions)
+                )
                 state = session.default_buffer.complete_state
                 (item,) = state.completions
                 assert item.display_text == "ctk-lab"

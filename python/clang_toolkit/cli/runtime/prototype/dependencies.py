@@ -7,7 +7,7 @@ from typing import Any, Iterator
 
 from lark import Token, Tree
 
-from .runnables import MultiClauseBlock, RunnableBlock
+from .runnables import MultiClauseBlock, RunnableBlock, resolve_keyword_slots
 from .patterns import ConsPattern, ListPattern, pattern_names
 from .syntax import Node
 
@@ -22,6 +22,7 @@ class _Definition:
     body: Node
     environment: dict[str, Any]
     defaults: tuple[Node, ...] = ()
+    parameter_labels: tuple[str | None, ...] = ()
 
 
 @dataclass
@@ -44,7 +45,8 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
             return resolve(node.children[0], environment)
         if isinstance(node, Node) and node.kind == "inline_runnable":
             name, parameters = node.value
-            return _Definition(name, parameters, node.children[0], environment, node.children[1:])
+            return _Definition(name, parameters, node.children[0], environment, node.children[1:],
+                               tuple(getattr(node, "parameter_labels", ())))
         if isinstance(node, Node) and node.kind == "clause_runnable":
             return _Alternatives(tuple(_Definition(node.value, clause.value[1], clause.children[0], environment)
                                        for clause in node.children))
@@ -84,7 +86,8 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
                     bind_pattern(local, child.value, result)
                 elif child.kind == "runnable":
                     name, parameters = child.value
-                    result = _Definition(name, parameters, child.children[0], local, child.children[1:])
+                    result = _Definition(name, parameters, child.children[0], local, child.children[1:],
+                                         tuple(getattr(child, "parameter_labels", ())))
                     local[name] = result
                 else:
                     result = resolve(child, local)
@@ -125,13 +128,17 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
             captured[callee.name] = callee
             positional = [arg for arg in args if arg.kind != "keyword_arg"]
             keywords = {arg.value: arg.children[0] for arg in args if arg.kind == "keyword_arg"}
+            labels = getattr(callee, "parameter_labels", ())
+            keyword_slots = resolve_keyword_slots(callee.parameters, labels, tuple(keywords))
+            supplied = {index: arg for index, arg in enumerate(positional)}
+            for key, slot in keyword_slots.items():
+                if slot not in supplied:
+                    supplied[slot] = keywords[key]
             defaults = callee.default_nodes if isinstance(callee, RunnableBlock) else callee.defaults
             default_start = len(callee.parameters) - len(defaults)
             for index, pattern in enumerate(callee.parameters):
-                if index < len(positional):
-                    value = resolve(positional[index], environment)
-                elif isinstance(pattern, str) and pattern in keywords:
-                    value = resolve(keywords[pattern], environment)
+                if index in supplied:
+                    value = resolve(supplied[index], environment)
                 elif index >= default_start:
                     value = resolve(defaults[index - default_start].children[0], captured)
                 else:
@@ -172,13 +179,11 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
                 body = value._body
             captured[value.name] = value
             assigned = {index: argument for index, argument in enumerate(arguments)}
-            parameter_names = {
-                pattern: index for index, pattern in enumerate(value.parameters)
-                if isinstance(pattern, str) and pattern != "_"
-            }
+            parameter_labels = getattr(value, "parameter_labels", ())
+            keyword_slots = resolve_keyword_slots(value.parameters, parameter_labels, tuple(keywords or {}))
             for name, argument in (keywords or {}).items():
-                if name in parameter_names and parameter_names[name] not in assigned:
-                    assigned[parameter_names[name]] = argument
+                if name in keyword_slots and keyword_slots[name] not in assigned:
+                    assigned[keyword_slots[name]] = argument
             for index, pattern in enumerate(value.parameters):
                 if index in assigned:
                     bind_pattern(captured, pattern, assigned[index])
@@ -265,7 +270,9 @@ def execution_trees(program: Any, bindings: dict[str, Any]) -> Iterator[Tree]:
                 return
             if node.kind == "runnable":
                 name, parameters = node.value
-                environment[name] = _Definition(name, parameters, node.children[0], environment, node.children[1:])
+                environment[name] = _Definition(name, parameters, node.children[0], environment,
+                                                node.children[1:],
+                                                tuple(getattr(node, "parameter_labels", ())))
                 return
             if node.kind == "let":
                 environment[node.value] = resolve(node.children[0], environment)

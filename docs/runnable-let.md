@@ -20,13 +20,38 @@ same Python compiler, lexical scopes and execution limits as brace bodies.
 let add(l, r = 1) = l + r
 let inc(x) = add(x, 1)
 let add_if(l, h) = if l < h then l + h else 0
+let multiply(value, by: factor = 2) = value * factor
 let ready() = true
 inc(4)
 add_if(2, 5)
+multiply(2, 4)
+multiply 5 by 6
+multiply(5, by = 6)
+multiply(5)
 ```
 
-These calls return `5` and `7`. Use braces for multiple statements or prefix
-handlers; expression bodies can use `EXPR on error FALLBACK`. Existing direct
+These calls return `5`, `7`, `8`, `30`, `30` and `10`. In a labeled declaration,
+`by` is the public keyword and `factor` is the local name in the body. The
+same-name shorthand `by:` binds a local also named `by`. Defaults work in
+ordinary positional calls, conventional named calls and word calls. Word calls
+accept at most one leading positional value, then labeled values; use ordinary
+parentheses for multiple positional arguments or to group compound values.
+Completion and help display public labels; named and pipeline argument
+completion suggest those public names. A word call is a complete expression
+statement or the right side of `let`/ordinary assignment; use regular calls in
+conditions, collections, interpolation, and other nested expressions. Its
+whitespace arguments are atomic values such as `record.count`, `limits[0]`, or
+`source()`. Group operators and predicates explicitly, as in
+`multiply (value + 1) by (factor + 2)`; an ungrouped operator stays outside the
+call. Word labels cannot be expression or structural keywords such as `and`,
+`or`, `in`, `is`, `then`, `do`, `else`, `until`, or `on`; those labels remain
+available in conventional named calls. Prefix commands keep their precedence,
+so use an adjacent call such as `read(path = p)` when a runnable shares a
+command's name. A physical newline or semicolon ends a word call outside an
+explicitly grouped value.
+
+Use braces for multiple statements or prefix handlers; expression bodies can use
+`EXPR on error FALLBACK`. Existing direct
 built-in matcher definitions keep their template behavior; wrappers calling a
 custom matcher use ordinary runnable calls and can still return matchers.
 
@@ -72,6 +97,15 @@ precedes argument effects, as with named calls.
 Inline bodies form the same loop-control boundary as named bodies. Foreground
 batches inspect reachable inline callbacks before admission and snapshot their
 captures; dormant bodies do not request native work.
+
+An ungrouped colon in a runnable parameter is a public label: in
+`let first(head : tail) = tail`, `head` is the public keyword and `tail` is the
+local parameter. To match a cons pattern there, group it:
+`let first((head : tail)) = head`. Inline callbacks
+and grouped clauses use the same extra grouping, such as
+`map(((head : tail)) head)` and `let first = { ((head : tail)) head }`.
+Standalone destructuring (`let head : tail = values`) and `foreach` cons
+patterns retain their existing form.
 
 List patterns and grouped multi-clause functions are described in
 [List patterns](list-patterns.md), with a complete [example](../examples/list_patterns.ctk).

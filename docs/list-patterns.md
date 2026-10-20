@@ -7,9 +7,9 @@ parameters and `foreach`. The native server script language is unchanged.
 let [a, b] = [10, 20]
 let (name, count) = ("Widget", 3)
 let head : tail = [10, 20, 30]
-let first(head : _) = head
-let add_first_two(a : b : _) = a + b
-let heads = [[10, 20], [30, 40]] | map((head : _) head)
+let first((head : _)) = head
+let add_first_two((a : b : _)) = a + b
+let heads = [[10, 20], [30, 40]] | map(((head : _)) head)
 ```
 
 `[]`, `[x]`, and `[x, y]` match lists of exactly zero, one and two elements.
@@ -26,7 +26,7 @@ Group ordered clauses in one declaration:
 ```ctk
 let total = {
     ([]) 0
-    (head : tail) head + total(tail)
+    ((head : tail)) head + total(tail)
 }
 print total([10, 20, 30])
 ```
@@ -40,6 +40,13 @@ arguments. Existing `let` declarations still rebind, rather than accumulate
 clauses. Grouped functions may be aliased, returned, stored and used as pipeline
 callbacks. Their bodies and defaults remain dormant during admission inspection
 and library loading.
+
+An ungrouped colon in a runnable parameter now introduces a public label: in
+`let first(head : tail) = tail`, `head` is the public keyword and `tail` is
+the local parameter. Group cons patterns in named and inline parameters, and
+in grouped clauses, for example `let first((head : tail)) = head` and
+`map(((head : tail)) head)`. Standalone `let head : tail = values` and
+`foreach` cons patterns keep their existing spelling.
 
 ## Python compilation and limits
 

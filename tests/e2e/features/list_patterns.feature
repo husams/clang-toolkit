@@ -18,3 +18,13 @@ Feature: List destructuring and multi-clause console functions
       | engine   |
       | compiled |
       | tree     |
+
+  Scenario Outline: Execute labeled runnable calls in a real console terminal
+    Given an isolated list-pattern console
+    When I run the callable-label example in the "<engine>" terminal
+    Then the terminal prints callable-label results
+
+    Examples:
+      | engine   |
+      | compiled |
+      | tree     |

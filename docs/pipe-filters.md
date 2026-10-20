@@ -41,9 +41,9 @@ native server scripts or server-side batch bodies.
 
 ## Pipelines
 
-The compiled interactive console can compose local values with `|`. A pipeline
-passes the value on its left as the first argument to the callable on its
-right. Each stage returns the value passed to the next stage:
+The compiled and tree interactive consoles can compose local values with `|`.
+A pipeline passes the value on its left as the first argument to the callable
+on its right. Each stage returns the value passed to the next stage:
 
 ```ctk
 let names = ["Widget", "Empty", "Widget", "Other"]
@@ -85,7 +85,33 @@ let my_filter(input, arg) = input + arg
 print 10 | my_filter(1)
 let describe((name, count), prefix = "") = prefix + name
 print ("Widget", 5) | describe("item: ")
+let multiply(value, by: factor = 2) = value * factor
+let add(value, to: amount) = value + amount
+print 5 | multiply by 6 | add to 2
 ```
+
+This prints `32`. For a labeled runnable parameter, the label is public and
+the following name is local: `by` is the keyword and `factor` is available
+inside `multiply`. The same-name shorthand `by:` binds local `by`; it can also
+have a default, as in `let scale(value, by: = 2) = value * by`. Word calls such
+as `multiply 5 by 6` accept at most one leading positional value and then
+labeled values; ordinary calls such as `multiply(5, by = 6)` and positional
+calls such as `multiply(2, 4)` remain available. Pipeline input supplies slot
+zero, so natural pipeline stages accept labeled arguments only: write
+`5 | multiply by 6`, with no extra unlabeled argument. Group compound values
+and use ordinary parentheses for multiple positional arguments. Whitespace
+arguments may be atomic postfix values such as `record.count`, `limits[0]`, or
+`source()`; group arithmetic and predicates, for example
+`multiply (value + 1) by (factor + 2)`. Reserved expression and structural
+words (`and`, `or`, `in`, `is`, `then`, `do`, `else`, `until`, and `on`) cannot
+appear as word labels, though conventional named calls can use those labels.
+Tab completion offers public labels.
+
+An ungrouped parameter colon now introduces a label: in
+`let first(head : tail) = tail`, `head` is the public keyword and `tail` is
+the local parameter. Group cons callback patterns, for example
+`map(((head : tail)) head)`. Standalone and `foreach` cons patterns retain
+their existing spelling.
 
 Tuple values can be unpacked directly by `foreach`:
 

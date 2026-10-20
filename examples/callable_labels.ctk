@@ -1,0 +1,17 @@
+let multiply(value, by: factor = 2) = value * factor
+let with_same_name(value, by:) = value * by
+let with_default(value, by: = 2) = value * by
+let add(value, to: amount) = value + amount
+let first((head : tail)) = head
+
+let positional = multiply(2, 4)
+let named = multiply(5, by = 6)
+let word = multiply 5 by 6
+let defaulted = multiply 5
+let pipeline = 5 | multiply by 6
+let shorthand = with_same_name 5 by 6
+let shorthand_default = with_default 5
+let chained = 5 | multiply by 6 | add to 2
+let cons = first([10, 20])
+
+print "CALLS_{positional}_{named}_{word}_{defaulted}_{pipeline}_{shorthand}_{shorthand_default}_{chained}_{cons}"

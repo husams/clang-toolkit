@@ -75,6 +75,8 @@ def pattern_terminal(pattern_console, tmp_path, engine, example="list_patterns.c
         source = (Path(__file__).resolve().parents[2] / "examples" / example).read_text()
         if example == "list_patterns.ctk":
             source += '\nprint "PATTERNS_PTY_{total([1, 2, 3])}"'
+        elif example == "callable_labels.ctk":
+            source += '\nprint "LABELS_PTY_{positional + named + word + defaulted + pipeline + shorthand + cons}"'
         else:
             source += '\nprint "RECURSION_PTY_{map_list([3], (x) x * 2)[0]}"'
         os.write(master, ("\x1b[200~" + source + "\x1b[201~\n").encode())
@@ -117,3 +119,15 @@ def verify_recursion_terminal(recursion_terminal):
     assert "[1,2,3,4,5]" in lines
     assert "Large counts: 1000, 500, 1000" in lines
     assert "error:" not in recursion_terminal
+
+
+@when(parsers.parse('I run the callable-label example in the "{engine}" terminal'), target_fixture="callable_labels_terminal")
+def callable_labels_terminal(pattern_console, tmp_path, engine):
+    return pattern_terminal(pattern_console, tmp_path, engine, "callable_labels.ctk", "LABELS_PTY_148")
+
+
+@then("the terminal prints callable-label results")
+def verify_callable_labels_terminal(callable_labels_terminal):
+    assert "CALLS_8_30_30_10_30_30_10_32_10" in callable_labels_terminal
+    assert "LABELS_PTY_148" in callable_labels_terminal
+    assert "error:" not in callable_labels_terminal

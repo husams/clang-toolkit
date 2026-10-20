@@ -34,9 +34,9 @@ def execute(request):
     return run
 
 
-MAP = "let map_list = { ([], f) []; (h : t, f) flatten([[f(h)], map_list(t, f)]) }; "
-FILTER = "let filter_list = { ([], keep) []; (h : t, keep) if keep(h) then flatten([[h], filter_list(t, keep)]) else filter_list(t, keep) }; "
-REVERSE = "let reverse_list = { ([]) []; (h : t) flatten([reverse_list(t), [h]]) }; "
+MAP = "let map_list = { ([], f) []; ((h : t), f) flatten([[f(h)], map_list(t, f)]) }; "
+FILTER = "let filter_list = { ([], keep) []; ((h : t), keep) if keep(h) then flatten([[h], filter_list(t, keep)]) else filter_list(t, keep) }; "
+REVERSE = "let reverse_list = { ([]) []; ((h : t)) flatten([reverse_list(t), [h]]) }; "
 
 
 @pytest.mark.parametrize(
@@ -54,14 +54,14 @@ def test_recursive_list_operations_exceed_python_call_limit(
 
 
 def test_tail_calls_and_indexed_tails_handle_large_lists(execute):
-    source = "let walk = { ([], n) n; (h : t, n) walk(t, n + h) }; walk(range(5000), 0)"
+    source = "let walk = { ([], n) n; ((h : t), n) walk(t, n + h) }; walk(range(5000), 0)"
     assert execute(source) == 12497500
 
 
 def test_general_non_tail_numeric_expressions_use_continuations(execute):
     assert (
         execute(
-            "let twice = { ([]) 0; (h : t) h * 2 + twice(t) }; twice(range(5000))",
+            "let twice = { ([]) 0; ((h : t)) h * 2 + twice(t) }; twice(range(5000))",
             Context(max_steps=200000),
         )
         == 24995000
@@ -88,7 +88,7 @@ def test_returned_tails_are_mutable_independent_shallow_lists(execute):
     shared = [7]
     values = [0, shared, 2]
     context = Context(bindings={"values": values})
-    result = execute("let drop_one = { ([]) []; (h : t) t }; drop_one(values)", context)
+    result = execute("let drop_one = { ([]) []; ((h : t)) t }; drop_one(values)", context)
     assert type(result) is list and result[0] is shared
     result[1] = 99
     shared[0] = 8
@@ -96,14 +96,14 @@ def test_returned_tails_are_mutable_independent_shallow_lists(execute):
 
 
 def test_escaping_tail_capture_has_original_list_semantics(execute):
-    source = "let make = { ([]) () []; (h : t) () t }; let xs = [1, 2, 3]; let get = make(xs); xs[1] = 99; get()"
+    source = "let make = { ([]) () []; ((h : t)) () t }; let xs = [1, 2, 3]; let get = make(xs); xs[1] = 99; get()"
     assert execute(source) == [2, 3]
 
 
 def test_non_tail_calls_keep_left_to_right_argument_order(execute):
     effects = []
     context = Context(functions={"mark": lambda n: effects.append(n) or n})
-    source = "let walk = { ([]) 0; (h : t) mark(h) + walk(t) + mark(0 - h) }; walk([1, 2, 3])"
+    source = "let walk = { ([]) 0; ((h : t)) mark(h) + walk(t) + mark(0 - h) }; walk([1, 2, 3])"
     assert execute(source, context) == 0
     assert effects == [1, 2, 3, -3, -2, -1]
 
@@ -114,7 +114,7 @@ def test_general_recursion_preserves_limits_and_restores_scopes(execute):
         execute(MAP + "map_list(range(20), (x) x)", context)
     assert context.call_depth == 0 and context.scopes == (context.bindings,)
     with pytest.raises(PrototypeError, match="zero"):
-        execute("let bad = { ([]) 0; (h : t) bad(t) + 1 / h }; bad([1, 0, 2])")
+        execute("let bad = { ([]) 0; ((h : t)) bad(t) + 1 / h }; bad([1, 0, 2])")
 
 
 def test_cancellation_restores_continuation_scopes(execute):
@@ -143,7 +143,7 @@ def test_same_function_alias_keeps_original_self(execute):
     ],
 )
 def test_local_self_rebinding_preserves_ordinary_lookup(execute, body):
-    assert execute("let f = { ([]) 0; (h : t) { " + body + " } }; f([1])") == 99
+    assert execute("let f = { ([]) 0; ((h : t)) { " + body + " } }; f([1])") == 99
 
 
 def test_internal_tails_do_not_materialize_per_recursive_call(execute, monkeypatch):
@@ -159,7 +159,7 @@ def test_internal_tails_do_not_materialize_per_recursive_call(execute, monkeypat
     monkeypatch.setattr(_Cursor, "materialize", counted)
     assert (
         execute(
-            "let walk = { ([], n) n; (h : t, n) walk(t, n + h) }; walk(range(5000), 0)"
+            "let walk = { ([], n) n; ((h : t), n) walk(t, n + h) }; walk(range(5000), 0)"
         )
         == 12497500
     )
@@ -184,7 +184,7 @@ def test_tail_accumulator_mutation_uses_one_backing_snapshot(execute, monkeypatc
     monkeypatch.setattr(_Arena, "freeze", frozen)
     monkeypatch.setattr(_Cursor, "materialize", copied)
     context = Context(functions={"append": lambda out, h: out.append(h)})
-    source = "let into = { ([], out) out; (h : t, out) { append(out, h); into(t, out) } }; into(range(1000), [])"
+    source = "let into = { ([], out) out; ((h : t), out) { append(out, h); into(t, out) } }; into(range(1000), [])"
     assert execute(source, context) == list(range(1000))
     assert len(snapshots) == 1 and copies == []
 
@@ -231,7 +231,7 @@ def test_custom_observers_keep_real_lists_and_original_frame_scopes(engine):
             seen.append(context.lookup("h") if context.lookup_scope("h") else None)
 
     context = Context(bindings={"values": values}, statement_observer=observer)
-    program = prepared(parse("let f = { ([]) 0; (h : t) { h; h + f(t) } }; f(values)"))
+    program = prepared(parse("let f = { ([]) 0; ((h : t)) { h; h + f(t) } }; f(values)"))
     result = (
         evaluate(program, context)
         if engine == "tree"
@@ -241,7 +241,7 @@ def test_custom_observers_keep_real_lists_and_original_frame_scopes(engine):
     assert seen == [None]
     seen.clear()
     context = Context(statement_observer=observer)
-    program = prepared(parse("let f = { ([]) 0; (h : t) f(t) }; f([1, 2, 3])"))
+    program = prepared(parse("let f = { ([]) 0; ((h : t)) f(t) }; f([1, 2, 3])"))
     result = (
         evaluate(program, context)
         if engine == "tree"
@@ -269,7 +269,7 @@ def test_preflight_is_once_and_cannot_mutate_an_uncopied_tail(execute):
             return value
 
     context = Context(bindings={"values": values}, functions={"touch": Touch()})
-    source = "let f = { ([]) 0; (h : t) h + touch(f(t)) }; f(values)"
+    source = "let f = { ([]) 0; ((h : t)) h + touch(f(t)) }; f(values)"
     assert execute(source, context) == 6
     assert events == ["signature"] * 3 + ["call"] * 3
 
@@ -282,7 +282,7 @@ def test_dynamic_self_rebinding_dispatches_the_selected_callable(execute):
 
     context.functions["rebind"] = rebind
     assert (
-        execute("let f = { ([]) 0; (h : t) { rebind(); f(t) } }; f([1, 2])", context)
+        execute("let f = { ([]) 0; ((h : t)) { rebind(); f(t) } }; f([1, 2])", context)
         == 99
     )
 
@@ -295,7 +295,7 @@ def test_dynamic_self_rebinding_dispatches_the_selected_callable(execute):
         (FILTER, "filter_list", "filter_list([1, 2, 3], (x) x % 2 == 0)"),
         (REVERSE, "reverse_list", "reverse_list([1, 2, 3])"),
         (
-            "let walk = { ([]) 0; (h : t) { let n = walk(t); n + h } }; ",
+            "let walk = { ([]) 0; ((h : t)) { let n = walk(t); n + h } }; ",
             "walk",
             "walk([1, 2, 3])",
         ),
@@ -349,9 +349,9 @@ def test_pattern_hooks_cannot_mutate_previously_bound_tails(execute, operation):
                 values[1] = 99
             return super().__getitem__(index)
 
-    pattern = "other : rest" if operation == "slice" else "[other]"
+    pattern = "(other : rest)" if operation == "slice" else "[other]"
     source = (
-        "let f = { ([], _) 0; (h : t, " + pattern + ") h + f(t, hooks) }; "
+        "let f = { ([], _) 0; ((h : t), " + pattern + ") h + f(t, hooks) }; "
         "f(values, hooks)"
     )
     context = Context(bindings={"values": values, "hooks": Hooks([7])})
@@ -369,7 +369,7 @@ def test_custom_scalar_operations_cannot_mutate_matched_tails(execute):
 
     values[:] = [Touch("a"), "b", "c"]
     context = Context(bindings={"values": values, "empty": ""})
-    source = "let f = { ([], n) empty; (h : t, n) { let piece = h + empty; piece + f(t, n) } }; f(values, 0)"
+    source = "let f = { ([], n) empty; ((h : t), n) { let piece = h + empty; piece + f(t, n) } }; f(values, 0)"
     assert execute(source, context) == "abc"
     assert values[1] == "changed"
 
@@ -384,6 +384,6 @@ def test_cancellation_hooks_cannot_mutate_matched_tails(execute):
         return False
 
     context.cancel_hook = cancellation
-    source = "let f = { ([], n) 0; (h : t, n) { let result = f(t, n); h + result } }; f(values, 0)"
+    source = "let f = { ([], n) 0; ((h : t), n) { let result = f(t, n); h + result } }; f(values, 0)"
     assert execute(source, context) == 6
     assert values == [1, 99, 3]

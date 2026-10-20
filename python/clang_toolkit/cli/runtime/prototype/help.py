@@ -52,10 +52,13 @@ Usage:
   let HEAD : TAIL = LIST
   let NAME = { ([]) EXPR; (HEAD : TAIL) EXPR }
   let NAME(PARAM, ...) = MATCHER
+  let NAME(value, public_label: local_name = DEFAULT) = EXPR
+  let NAME(value, public_label:) = EXPR
   let NAME(PARAM, OPTIONAL = EXPR, ...) = EXPR
   let NAME(PARAM, OPTIONAL = EXPR, ...) = { STATEMENTS }
   let NAME() = { STATEMENTS }
   NAME(ARG, ...)
+  NAME 5 public_label 6
   NAME((PARAM, OPTIONAL = EXPR, ...) EXPR, ...)
   NAME((PARAM, OPTIONAL = EXPR, ...) { STATEMENTS }, ...)
   FACTORY(ARGS)(ARGS)
@@ -68,6 +71,15 @@ An expression body returns its value; braces are optional for a single expressio
 Inline (PARAM, ...) EXPR or { STATEMENTS } creates a callable without a name.
 The older (PARAM, ...) = BODY spelling remains accepted.
 Inline bodies support the same defaults, handlers and lexical captures.
+An explicit label uses `public_label: local_name`; `public_label:` binds a
+same-named local. Defaults remain optional. Ordinary positional and named calls
+such as `NAME(2, public_label = 3)` are supported. Word calls such as
+`multiply 5 by 6` accept one unlabeled value followed by labeled values; group
+compound values. Pipeline stages use labels after the injected input:
+`5 | multiply by 6`.
+An ungrouped parameter colon introduces a public label. Group a cons parameter
+pattern as `let first((head : tail)) = head`; standalone and foreach cons
+patterns keep their existing spelling.
 Patterns support exact lists, tuples, head : tail and _; names cannot repeat.
 Destructuring is atomic. Bound tails are independent shallow lists; discarded tails are not copied.
 Grouped clauses try top to bottom, share positional arity and cannot have defaults.
@@ -100,6 +112,11 @@ Examples:
   let add_if(l, h) = if l < h then l + h else 0
   let twice(value) = { value * 2 }
   let scale(value, factor = 2) = { value * factor }
+  let multiply(value, by: factor = 2) = value * factor
+  let same_name(value, by:) = value * by
+  let product = multiply 5 by 6
+  let default_product = multiply 5
+  let pipeline_product = 5 | multiply by 6
   let answer = twice(21)
   let announce() = { print "ready" }
   announce()

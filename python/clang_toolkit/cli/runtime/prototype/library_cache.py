@@ -26,7 +26,7 @@ from clang_toolkit.cli.parser_cache import cache_root
 
 from .syntax import Node
 
-_FORMAT = 1
+_FORMAT = 2
 _MAX_ENTRIES = 128
 _MAX_BYTES = 16 * 1024 * 1024
 _META_FIELDS = {"empty", "line", "column", "start_pos", "end_line", "end_column",
@@ -62,7 +62,8 @@ def _encode(value: Any) -> Any:
                 value.column, value.end_line, value.end_column, value.end_pos]
     if isinstance(value, Node):
         return ["node", value.kind, _encode(value.value), _encode(value.children),
-                value.line, value.column, _encode(value.source_span)]
+                value.line, value.column, _encode(value.source_span),
+                _encode(getattr(value, "parameter_labels", ()))]
     if isinstance(value, Tree):
         return ["tree", _encode(value.data), [_encode(item) for item in value.children],
                 _encode(vars(value.meta))]
@@ -87,15 +88,18 @@ def _decode(value: Any) -> Any:
         case ["omitted"]:
             from .selection import OMITTED
             return OMITTED
-        case ["node", str(kind), raw, raw_children, int(line), int(column), raw_span]:
+        case ["node", str(kind), raw, raw_children, int(line), int(column), raw_span, raw_labels]:
             children = _decode(raw_children)
             span = _decode(raw_span)
+            labels = _decode(raw_labels)
             if not isinstance(children, tuple) or not all(isinstance(item, Node) for item in children):
                 raise ValueError("invalid cached children")
             if span is not None and (not isinstance(span, tuple) or len(span) != 2
                                      or not all(type(item) is int for item in span)):
                 raise ValueError("invalid cached source span")
-            return Node(kind, _decode(raw), children, line, column, span)
+            if not isinstance(labels, tuple) or not all(item is None or isinstance(item, str) for item in labels):
+                raise ValueError("invalid cached parameter labels")
+            return Node(kind, _decode(raw), children, line, column, span, labels)
         case ["tree", raw, list(raw_children), raw_meta]:
             data = _decode(raw)
             fields = _decode(raw_meta)

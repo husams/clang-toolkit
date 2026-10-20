@@ -504,13 +504,25 @@ class PrototypeCompleter(Completer):
             return
         pipeline_partial = _pipeline_stage_partial(before, cursor, tokens)
         pipeline_arguments = _pipeline_call_arguments(before, cursor, tokens)
+        pipeline_word_label = (
+            None if pipeline_partial is not None or pipeline_arguments is not None
+            else _pipeline_word_label(before, cursor, tokens)
+        )
+        named_arguments = (
+            None if pipeline_partial is not None or pipeline_arguments is not None
+            or pipeline_word_label is not None
+            else _named_call_arguments(before, cursor, tokens)
+        )
         match = re.search(r"[A-Za-z_][A-Za-z0-9_]*$|(?<=\.)$", before)
-        if match is None and pipeline_partial is None and pipeline_arguments is None:
+        if (match is None and pipeline_partial is None and pipeline_arguments is None
+                and named_arguments is None and pipeline_word_label is None):
             return
         partial = (
             match.group(0) if match is not None
             else pipeline_partial if pipeline_partial is not None
             else pipeline_arguments[1] if pipeline_arguments is not None
+            else pipeline_word_label[1] if pipeline_word_label is not None
+            else named_arguments[1] if named_arguments is not None
             else ""
         )
         tail = re.match(r"[A-Za-z_0-9]+", document.text_after_cursor)
@@ -552,6 +564,34 @@ class PrototypeCompleter(Completer):
                         display_meta=f"stage argument · {stage_name} (input supplied by |)",
                     )
             return
+        if pipeline_word_label is not None:
+            stage_name, argument_partial = pipeline_word_label
+            description = descriptions.get(stage_name)
+            if description is not None:
+                for name in description.pipeline_parameters:
+                    if not name.startswith(argument_partial) or name in known:
+                        continue
+                    yield Completion(
+                        name + " ",
+                        start_position=-len(argument_partial),
+                        display=name,
+                        display_meta=f"stage label · {stage_name} (input supplied by |)",
+                    )
+            return
+        if named_arguments is not None:
+            function_name, argument_partial, already_supplied = named_arguments
+            description = descriptions.get(function_name)
+            if description is not None:
+                for name in description.parameter_names:
+                    if (not name.startswith(argument_partial) or name in already_supplied
+                            or name in known):
+                        continue
+                    yield Completion(
+                        name + "=",
+                        start_position=-len(argument_partial),
+                        display=name + "=",
+                        display_meta=f"argument · {function_name}",
+                    )
         if pipeline_partial is not None:
             for name in sorted(functions):
                 text = insertion(name, call=True)
@@ -571,7 +611,7 @@ class PrototypeCompleter(Completer):
             return
         if re.search(r"(?:^|[;\n])\s*help\s+[^;\n]*$", before):
             return
-        if before[: match.start()].endswith("."):
+        if match is not None and before[: match.start()].endswith("."):
             field = re.search(
                 r"([A-Za-z_][A-Za-z0-9_]*(?:\[[0-9]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*)\.[A-Za-z_0-9]*$",
                 before,
@@ -668,3 +708,71 @@ def _pipeline_call_arguments(
     if match is None:
         return None
     return match[1], match[2] or ""
+
+
+def _pipeline_word_label(
+    source: str, cursor: int, tokens: list[Token]
+) -> tuple[str, str] | None:
+    """Find a word-label argument being typed in the current pipeline stage."""
+    pipes = [
+        token for token in tokens
+        if (_kind(token) == "PIPE" or str(token) == "|")
+        and int(token.end_pos) <= cursor
+    ]
+    if not pipes:
+        return None
+    suffix = source[int(pipes[-1].end_pos):cursor]
+    match = re.fullmatch(
+        r"\s*([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)?",
+        suffix,
+    )
+    if match is None:
+        return None
+    return match[1], match[2] or ""
+
+
+def _named_call_arguments(
+    source: str, cursor: int, tokens: list[Token]
+) -> tuple[str, str, set[str]] | None:
+    """Find a simple named-call argument being typed at the cursor."""
+    depth = 0
+    opening = None
+    for index in range(len(tokens) - 1, -1, -1):
+        token = tokens[index]
+        if int(getattr(token, "end_pos", 0)) > cursor:
+            continue
+        kind = _kind(token)
+        if kind in {"RPAR", "RSQB", "RBRACE"}:
+            depth += 1
+        elif kind in {"LPAR", "LSQB", "LBRACE"}:
+            if depth:
+                depth -= 1
+            elif kind == "LPAR":
+                opening = index
+                break
+    if opening is None or opening == 0:
+        return None
+    callee = str(tokens[opening - 1])
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", callee):
+        return None
+
+    start = int(tokens[opening].end_pos)
+    nested = 0
+    for token in tokens[opening + 1:]:
+        if int(getattr(token, "end_pos", 0)) > cursor:
+            break
+        kind = _kind(token)
+        if kind in {"LPAR", "LSQB", "LBRACE"}:
+            nested += 1
+        elif kind in {"RPAR", "RSQB", "RBRACE"}:
+            if nested:
+                nested -= 1
+        elif kind == "COMMA" and nested == 0:
+            start = int(token.end_pos)
+    segment = source[start:cursor]
+    match = re.fullmatch(r"\s*([A-Za-z_][A-Za-z0-9_]*)?", segment)
+    if match is None:
+        return None
+    before_call = source[int(tokens[opening].end_pos):cursor]
+    supplied = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*=", before_call))
+    return callee, match[1] or "", supplied
