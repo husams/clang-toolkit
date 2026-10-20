@@ -19,7 +19,7 @@ from lark import Token, Tree
 from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.language import parser
-from clang_toolkit.cli.help import HAS_NATIVE_ANALYSIS_GRAMMAR, render_help
+from clang_toolkit.cli.help import render_help
 from clang_toolkit.cli.matcher_catalog import (
     NESTED_MATCHERS,
     ROOT_MATCHERS,
@@ -746,12 +746,9 @@ class Runtime:
             execute_variable_flow(self, statement)
             return ""
         if kind == "cfg":
-            message = (
+            raise EvaluationError(
                 'cfg requires a file: cfg FUNCTION in "file.cc"; see help cfg'
-                if HAS_NATIVE_ANALYSIS_GRAMMAR
-                else "cfg native execution is not implemented in this build; see help cfg"
             )
-            raise EvaluationError(message)
         if kind == "script":
             from .scripting import execute_script
 
@@ -763,12 +760,9 @@ class Runtime:
             value = execute_call_graph(self, statement)
             return self._emit_output(value if isinstance(value, str) else render_graph(value))
         if kind == "callgraph":
-            message = (
+            raise EvaluationError(
                 'callgraph requires a file: callgraph "file.cc"; see help callgraph'
-                if HAS_NATIVE_ANALYSIS_GRAMMAR
-                else "callgraph native execution is not implemented in this build; see help callgraph"
             )
-            raise EvaluationError(message)
         raise EvaluationError(f"{kind} execution is not implemented yet")
 
     def completion_references(self) -> dict[str, tuple[str, ...]]:

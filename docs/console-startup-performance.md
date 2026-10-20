@@ -132,3 +132,54 @@ handlers and generated help passed all 235 tests, including the additional
 embedded-block and concurrent-writer regressions. Whitespace checks passed.
 No C++ or protocol code changed during this review; the earlier native and
 end-to-end validation limitations remain.
+
+## Time until the console accepts input
+
+The later startup investigation measured the actual workspace's first frame
+and the redraws after two typed characters. The remaining delay came primarily
+from building the legacy command parser during help import, followed by
+synchronous autocomplete parser construction on the first keystroke. Loading
+the installed, cached 209-line helper library took approximately 30-70 ms.
+
+Help now documents the shipped native analysis grammar directly, removing the
+old optional-extension probe and fallback descriptions. Contextual help uses
+the active editor's tokenizer and updates only while its panel is visible.
+Autocomplete runs through prompt_toolkit's threaded completion support so
+grammar initialization and field discovery do not block input or redraws.
+
+The investigation also reproduced a startup deadlock when a connection error
+was printed before the workspace application was running. Rich's capture flush
+re-entered the workspace stdout bridge while its printing lock was held.
+Markdown rendering now uses a private in-memory output stream.
+
+To reproduce the input measurements:
+
+```sh
+uv run python scripts/benchmark_console_input.py
+uv run python scripts/benchmark_console_input.py --lib-dir ~/.ctk/lib --samples 3
+```
+
+Each sample launches a new Python process and runs the real workspace with
+pipe input and a headless 140-column screen. It measures imports, history,
+runtime construction, installed library preloading, layout, completion and key
+redraws. It excludes uv and interpreter startup, terminal drawing, and backend
+connections. Existing library caches are reused. No commands are submitted.
+
+Three local samples against the previous review commit `20a113f` gave:
+
+| Median time from worker start | Before | After |
+| --- | ---: | ---: |
+| First workspace frame | 1.201 s | 0.392 s |
+| First typed character displayed | 1.964 s | 0.415 s |
+| Second typed character displayed | 1.974 s | 0.444 s |
+
+Cold autocomplete suggestions can still take longer than typing because the
+completion parsers are initialized in the background. Cold library parsing
+remains a separate limitation. These results do not promise identical terminal
+or server behavior on other machines.
+
+All 316 focused console tests passed, including new regressions for help imports
+without parser construction, typing and redraws during blocked completion in
+both engines, contextual help visibility/tokenization, and the redirected
+output deadlock. The native server connection could not be validated in this
+session because the environment rejected the Unix socket connection.

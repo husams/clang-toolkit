@@ -1,7 +1,6 @@
 import pytest
 
 from clang_toolkit.cli.app import dispatch
-from clang_toolkit.cli.help import HAS_NATIVE_ANALYSIS_GRAMMAR
 from clang_toolkit.client import Client
 
 
@@ -211,8 +210,7 @@ def test_legacy_cfg_names_report_missing_path_locally():
 
     for name in ("foo", "app::foo"):
         client = Mock(spec=Client)
-        expected = "cfg requires a file" if HAS_NATIVE_ANALYSIS_GRAMMAR else "cfg native execution is not implemented"
-        assert expected in dispatch(client, "cfg\t" + name)
+        assert "cfg requires a file" in dispatch(client, "cfg\t" + name)
         client.cfg.assert_not_called()
 
 
@@ -220,8 +218,7 @@ def test_bare_callgraph_and_exit_alias():
     from unittest.mock import Mock
 
     client = Mock(spec=Client)
-    expected = "callgraph requires a file" if HAS_NATIVE_ANALYSIS_GRAMMAR else "callgraph native execution is not implemented"
-    assert expected in dispatch(client, "callgraph")
+    assert "callgraph requires a file" in dispatch(client, "callgraph")
     client.callgraph.assert_not_called()
     assert dispatch(client, "exit") is None
 

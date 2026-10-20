@@ -7,7 +7,6 @@ from collections.abc import Mapping
 
 from lark import Tree
 from clang_toolkit._generated.analysis.v1.cfg_options_pb2 import CfgOptions
-from clang_toolkit.cli.language import parser
 from clang_toolkit.cli.callable_help import CallableHelp
 from clang_toolkit.cli.matcher_catalog import (
     LLVM_VERSION, MATCHER_METADATA, REFERENCE_SOURCE, REFERENCE_URL, ROOT_MATCHERS,
@@ -1090,43 +1089,6 @@ _PIPE_ENTRY = CommandHelp(
 )
 
 COMMAND_HELP = {entry.topic: entry for entry in _ENTRIES}
-HAS_NATIVE_ANALYSIS_GRAMMAR = any(
-    rule.origin.name == "cfg_option" for rule in parser().rules
-)
-# Native analysis extensions may be present in a working checkout before they
-# are published. Describe only the grammar shipped with this checkout, without
-# importing optional runtime adapters or depending on uncommitted native code.
-if not HAS_NATIVE_ANALYSIS_GRAMMAR:
-    COMMAND_HELP["cfg"] = CommandHelp(
-        "cfg",
-        "Inspect the legacy control-flow command's current implementation boundary.",
-        ("cfg FUNCTION",),
-        (
-            "FUNCTION: bare or qualified name. The legacy client hook is not implemented in this build.",
-            "Native file selection and build options require the native analysis extension; no usable graph is returned here.",
-        ),
-        ("cfg one",),
-    )
-    COMMAND_HELP["callgraph"] = CommandHelp(
-        "callgraph",
-        "Inspect the legacy call-graph command's current implementation boundary.",
-        ("callgraph [PATH]",),
-        (
-            "The legacy call-graph client hook is not implemented in this build.",
-            "File selection parses, but the runtime rejects it until the native analysis extension is available.",
-        ),
-        ("callgraph",),
-    )
-    COMMAND_HELP["traverse"] = CommandHelp(
-        "traverse",
-        "Inspect the legacy AST traversal command's current implementation boundary.",
-        ("traverse PATH",),
-        (
-            "PATH: quoted source file or reference. The grammar accepts this form, but execution is not implemented in this build.",
-            "Native visitor options and execution require the native analysis extension.",
-        ),
-        ('traverse "examples/parse_match.cc"',),
-    )
 COMMAND_HELP["add extra_arg"] = replace(COMMAND_HELP["add"], topic="add extra_arg")
 
 for setting, usage, detail, example in (

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+
+from lark import Token
 
 from clang_toolkit.cli.help import COMMAND_HELP, MATCHER_HELP, help_entry
 from clang_toolkit.cli.callable_help import CallableHelp
@@ -16,12 +18,18 @@ class CommandContext(MarkdownPanel):
         function_help: Mapping[str, CallableHelp]
         | Callable[[], Mapping[str, CallableHelp]]
         | None = None,
+        *,
+        tokenizer: Callable[[str], Iterable[Token]] = lex,
     ) -> None:
         super().__init__()
         self.function_help = function_help
+        self.tokenizer = tokenizer
 
     def update(self, source: str, root: str, *, completion: str | None = None) -> None:
-        words = [str(token) for token in lex(source) if token.type != "WS"]
+        # Follow the active editor's tokens; the compiled editor does not need
+        # the legacy command parser just to display contextual help.
+        tokens = self.tokenizer(source) if source else ()
+        words = [str(token) for token in tokens if not str(token).isspace()]
         functions = (
             self.function_help()
             if callable(self.function_help)
