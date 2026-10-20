@@ -73,6 +73,29 @@ lexical captures, fresh call frames and checked execution limits. Use `()` for
 zero parameters. An expression body extends through the complete expression;
 a following argument comma or enclosing delimiter ends it.
 
+A grouped callable block can follow a callee or its argument list:
+
+```ctk
+let transform(value, using: operation, by: = 2) = operation(value) * by
+let a = transform(5) { (item) item + 1 }
+let b = 5 | transform { (item) item + 1 }
+let c = transform(5, by = 3) { (item) item + 1 }
+let d = 5 | transform by 3 { (item) item + 1 }
+let normal = transform(5, { (item) item + 1 }, by = 3)
+```
+
+These return `12`, `12`, `18`, `18` and `18`. The trailing block is the final
+positional argument, placed before named options for ordinary argument binding.
+Pipeline input still supplies the first argument. This also works with callable
+aliases and expressions such as `operations[0](5) { (item) item + 1 }`.
+The opening brace must be on the same physical line as the callee or closing
+parenthesis; the block itself can span lines. Use explicit parameters inside
+the braces: `{ (item) item + 1 }`, or `{ (item) { STATEMENTS } }` for a body
+with several statements. Existing grouped-clause pattern rules apply, including
+equal arities and no defaults inside the grouped callback. Normal calls and
+labeled callback arguments such as `transform 5 using { (item) item + 1 }`
+remain available. See the complete [example](../examples/trailing_callable_blocks.ctk).
+
 Command value and path operands accept full expressions, including callbacks,
 pipelines, conditionals and computed paths. For example,
 `save (items | map((x) x * 2)) to (directory + "/report.json") as json`.

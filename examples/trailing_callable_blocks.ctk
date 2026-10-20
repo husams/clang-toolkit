@@ -1,0 +1,35 @@
+// A trailing block supplies the final positional argument.
+let items = [1, 2, 3, 4]
+let doubled = map(items) { (item) item * 2 }
+let normal = map(items, { (item) item * 2 })
+print "TRAILING={doubled | json}"
+print "NORMAL={normal | json}"
+
+let selected = items
+    | filter { (item) item > 2 }
+    | map { (item) item * 10 }
+let equivalent = map(filter(items, { (item) item > 2 }), { (item) item * 10 })
+print "PIPELINE={selected | json}"
+print "EQUIVALENT={equivalent | json}"
+
+// Keyword options stay inside parentheses, before the trailing block.
+let descending = items | sort_by(reverse = true) { (item) item }
+print "SORTED={descending | json}"
+
+// Public labels, shorthand defaults and ordinary calls work together.
+let transform(value, using: operation, by: = 2) = operation(value) * by
+let adjusted = transform(5, by = 3) { (item) item + 1 }
+let piped = 5 | transform by 3 { (item) item + 1 }
+let labeled = transform 5 using { (item) item + 1 } by 3
+let positional = transform(5, { (item) item + 1 }, 3)
+print "CUSTOM={adjusted},{piped},{labeled},{positional}"
+
+// Multiple statements and tuple callbacks retain lexical captures.
+let factor = 10
+let descriptions = [("Ada", 3), ("Lin", 5)] | map {
+    (name, count) {
+        let scaled = count * factor
+        "{name}: {scaled}"
+    }
+}
+print "TUPLES={descriptions | json}"

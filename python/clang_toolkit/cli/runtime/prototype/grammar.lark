@@ -83,7 +83,8 @@ open_pipe_expr: open_pipe_base (soft_newlines PIPE_OP soft_newlines pipe_stage)*
 ?multiline_expression: inline_runnable
                     | open_inline_runnable
                     | open_pipe_base (soft_newlines PIPE_OP soft_newlines pipe_stage)* recovery_tail? -> pipe_expr
-?pipe_stage: named_call | natural_stage | reference
+?pipe_stage: trailing_stage | named_call | natural_stage | reference
+trailing_stage: (named_call | natural_stage | reference) clause_runnable
 ?conditional: recoverable -> recovery_expr
 closed_if_expr: "if" expression closed_conditional_body closed_if_else -> if_expr
 open_if_expr: "if" expression conditional_body -> if_expr
@@ -161,6 +162,7 @@ comparison: additive comparison_tail?
 ?postfix_part: soft_newlines "." soft_newlines CNAME -> member_part
              | index_expression
              | call_suffix
+             | clause_runnable -> trailing_block_part
 call_suffix.2: "(" arguments? ")"
 
 target: reference target_part*

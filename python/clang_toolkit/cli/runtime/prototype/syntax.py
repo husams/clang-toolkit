@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ast as python_ast
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -453,7 +453,32 @@ class _Builder(Transformer[Any, Any]):
                 result = Node("index", children=(result, part.children[0]), line=part.line, column=part.column)
             elif part.kind == "call":
                 result = Node("invoke", children=(result, *part.children), line=part.line, column=part.column)
+            elif part.kind == "trailing_block":
+                result = self._trailing_call(result, part.children[0])
         return result
+
+    @staticmethod
+    def _trailing_call(callee: Node, callback: Node) -> Node:
+        # A trailing block is the last positional argument, before any named
+        # options. Lower to ordinary calls so binding, admission and both
+        # engines keep the same validation and callback semantics.
+        if callee.kind in {"call", "invoke"}:
+            arguments = list(callee.children)
+            index = next((index for index, argument in enumerate(arguments)
+                          if argument.kind == "keyword_arg"), len(arguments))
+            arguments.insert(index, callback)
+            return replace(callee, children=tuple(arguments))
+        if callee.kind == "ref":
+            return Node("call", callee.value, (callback,), callee.line, callee.column)
+        return Node("invoke", children=(callee, callback), line=callee.line, column=callee.column)
+
+    def trailing_block_part(self, meta: Any, items: list[Any]) -> _Part:
+        line, column = self._location(meta, items)
+        return _Part("trailing_block", children=_nodes(items), line=line, column=column)
+
+    def trailing_stage(self, meta: Any, items: list[Any]) -> Node:
+        callee, callback = _nodes(items)
+        return self._trailing_call(callee, callback)
 
     def natural_postfix(self, meta: Any, items: list[Any]) -> Node:
         return self.postfix(meta, items)
