@@ -1,13 +1,13 @@
 // Empty/non-empty list clauses compile to an allocation-free numeric fold.
 let total = {
     ([]) 0
-    (head : tail) head + total(tail)
+    ((head : tail)) head + total(tail)
 }
 
 // Parameter patterns work in named and inline runnables.
-let add_first_two(a : b : _) = a + b
+let add_first_two((a : b : _)) = a + b
 let heads = [[10, 20], [30, 40]]
-    | map((head : _) head)
+    | map(((head : _)) head)
 
 print total([10, 20, 30])
 print total([])

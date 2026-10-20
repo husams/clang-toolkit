@@ -327,6 +327,11 @@ def run_workspace(
         read_until("row_count =")
         (tmp_path / "workspace-session-tree.txt").write_text("\n".join(screen.display))
         os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")
+        # The status report is taller than this compact workspace viewport;
+        # give its first project-index row room to remain visible as well.
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 36, 100, 0, 0))
+        screen.resize(lines=36, columns=100)
+        os.kill(process.pid, signal.SIGWINCH)
         commands.append("server status")
         submit(commands[-1], "Total projects")
         assert any("Projects in progress" in line for line in screen.display)
@@ -334,6 +339,9 @@ def run_workspace(
         column = screen.display[row].index("Total projects")
         assert screen.buffer[row][column].bg != "default"
         (tmp_path / "workspace-command-output.txt").write_text("\n".join(screen.display))
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 100, 0, 0))
+        screen.resize(lines=28, columns=100)
+        os.kill(process.pid, signal.SIGWINCH)
         # Foreground progress is a single updated bar, backed by native work.
         second_source = tmp_path / "second.cc"
         second_source.write_text("int second() {\n    return 2;\n}\n")

@@ -30,6 +30,7 @@ class RunnableBlock:
     recursion: Any = None
     direct_loop: Any = None
     scalar_loop: Any = None
+    parameter_labels: tuple[str | None, ...] = ()
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(_format_pattern(item) for item in self.parameters)})"
@@ -45,19 +46,23 @@ class RunnableBlock:
         previous_source_name = context.source_name
         previous_templates = context.string_templates
         supplied: dict[int, Any] = {index: value for index, value in enumerate(arguments)}
-        names = {pattern: index for index, pattern in enumerate(self.parameters)
-                 if isinstance(pattern, str) and pattern != "_"}
+        slots = resolve_keyword_slots(self.parameters, self.parameter_labels, tuple(keywords or {}))
         for key, value in (keywords or {}).items():
-            if key not in names:
+            if key not in slots:
                 raise _error(context, node, f"{self.name} has no parameter {key!r}")
-            if names[key] in supplied:
+            if slots[key] in supplied:
                 raise _error(context, node, f"{self.name} got multiple values for {key!r}")
-            supplied[names[key]] = value
+            supplied[slots[key]] = value
         from .list_recursion import observer_allows_optimization
 
-        if self.recursion is not None and _executable is None and observer_allows_optimization(context):
+        if (self.recursion is not None and _executable is None and not keywords
+                and observer_allows_optimization(context)):
             _bound = {}
-            _executable = lambda ctx: self.recursion.run(ctx, arguments, self, node)
+
+            def execute_recursive(ctx: Context) -> Any:
+                return self.recursion.run(ctx, arguments, self, node)
+
+            _executable = execute_recursive
         local: dict[str, Any] = {self.name: self}
         if _bound is not None:
             local.update(_bound)
@@ -171,7 +176,8 @@ def create_runnable(context: Context, node: Any, executable: Callable[[Context],
                           (node.line, node.column), context.source_name, defaults, node.children[1:],
                           context.source[slice(*node.source_span)] if node.source_span else "",
                           compile_list_recursion(node, context),
-                          scalar_loop=compile_scalar_loop(node.children[0], parameters, executable))
+                          scalar_loop=compile_scalar_loop(node.children[0], parameters, executable),
+                          parameter_labels=tuple(getattr(node, "parameter_labels", ())))
     return value
 
 
@@ -246,17 +252,19 @@ def _preflight(context: Context, node: Any, name: str, value: Any, positional_co
         if isinstance(value, MultiClauseBlock) and keywords:
             raise _error(context, node, "multi-clause functions accept positional arguments only")
         required = len(value.parameters) - len(value.defaults)
-        names = {item for item in value.parameters if isinstance(item, str) and item != "_"}
-        if any(key not in names for key in keywords):
-            unknown = next(key for key in keywords if key not in names)
+        keyword_slots = resolve_keyword_slots(value.parameters, value.parameter_labels, keywords)
+        if any(key not in keyword_slots for key in keywords):
+            unknown = next(key for key in keywords if key not in keyword_slots)
             raise _error(context, node, f"{name} has no parameter {unknown!r}")
         assigned = set(range(positional_count))
-        keyword_slots = {value.parameters.index(key) for key in keywords if key in names}
-        duplicates = assigned & keyword_slots
+        keyword_slot_values = set(keyword_slots.values())
+        duplicates = assigned & keyword_slot_values
         if duplicates:
-            raise _error(context, node, f"{name} got multiple values for {value.parameters[min(duplicates)]!r}")
+            parameter_name = parameter_public_name(value.parameters, value.parameter_labels,
+                                                  min(duplicates))
+            raise _error(context, node, f"{name} got multiple values for {parameter_name!r}")
         total = positional_count + len(keywords)
-        supplied_slots = assigned | keyword_slots
+        supplied_slots = assigned | keyword_slot_values
         if positional_count > len(value.parameters) or not set(range(required)).issubset(supplied_slots):
             if not value.defaults:
                 raise _error(context, node, f"{name} expects {len(value.parameters)} argument(s), got {total}")
@@ -282,6 +290,23 @@ def _preflight(context: Context, node: Any, name: str, value: Any, positional_co
         signature.bind(*([None] * positional_count), **{key: None for key in keywords})
     except TypeError as error:
         raise _error(context, node, f"invalid arguments for {name}: {error}") from error
+
+
+def parameter_public_name(parameters: tuple[Any, ...], labels: tuple[str | None, ...],
+                          index: int) -> str | None:
+    """Return the keyword spelling for a slot, preserving legacy local names."""
+    if index < len(labels) and labels[index] is not None:
+        return labels[index]
+    pattern = parameters[index]
+    return pattern if isinstance(pattern, str) and pattern != "_" else None
+
+
+def resolve_keyword_slots(parameters: tuple[Any, ...], labels: tuple[str | None, ...],
+                          keywords: tuple[str, ...] | list[str]) -> dict[str, int]:
+    """Resolve public keyword names to parameter slots for runtime and admission."""
+    public_names = {name: index for index in range(len(parameters))
+                    if (name := parameter_public_name(parameters, labels, index)) is not None}
+    return {key: public_names[key] for key in keywords if key in public_names}
 
 
 def bind_pattern(target: dict[str, Any], pattern: Any, value: Any, context: Context, node: Any) -> None:
@@ -355,7 +380,10 @@ def run_pipe(context: Context, node: Any, initial: Callable[[], Any], stages: li
         context.tick(stage)
         try:
             if getattr(stage, "kind", None) == "ref":
-                arguments = lambda: []
+                def no_arguments() -> list[Any]:
+                    return []
+
+                arguments = no_arguments
             value = invoke_named(context, stage, name, arguments, injected=value)
         except PrototypeError as error:
             raise _error(context, stage, f"pipe stage {index} {name!r} failed: {error}", type(error)) from error

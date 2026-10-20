@@ -28,6 +28,7 @@ class Node:
     line: int = 1
     column: int = 1
     source_span: tuple[int, int] | None = None
+    parameter_labels: tuple[str | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -106,9 +107,29 @@ class _Builder(Transformer[Any, Any]):
     def parameter(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)
         nodes = _nodes(items)
+        if len(nodes) == 1 and nodes[0].kind == "parameter":
+            return nodes[0]
         pattern = nodes[0]
         return Node("parameter", pattern.value, nodes[1:], line, column,
-                    (meta.start_pos, meta.end_pos))
+                    (meta.start_pos, meta.end_pos), (None,))
+
+    def labeled_parameter(self, meta: Any, items: list[Any]) -> Node:
+        label, local, *default = items
+        line, column = self._location(meta, items)
+        return Node("parameter", str(local), tuple(default), line, column,
+                    (meta.start_pos, meta.end_pos), (str(label),))
+
+    def shorthand_parameter(self, meta: Any, items: list[Any]) -> Node:
+        label = items[0]
+        line, column = self._location(meta, items)
+        return Node("parameter", str(label), (), line, column,
+                    (meta.start_pos, meta.end_pos), (str(label),))
+
+    def shorthand_default_parameter(self, meta: Any, items: list[Any]) -> Node:
+        label, default = items
+        line, column = self._location(meta, items)
+        return Node("parameter", str(label), (default,), line, column,
+                    (meta.start_pos, meta.end_pos), (str(label),))
 
     def name_pattern(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)
@@ -170,6 +191,17 @@ class _Builder(Transformer[Any, Any]):
         names = [parameter for pattern in parameters for parameter in _pattern_names(pattern)]
         if len(set(names)) != len(names):
             raise ValueError(f"{name} has duplicate parameter names")
+        labels = tuple(item.parameter_labels[0] for item in specs)
+        public_names = tuple(
+            label or (local if isinstance(local, str) else None)
+            for label, local in zip(labels, parameters)
+        )
+        explicit_labels = tuple(label for label in labels if label is not None)
+        if len(set(explicit_labels)) != len(explicit_labels):
+            raise ValueError(f"{name} has duplicate parameter labels")
+        concrete_public_names = tuple(item for item in public_names if item is not None)
+        if len(set(concrete_public_names)) != len(concrete_public_names):
+            raise ValueError(f"{name} has duplicate public parameter names")
         default_seen = False
         for item in specs:
             if item.children:
@@ -182,7 +214,7 @@ class _Builder(Transformer[Any, Any]):
         defaults = tuple(item for item in specs if item.children)
         line, column = self._location(meta, items)
         return Node(kind, (name, parameters), (body, *defaults), line, column,
-                    (meta.start_pos, meta.end_pos))
+                    (meta.start_pos, meta.end_pos), labels)
 
     def error_handler(self, meta: Any, items: list[Any]) -> Node:
         line, column = self._location(meta, items)
@@ -423,6 +455,12 @@ class _Builder(Transformer[Any, Any]):
                 result = Node("invoke", children=(result, *part.children), line=part.line, column=part.column)
         return result
 
+    def natural_postfix(self, meta: Any, items: list[Any]) -> Node:
+        return self.postfix(meta, items)
+
+    def natural_reference_postfix(self, meta: Any, items: list[Any]) -> Node:
+        return self.postfix(meta, items)
+
     def call_suffix(self, meta: Any, items: list[Any]) -> _Part:
         line, column = self._location(meta, items)
         arguments = next((item for item in items if isinstance(item, tuple)), ())
@@ -461,6 +499,21 @@ class _Builder(Transformer[Any, Any]):
         arguments = next((item for item in items[1:] if isinstance(item, tuple)), ())
         line, column = self._location(meta, items)
         return Node("call", value=name, children=arguments, line=line, column=column)
+
+    def natural_labeled_argument(self, meta: Any, items: list[Any]) -> Node:
+        label = next(item for item in items if isinstance(item, Token))
+        expression = next(item for item in items if isinstance(item, Node))
+        line, column = self._location(meta, items)
+        return Node("keyword_arg", str(label), (expression,), line, column)
+
+    def natural_call(self, meta: Any, items: list[Any]) -> Node:
+        name = next(item for item in items if isinstance(item, Token))
+        arguments = tuple(item for item in items if isinstance(item, Node))
+        line, column = self._location(meta, items)
+        return Node("call", str(name), arguments, line, column)
+
+    def natural_stage(self, meta: Any, items: list[Any]) -> Node:
+        return self.natural_call(meta, items)
 
     def keyword_argument(self, meta: Any, items: list[Any]) -> Node:
         name = next(str(item) for item in items if isinstance(item, Token) and item.type == "CNAME")

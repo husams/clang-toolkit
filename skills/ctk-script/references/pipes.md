@@ -16,10 +16,27 @@ let my_filter(input, arg) = input + arg
 print 10 | my_filter(1)
 let prefixed(input, prefix = "item: ") = prefix + input
 print "widget" | upper | prefixed(prefix = "class: ")
+let multiply(value, by: factor = 2) = value * factor
+let add(value, to: amount) = value + amount
+print 5 | multiply by 6 | add to 2
 ```
 
-Output is `11`, then `class: WIDGET`. Functions retain ordinary lexical scope,
-defaults and named arguments. Built-in names can be shadowed; choose helper names
+Output is `11`, then `class: WIDGET`; the final chain result is `32`. `by` is
+the public keyword and `factor` is the local name. The shorthand `by:` uses the
+same name for both, and it can have a default, as in
+`let scale(value, by: = 2) = value * by`. Word calls such as
+`multiply 5 by 6` accept one leading positional value followed by labeled
+values; ordinary calls such as `multiply(5, by = 6)` and `multiply(2, 4)` remain
+available. A pipe supplies slot zero, so natural stages take labeled arguments
+only: write `5 | multiply by 6`, with no extra unlabeled argument. Group
+compound values and use ordinary parentheses for multiple positional arguments.
+Whitespace arguments may be atomic postfix values such as `record.count`,
+`limits[0]`, or `source()`; group arithmetic and predicates, for example
+`multiply (value + 1) by (factor + 2)`. Expression and structural words (`and`,
+`or`, `in`, `is`, `then`, `do`, `else`, `until`, and `on`) cannot be word
+labels, though conventional named calls can use those labels. Tab completes
+public labels in named calls and pipeline stages. Functions retain ordinary
+lexical scope, defaults and named arguments. Built-in names can be shadowed; choose helper names
 that do not hide filters you intend to call.
 
 Pipes evaluate eagerly once per stage, from left to right. They bind below
@@ -64,6 +81,12 @@ let ordered = selected | sort_by((name, count) = count, reverse = true)
 let distinct = ordered | unique_by((name, count) = name)
 let labels = distinct | map((name, count) = "{name}: {count}")
 ```
+
+An ungrouped colon in a runnable parameter now introduces a label: in
+`let first(head : tail) = tail`, `head` is the public keyword and `tail` is
+the local parameter. Group cons patterns in callbacks, such as
+`map(((head : tail)) head)`; standalone and `foreach` cons patterns keep
+`head : tail`.
 
 A callback with two or more required parameters receives tuple elements as
 arguments. A unary callback receives the complete item; optional trailing

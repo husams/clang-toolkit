@@ -20,13 +20,36 @@ same Python compiler, lexical scopes and execution limits as brace bodies.
 let add(l, r = 1) = l + r
 let inc(x) = add(x, 1)
 let add_if(l, h) = if l < h then l + h else 0
+let multiply(value, by: factor = 2) = value * factor
+let same_name(value, by:) = value * by
 let ready() = true
 inc(4)
 add_if(2, 5)
+multiply(2, 4)
+multiply 5 by 6
+multiply(5, by = 6)
+multiply(5)
 ```
 
-These calls return `5` and `7`. Use braces for multiple statements or prefix
-handlers; expression bodies can use `EXPR on error FALLBACK`. Existing direct
+These calls return `5`, `7`, `8`, `30`, `30` and `10`. A declaration `by: factor`
+makes `by` the public keyword and `factor` the local name. The shorthand `by:`
+uses `by` for both. Conventional positional and named calls remain supported.
+Word calls accept at most one leading positional value followed by labeled
+values; use ordinary parentheses for multiple positional arguments and group
+compound values. Help and completion show public labels. Use braces for multiple
+statements or prefix handlers; expression bodies can use `EXPR on error FALLBACK`.
+Word calls are complete expression statements or right sides of `let` and
+ordinary assignment; use regular calls in conditions, collections,
+interpolation, or other nested expressions. Whitespace arguments are atomic
+values such as `record.count`, `limits[0]`, and `source()`. Group operators and
+predicates, as in `multiply (value + 1) by (factor + 2)`; an ungrouped operator
+stays outside the call. Expression and structural words (`and`, `or`, `in`,
+`is`, `then`, `do`, `else`, `until`, and `on`) cannot be word labels, though
+conventional named calls can use them. Prefix commands keep precedence; use an
+adjacent call such as `read(path = p)` when a runnable shares a command name.
+A physical newline or semicolon ends a word call outside an explicitly grouped
+value.
+Existing direct
 built-in matcher definitions keep their template behavior; wrappers calling a
 custom matcher use ordinary runnable calls and can still return matchers.
 
@@ -54,6 +77,13 @@ callbacks, pipelines, conditionals and computed paths. For example,
 The older inline `=` form remains accepted. Ordinary grouping and calls take
 precedence over ambiguous inline bodies: `(x) - 1` subtracts one and `(f)(x)`
 calls f. Use `(x) { -x }` for a callback whose body starts with a unary operator.
+
+An ungrouped colon in a runnable parameter now introduces a label: in
+`let first(head : tail) = tail`, `head` is the public keyword and `tail` is
+the local parameter. Group cons patterns in named and inline parameters, for example
+`let first((head : tail)) = head` and `map(((head : tail)) head)`. Do the
+same inside grouped clauses. Standalone `let head : tail = values` and `foreach`
+cons patterns keep their existing spelling.
 
 Inline callables can also be assigned, stored in collections and returned:
 

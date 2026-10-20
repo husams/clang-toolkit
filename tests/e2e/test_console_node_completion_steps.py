@@ -57,7 +57,11 @@ async def _prompt_completions(runtime: Runtime, reference: str) -> dict[str, str
             reset_for_metadata = False
             for _ in range(300):
                 state = session.default_buffer.complete_state
-                if state is not None and state.original_document.text == reference:
+                if (
+                    state is not None
+                    and state.original_document.text == reference
+                    and state.completions
+                ):
                     return {
                         completion.text: to_plain_text(completion.display_meta)
                         for completion in state.completions

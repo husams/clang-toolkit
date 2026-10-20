@@ -1,7 +1,7 @@
 // Recognized accumulator functions compile to chunked plain Python loops.
 let map_into = {
     ([], f, out) out
-    (h : t, f, out) {
+    ((h : t), f, out) {
         out.push(f(h))
         map_into(t, f, out)
     }
@@ -10,7 +10,7 @@ let map_list(xs, f) = map_into(xs, f, [])
 
 let filter_into = {
     ([], keep, out) out
-    (h : t, keep, out) {
+    ((h : t), keep, out) {
         if keep(h) then { out.push(h) } else {}
         filter_into(t, keep, out)
     }
@@ -20,7 +20,7 @@ let filter_list(xs, keep) = filter_into(xs, keep, [])
 // Recognized reverse compiles to descent/unwind loops without continuations.
 let reverse_list = {
     ([]) []
-    (h : t) {
+    ((h : t)) {
         let result = reverse_list(t)
         result.push(h)
         result

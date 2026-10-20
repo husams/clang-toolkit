@@ -1066,6 +1066,7 @@ _PIPE_ENTRY = CommandHelp(
     "Compose console values with callable stages and tuple-aware callbacks.",
     (
         "VALUE | stage(arguments)",
+        "VALUE | stage public_label value",
         "let result = VALUE | stage(arguments) | stage(arguments)",
     ),
     (
@@ -1078,13 +1079,15 @@ _PIPE_ENTRY = CommandHelp(
         "Selection requires finite lists, tuples or retained collection views; it preserves native handles and selects only available rows. Inspect the originating query for completeness.",
         "A callback with two or more required parameters receives tuple elements as separate arguments. A unary callback receives the whole item, even when it has optional parameters.",
         "Use an explicit tuple parameter pattern such as `(name, count)` when a callback should receive the tuple as one value.",
-        "User-defined console runnables can be pipeline stages. These features belong to the compiled interactive console; native server scripts and server-side batch bodies retain their separate language.",
+        "User-defined console runnables can be pipeline stages. Label arguments use their public name, for example `5 | multiply by 6`; ordinary calls such as `multiply(5, by = 6)` remain available.",
+        "These features belong to the compiled interactive console; native server scripts and server-side batch bodies retain their separate language.",
     ),
     (
         "let positive = pairs | filter((name, count) count > 0)",
         "let ordered = pairs | sort_by((name, count) count, reverse = true)",
         "print values | json(indent = 2)",
         "print 10 | my_filter(1)",
+        "let multiply(value, by: factor) = value * factor; 5 | multiply by 6",
     ),
 )
 

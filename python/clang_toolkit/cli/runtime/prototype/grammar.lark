@@ -13,18 +13,24 @@ program: separators? statement (separators statement)* separators?
                   | flow_stmt
                   | print_stmt
                   | assign_stmt
+                  | natural_call
                   | closed_expression
 ?open_statement: open_let_stmt
                | open_runnable_definition
                | open_print_stmt
-               | target ASSIGN_OP open_expression -> assign_stmt
+               | target ASSIGN_OP open_assign_value -> assign_stmt
+               | natural_call
                | open_expression
 
-let_stmt.10: "let" pattern "=" closed_expression
-open_let_stmt.10: "let" pattern "=" open_expression -> let_stmt
+let_stmt.10: "let" pattern "=" let_value
+open_let_stmt.10: "let" pattern "=" open_let_value -> let_stmt
+?let_value: closed_expression | natural_call
+?open_let_value: open_expression | natural_call
+?open_assign_value: open_expression | natural_call
 print_stmt.50: "print" closed_expression
 open_print_stmt.50: "print" open_expression -> print_stmt
-assign_stmt: target ASSIGN_OP closed_expression
+assign_stmt: target ASSIGN_OP assign_value
+?assign_value: closed_expression | natural_call
 
 runnable_definition.20: "let" CNAME "(" parameters? ")" "=" block
                       | "let" CNAME "(" parameters? ")" "=" closed_expression
@@ -34,7 +40,13 @@ inline_block_runnable.1: "(" parameters? ")" "="? block -> inline_runnable
 open_inline_runnable: "(" parameters? ")" "="? open_expression -> inline_runnable
 
 parameters: separators? parameter ("," separators? parameter)* ","? separators?
-parameter: pattern ("=" expression)?
+parameter: labeled_parameter
+         | shorthand_parameter
+         | shorthand_default_parameter
+         | pattern ("=" expression)?
+labeled_parameter: CNAME ":" CNAME ("=" expression)?
+shorthand_parameter: CNAME ":"
+shorthand_default_parameter: CNAME ":" "=" expression
 ?pattern: pattern_atom ":" pattern -> cons_pattern
         | pattern_atom
 ?pattern_atom: "(" separators? ")" -> empty_pattern
@@ -71,7 +83,7 @@ open_pipe_expr: open_pipe_base (soft_newlines PIPE_OP soft_newlines pipe_stage)*
 ?multiline_expression: inline_runnable
                     | open_inline_runnable
                     | open_pipe_base (soft_newlines PIPE_OP soft_newlines pipe_stage)* recovery_tail? -> pipe_expr
-?pipe_stage: named_call | reference
+?pipe_stage: named_call | natural_stage | reference
 ?conditional: recoverable -> recovery_expr
 closed_if_expr: "if" expression closed_conditional_body closed_if_else -> if_expr
 open_if_expr: "if" expression conditional_body -> if_expr
@@ -166,6 +178,34 @@ reference: "$"? CNAME
      | tuple_literal
      | grouped_expression
 
+// Whitespace calls are deliberately a separate, bounded form. The callee
+// and labels require horizontal space through their token lookaheads; values
+// are ordinary atomic/postfix expressions or explicitly grouped expressions.
+natural_call: NATURAL_NAME natural_value? natural_labeled_argument+
+            | NATURAL_NAME natural_simple_value
+natural_stage: NATURAL_STAGE_NAME natural_labeled_argument+
+natural_labeled_argument: NATURAL_LABEL natural_value
+?natural_simple_value: literal
+                     | natural_reference_postfix
+                     | natural_named_call
+natural_reference_postfix: natural_value_reference natural_postfix_part*
+?natural_value: UNARY_OP natural_postfix -> unary_expr
+              | natural_postfix
+?natural_postfix: natural_atom natural_postfix_part*
+?natural_atom: literal
+             | clause_runnable
+             | natural_value_reference
+             | natural_named_call
+             | list_literal
+             | dict_literal
+             | tuple_literal
+             | grouped_expression
+natural_value_reference: "$"? NATURAL_VALUE_NAME -> reference
+natural_named_call.3: NATURAL_ROUTINE_NAME "(" arguments? ")" -> named_call
+?natural_postfix_part: "." CNAME -> member_part
+                     | index_expression
+                     | call_suffix
+
 named_call.3: CNAME "(" arguments? ")"
 arguments: separators? argument ("," separators? argument)* ","? separators?
 ?argument: CNAME "=" expression -> keyword_argument
@@ -213,6 +253,11 @@ INT: /[0-9]+/
 STRING: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/
 PREDICATE_STRING: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/
 CNAME: /[A-Za-z_][A-Za-z0-9_]*/
+NATURAL_NAME.20: /(?<![A-Za-z0-9_])(?!(?:let|print|if|unless|foreach|while|repeat|break|continue|on|and|or|not|in|is|then|do|else|until|has|does|have|defined|set|true|false|null|parse|read|load|save|import|background|yield|match|inspect|clear|add|history|session|server|index|cache|bindings|binding|cfg|variableflow|callgraph|help|traverse|peek|step|script|cursor|file|resource|batch|pop|delete|push|insert|remove|split|join|flatten|quit|exit)\b)[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])(?=[ \t])/
+NATURAL_STAGE_NAME.20: /(?<![A-Za-z0-9_])(?!(?:let|print|if|unless|foreach|while|repeat|break|continue|on|and|or|not|in|is|then|do|else|until|has|does|have|defined|set|true|false|null)\b)[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])(?=[ \t])/
+NATURAL_LABEL.20: /(?<![A-Za-z0-9_])(?!(?:let|print|if|unless|foreach|while|repeat|break|continue|on|and|or|not|in|is|then|do|else|until|has|does|have|defined|set|true|false|null)\b)[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])(?=[ \t])/
+NATURAL_VALUE_NAME.20: /(?<![A-Za-z0-9_])(?!(?:let|print|if|unless|foreach|while|repeat|break|continue|on|and|or|not|in|is|then|do|else|until|has|does|have|defined|set|true|false|null)\b)[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])/
+NATURAL_ROUTINE_NAME.20: /(?<![A-Za-z0-9_])(?!(?:let|print|if|unless|foreach|while|repeat|break|continue|on|and|or|not|in|is|then|do|else|until|has|does|have|defined|set|true|false|null)\b)[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])(?=\s*\()/
 PRED_HAS: /(?<![A-Za-z0-9_])has(?![A-Za-z0-9_])/
 PRED_DOES: /(?<![A-Za-z0-9_])does(?![A-Za-z0-9_])/
 PRED_HAVE: /(?<![A-Za-z0-9_])have(?![A-Za-z0-9_])/
