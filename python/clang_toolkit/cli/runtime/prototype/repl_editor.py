@@ -20,6 +20,7 @@ from clang_toolkit.cli.completion_candidates import _REGEX_LITERALS
 from clang_toolkit.cli.completion_context import accepted_after
 from clang_toolkit.cli.completion_cursor import cursor_context
 from clang_toolkit.cli.matcher_catalog import MATCHER_METADATA
+from clang_toolkit.cli.parser_cache import cached_lalr
 from clang_toolkit.cli.input_state import InputState
 from clang_toolkit.cli.runtime.prototype.repl_language import (
     grammar_text,
@@ -70,9 +71,8 @@ _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 @cache
 def _editor_parser() -> Lark:
     """Use the combined grammar's lossless editor start and basic lexer."""
-    return Lark(
+    return cached_lalr(
         grammar_text(),
-        parser="lalr",
         lexer="basic",
         start="editor_start",
         propagate_positions=True,

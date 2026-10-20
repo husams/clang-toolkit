@@ -9,6 +9,8 @@ from pathlib import Path
 from lark import Lark, Token
 from lark.exceptions import UnexpectedInput
 
+from clang_toolkit.cli.parser_cache import cached_lalr
+
 GRAMMAR = Path(__file__).with_name("grammar.lark")
 
 
@@ -38,9 +40,8 @@ class _StatementWhitespace:
 @cache
 def parser() -> Lark:
     """Build the cached command parser with source positions enabled."""
-    return Lark(
+    return cached_lalr(
         GRAMMAR.read_text(),
-        parser="lalr",
         start="start",
         propagate_positions=True,
         postlex=_StatementWhitespace(),
@@ -50,9 +51,8 @@ def parser() -> Lark:
 @cache
 def batch_parser() -> Lark:
     """Build the formal multi-command parser shared by every console UI."""
-    return Lark(
+    return cached_lalr(
         GRAMMAR.read_text(),
-        parser="lalr",
         start="batch_start",
         propagate_positions=True,
         postlex=_StatementWhitespace(batch=True),
@@ -62,9 +62,8 @@ def batch_parser() -> Lark:
 @cache
 def reference_parser() -> Lark:
     """Parse template references with the same formal grammar as commands."""
-    return Lark(
+    return cached_lalr(
         GRAMMAR.read_text(),
-        parser="lalr",
         start="reference_start",
         propagate_positions=True,
     )
@@ -73,9 +72,8 @@ def reference_parser() -> Lark:
 @cache
 def _editor_parser() -> Lark:
     """Build the lossless lexer used by editor features and completeness checks."""
-    return Lark(
+    return cached_lalr(
         GRAMMAR.read_text(),
-        parser="lalr",
         start="editor_start",
         lexer="basic",
         propagate_positions=True,

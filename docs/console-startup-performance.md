@@ -189,3 +189,30 @@ catalog refresh requests from completion workers are scheduled on the owning
 UI loop, where RPCs, menu updates and request coalescing remain serialized.
 Queued refreshes recheck shutdown before starting. All 112 targeted startup,
 index editor and project completion tests passed after this integration.
+
+## Parser tables
+
+Building the LALR tables for the command grammar and the editor tokenizer cost
+about 0.16 s on the first render and 0.7 s for each command parser built later.
+`cli/parser_cache.py` now stores each built parser (`Lark.save`) under
+`$XDG_CACHE_HOME/clang-toolkit/parsers/` (or `~/.cache`), named by a digest of
+the grammar text, parser options, post-lexer, Lark version and Python version,
+so a changed grammar or interpreter never loads stale tables. Entries are
+written to a unique name and renamed into place, are private to the current
+user, and at most 32 are kept. Any problem (no home, unwritable or shared
+directory, damaged or unsafe entry) falls back to a normal build without
+output. The Earley parsers (`syntax.py`, `repl_language.py`) cannot use this
+cache and are unchanged.
+
+Five local samples of `scripts/benchmark_console_input.py`, median from worker
+start, with a warm parser cache:
+
+| Median | Before | After |
+| --- | ---: | ---: |
+| First workspace frame | 0.377 s | 0.246 s |
+| Second typed character displayed | 0.420 s | 0.270 s |
+
+The first process after a grammar change still pays the full build.
+`benchmark_console_input.py` uses the real cache directory (set
+`XDG_CACHE_HOME` to measure a cold one); `benchmark_console_startup.py` starts
+from an empty temporary cache, so it measures library preload only.

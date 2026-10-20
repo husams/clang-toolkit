@@ -22,6 +22,8 @@ import lark
 from lark import Token, Tree
 from lark.tree import Meta
 
+from clang_toolkit.cli.parser_cache import cache_root
+
 from .syntax import Node
 
 _FORMAT = 1
@@ -48,11 +50,9 @@ def _fingerprint() -> str:
 
 
 def _directory(namespace: str = "libraries") -> Path:
-    configured = os.environ.get("XDG_CACHE_HOME")
-    base = Path(configured) if configured and Path(configured).is_absolute() else Path.home() / ".cache"
     if namespace not in {"libraries", "templates", "blocks"}:
         raise ValueError(f"unknown script cache namespace {namespace!r}")
-    directory = base / "clang-toolkit" / "scripts"
+    directory = cache_root() / "scripts"
     return directory if namespace == "libraries" else directory / namespace
 
 
