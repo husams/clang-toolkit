@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from io import StringIO
 
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -144,6 +145,9 @@ class MarkdownPanel(TextArea):
 def render_markdown(markdown: str, width: int) -> tuple[str, list[StyleAndTextTuples]]:
     """Render Rich markup to searchable plain text and matching style fragments."""
     console = Console(
+        # Rendering must never write back into redirected workspace stdout.
+        # Even Rich's empty capture flush can re-enter the printing lock.
+        file=StringIO(),
         force_terminal=True,
         no_color=False,
         color_system="256",

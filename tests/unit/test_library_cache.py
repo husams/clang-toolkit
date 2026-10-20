@@ -35,7 +35,6 @@ def test_restart_uses_cached_syntax_with_fresh_bindings_and_callable_help(
     first.close()
 
     original_parse = repl_language.parse
-    # Interpolation expressions are tiny and compiled afresh alongside Python code.
     def no_library_parse(source: str):
         assert source != 'let prefix = $arg.prefix\n' + definition
         return original_parse(source)
@@ -167,3 +166,268 @@ def test_cache_prunes_old_entries(monkeypatch: pytest.MonkeyPatch) -> None:
         library_cache.parse_library(f"let answer = {value}")
     assert len(list(library_cache._directory().glob("*.json"))) == 2
     assert not list(library_cache._directory().glob(".script-*"))
+
+
+def test_warm_library_loads_python_without_lowering(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    source = 'let offset = arg.offset\nlet add(value) = { value + offset }'
+    (tmp_path / "helpers.ctk").write_text(source)
+    first = runtime(tmp_path)
+    first.bindings["arg"] = {"offset": 2}
+    preload_libraries(first, tmp_path)
+    first.close()
+    assert list(library_cache._directory().glob("*.python.json"))
+
+    def no_lowering(self):
+        pytest.fail("warm library must load generated Python")
+    with monkeypatch.context() as warm:
+        warm.setattr(compiler._Lowerer, "module", no_lowering)
+        second = runtime(tmp_path)
+        second.bindings["arg"] = {"offset": 40}
+        preload_libraries(second, tmp_path)
+    assert dispatch_result(second.client, "add(2)", second).output == "42"
+    second.close()
+
+
+@pytest.mark.parametrize("damage", ["truncated", "python", "permissions", "wrong-body"])
+def test_damaged_python_cache_recompiles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, damage: str) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    (tmp_path / "helpers.ctk").write_text("let answer = 42")
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    destination = next(library_cache._directory().glob("*.python.json"))
+    if damage == "truncated":
+        destination.write_text("{")
+    elif damage == "python":
+        destination.write_text(destination.read_text().replace("42", "99"))
+    elif damage == "wrong-body":
+        destination.write_text('{"body": [], "digest": "invalid"}')
+    else:
+        destination.chmod(0o666)
+    original = compiler._Lowerer.module
+    calls = []
+    def lower(self):
+        calls.append(True)
+        return original(self)
+    monkeypatch.setattr(compiler._Lowerer, "module", lower)
+    second = runtime(tmp_path)
+    preload_libraries(second, tmp_path)
+    assert calls
+    assert second.bindings["answer"] == 42
+    second.close()
+
+
+def test_python_cache_preserves_host_metadata_and_imports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    parts = tmp_path / "parts"
+    parts.mkdir()
+    (parts / "prefix.ctk").write_text('let prefix = "Hi "')
+    (tmp_path / "helpers.ctk").write_text(
+        'import "parts/prefix.ctk"\nlet greet(name) = { "{prefix}{name}" }'
+    )
+    for _ in range(2):
+        instance = runtime(tmp_path)
+        preload_libraries(instance, tmp_path)
+        assert dispatch_result(instance.client, 'greet("Ada")', instance).output == "Hi Ada"
+        instance.close()
+
+
+def test_warm_templates_and_host_blocks_skip_parsing_and_lowering(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    (tmp_path / "helpers.ctk").write_text(
+        'let greet(name) = { "Hi {name}" }\n'
+        'let functions(target) = {\nlet rows = match functionDecl() in target\nrows\n}'
+    )
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    with monkeypatch.context() as warm:
+        warm.setattr(repl_language, "parse", Mock(side_effect=AssertionError("unexpected parse")))
+        warm.setattr(compiler._Lowerer, "module", Mock(side_effect=AssertionError("unexpected lowering")))
+        second = runtime(tmp_path)
+        preload_libraries(second, tmp_path)
+    assert dispatch_result(second.client, 'greet("Ada")', second).output == "Hi Ada"
+    assert "functions" in second.bindings
+    second.close()
+
+
+def test_warm_slice_library_reuses_compiled_python(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    (tmp_path / "helpers.ctk").write_text("let tail(values) = { values[1:] }")
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    with monkeypatch.context() as warm:
+        warm.setattr(compiler._Lowerer, "module", Mock(side_effect=AssertionError("unexpected lowering")))
+        second = runtime(tmp_path)
+        preload_libraries(second, tmp_path)
+    assert dispatch_result(second.client, "tail([1, 2, 3])", second).output == "2\n3"
+    second.close()
+
+
+def test_interpolation_entries_do_not_evict_the_library(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    monkeypatch.setattr(library_cache, "_MAX_ENTRIES", 2)
+    source = 'let greet(a, b) = { "{a}{b}" }'
+    (tmp_path / "helpers.ctk").write_text(source)
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    with monkeypatch.context() as warm:
+        warm.setattr(repl_language, "parse", Mock(side_effect=AssertionError("unexpected parse")))
+        warm.setattr(compiler._Lowerer, "module", Mock(side_effect=AssertionError("unexpected lowering")))
+        second = runtime(tmp_path)
+        preload_libraries(second, tmp_path)
+    assert dispatch_result(second.client, 'greet("A", "B")', second).output == "AB"
+    second.close()
+
+
+def test_new_process_uses_cached_code_with_new_bindings(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+    import textwrap
+
+    (tmp_path / "helpers.ctk").write_text(
+        'let prefix = arg.prefix\nlet greet(name) = { "{prefix}{name}" }'
+    )
+    first = runtime(tmp_path)
+    first.bindings["arg"] = {"prefix": "Hello "}
+    preload_libraries(first, tmp_path)
+    first.close()
+    result = subprocess.run([sys.executable, "-c", textwrap.dedent('''
+        import sys
+        from pathlib import Path
+        from unittest.mock import Mock, patch
+        from clang_toolkit.cli.app import dispatch_result
+        from clang_toolkit.cli.runtime.imports import preload_libraries
+        from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+        from clang_toolkit.cli.runtime.prototype import compiler, repl_language
+        runtime = PrototypeRuntime(Mock(), cwd=Path(sys.argv[1]), environment={})
+        runtime.bindings["arg"] = {"prefix": "Welcome "}
+        with patch.object(repl_language, "parse", side_effect=AssertionError("parse")), \\
+             patch.object(compiler._Lowerer, "module", side_effect=AssertionError("lower")):
+            preload_libraries(runtime, sys.argv[1])
+        print(dispatch_result(runtime.client, 'greet("Ada")', runtime).output)
+        runtime.close()
+    '''), str(tmp_path)], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "Welcome Ada"
+
+
+@pytest.mark.parametrize("kind", ["syntax", "python"])
+def test_fifo_cache_does_not_block_startup(tmp_path: Path, kind: str) -> None:
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    (tmp_path / "helpers.ctk").write_text("let answer = 42")
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    path = next(path for path in library_cache._directory().glob("*.json")
+                if path.name.endswith(".python.json") == (kind == "python"))
+    path.unlink()
+    os.mkfifo(path, 0o600)
+    result = subprocess.run([sys.executable, "-c", textwrap.dedent('''
+        import sys
+        from pathlib import Path
+        from unittest.mock import Mock
+        from clang_toolkit.cli.runtime.imports import preload_libraries
+        from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+        runtime = PrototypeRuntime(Mock(), cwd=Path(sys.argv[1]), environment={})
+        preload_libraries(runtime, sys.argv[1])
+        assert runtime.bindings["answer"] == 42
+        runtime.close()
+    '''), str(tmp_path)], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert path.is_file()
+
+
+def test_cache_read_remains_on_checked_file_when_path_is_replaced(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    import os
+
+    path = library_cache._directory() / "race.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    path.write_text('{"value": "original"}')
+    replacement = tmp_path / "replacement.json"
+    replacement.write_text('{"value": "replacement"}')
+    original_open = os.open
+
+    def replace_after_open(name, flags, *args, **kwargs):
+        descriptor = original_open(name, flags, *args, **kwargs)
+        if name == path.name:
+            path.unlink()
+            path.symlink_to(replacement)
+        return descriptor
+
+    monkeypatch.setattr(os, "open", replace_after_open)
+    assert library_cache._read_entry(path) == {"value": "original"}
+
+
+@pytest.mark.parametrize("kind", ["syntax", "python"])
+def test_cache_symlink_is_replaced_without_touching_target(tmp_path: Path, kind: str) -> None:
+    (tmp_path / "helpers.ctk").write_text("let answer = 42")
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    path = next(path for path in library_cache._directory().glob("*.json")
+                if path.name.endswith(".python.json") == (kind == "python"))
+    target = tmp_path / "external-cache.json"
+    target.write_bytes(path.read_bytes())
+    before = target.read_bytes()
+    path.unlink()
+    path.symlink_to(target)
+    second = runtime(tmp_path)
+    preload_libraries(second, tmp_path)
+    assert second.bindings["answer"] == 42
+    assert not path.is_symlink()
+    assert target.read_bytes() == before
+    second.close()
+
+
+def test_embedded_batch_blocks_have_separate_budget(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from clang_toolkit.cli.runtime.prototype import compiler
+
+    monkeypatch.setattr(library_cache, "_MAX_ENTRIES", 2)
+    (tmp_path / "helpers.ctk").write_text(
+        'let first(inputs) = { batch part in inputs size 1 do { print 1; } }\n'
+        'let second(inputs) = { batch part in inputs size 1 do { print 2; } }'
+    )
+    first = runtime(tmp_path)
+    preload_libraries(first, tmp_path)
+    first.close()
+    assert len(list(library_cache._directory("blocks").glob("*.python.json"))) == 2
+    with monkeypatch.context() as warm:
+        warm.setattr(repl_language, "parse", Mock(side_effect=AssertionError("unexpected parse")))
+        warm.setattr(compiler._Lowerer, "module", Mock(side_effect=AssertionError("unexpected lowering")))
+        second = runtime(tmp_path)
+        preload_libraries(second, tmp_path)
+    assert "first" in second.bindings and "second" in second.bindings
+    second.close()
+
+
+def test_concurrent_cache_writers_publish_complete_entries() -> None:
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = library_cache._directory() / "concurrent.json"
+
+    def publish(value: int) -> None:
+        library_cache._write_entry(path, json.dumps({"value": value}))
+        assert 0 <= library_cache._read_entry(path)["value"] < 24
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(publish, range(24)))
+    assert not list(path.parent.glob(".script-*"))

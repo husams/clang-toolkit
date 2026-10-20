@@ -212,6 +212,8 @@ def create_session(
         completer = ProjectCompleter(completer, indexed_projects)
     session = PromptSession(
         completer=completer,
+        # Cold grammar construction and field discovery must not block typing.
+        complete_in_thread=True,
         lexer=lexer,
         style=STYLE,
         multiline=True,

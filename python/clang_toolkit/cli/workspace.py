@@ -171,7 +171,10 @@ class WorkspaceConsole:
         self.wrap_results = True
         self.last_source = ""
         self.command_position: int | None = None
-        self.context = CommandContext(getattr(session, "function_help", None))
+        self.context = CommandContext(
+            getattr(session, "function_help", None),
+            tokenizer=getattr(session, "editor_tokenizer", lex),
+        )
         self.server_panel = MarkdownPanel()
         self.server_panel.set_markdown("## Server status\n\nChecking server…")
         self.outline = WorkspaceTree(
@@ -509,23 +512,25 @@ class WorkspaceConsole:
             full_screen=True,
             mouse_support=True,
             color_depth=ColorDepth.DEPTH_8_BIT,
-            before_render=lambda app: self.context.update(
-                self.buffer.document.text_before_cursor
-                if self.buffer.text
-                else self.last_source,
-                str(self.files.root),
-                completion=(
-                    self.buffer.complete_state.current_completion.display_text
-                    if self.buffer.complete_state
-                    and self.buffer.complete_state.current_completion
-                    else None
-                ),
-            ),
+            before_render=self._update_context,
             refresh_interval=0.25,
             input=input,
             output=output,
         )
         self.stream = WorkspaceOutput(self.write_output)
+
+    def _update_context(self, app: Application[None]) -> None:
+        if self.panel_kind != "help" or not (self.show_context or self.panel_overlay):
+            return
+        self.context.update(
+            self.buffer.document.text_before_cursor if self.buffer.text else self.last_source,
+            str(self.files.root),
+            completion=(
+                self.buffer.complete_state.current_completion.display_text
+                if self.buffer.complete_state and self.buffer.complete_state.current_completion
+                else None
+            ),
+        )
 
     @property
     def narrow(self) -> bool:

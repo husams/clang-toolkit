@@ -46,7 +46,7 @@ def _end(value: str, start: int) -> int:
     raise ValueError("unclosed interpolation placeholder: expected `}`")
 
 
-def compile_template(raw: str) -> Template | None:
+def compile_template(raw: str, *, library: bool = False) -> Template | None:
     # Preserve older libraries while new scripts use bare brace expressions.
     if not raw.startswith('"') or "$" in raw or not any(c in raw for c in "{}"):
         return None
@@ -68,12 +68,19 @@ def compile_template(raw: str) -> Template | None:
             expression = value[index + 1:end].strip()
             if not expression:
                 raise ValueError("empty interpolation expression")
-            program = parse(expression)
+            if library:
+                from .library_cache import parse_library
+                program = parse_library(expression, namespace="templates")
+            else:
+                program = parse(expression)
             if len(program.children) != 1 or program.children[0].kind in {
                 "let", "destructure", "assign", "runnable", "print"} or (
                     program.children[0].kind == "host" and program.children[0].value[1] == "statement"):
                 raise ValueError("interpolation requires one value expression")
-            parts.extend(("".join(literal), compile_program(program)))
+            executable = compile_program(
+                program, cache_key=expression if library else None, cache_namespace="templates",
+            )
+            parts.extend(("".join(literal), executable))
             expressions.append(program)
             literal = []
             index = end + 1

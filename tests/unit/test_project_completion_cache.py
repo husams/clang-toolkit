@@ -79,6 +79,62 @@ def test_refresh_keeps_last_good_snapshot_and_observes_added_projects():
     asyncio.run(drive())
 
 
+def test_worker_refresh_uses_owner_loop_and_coalesces_requests():
+    async def drive():
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        release = asyncio.Event()
+        updated = asyncio.Event()
+        calls = 0
+
+        async def load():
+            nonlocal calls
+            assert asyncio.get_running_loop() is loop
+            calls += 1
+            started.set()
+            await release.wait()
+            return ("/projects/ctk-lab",)
+
+        def notify():
+            assert asyncio.get_running_loop() is loop
+            updated.set()
+
+        cache = ProjectCompletionCache()
+        cache.bind(load, notify)
+        try:
+            snapshots = await asyncio.to_thread(lambda: [cache.get() for _ in range(100)])
+            assert snapshots == [()] * 100
+            await asyncio.wait_for(started.wait(), 1)
+            assert calls == 1
+            release.set()
+            await asyncio.wait_for(updated.wait(), 1)
+            assert await asyncio.to_thread(cache.get) == ("/projects/ctk-lab",)
+        finally:
+            await cache.aclose()
+
+    asyncio.run(drive())
+
+
+def test_close_prevents_already_queued_worker_refresh():
+    async def drive():
+        from concurrent.futures import ThreadPoolExecutor
+
+        async def load():
+            raise AssertionError("closed cache must not start a queued fetch")
+
+        cache = ProjectCompletionCache()
+        cache.bind(load, lambda: None)
+        # Keep this loop paused while the worker queues its refresh callback.
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(cache.get).result(timeout=1) == ()
+        await cache.aclose()
+        await asyncio.sleep(0)
+        assert cache._task is None
+        assert await asyncio.to_thread(cache.get) == ()
+
+    asyncio.run(drive())
+
+
 def test_failed_and_timed_out_refreshes_preserve_the_snapshot():
     async def drive():
         completed = asyncio.Event()

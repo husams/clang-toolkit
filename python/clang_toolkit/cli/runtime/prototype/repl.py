@@ -340,7 +340,12 @@ class ReplSession:
                                    else prepare_host(child) if isinstance(child, Tree)
                                    else child for child in tree.children], meta=tree.meta)
             if tree.data == "statement_block" and tree.children and isinstance(tree.children[0], Node):
-                tree.meta.ctk_executable = compile_program(tree.children[0]) if self.engine == "compiled" else None
+                node = tree.children[0]
+                key = f"{node.line}:{node.column}:{source}" if library else None
+                tree.meta.ctk_executable = (
+                    compile_program(node, cache_key=key, cache_namespace="blocks")
+                    if self.engine == "compiled" else None
+                )
             return tree
         def prepare(node: Node) -> Node:
             if node.kind == "host":
@@ -375,14 +380,14 @@ class ReplSession:
             elif isinstance(node, Token) and node.type in {"STRING", "FILE_STRING", "DIRECTORY_STRING", "PATH_STRING"}:
                 raw = str(node)
                 if raw not in templates:
-                    template = compile_template(raw)
+                    template = compile_template(raw, library=library)
                     if template is not None:
                         templates[raw] = template
         collect(program)
         for tree in host_trees:
             tree.meta.ctk_templates = templates
         program = replace(program, value=templates)
-        executable = compile_program(program) if self.engine == "compiled" else None
+        executable = compile_program(program, cache_key=source if library else None) if self.engine == "compiled" else None
         self.cache[source] = (program, executable)
         if len(self.cache) > 64:
             self.cache.popitem(last=False)
