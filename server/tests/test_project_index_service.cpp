@@ -28,6 +28,7 @@ using namespace ctk::index::v1;
 struct RevisionTrace {
   fs::path database;
   std::atomic<bool> revision_one{false};
+  std::atomic<int> alias_fullscan_steps{-1};
 };
 RevisionTrace *active_revision_trace = nullptr;
 struct PipelineTrace {
@@ -57,6 +58,14 @@ int trace_revision_one(unsigned event, void *context, void *statement, void *) {
     return 0;
   char *expanded = sqlite3_expanded_sql(static_cast<sqlite3_stmt *>(statement));
   const std::string_view sql(expanded ? expanded : "");
+  if (sql.starts_with("WITH selected AS MATERIALIZED") &&
+      sql.find("kind IN ('TypeAlias','Typedef')") != std::string_view::npos) {
+    const int scans =
+        sqlite3_stmt_status(static_cast<sqlite3_stmt *>(statement),
+                            SQLITE_STMTSTATUS_FULLSCAN_STEP, 0);
+    trace.alias_fullscan_steps.store(
+        std::max(trace.alias_fullscan_steps.load(), scans));
+  }
   if (sql.find("INSERT INTO metadata") != std::string_view::npos &&
       sql.find("'revision'") != std::string_view::npos &&
       sql.find("'1'") != std::string_view::npos)
@@ -2031,7 +2040,7 @@ TEST_F(ProjectIndexServiceTest,
                                -1, &tables, nullptr),
             SQLITE_OK);
   ASSERT_EQ(sqlite3_step(tables), SQLITE_ROW);
-  EXPECT_EQ(sqlite3_column_int(tables, 0), 3);
+  EXPECT_EQ(sqlite3_column_int(tables, 0), 4);
   sqlite3_finalize(tables);
   sqlite3_stmt *exact_plan = nullptr;
   ASSERT_EQ(
@@ -2065,7 +2074,11 @@ TEST_F(ProjectIndexServiceTest,
         "translation_unit WHERE status!='ready'",
         "EXPLAIN QUERY PLAN SELECT main_file,arguments,status "
         "FROM translation_unit INDEXED BY "
-        "translation_unit_lookup WHERE id='test'"}) {
+        "translation_unit_lookup WHERE id='test'",
+        "EXPLAIN QUERY PLAN SELECT MIN(tu_id),usr,file_path,byte_offset,"
+        "is_definition,qualified_name FROM symbol INDEXED BY "
+        "symbol_alias_browse WHERE kind IN ('TypeAlias','Typedef') GROUP BY "
+        "usr,file_path,byte_offset,is_definition,qualified_name"}) {
     sqlite3_stmt *plan = nullptr;
     ASSERT_EQ(sqlite3_prepare_v2(db, query, -1, &plan, nullptr), SQLITE_OK);
     bool covering = false;
@@ -2822,6 +2835,74 @@ TEST_F(ProjectIndexServiceTest, SourceOnlyAliasBrowsePagesAtStableRevision) {
       service.FindSymbols(&invalid_context, &stale_request, &invalid_response)
           .error_code(),
       grpc::StatusCode::INVALID_ARGUMENT);
+}
+
+TEST_F(ProjectIndexServiceTest, AliasBrowseDoesNotScanUnrelatedSymbolPayloads) {
+  write("shared.h", "using BrowseUsing = int;\ntypedef long BrowseTypedef;\n");
+  ProjectIndexStatus indexed;
+  {
+    IndexServiceAdapter initial(storage, {}, CTK_TEST_INDEX_WORKER);
+    indexed = start_and_wait(initial);
+  }
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  ASSERT_EQ(
+      sqlite3_exec(db,
+                   "WITH RECURSIVE n(v) AS (VALUES(1) UNION ALL SELECT v+1 "
+                   "FROM n WHERE v<2000) INSERT INTO symbol SELECT t.id,"
+                   "'unrelated-'||n.v,'unrelated','unrelated','Function',"
+                   "t.main_file,n.v,1,1,1,printf('%.*c',8192,'x') "
+                   "FROM translation_unit t CROSS JOIN n WHERE t.indexed_at>0;",
+                   nullptr, nullptr, nullptr),
+      SQLITE_OK);
+  sqlite3_close(db);
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  RevisionTrace trace{database_file()};
+  RevisionTraceRegistration registration(trace);
+  const auto browse = [&](bool source_only) {
+    FindSymbolsRequest request;
+    request.set_project_root(project.string());
+    request.set_match_mode(FindSymbolsRequest::MATCH_MODE_PREFIX);
+    request.set_kind(FindSymbolsRequest::KIND_ALIAS);
+    request.set_unique_symbols(true);
+    request.set_source_only(source_only);
+    request.set_limit(1);
+    std::set<std::string> names;
+    unsigned pages = 0;
+    do {
+      grpc::ServerContext context;
+      FindSymbolsResponse response;
+      EXPECT_TRUE(service.FindSymbols(&context, &request, &response).ok());
+      EXPECT_EQ(response.revision(), indexed.revision());
+      for (const auto &symbol : response.symbols())
+        EXPECT_TRUE(names.insert(symbol.qualified_name()).second);
+      request.set_expected_revision(response.revision());
+      request.set_offset(response.next_offset());
+    } while (request.offset() && ++pages < 10);
+    EXPECT_EQ(request.offset(), 0);
+    EXPECT_EQ(names, (std::set<std::string>{"BrowseUsing", "BrowseTypedef"}));
+  };
+  browse(false);
+  browse(true);
+  EXPECT_GE(trace.alias_fullscan_steps.load(), 0);
+  EXPECT_LT(trace.alias_fullscan_steps.load(), 100)
+      << "alias browsing must not walk unrelated symbols or their payloads";
+  // A pre-upgrade database remains readable, and a writer upgrades it without
+  // extracting translation units again or changing the index revision.
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  ASSERT_EQ(sqlite3_exec(db, "DROP INDEX IF EXISTS symbol_alias_browse",
+                         nullptr, nullptr, nullptr),
+            SQLITE_OK);
+  sqlite3_close(db);
+  browse(true);
+  {
+    index_detail::Database upgrade(database_file(), true);
+  }
+  trace.alias_fullscan_steps.store(-1);
+  browse(false);
+  browse(true);
+  EXPECT_GE(trace.alias_fullscan_steps.load(), 0);
+  EXPECT_LT(trace.alias_fullscan_steps.load(), 100);
 }
 
 TEST_F(ProjectIndexServiceTest,

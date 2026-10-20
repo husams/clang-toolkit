@@ -121,6 +121,11 @@ inline constexpr auto symbol_indexes =
     "CREATE INDEX IF NOT EXISTS symbol_name_prefix ON symbol(name "
     "COLLATE NOCASE); CREATE INDEX IF NOT EXISTS "
     "symbol_qualified_prefix ON symbol(qualified_name COLLATE NOCASE);"
+    // Blank alias browsing must not scan unrelated symbols and their payloads.
+    // Keep this covering index partial so ordinary symbols add no write cost.
+    "CREATE INDEX IF NOT EXISTS symbol_alias_browse ON "
+    "symbol(usr,file_path,byte_offset,is_definition,qualified_name,tu_id,kind) "
+    "WHERE kind IN ('TypeAlias','Typedef');"
     // Exact lookups use the NOCASE search plus an explicit BINARY filter.
     // Maintaining both collations as separate indexes doubles name-index I/O.
     "DROP INDEX IF EXISTS symbol_name; DROP INDEX IF EXISTS symbol_qualified;";

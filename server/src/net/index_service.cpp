@@ -513,8 +513,16 @@ public:
         !by_usr;
     std::string sql;
     if (browse_aliases) {
-      sql = "WITH selected AS MATERIALIZED (" + projection +
-            " NOT INDEXED WHERE " + kind_filter + source_filter + "1" + group +
+      // Older stores stay readable until the next writer adds the partial
+      // covering index. Avoid traversing every non-alias symbol once upgraded.
+      Statement alias_index(db,
+                            "SELECT 1 FROM sqlite_master WHERE type='index' "
+                            "AND name='symbol_alias_browse'");
+      const std::string alias_source = alias_index.step()
+                                           ? " INDEXED BY symbol_alias_browse"
+                                           : " NOT INDEXED";
+      sql = "WITH selected AS MATERIALIZED (" + projection + alias_source +
+            " WHERE " + kind_filter + source_filter + "1" + group +
             "ORDER BY " + order + " LIMIT ?3), ";
     } else if (prefix) {
       sql = "WITH name_matches AS MATERIALIZED (" + name_columns +
