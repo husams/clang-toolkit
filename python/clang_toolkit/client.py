@@ -1550,10 +1550,14 @@ class AsyncClient:
         return await self._index_call("CancelProjectIndex", index_pb.ProjectIndexRequest(project_root=str(project_root)))
 
     async def find_symbols(self, project_root: str | Path, query: str, *,
-                           limit: int = 100, prefix: bool = False, kind: str = "", unique_symbols: bool = False) -> index_pb.FindSymbolsResponse:
+                           limit: int = 100, prefix: bool = False, kind: str = "", unique_symbols: bool = False,
+                           source_only: bool = False, offset: int = 0, expected_revision: int = 0) -> index_pb.FindSymbolsResponse:
         """Find declarations/definitions without loading native ASTs."""
         if not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")
+        for name, value in (("offset", offset), ("expected_revision", expected_revision)):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
         kinds = {"": index_pb.FindSymbolsRequest.KIND_ANY,
                  "function": index_pb.FindSymbolsRequest.KIND_FUNCTION,
                  "class": index_pb.FindSymbolsRequest.KIND_CLASS,
@@ -1563,7 +1567,8 @@ class AsyncClient:
         return await self._index_call("FindSymbols", index_pb.FindSymbolsRequest(
             project_root=str(project_root), query=query, limit=limit,
             kind=kinds[kind], unique_symbols=unique_symbols, match_mode=(index_pb.FindSymbolsRequest.MATCH_MODE_PREFIX if prefix
-                        else index_pb.FindSymbolsRequest.MATCH_MODE_EXACT)))
+                        else index_pb.FindSymbolsRequest.MATCH_MODE_EXACT), source_only=source_only,
+            offset=offset, expected_revision=expected_revision))
 
     async def lookup_symbol(self, project_root: str | Path, usr: str) -> index_pb.FindSymbolsResponse:
         return await self._index_call("LookupSymbol", index_pb.LookupSymbolRequest(
@@ -2209,8 +2214,11 @@ class Client:
         return self._cursor_call("cancel_project_index", project_root)
 
     def find_symbols(self, project_root: str | Path, query: str, *,
-                     limit: int = 100, prefix: bool = False, kind: str = "", unique_symbols: bool = False) -> index_pb.FindSymbolsResponse:
-        return self._cursor_call("find_symbols", project_root, query, limit=limit, prefix=prefix, kind=kind, unique_symbols=unique_symbols)
+                     limit: int = 100, prefix: bool = False, kind: str = "", unique_symbols: bool = False,
+                     source_only: bool = False, offset: int = 0, expected_revision: int = 0) -> index_pb.FindSymbolsResponse:
+        return self._cursor_call("find_symbols", project_root, query, limit=limit, prefix=prefix, kind=kind,
+                                 unique_symbols=unique_symbols, source_only=source_only, offset=offset,
+                                 expected_revision=expected_revision)
 
     def lookup_symbol(self, project_root: str | Path, usr: str) -> index_pb.FindSymbolsResponse:
         return self._cursor_call("lookup_symbol", project_root, usr)

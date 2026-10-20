@@ -5,6 +5,7 @@ let state;
 let actionRevision;
 let searchRevision;
 let resultRevision;
+let indexSearchTimer;
 let searchResults;
 const values = (selector, key) =>
   Object.fromEntries(
@@ -21,23 +22,57 @@ element("node-options").addEventListener("input", () =>
   }),
 );
 function search(type) {
+  if (
+    state?.action.kind === "symbols" &&
+    ["project", "global"].includes(element("scope").value)
+  ) {
+    post(type === "run" ? "indexRun" : "indexUpdate", {
+      query: values("[data-parameter]", "parameter").NAME ?? "",
+      scope: element("scope").value === "global" ? "global" : "project",
+      project: element("index-project").value,
+      kinds: [...document.querySelectorAll("#kinds input:checked")].map(
+        (input) => input.value,
+      ),
+      exact: false,
+      sourceOnly: element("source-only").checked,
+    });
+    return;
+  }
   post(type, {
     values: values("[data-parameter]", "parameter"),
     scope: element("scope").value,
-    kinds: [...document.querySelectorAll("#kinds input:checked")].map(
-      (input) => input.value,
-    ),
+    kinds: [...document.querySelectorAll("#kinds input:checked")]
+      .filter((input) => input.value !== "aliases")
+      .map((input) => input.value),
     source: state?.source ?? "",
   });
 }
-element("run").addEventListener("click", () => search("run"));
-element("symbols-panel").addEventListener("input", () => search("update"));
+function scheduleIndexedSearch() {
+  clearTimeout(indexSearchTimer);
+  indexSearchTimer = setTimeout(() => search("update"), 180);
+}
+element("index-cancel").addEventListener("click", () => post("indexCancel"));
+element("symbols-panel").addEventListener("input", () => {
+  if (state?.action.kind === "symbols") scheduleIndexedSearch();
+  else search("update");
+});
+element("symbols-panel").addEventListener("change", (event) => {
+  if (
+    event.target.id === "scope" ||
+    event.target.id === "index-project" ||
+    event.target.id === "source-only" ||
+    event.target.closest("#kinds")
+  )
+    search("update");
+});
 element("symbols-panel").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && event.target.matches("input")) {
     event.preventDefault();
+    clearTimeout(indexSearchTimer);
     search("run");
   }
 });
+element("run").addEventListener("click", () => search("run"));
 element("output").addEventListener("click", () => post("showOutput"));
 for (const tab of ["symbols", "actions"]) {
   element(`${tab}-tab`).addEventListener("click", () => post("tab", { tab }));
@@ -50,6 +85,12 @@ for (const tab of ["symbols", "actions"]) {
   });
 }
 element("node-picker").addEventListener("click", () => post("nodeChoose"));
+element("node-scope").addEventListener("change", () =>
+  post("nodeScope", { scope: element("node-scope").value }),
+);
+element("node-choose-directory").addEventListener("click", () =>
+  post("nodeChooseDirectory"),
+);
 element("node-run").addEventListener("click", () =>
   post("nodeRun", { values: nodeValues() }),
 );
@@ -70,6 +111,48 @@ for (const [id, type] of [
   ["node-edit", "nodeEdit"],
 ])
   element(id).addEventListener("click", () => post(type));
+const resultToolbar = document.querySelector(".result-toolbar");
+const pageInfo = document.createElement("span");
+pageInfo.id = "node-page-info";
+pageInfo.className = "muted";
+pageInfo.setAttribute("role", "status");
+pageInfo.setAttribute("aria-live", "polite");
+const firstPage = document.createElement("button");
+firstPage.id = "node-page-first";
+firstPage.textContent = "First";
+firstPage.addEventListener("click", () =>
+  post("nodePage", { direction: "first" }),
+);
+const previousPage = document.createElement("button");
+previousPage.id = "node-page-previous";
+previousPage.textContent = "Previous";
+previousPage.addEventListener("click", () =>
+  post("nodePage", { direction: "previous" }),
+);
+const nextPage = document.createElement("button");
+nextPage.id = "node-page-next";
+nextPage.textContent = "Next";
+nextPage.addEventListener("click", () =>
+  post("nodePage", { direction: "next" }),
+);
+const lastPage = document.createElement("button");
+lastPage.id = "node-page-last";
+lastPage.textContent = "Last";
+lastPage.addEventListener("click", () =>
+  post("nodePage", { direction: "last" }),
+);
+const openCompleteResults = document.createElement("button");
+openCompleteResults.id = "node-open-results";
+openCompleteResults.textContent = "Open complete results";
+openCompleteResults.addEventListener("click", () => post("nodeOpenResults"));
+resultToolbar.append(
+  pageInfo,
+  firstPage,
+  previousPage,
+  nextPage,
+  lastPage,
+  openCompleteResults,
+);
 function paragraph(parent, text, className = "muted") {
   const p = document.createElement("p");
   p.className = className;
@@ -101,7 +184,7 @@ function match(parent, result, node = false, file = result.file) {
       String(result.nodeId === state.actions.selected),
     );
   }
-  button.title = `${node ? `${result.binding}: ${result.name}\n` : ""}${result.file}:${result.line}:${result.column}${node ? `\n${result.excerpt}` : ""}`;
+  button.title = `${node ? `${result.binding}: ${result.name}\n` : ""}${result.file}:${result.line}:${result.column}${node ? `\n${result.excerpt}` : ""}${result.detached ? "\nOpen this match to load its AST for inspection and actions." : ""}`;
   const name = document.createElement("span");
   name.className = "name";
   const location =
@@ -115,17 +198,19 @@ function match(parent, result, node = false, file = result.file) {
     button.append(excerpt);
   }
   button.addEventListener("click", () =>
-    post(node ? "nodeSelect" : "openResult", {
+    post(node ? "nodeSelect" : result.project ? "indexOpen" : "openResult", {
       id: node ? result.nodeId : result.id,
     }),
   );
   parent.append(button);
 }
 function renderSearch() {
+  const indexed = state.action.kind === "symbols" && state.indexedSearchActive;
+  const search = state.indexedSearch ?? {};
   const revision = JSON.stringify([
     state.action.id,
     state.action.parameters,
-    state.values,
+    indexed ? search.query : state.values,
   ]);
   if (
     revision !== searchRevision &&
@@ -138,38 +223,100 @@ function renderSearch() {
       input.dataset.parameter = p.name;
       input.placeholder = p.label;
       input.setAttribute("aria-label", p.label);
-      input.value = state.values[p.name] ?? p.default ?? "";
+      input.value =
+        indexed && p.name === "NAME"
+          ? (search.query ?? "")
+          : (state.values[p.name] ?? p.default ?? "");
       element("fields").append(input);
     }
   }
-  element("scope").value = state.scope;
-  element("target").textContent = state.target || "Open a C++ file to search.";
+  const scope = element("scope");
+  for (const option of scope.options)
+    option.hidden =
+      state.action.kind === "symbols"
+        ? false
+        : !["file", "workspace"].includes(option.value);
+  scope.value = indexed ? (search.scope ?? "project") : state.scope;
+  element("index-project-label").hidden = !indexed || scope.value === "global";
+  element("source-only-label").hidden = !indexed;
+  element("source-only").checked = indexed && Boolean(search.sourceOnly);
+  const projects = element("index-project");
+  projects.replaceChildren();
+  for (const item of search.projects ?? []) {
+    const option = document.createElement("option");
+    option.value = item.root;
+    option.textContent = `${item.label} · ${item.root}`;
+    projects.append(option);
+  }
+  projects.value = search.project ?? "";
+  projects.disabled =
+    !indexed || !(search.projects ?? []).length || scope.value === "global";
+  const aliasesOnly =
+    indexed &&
+    (search.kinds ?? []).length === 1 &&
+    search.kinds[0] === "aliases";
+  element("target").textContent = indexed
+    ? aliasesOnly
+      ? "Search indexed project symbols. Leave the name blank to list all aliases."
+      : "Search indexed project symbols."
+    : state.target || "Open a C++ file to search.";
   for (const input of document.querySelectorAll("#kinds input"))
-    input.checked = state.kinds.includes(input.value);
+    input.checked = indexed
+      ? (search.kinds ?? []).includes(input.value)
+      : input.value !== "aliases" && state.kinds.includes(input.value);
+  const aliasKind = element("kinds").querySelector('input[value="aliases"]');
+  aliasKind.parentElement.hidden = !indexed;
   for (const input of element("symbols-panel").querySelectorAll(
     "button,input,select",
   ))
-    input.disabled = state.running;
-  element("status").textContent = state.completed ? state.status : "";
-  element("output").hidden = !state.errors.length && !state.output.length;
+    input.disabled = indexed
+      ? search.running && input.tagName === "BUTTON"
+      : state.running;
+  element("index-cancel").hidden = !indexed || !search.running;
+  element("index-cancel").disabled = false;
+  element("status").textContent = indexed
+    ? (search.status ?? "")
+    : state.completed
+      ? state.status
+      : "";
+  element("output").hidden =
+    indexed || (!state.errors.length && !state.output.length);
   element("errors").replaceChildren();
-  for (const error of state.errors) paragraph(element("errors"), error, "");
-  const resultKey = JSON.stringify([state.results, state.completed]);
+  for (const error of indexed ? (search.errors ?? []) : state.errors)
+    paragraph(element("errors"), error, "");
+  const results = indexed ? (search.results ?? []) : state.results;
+  const complete = indexed ? Boolean(search.completed) : state.completed;
+  const resultKey = JSON.stringify([
+    results,
+    complete,
+    indexed,
+    indexed ? search.scope : state.scope,
+    indexed ? search.project : "",
+    indexed ? Boolean(search.sourceOnly) : false,
+  ]);
   if (resultKey !== searchResults) {
     searchResults = resultKey;
     element("results").replaceChildren();
     const groups = new Map();
-    for (const result of state.results) {
-      if (!groups.has(result.file))
-        groups.set(result.file, group(element("results"), result.displayFile));
-      match(groups.get(result.file), result);
+    for (const result of results) {
+      const label =
+        indexed && scope.value === "global"
+          ? `${result.project} · ${result.displayFile}`
+          : (result.displayFile ?? result.file);
+      if (!groups.has(label))
+        groups.set(label, group(element("results"), label));
+      match(groups.get(label), result, false, result.file);
     }
-    if (!state.results.length)
+    if (!results.length)
       paragraph(
         element("results"),
-        state.completed
+        complete
           ? "No matches."
-          : "Search for a variable, class or function.",
+          : indexed
+            ? search.kinds?.includes("aliases") && !search.query
+              ? "Choose Aliases to browse indexed aliases, or enter a name to search."
+              : "Search indexed symbols by name."
+            : "Search for a variable, class or function.",
       );
   }
   post("rendered", {
@@ -183,11 +330,24 @@ function renderActions() {
   if (!a) return;
   if (a.invalidAction || a.running || state.tab !== "actions")
     window.CtkArgumentCompletion.close();
+  element("node-scope").value = a.scope ?? "file";
+  element("node-directory").textContent = a.directoryTarget
+    ? `Directory: ${a.directoryTarget}`
+    : a.scope === "workspace"
+      ? "All open workspace folders"
+      : a.scope === "directory"
+        ? "Choose a directory to scan"
+        : "";
+  element("node-choose-directory").hidden = a.scope !== "directory";
   element("node-context").textContent = a.input
     ? `Input: ${a.input.label} · ${a.input.file}`
-    : a.target
-      ? `Input: file root · ${a.target}`
-      : "Input: active C++ file root";
+    : a.scope === "workspace"
+      ? "Input: all open workspace folders"
+      : a.scope === "directory"
+        ? `Input: directory · ${a.directoryTarget ?? "choose a folder"}`
+        : a.target
+          ? `Input: file root · ${a.target}`
+          : "Input: active C++ file root";
   element("node-picker").textContent =
     `${a.action?.title ?? "Select action…"} ▾`;
   element("node-description").textContent =
@@ -249,9 +409,51 @@ function renderActions() {
   element("node-back").hidden = !a.back;
   element("node-root").hidden = !a.root;
   element("node-error").textContent = a.error;
+  const resultQualifier = a.batch
+    ? a.complete
+      ? ""
+      : ` · partial${a.cancelled ? " · cancelled" : ""}`
+    : a.truncated
+      ? " · limit reached"
+      : "";
   element("node-count").textContent = a.completed
-    ? `${a.matches} ${a.matches === 1 ? "match" : "matches"}${a.truncated ? " · limit reached" : ""}`
+    ? `${a.totalMatches} ${a.totalMatches === 1 ? "match" : "matches"}${resultQualifier}`
     : "";
+  const pageSize = a.pageSize ?? 0;
+  const pageOffset = a.pageOffset ?? 0;
+  const pageCount =
+    pageSize > 0 ? Math.max(1, Math.ceil(a.totalMatches / pageSize)) : 0;
+  const pageNumber = pageSize > 0 ? Math.floor(pageOffset / pageSize) + 1 : 0;
+  const pageGroups = a.matchFiles.reduce(
+    (count, file) => count + file.matches.length,
+    0,
+  );
+  pageInfo.textContent = a.completed
+    ? `Page ${pageNumber || 1}${pageCount ? ` of ${pageCount}` : ""} · ${pageGroups} matches · ${a.results.length} binding rows`
+    : "";
+  firstPage.hidden = !a.resultHandle;
+  firstPage.disabled = a.running || pageOffset <= 0;
+  previousPage.hidden = !a.resultHandle;
+  previousPage.disabled = a.running || pageOffset <= 0;
+  nextPage.hidden = !a.resultHandle;
+  nextPage.disabled = a.running || !a.hasMore;
+  lastPage.hidden = !a.resultHandle;
+  lastPage.disabled = a.running || !a.hasMore;
+  openCompleteResults.hidden = !a.resultFile;
+  openCompleteResults.disabled = a.running;
+  const cancelledFiles = (a.fileStatuses ?? []).filter(
+    (file) => file.status === "cancelled",
+  ).length;
+  element("node-batch-summary").textContent = a.batch
+    ? `${a.scope === "directory" ? "Directory" : "Workspace"} batch · ${a.completedFiles ?? Math.max(0, a.files - a.errors.length)} succeeded · ${a.failedFiles ?? a.errors.length} failed · ${cancelledFiles} cancelled · ${a.unattemptedFiles ?? 0} not attempted · ${a.coverageComplete ? "all files attempted" : "coverage incomplete"}`
+    : "";
+  element("node-batch-errors").replaceChildren();
+  for (const error of a.errors ?? [])
+    paragraph(
+      element("node-batch-errors"),
+      `${error.file}: ${error.message}`,
+      "",
+    );
   const selected = a.results.find((r) => r.nodeId === a.selected);
   element("node-selection").hidden = !selected;
   element("node-selected").textContent = selected
@@ -349,3 +551,4 @@ window.addEventListener("message", ({ data }) => {
     window.CtkArgumentCompletion.receive(data);
 });
 post("ready");
+post("indexProjects");

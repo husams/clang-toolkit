@@ -902,7 +902,7 @@ export async function run(): Promise<void> {
   await api.actions.setAction(symbolFunctions, true, symbolTarget);
   const symbolState = () =>
     api.actions.snapshot() as {
-      input: { id: string; label: string };
+      input: { id: string; label: string; file: string };
       matches: number;
       parseCount: number;
     };
@@ -1238,8 +1238,14 @@ export async function run(): Promise<void> {
     matches: number;
     parseCount: number;
     error: string;
-    input: { id: string; label: string };
+    input: { id: string; label: string; file: string };
     stale: boolean;
+    scope?: "file" | "directory" | "workspace";
+    target?: string;
+    directoryTarget?: string;
+    batch?: boolean;
+    files?: number;
+    errors?: { file: string; message: string }[];
     rendered?: {
       nodes: number;
       groups: number;
@@ -1911,6 +1917,162 @@ export async function run(): Promise<void> {
     "Back must restore the complete related matches",
   );
   await api.actions.close();
+  // Exercise the Options scope protocol and a bounded real directory batch.
+  const scopeAccess = api.actions as unknown as {
+    setScope(
+      scope: "directory" | "workspace",
+      directory?: vscode.Uri,
+    ): Promise<void>;
+    discover(
+      scope: "directory" | "workspace",
+      file: string,
+    ): Promise<{ files: string[]; roots: string[]; batch: boolean }>;
+  };
+  await api.actions.receive({ type: "nodeScope", scope: "workspace" });
+  assert.equal(actionState().scope, "workspace");
+  const workspaceManifest = await scopeAccess.discover.call(
+    api.actions,
+    "workspace",
+    folder.uri.fsPath,
+  );
+  assert.ok(workspaceManifest.batch);
+  assert.ok(workspaceManifest.files.includes(relatedSource.fsPath));
+
+  const scopeDirectory = vscode.Uri.joinPath(
+    folder.uri,
+    "action-scope-fixture",
+  );
+  await vscode.workspace.fs.createDirectory(
+    vscode.Uri.joinPath(scopeDirectory, "nested"),
+  );
+  await vscode.workspace.fs.createDirectory(
+    vscode.Uri.joinPath(scopeDirectory, "build"),
+  );
+  await vscode.workspace.fs.writeFile(
+    vscode.Uri.joinPath(scopeDirectory, "first.cpp"),
+    Buffer.from("int firstScopedFunction() { return 1; }\n"),
+  );
+  await vscode.workspace.fs.writeFile(
+    vscode.Uri.joinPath(scopeDirectory, "nested", "second.cpp"),
+    Buffer.from("int secondScopedFunction() { return 2; }\n"),
+  );
+  await vscode.workspace.fs.writeFile(
+    vscode.Uri.joinPath(scopeDirectory, "build", "ignored.cpp"),
+    Buffer.from("int ignoredBuildFunction() { return 3; }\n"),
+  );
+  await scopeAccess.setScope.call(api.actions, "directory", scopeDirectory);
+  const scopeActionUri = vscode.Uri.joinPath(
+    scopeDirectory,
+    "scope-test.ctk-action",
+  );
+  const scopeActionSource =
+    '---\nname: scope-test\ndescription: Find function definitions in the selected scope\narguments: []\n---\nmatch functionDecl(isDefinition()).bind("function") in node\n';
+  await vscode.workspace.fs.writeFile(
+    scopeActionUri,
+    Buffer.from(scopeActionSource),
+  );
+  const scopeAction = parseNodeAction(scopeActionUri.fsPath, scopeActionSource);
+  await api.actions.setAction(scopeAction);
+  const unsavedHeader = vscode.Uri.joinPath(
+    folder.uri,
+    "dirty-outside-scope.hpp",
+  );
+  await vscode.workspace.fs.writeFile(
+    unsavedHeader,
+    Buffer.from("struct DirtyOutsideScope {};\n"),
+  );
+  const unsavedHeaderDoc =
+    await vscode.workspace.openTextDocument(unsavedHeader);
+  const dirtyHeaderEdit = new vscode.WorkspaceEdit();
+  dirtyHeaderEdit.insert(
+    unsavedHeader,
+    new vscode.Position(0, 0),
+    "// unsaved\n",
+  );
+  await vscode.workspace.applyEdit(dirtyHeaderEdit);
+  assert.equal(unsavedHeaderDoc.isDirty, true);
+  await assert.rejects(
+    api.actions.run(),
+    /Save the C\+\+ file before parsing it/,
+  );
+  let headerSaveTimeout: ReturnType<typeof setTimeout> | undefined;
+  let headerSaveSubscription: vscode.Disposable | undefined;
+  const headerSaved = new Promise<void>((resolve, reject) => {
+    headerSaveTimeout = setTimeout(() => {
+      headerSaveSubscription?.dispose();
+      reject(new Error("Did not observe the header document save"));
+    }, 10000);
+    headerSaveSubscription = vscode.workspace.onDidSaveTextDocument(
+      (document) => {
+        if (document.uri.toString() !== unsavedHeader.toString()) return;
+        if (headerSaveTimeout) clearTimeout(headerSaveTimeout);
+        headerSaveSubscription?.dispose();
+        resolve();
+      },
+    );
+  });
+  assert.equal(await unsavedHeaderDoc.save(), true);
+  await headerSaved;
+  assert.equal(unsavedHeaderDoc.isDirty, false);
+  await api.actions.refresh();
+  await api.actions.run();
+  const batchState = actionState();
+  assert.equal(batchState.batch, true);
+  assert.equal(batchState.files, 2);
+  assert.deepEqual(batchState.errors, []);
+  assert.equal(batchState.parseCount, 2);
+  assert.deepEqual(
+    batchState.results
+      .filter((result) => result.binding === "function")
+      .map((result) => result.name)
+      .sort(),
+    ["firstScopedFunction", "secondScopedFunction"],
+  );
+  assert.ok(batchState.results.every((result) => result.detached === true));
+  const detachedResult = batchState.results.find(
+    (result) => result.name === "firstScopedFunction",
+  );
+  assert.ok(detachedResult?.translationUnit);
+  await api.actions.select(detachedResult.nodeId);
+  assert.equal(actionState().error, "");
+  await api.actions.setAction(scopeAction, true);
+  assert.notEqual(actionState().input.id, detachedResult.nodeId);
+  assert.equal(
+    await realpath(actionState().input.file),
+    await realpath(vscode.Uri.joinPath(scopeDirectory, "first.cpp").fsPath),
+  );
+  await api.actions.run();
+  assert.equal(actionState().batch, false);
+  assert.equal(actionState().input.id === detachedResult.nodeId, false);
+  await api.actions.receive({ type: "nodeBack" });
+  assert.equal(actionState().batch, true, "Back must restore the batch report");
+  assert.equal(actionState().scope, "directory");
+  await api.actions.run();
+  assert.equal(
+    actionState().batch,
+    true,
+    "rerunning after Back must rerun the directory batch",
+  );
+  const nextDetached = actionState().results.find(
+    (result) => result.name === "firstScopedFunction",
+  );
+  assert.ok(nextDetached);
+  await api.actions.select(nextDetached.nodeId);
+  await api.actions.setAction(scopeAction, true);
+  await api.actions.receive({ type: "nodeRoot" });
+  assert.equal(actionState().scope, "file");
+  assert.ok(actionState().target?.endsWith("action-scope-fixture/first.cpp"));
+  await api.actions.run();
+  assert.equal(
+    actionState().batch,
+    false,
+    "File root must run as a single-file action",
+  );
+  assert.ok(
+    actionState().input.file.endsWith("action-scope-fixture/first.cpp"),
+  );
+  await api.actions.close();
+
   const semanticUri = vscode.Uri.joinPath(folder.uri, "semantic-inspector.cpp");
   await vscode.workspace.fs.writeFile(
     semanticUri,

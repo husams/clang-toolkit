@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ActionService } from "../src/action-service.js";
+import { parseNodeAction } from "../src/actions.js";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 class Worker extends EventEmitter {
@@ -192,6 +193,72 @@ it("keeps the worker termination deadline when both owners close the shared sess
   host.dispose();
   await vi.advanceTimersByTimeAsync(3000);
   expect(worker.kill).toHaveBeenCalledOnce();
+});
+it("waits through the native RPC deadline for a cancelled batch and clears its timer", async () => {
+  const action = parseNodeAction(
+    "test.ctk-action",
+    "---\nname: test\ndescription: Test\n---\nmatch functionDecl() in node",
+  );
+  const batchSettings = { ...settings, timeoutMs: 120000 };
+  const pending = host.run(
+    action,
+    {},
+    ["/demo.cpp"],
+    batchSettings,
+    5,
+    () => {},
+    undefined,
+    true,
+  );
+
+  host.cancel();
+  expect(worker.kill).toHaveBeenCalledWith("SIGINT");
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(worker.kill).toHaveBeenCalledTimes(1);
+
+  worker.reply({
+    report: {
+      results: [],
+      output: [],
+      runId: "batch-run",
+      input: { id: "root", label: "demo.cpp", file: "/demo.cpp" },
+      matches: 0,
+      truncated: false,
+      parseCount: 1,
+      batch: true,
+      files: 1,
+      totalMatches: 0,
+      pageOffset: 0,
+      pageSize: 5,
+      hasMore: false,
+      complete: false,
+      coverageComplete: false,
+      cancelled: true,
+      completedFiles: 0,
+      failedFiles: 0,
+      attemptedFiles: 1,
+      unattemptedFiles: 0,
+      fileStatuses: [],
+    },
+  });
+  expect((await pending).cancelled).toBe(true);
+
+  const reset = host.reset();
+  worker.reply({ reset: true });
+  await reset;
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(worker.kill).toHaveBeenCalledTimes(1);
+});
+it("keeps the five-second cancellation deadline for a single-file request", async () => {
+  const pending = host.inspect(settings, "node");
+  host.cancel();
+  await vi.advanceTimersByTimeAsync(4999);
+  expect(worker.kill).toHaveBeenCalledWith("SIGINT");
+  expect(worker.kill).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(worker.kill).toHaveBeenLastCalledWith("SIGKILL");
+  worker.reply({ inspection });
+  await expect(pending).resolves.toEqual(inspection);
 });
 it("keeps the file owner's callbacks when an action observes its shared session", async () => {
   const owner = vi.fn(),

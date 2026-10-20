@@ -8,6 +8,7 @@ const mock = vi.hoisted(() => ({
   resolve: undefined,
   disk: undefined,
   nextSearch: undefined,
+  configScopes: [],
 }));
 vi.mock("node:fs/promises", () => ({
   realpath: (file) =>
@@ -58,7 +59,10 @@ vi.mock("vscode", () => ({
     },
     onDidChangeConfiguration: () => ({ dispose() {} }),
     getWorkspaceFolder: () => ({ uri: { fsPath: "/real" } }),
-    getConfiguration: () => ({ get: (_key, fallback) => fallback }),
+    getConfiguration: (_section, scope) => {
+      mock.configScopes.push(scope);
+      return { get: (_key, fallback) => fallback };
+    },
   },
 }));
 
@@ -68,6 +72,7 @@ beforeEach(() => {
   mock.resolve = undefined;
   mock.disk = undefined;
   mock.nextSearch = undefined;
+  mock.configScopes = [];
   vscode.workspace.textDocuments.length = 0;
 });
 
@@ -261,6 +266,7 @@ it("keeps an unsaved overlay alive when delayed disk events arrive, but invalida
     access = new SearchAstAccess({ fsPath: "/extension" }, invalidated, true);
   vscode.workspace.textDocuments.push(document);
   const context = await access.open(undefined, document.uri.fsPath);
+  expect(mock.configScopes).toContainEqual({ fsPath: document.uri.fsPath });
   await context.inspect();
   mock.disk(document.uri);
   expect(invalidated).not.toHaveBeenCalled();

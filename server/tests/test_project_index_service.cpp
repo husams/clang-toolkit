@@ -2682,6 +2682,148 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_FALSE(fs::exists(storage));
 }
 
+TEST_F(ProjectIndexServiceTest, SourceOnlyAliasBrowsePagesAtStableRevision) {
+  write("shared.hpp", "using SharedAlias = int;\n");
+  write("one.cpp", "#include \"shared.hpp\"\nusing SeedAlias = int;\n");
+  write("two.cpp", "#include \"shared.hpp\"\n");
+  const auto project_link = root / "project-link";
+  const auto outside = root / "outside";
+  fs::create_directories(outside);
+  std::ofstream(outside / "external.hpp") << "using ExternalAlias = int;\n";
+  fs::create_directory_symlink(project, project_link);
+  fs::create_directory_symlink(outside, project / "external-link");
+  fs::create_symlink(project / "shared.hpp", project / "inroot-file-link.hpp");
+  fs::create_symlink(outside / "external.hpp",
+                     project / "external-file-link.hpp");
+  IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
+  const auto indexed = start_and_wait(service);
+  sqlite3 *db = nullptr;
+  ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  std::string inserts;
+  for (int i = 0; i < 1002; ++i) {
+    const auto n = std::to_string(i);
+    inserts += "INSERT INTO symbol SELECT id,'source-alias-" + n +
+               "','BrowseAlias" + n + "','BrowseAlias" + n + "','TypeAlias','" +
+               project.string() + "/include/aliases.hpp'," + n +
+               ",1,1,1,'' FROM translation_unit "
+               "WHERE indexed_at>0 LIMIT 1;";
+  }
+  inserts += "INSERT INTO symbol SELECT id,'build-alias','BuildAlias',"
+             "'BuildAlias','TypeAlias','" +
+             project.string() +
+             "/build/generated.hpp',0,1,1,1,'' FROM translation_unit "
+             "WHERE indexed_at>0 LIMIT 1;";
+  inserts +=
+      "INSERT INTO symbol SELECT id,'build-variant-alias','BuildVariantAlias',"
+      "'BuildVariantAlias','TypeAlias','" +
+      project.string() +
+      "/build-debug/generated.hpp',0,1,1,1,'' FROM translation_unit "
+      "WHERE indexed_at>0 LIMIT 1;";
+  inserts += "INSERT INTO symbol SELECT id,'outside-alias','OutsideAlias',"
+             "'OutsideAlias','TypeAlias','" +
+             project.string() +
+             "-sibling/outside.hpp',0,1,1,1,'' FROM translation_unit "
+             "WHERE indexed_at>0 LIMIT 1;";
+  inserts += "INSERT INTO symbol SELECT id,'symlink-alias','SymlinkAlias',"
+             "'SymlinkAlias','TypeAlias','" + project_link.string() +
+             "/symlink.hpp',0,1,1,1,'' FROM translation_unit "
+             "WHERE indexed_at>0 LIMIT 1;";
+  inserts += "INSERT INTO symbol SELECT id,'external-link-alias',"
+             "'ExternalLinkAlias','ExternalLinkAlias','TypeAlias','" +
+             project.string() +
+             "/external-link/leak.hpp',0,1,1,1,'' FROM translation_unit "
+             "WHERE indexed_at>0 LIMIT 1;";
+  inserts += "INSERT INTO symbol SELECT id,'inroot-file-symlink-alias',"
+             "'InRootFileSymlinkAlias','InRootFileSymlinkAlias','TypeAlias','" +
+             project.string() +
+             "/inroot-file-link.hpp',0,1,1,1,'' FROM translation_unit "
+             "WHERE indexed_at>0 LIMIT 1;";
+  inserts += "INSERT INTO symbol SELECT id,'external-file-symlink-alias',"
+             "'ExternalFileSymlinkAlias','ExternalFileSymlinkAlias',"
+             "'TypeAlias','" + project.string() +
+             "/external-file-link.hpp',0,1,1,1,'' FROM translation_unit "
+             "WHERE indexed_at>0 LIMIT 1;";
+  ASSERT_EQ(sqlite3_exec(db, inserts.c_str(), nullptr, nullptr, nullptr),
+            SQLITE_OK);
+  sqlite3_close(db);
+
+  const auto page = [&](bool source_only, std::uint64_t offset,
+                        std::uint64_t expected_revision) {
+    FindSymbolsRequest request;
+    request.set_project_root(project.string());
+    request.set_query("");
+    request.set_match_mode(FindSymbolsRequest::MATCH_MODE_PREFIX);
+    request.set_kind(FindSymbolsRequest::KIND_ALIAS);
+    request.set_source_only(source_only);
+    request.set_unique_symbols(true);
+    request.set_limit(1000);
+    request.set_offset(offset);
+    request.set_expected_revision(expected_revision);
+    grpc::ServerContext context;
+    FindSymbolsResponse response;
+    EXPECT_TRUE(service.FindSymbols(&context, &request, &response).ok());
+    return response;
+  };
+  const auto first = page(true, 0, 0);
+  ASSERT_EQ(first.symbols_size(), 1000);
+  ASSERT_TRUE(first.truncated());
+  EXPECT_EQ(first.next_offset(), 1000);
+  EXPECT_EQ(first.revision(), indexed.revision());
+  const auto second = page(true, first.next_offset(), first.revision());
+  ASSERT_EQ(second.symbols_size(),
+            6); // shared, seed, symlinks, and the final source aliases
+  EXPECT_FALSE(second.truncated());
+  EXPECT_EQ(second.next_offset(), 0);
+  for (const auto &symbol : first.symbols())
+    EXPECT_EQ(symbol.file_path(), project.string() + "/include/aliases.hpp");
+  for (const auto &symbol : second.symbols()) {
+    EXPECT_EQ(symbol.file_path().find("/build/"), std::string::npos);
+    EXPECT_EQ(symbol.file_path().find("-sibling/"), std::string::npos);
+  }
+  std::set<std::string> source_usrs;
+  for (const auto &symbol : first.symbols())
+    EXPECT_TRUE(source_usrs.insert(symbol.usr()).second);
+  for (const auto &symbol : second.symbols())
+    EXPECT_TRUE(source_usrs.insert(symbol.usr()).second);
+  EXPECT_EQ(source_usrs.size(), 1006u);
+  EXPECT_TRUE(source_usrs.contains("symlink-alias"));
+  EXPECT_TRUE(source_usrs.contains("inroot-file-symlink-alias"));
+  const auto all_first = page(false, 0, 0);
+  ASSERT_EQ(all_first.symbols_size(), 1000);
+  EXPECT_TRUE(all_first.truncated());
+  const auto all_second =
+      page(false, all_first.next_offset(), all_first.revision());
+  EXPECT_EQ(all_second.symbols_size(), 11);
+  EXPECT_TRUE(std::any_of(all_second.symbols().begin(),
+                          all_second.symbols().end(), [](const auto &symbol) {
+                            return symbol.file_path().find("/build/") !=
+                                   std::string::npos;
+                          }));
+  EXPECT_FALSE(all_second.truncated());
+  FindSymbolsRequest stale_request;
+  stale_request.set_project_root(project.string());
+  stale_request.set_query("");
+  stale_request.set_match_mode(FindSymbolsRequest::MATCH_MODE_PREFIX);
+  stale_request.set_kind(FindSymbolsRequest::KIND_ALIAS);
+  stale_request.set_source_only(true);
+  stale_request.set_expected_revision(first.revision() + 1);
+  grpc::ServerContext stale_context;
+  FindSymbolsResponse stale_response;
+  const auto stale_status =
+      service.FindSymbols(&stale_context, &stale_request, &stale_response);
+  EXPECT_EQ(stale_status.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
+  EXPECT_NE(stale_status.error_message().find("revision changed"),
+            std::string::npos);
+  stale_request.set_expected_revision(0);
+  stale_request.set_kind(FindSymbolsRequest::KIND_FUNCTION);
+  grpc::ServerContext invalid_context;
+  FindSymbolsResponse invalid_response;
+  EXPECT_EQ(
+      service.FindSymbols(&invalid_context, &stale_request, &invalid_response)
+          .error_code(),
+      grpc::StatusCode::INVALID_ARGUMENT);
+}
+
 TEST_F(ProjectIndexServiceTest,
        AliasAndUniqueFiltersPreserveKindsAndLimitUniqueDefinitions) {
   write("shared.h", R"cpp(
