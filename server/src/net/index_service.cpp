@@ -248,16 +248,14 @@ class ProjectSymbolMonitor {
 public:
   ProjectSymbolMonitor(fs::path root, std::function<bool()> foreground_busy,
                        fs::path executable, std::size_t max_workers,
-                       std::counting_semaphore<4> &worker_slots)
+                       std::counting_semaphore<> &worker_slots)
       : storage_(std::move(root) / "symbol-index"),
         executable_(executable.empty() ? platform::current_executable_sibling(
                                              "ctk-index-worker")
                                        : std::move(executable)),
         foreground_busy_(std::move(foreground_busy)),
-        max_workers_(std::clamp<std::size_t>(
-            max_workers ? max_workers
-                        : platform::index_worker_parallelism_limit(),
-            1, 4)),
+        max_workers_(max_workers ? max_workers
+                                 : platform::index_worker_parallelism_limit()),
         worker_slots_(worker_slots) {}
   void stop() {
     {
@@ -878,7 +876,7 @@ private:
     while (!worker_slots_.try_acquire_for(std::chrono::milliseconds(25)))
       await_admission(job, stop);
     struct ReleaseSlot {
-      std::counting_semaphore<4> &slots;
+      std::counting_semaphore<> &slots;
       ~ReleaseSlot() { slots.release(); }
     } release_slot{worker_slots_};
     if ((stop && stop()) || !admitted(job))
@@ -918,8 +916,6 @@ private:
         throw std::runtime_error("cannot stage index request");
     }
     platform::IndexWorker worker(executable_, request_path, result_path);
-    auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(120);
     for (;;) {
       if ((stop && stop()) || !admitted(job))
         throw Interrupted();
@@ -927,16 +923,11 @@ private:
         // Retain the AST and current reconciliation position while giving
         // foreground requests the CPU and disk. The process group includes
         // wrapper children; cancellation still kills and reaps it immediately.
-        const auto yielded_at = std::chrono::steady_clock::now();
         worker.suspend();
         await_admission(job, stop);
         worker.resume();
-        deadline += std::chrono::steady_clock::now() - yielded_at;
         continue;
       }
-      if (auto bytes = worker.resident_bytes();
-          bytes && *bytes > 1536ULL * 1024 * 1024)
-        throw std::runtime_error("index worker exceeded 1.5 GiB memory budget");
       const auto exit = worker.poll();
       if (exit) {
         if ((stop && stop()) || !admitted(job))
@@ -955,8 +946,6 @@ private:
           throw Interrupted();
         return response;
       }
-      if (std::chrono::steady_clock::now() >= deadline)
-        throw std::runtime_error("index worker exceeded 120 second deadline");
       std::unique_lock lock(mutex_);
       changed_.wait_for(lock, std::chrono::milliseconds(25));
     }
@@ -2255,7 +2244,7 @@ private:
   fs::path storage_, executable_;
   std::function<bool()> foreground_busy_;
   std::size_t max_workers_;
-  std::counting_semaphore<4> &worker_slots_;
+  std::counting_semaphore<> &worker_slots_;
   std::mutex foreground_mutex_;
   IncludeInventoryCache inventories_;
   FileDigestCache files_;
@@ -2278,10 +2267,8 @@ public:
                           fs::path executable, std::size_t max_workers)
       : storage_(std::move(root)), executable_(std::move(executable)),
         foreground_busy_(std::move(foreground_busy)),
-        max_workers_(std::clamp<std::size_t>(
-            max_workers ? max_workers
-                        : platform::index_worker_parallelism_limit(),
-            1, 4)),
+        max_workers_(max_workers ? max_workers
+                                 : platform::index_worker_parallelism_limit()),
         worker_slots_(max_workers_),
         reader_(storage_, foreground_gate(), executable_, max_workers_,
                 worker_slots_) {}
@@ -2375,7 +2362,7 @@ private:
   std::function<bool()> foreground_busy_;
   std::mutex foreground_mutex_;
   std::size_t max_workers_;
-  std::counting_semaphore<4> worker_slots_;
+  std::counting_semaphore<> worker_slots_;
   ProjectSymbolMonitor reader_;
   std::mutex mutex_;
   std::map<std::string, std::shared_ptr<ProjectSymbolMonitor>> monitors_;

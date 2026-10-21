@@ -118,7 +118,8 @@ publication freshness, and dependency contents are freshly validated as before.
 
 The server monitors multiple projects independently. Start each project with
 `index start`; pause, resume, and cancel affect only the named project. All
-projects share the server's extraction worker limit (at most four processes),
+projects share the server's extraction worker pool, sized from available CPU
+and memory unless explicitly configured,
 and yield to foreground requests. Starting an already monitored project returns
 its current status. Persisted indexes remain queryable. After a
 server restart, call start again to revalidate a project's saved manifests;
@@ -135,7 +136,7 @@ language mode.
 Dependency manifests also record filename inventories for the source directory
 and explicit include roots. New or removed files under those roots conservatively
 invalidate their TUs, covering newly created headers that change include lookup.
-Inventories are bounded to 500,000 paths and 32 MiB of names per root. Changes to
+Inventories cover the full include root without path-count or name-size caps. Changes to
 implicit system search roots require a toolchain or command refresh. Keep index
 storage outside project/include roots. Reference search, macros as searchable
 symbols, and project wide atomic snapshots are outside this implementation.
@@ -149,9 +150,15 @@ result does not establish that a symbol does not exist.
 
 The worker has separate Clang objects and never uses the foreground native
 executor. One background writer and short read transactions use a dedicated
-SQLite database. Worker priority and resource budgets restrict extraction, and
+SQLite database. Workers run at lower priority, and
 foreground activity takes priority over background admission. Status and control
 calls do not perform project scans or parse source files.
+
+CTK imposes no worker output-file size, CPU-time, elapsed-time, or per-worker
+memory cutoff. Workers inherit the operating environment's resource limits.
+Long-running extraction remains cancellable and yields to foreground activity.
+The worker count has no fixed four-process ceiling; automatic sizing estimates
+memory needs for scheduling without rejecting an extraction that exceeds them.
 
 CPU, memory bandwidth, and storage are still shared physical resources. The
 implementation prevents waiting for extraction; it does not promise zero latency
