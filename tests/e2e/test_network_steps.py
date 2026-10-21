@@ -404,14 +404,27 @@ def header_database_project(tmp_path: Path, selection: str):
     header = source.with_suffix(".h")
     header.write_text(source.read_text())
     source.write_text('#include "profile.h"\n')
-    # Choosing the matching TU must win over the first database entry.
-    unrelated = {**command, "file": "../src/unrelated.cc",
-                 "arguments": ["clang++", "-DPROFILE=0", "../src/unrelated.cc"]}
+    # A TU in the header's source directory wins over an earlier entry elsewhere.
+    unrelated = {**command, "file": "../other/profile.cc",
+                 "arguments": ["clang++", "-DPROFILE=0", "../other/profile.cc"]}
     database.write_text(json.dumps([unrelated, command]))
     return root, header, database, unrelated, command, selection
 
 
+@given(parsers.parse("a source without a compilation entry selected by {selection}"),
+       target_fixture="header_database_project")
+def missing_source_database_project(
+    tmp_path: Path, selection: str,
+) -> tuple[Path, Path, Path, dict[str, object], dict[str, object], str]:
+    root, header, database, unrelated, command, selection = header_database_project(tmp_path, selection)
+    source = header.with_name("missing.cc")
+    header.rename(source)
+    return root, source, database, unrelated, command, selection
+
+
 @when("I parse the header through both SDKs native scripts and the console",
+      target_fixture="header_database_results")
+@when("I parse the missing source through both SDKs native scripts and the console",
       target_fixture="header_database_results")
 def parse_header_database(server: RunningServer, header_database_project):
     import json
@@ -419,6 +432,7 @@ def parse_header_database(server: RunningServer, header_database_project):
     from clang_toolkit import Client
 
     root, header, database, unrelated, command, selection = header_database_project
+    source_path = header.relative_to(root).as_posix()
     selected = str(database) if selection == "explicit" else None
     matcher = 'functionDecl(hasName("before"), isExpansionInMainFile()).bind("f")'
     with Client(server.endpoint, compilation_database=selected) as client:
@@ -426,7 +440,7 @@ def parse_header_database(server: RunningServer, header_database_project):
             with client.match_in(matcher, tree) as rows:
                 assert len(rows) == 1
         script = client.run_script(
-            f'let tree = parse "src/profile.h"; let rows = match {matcher} in $tree; emit rows;',
+            f'let tree = parse "{source_path}"; let rows = match {matcher} in $tree; emit rows;',
             working_directory=root,
         )
         assert len(script.emissions[0].value.matches.rows) == 1
@@ -435,7 +449,7 @@ def parse_header_database(server: RunningServer, header_database_project):
         arguments += ["--compile-commands", selected]
     console = subprocess.run(
         arguments, cwd=root,
-        input=f'let tree = parse "src/profile.h"\nlet rows = match {matcher} in $tree\nprint $rows\nquit\n',
+        input=f'let tree = parse "{source_path}"\nlet rows = match {matcher} in $tree\nprint $rows\nquit\n',
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         timeout=30, check=False,
     )
@@ -460,6 +474,7 @@ def parse_header_database(server: RunningServer, header_database_project):
 
 
 @then("the inferred options select header declarations and refresh after flag changes")
+@then("the sibling options select source declarations and refresh after flag changes")
 def verify_header_database(header_database_results):
     counts, console, root = header_database_results
     assert counts == (1, 1, 1)
