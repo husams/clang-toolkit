@@ -1529,14 +1529,21 @@ class AsyncClient:
 
     async def start_project_index(
         self, project_root: str | Path, *, compile_commands: str | Path = "",
-        poll_interval_seconds: int = 2,
+        poll_interval_seconds: int = 2, project_name: str | None = None,
     ) -> index_pb.ProjectIndexStatus:
         """Enqueue background indexing; paths refer to the server filesystem."""
         if not 1 <= poll_interval_seconds <= 3600:
             raise ValueError("poll_interval_seconds must be between 1 and 3600")
         return await self._index_call("StartProjectIndex", index_pb.StartProjectIndexRequest(
             project_root=str(project_root), compile_commands=str(compile_commands),
-            poll_interval_seconds=poll_interval_seconds))
+            poll_interval_seconds=poll_interval_seconds, project_name=project_name))
+
+    async def rename_project_index(
+        self, project_root: str | Path, project_name: str,
+    ) -> index_pb.ProjectIndexStatus:
+        """Persist a display name without changing index identity or coverage."""
+        return await self._index_call("RenameProjectIndex", index_pb.RenameProjectIndexRequest(
+            project_root=str(project_root), project_name=project_name))
 
     async def project_index_status(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
         """Probe progress without waiting for background work."""
@@ -2198,10 +2205,16 @@ class Client:
 
     def start_project_index(self, project_root: str | Path, *,
                             compile_commands: str | Path = "",
-                            poll_interval_seconds: int = 2) -> index_pb.ProjectIndexStatus:
+                            poll_interval_seconds: int = 2,
+                            project_name: str | None = None) -> index_pb.ProjectIndexStatus:
         return self._cursor_call("start_project_index", project_root,
                                  compile_commands=compile_commands,
-                                 poll_interval_seconds=poll_interval_seconds)
+                                 poll_interval_seconds=poll_interval_seconds,
+                                 project_name=project_name)
+
+    def rename_project_index(self, project_root: str | Path,
+                             project_name: str) -> index_pb.ProjectIndexStatus:
+        return self._cursor_call("rename_project_index", project_root, project_name)
 
     def project_index_status(self, project_root: str | Path) -> index_pb.ProjectIndexStatus:
         return self._cursor_call("project_index_status", project_root)

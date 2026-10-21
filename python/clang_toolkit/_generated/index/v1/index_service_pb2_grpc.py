@@ -43,6 +43,11 @@ class IndexServiceStub:
                 request_serializer=index_dot_v1_dot_index__service__pb2.StartProjectIndexRequest.SerializeToString,
                 response_deserializer=index_dot_v1_dot_index__service__pb2.ProjectIndexStatus.FromString,
                 _registered_method=True)
+        self.RenameProjectIndex = channel.unary_unary(
+                '/ctk.index.v1.IndexService/RenameProjectIndex',
+                request_serializer=index_dot_v1_dot_index__service__pb2.RenameProjectIndexRequest.SerializeToString,
+                response_deserializer=index_dot_v1_dot_index__service__pb2.ProjectIndexStatus.FromString,
+                _registered_method=True)
         self.GetProjectIndexStatus = channel.unary_unary(
                 '/ctk.index.v1.IndexService/GetProjectIndexStatus',
                 request_serializer=index_dot_v1_dot_index__service__pb2.ProjectIndexRequest.SerializeToString,
@@ -85,6 +90,12 @@ class IndexServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def StartProjectIndex(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RenameProjectIndex(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -137,6 +148,11 @@ def add_IndexServiceServicer_to_server(servicer, server):
             'StartProjectIndex': grpc.unary_unary_rpc_method_handler(
                     servicer.StartProjectIndex,
                     request_deserializer=index_dot_v1_dot_index__service__pb2.StartProjectIndexRequest.FromString,
+                    response_serializer=index_dot_v1_dot_index__service__pb2.ProjectIndexStatus.SerializeToString,
+            ),
+            'RenameProjectIndex': grpc.unary_unary_rpc_method_handler(
+                    servicer.RenameProjectIndex,
+                    request_deserializer=index_dot_v1_dot_index__service__pb2.RenameProjectIndexRequest.FromString,
                     response_serializer=index_dot_v1_dot_index__service__pb2.ProjectIndexStatus.SerializeToString,
             ),
             'GetProjectIndexStatus': grpc.unary_unary_rpc_method_handler(
@@ -223,6 +239,33 @@ class IndexService:
             target,
             '/ctk.index.v1.IndexService/StartProjectIndex',
             index_dot_v1_dot_index__service__pb2.StartProjectIndexRequest.SerializeToString,
+            index_dot_v1_dot_index__service__pb2.ProjectIndexStatus.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RenameProjectIndex(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ctk.index.v1.IndexService/RenameProjectIndex',
+            index_dot_v1_dot_index__service__pb2.RenameProjectIndexRequest.SerializeToString,
             index_dot_v1_dot_index__service__pb2.ProjectIndexStatus.FromString,
             options,
             channel_credentials,

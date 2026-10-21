@@ -26,6 +26,7 @@ from clang_toolkit.cli.batch import batch_requirements, execute_batch
 from clang_toolkit.cli.runtime.batch_execution import BatchInterrupted
 from clang_toolkit.cli.prompt import PersistentPromptHistory, create_session
 from clang_toolkit.cli.project_completion import (
+    IndexedProject,
     ProjectCompletionCache,
     refresh_project_menu,
 )
@@ -826,9 +827,10 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
 
                 workspace = None
 
-                async def indexed_project_roots() -> tuple[str, ...]:
+                async def indexed_project_roots() -> tuple[IndexedProject, ...]:
                     response = await async_client.list_project_indexes()
-                    return tuple(project.project_root for project in response.projects)
+                    return tuple(IndexedProject(project.project_root, project.project_name)
+                                 for project in response.projects)
 
                 project_cache.bind(
                     indexed_project_roots,

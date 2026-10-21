@@ -17,7 +17,7 @@ from prompt_toolkit.validation import ValidationError, Validator
 from lark.exceptions import UnexpectedInput
 
 from clang_toolkit.cli.completion import ReplCompleter
-from clang_toolkit.cli.project_completion import ProjectCompleter
+from clang_toolkit.cli.project_completion import ProjectCompleter, ProjectEntry
 from clang_toolkit.cli.callable_help import CallableHelp
 from clang_toolkit.cli.highlight import STYLE, ReplLexer
 from clang_toolkit.cli.input_state import input_state
@@ -141,7 +141,7 @@ def create_session(
     | None = None,
     field_resolver: Callable[[str], Iterable[object]] | None = None,
     presence_resolver: Callable[[str], Iterable[str]] | None = None,
-    indexed_projects: Callable[[], Iterable[str]] | None = None,
+    indexed_projects: Callable[[], Iterable[ProjectEntry]] | None = None,
     matcher_functions: Iterable[str] | Callable[[], Iterable[str]] | None = None,
     function_help: Mapping[str, CallableHelp] | Callable[[], Mapping[str, CallableHelp]] | None = None,
     history: History | None = None,

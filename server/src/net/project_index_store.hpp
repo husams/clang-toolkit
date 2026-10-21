@@ -133,7 +133,8 @@ inline constexpr auto symbol_indexes =
 class Database {
 public:
   sqlite3 *handle = nullptr;
-  Database(const fs::path &path, bool writer) {
+  Database(const fs::path &path, bool writer, bool initialize_schema = true,
+           int busy_timeout_ms = 0) {
     const int flags = (writer ? SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
                               : SQLITE_OPEN_READONLY) |
                       SQLITE_OPEN_NOMUTEX;
@@ -147,8 +148,8 @@ public:
       handle = nullptr;
       throw std::runtime_error(error);
     }
-    sqlite3_busy_timeout(handle, 0);
-    if (writer) {
+    sqlite3_busy_timeout(handle, busy_timeout_ms);
+    if (writer && initialize_schema) {
       try {
         exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA "
              "foreign_keys=ON; PRAGMA wal_autocheckpoint=0; "

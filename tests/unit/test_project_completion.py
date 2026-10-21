@@ -137,3 +137,15 @@ def test_unquoted_prefix_completion_preserves_following_code(source):
     assert source[: cursor + item.start_position] + item.text + source[cursor:] == (
         source[: cursor - 2] + '"ctk-lab"' + source[cursor:]
     )
+
+
+@pytest.mark.parametrize("command", ['index find "f" in ', 'index status ', 'index rename '])
+def test_saved_names_complete_instead_of_directory_names(command):
+    from clang_toolkit.cli.project_completion import IndexedProject
+
+    roots = (IndexedProject("/projects/dirname", "My library"),)
+    (item,) = complete(command + '"My', roots=roots)
+    assert item.text == '"My library"'
+    assert item.display_text == "My library"
+    assert "/projects/dirname" in item.display_meta_text
+    assert not complete(command + '"dir', roots=roots)

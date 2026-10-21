@@ -99,7 +99,7 @@ _COMMAND_VALUE_KINDS = frozenset(
         "session_resume", "session_close", "session_list", "session_attach",
         "session_close_retained", "server_status", "cache_status", "cache_prune",
         "index_start", "index_status", "index_pause", "index_resume", "index_cancel",
-        "index_find", "index_lookup", "index_list",
+        "index_find", "index_lookup", "index_list", "index_rename",
         "bindings_list", "binding_drop", "binding_rename", "cfg", "cfg_file", "cfg_binding", "variable_flow",
         "callgraph", "callgraph_file", "callgraph_binding", "help", "help_shortcut", "traverse", "script",
         "peek", "step",

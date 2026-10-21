@@ -25,6 +25,15 @@ from clang_toolkit.client import QueryError
 
 
 @dataclass(frozen=True)
+class IndexedProject:
+    root: str
+    name: str
+
+
+ProjectEntry = str | IndexedProject
+
+
+@dataclass(frozen=True)
 class ProjectContext:
     start: int
     partial: str
@@ -77,10 +86,11 @@ def project_context(document: Document) -> ProjectContext | None:
 
 def _project_role(prefix: list[Token]) -> bool:
     return (
-        len(prefix) >= 4
+        len(prefix) >= 2
         and prefix[0].type == "INDEX"
-        and prefix[1].type == "FIND"
-        and prefix[-1].type == "IN"
+        and ((prefix[1].type in {"STATUS", "PAUSE", "RESUME", "CANCEL", "RENAME"}
+              and len(prefix) == 2)
+             or (prefix[1].type in {"FIND", "LOOKUP"} and prefix[-1].type == "IN"))
         and "STRING" in accepted_after(prefix)
     )
 
@@ -126,13 +136,14 @@ def _project_atom(
 
 
 def project_completions(
-    document: Document, context: ProjectContext, roots: Iterable[str]
+    document: Document, context: ProjectContext, roots: Iterable[ProjectEntry]
 ) -> list[Completion]:
-    roots = sorted(set(root for root in roots if root))
-    counts = Counter(Path(root).name for root in roots)
+    projects = sorted({(entry, Path(entry).name or entry) if isinstance(entry, str)
+                       else (entry.root, entry.name or Path(entry.root).name)
+                       for entry in roots if entry})
+    counts = Counter(name for root, name in projects)
     matches = []
-    for root in roots:
-        name = Path(root).name or root
+    for root, name in projects:
         use_path = "/" in context.partial or counts[name] > 1
         value = root if use_path else name
         if not (
@@ -168,7 +179,7 @@ def refresh_project_menu(buffer: Buffer, app: Application) -> None:
 class ProjectCompleter(Completer):
     """Compose project suggestions with any of the existing console engines."""
 
-    def __init__(self, base: Completer, projects: Callable[[], Iterable[str]]) -> None:
+    def __init__(self, base: Completer, projects: Callable[[], Iterable[ProjectEntry]]) -> None:
         self.base = base
         self._projects = projects
 
@@ -190,23 +201,23 @@ class ProjectCompletionCache:
     def __init__(self, *, ttl: float = 5.0, timeout: float = 2.0) -> None:
         self._ttl = ttl
         self._timeout = timeout
-        self._roots: tuple[str, ...] = ()
+        self._roots: tuple[ProjectEntry, ...] = ()
         self._next_refresh = 0.0
-        self._loader: Callable[[], Awaitable[Iterable[str]]] | None = None
+        self._loader: Callable[[], Awaitable[Iterable[ProjectEntry]]] | None = None
         self._on_update: Callable[[], None] | None = None
         self._task: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
 
     def bind(
         self,
-        loader: Callable[[], Awaitable[Iterable[str]]],
+        loader: Callable[[], Awaitable[Iterable[ProjectEntry]]],
         on_update: Callable[[], None],
     ) -> None:
         self._loop = asyncio.get_running_loop()
         self._loader = loader
         self._on_update = on_update
 
-    def get(self) -> tuple[str, ...]:
+    def get(self) -> tuple[ProjectEntry, ...]:
         loop = self._loop
         if self._loader is not None and loop is not None and time.monotonic() >= self._next_refresh:
             try:
@@ -232,7 +243,8 @@ class ProjectCompletionCache:
         if loader is None:
             return
         try:
-            roots = tuple(sorted(set(await asyncio.wait_for(loader(), self._timeout))))
+            roots = tuple(sorted(set(await asyncio.wait_for(loader(), self._timeout)),
+                                 key=lambda entry: entry if isinstance(entry, str) else entry.root))
             if roots != self._roots:
                 self._roots = roots
                 if self._on_update is not None:

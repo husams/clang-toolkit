@@ -24,47 +24,49 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1cindex/v1/index_service.proto\x12\x0c\x63tk.index.v1\"i\n\x18StartProjectIndexRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\x18\n\x10\x63ompile_commands\x18\x02 \x01(\t\x12\x1d\n\x15poll_interval_seconds\x18\x03 \x01(\r\"+\n\x13ProjectIndexRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\"\x1b\n\x19ListProjectIndexesRequest\"e\n\x1aListProjectIndexesResponse\x12\x32\n\x08projects\x18\x01 \x03(\x0b\x32 .ctk.index.v1.ProjectIndexStatus\x12\x13\n\x0btotal_count\x18\x02 \x01(\x04\"w\n\x10IndexPassSummary\x12\r\n\x05total\x18\x01 \x01(\x04\x12\x0e\n\x06reused\x18\x02 \x01(\x04\x12\x15\n\rnewly_indexed\x18\x03 \x01(\x04\x12\x0e\n\x06\x66\x61iled\x18\x04 \x01(\x04\x12\x1d\n\x15\x66inished_unix_seconds\x18\x05 \x01(\x04\"\x85\x04\n\x12ProjectIndexStatus\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\'\n\x05state\x18\x02 \x01(\x0e\x32\x18.ctk.index.v1.IndexState\x12\x1f\n\x17translation_units_total\x18\x03 \x01(\x04\x12#\n\x1btranslation_units_completed\x18\x04 \x01(\x04\x12!\n\x19translation_units_skipped\x18\x05 \x01(\x04\x12 \n\x18translation_units_failed\x18\x06 \x01(\x04\x12 \n\x18\x63urrent_translation_unit\x18\x07 \x01(\t\x12\r\n\x05\x65rror\x18\x08 \x01(\t\x12$\n\x1clast_reconciled_unix_seconds\x18\t \x01(\x04\x12\x10\n\x08revision\x18\n \x01(\x04\x12!\n\x19translation_units_pending\x18\x0b \x01(\x04\x12\x15\n\rpaused_reason\x18\x0c \x01(\t\x12!\n\x19translation_units_indexed\x18\r \x01(\x04\x12\"\n\x1atranslation_units_indexing\x18\x0e \x01(\x04\x12;\n\x13last_completed_pass\x18\x0f \x01(\x0b\x32\x1e.ctk.index.v1.IndexPassSummary\"\xab\x03\n\x12\x46indSymbolsRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\r\n\x05query\x18\x02 \x01(\t\x12\r\n\x05limit\x18\x03 \x01(\r\x12>\n\nmatch_mode\x18\x04 \x01(\x0e\x32*.ctk.index.v1.FindSymbolsRequest.MatchMode\x12\x33\n\x04kind\x18\x05 \x01(\x0e\x32%.ctk.index.v1.FindSymbolsRequest.Kind\x12\x16\n\x0eunique_symbols\x18\x06 \x01(\x08\x12\x13\n\x0bsource_only\x18\x08 \x01(\x08\x12\x0e\n\x06offset\x18\t \x01(\x04\x12\x19\n\x11\x65xpected_revision\x18\n \x01(\x04\"8\n\tMatchMode\x12\x14\n\x10MATCH_MODE_EXACT\x10\x00\x12\x15\n\x11MATCH_MODE_PREFIX\x10\x01\"Z\n\x04Kind\x12\x0c\n\x08KIND_ANY\x10\x00\x12\x11\n\rKIND_FUNCTION\x10\x01\x12\x0e\n\nKIND_CLASS\x10\x02\x12\x11\n\rKIND_VARIABLE\x10\x03\x12\x0e\n\nKIND_ALIAS\x10\x04\"8\n\x13LookupSymbolRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\x0b\n\x03usr\x18\x02 \x01(\t\"\x93\x02\n\x06Symbol\x12\x0b\n\x03usr\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x16\n\x0equalified_name\x18\x03 \x01(\t\x12\x0c\n\x04kind\x18\x04 \x01(\t\x12\x11\n\tfile_path\x18\x05 \x01(\t\x12\x0c\n\x04line\x18\x06 \x01(\r\x12\x0e\n\x06\x63olumn\x18\x07 \x01(\r\x12\x11\n\tsignature\x18\x08 \x01(\t\x12\x18\n\x10translation_unit\x18\t \x01(\t\x12\x17\n\x0f\x63ompile_context\x18\n \x01(\t\x12\x13\n\x0b\x62yte_offset\x18\x0b \x01(\x04\x12\x15\n\ris_definition\x18\x0c \x01(\x08\x12\x16\n\x0eindex_revision\x18\r \x01(\x04\x12\r\n\x05stale\x18\x0e \x01(\x08\"\xc9\x01\n\x13\x46indSymbolsResponse\x12%\n\x07symbols\x18\x01 \x03(\x0b\x32\x14.ctk.index.v1.Symbol\x12\x10\n\x08revision\x18\x02 \x01(\x04\x12\r\n\x05stale\x18\x03 \x01(\x08\x12!\n\x19translation_units_indexed\x18\x04 \x01(\x04\x12\x1f\n\x17translation_units_total\x18\x05 \x01(\x04\x12\x11\n\ttruncated\x18\x06 \x01(\x08\x12\x13\n\x0bnext_offset\x18\x07 \x01(\x04\"\x8c\x02\n\x12IndexWorkerRequest\x12\x0e\n\x06source\x18\x01 \x01(\t\x12\"\n\x1a\x63ompile_commands_directory\x18\x02 \x01(\t\x12\x1e\n\x16list_translation_units\x18\x03 \x01(\x08\x12\x19\n\x11working_directory\x18\x04 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x05 \x03(\t\x12\x1e\n\x16header_cache_directory\x18\x06 \x01(\t\x12L\n\x1fprecomputed_include_inventories\x18\x07 \x03(\x0b\x32#.ctk.index.v1.IndexWorkerDependency\"{\n\x1aIndexWorkerTranslationUnit\x12\x0e\n\x06source\x18\x01 \x01(\t\x12\x17\n\x0f\x63ompile_context\x18\x02 \x01(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x04 \x03(\t\"5\n\x15IndexWorkerDependency\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0e\n\x06sha256\x18\x02 \x01(\t\"\x94\x02\n\x13IndexWorkerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t\x12\x17\n\x0f\x63ompile_context\x18\x03 \x01(\t\x12\x39\n\x0c\x64\x65pendencies\x18\x04 \x03(\x0b\x32#.ctk.index.v1.IndexWorkerDependency\x12%\n\x07symbols\x18\x05 \x03(\x0b\x32\x14.ctk.index.v1.Symbol\x12\x43\n\x11translation_units\x18\x06 \x03(\x0b\x32(.ctk.index.v1.IndexWorkerTranslationUnit\x12\x1d\n\x15reused_header_symbols\x18\x07 \x01(\x04*\xf0\x01\n\nIndexState\x12\x1b\n\x17INDEX_STATE_UNSPECIFIED\x10\x00\x12\x14\n\x10INDEX_STATE_IDLE\x10\x01\x12\x16\n\x12INDEX_STATE_QUEUED\x10\x02\x12\x18\n\x14INDEX_STATE_INDEXING\x10\x03\x12\x16\n\x12INDEX_STATE_PAUSED\x10\x04\x12\x18\n\x14INDEX_STATE_COMPLETE\x10\x05\x12\x19\n\x15INDEX_STATE_CANCELLED\x10\x06\x12\x16\n\x12INDEX_STATE_FAILED\x10\x07\x12\x18\n\x14INDEX_STATE_CHECKING\x10\x08\x32\xee\x05\n\x0cIndexService\x12g\n\x12ListProjectIndexes\x12\'.ctk.index.v1.ListProjectIndexesRequest\x1a(.ctk.index.v1.ListProjectIndexesResponse\x12]\n\x11StartProjectIndex\x12&.ctk.index.v1.StartProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12\\\n\x15GetProjectIndexStatus\x12!.ctk.index.v1.ProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12X\n\x11PauseProjectIndex\x12!.ctk.index.v1.ProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12Y\n\x12ResumeProjectIndex\x12!.ctk.index.v1.ProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12Y\n\x12\x43\x61ncelProjectIndex\x12!.ctk.index.v1.ProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12R\n\x0b\x46indSymbols\x12 .ctk.index.v1.FindSymbolsRequest\x1a!.ctk.index.v1.FindSymbolsResponse\x12T\n\x0cLookupSymbol\x12!.ctk.index.v1.LookupSymbolRequest\x1a!.ctk.index.v1.FindSymbolsResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1cindex/v1/index_service.proto\x12\x0c\x63tk.index.v1\"\x95\x01\n\x18StartProjectIndexRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\x18\n\x10\x63ompile_commands\x18\x02 \x01(\t\x12\x1d\n\x15poll_interval_seconds\x18\x03 \x01(\r\x12\x19\n\x0cproject_name\x18\x04 \x01(\tH\x00\x88\x01\x01\x42\x0f\n\r_project_name\"G\n\x19RenameProjectIndexRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\x14\n\x0cproject_name\x18\x02 \x01(\t\"+\n\x13ProjectIndexRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\"\x1b\n\x19ListProjectIndexesRequest\"e\n\x1aListProjectIndexesResponse\x12\x32\n\x08projects\x18\x01 \x03(\x0b\x32 .ctk.index.v1.ProjectIndexStatus\x12\x13\n\x0btotal_count\x18\x02 \x01(\x04\"w\n\x10IndexPassSummary\x12\r\n\x05total\x18\x01 \x01(\x04\x12\x0e\n\x06reused\x18\x02 \x01(\x04\x12\x15\n\rnewly_indexed\x18\x03 \x01(\x04\x12\x0e\n\x06\x66\x61iled\x18\x04 \x01(\x04\x12\x1d\n\x15\x66inished_unix_seconds\x18\x05 \x01(\x04\"\x9b\x04\n\x12ProjectIndexStatus\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\'\n\x05state\x18\x02 \x01(\x0e\x32\x18.ctk.index.v1.IndexState\x12\x1f\n\x17translation_units_total\x18\x03 \x01(\x04\x12#\n\x1btranslation_units_completed\x18\x04 \x01(\x04\x12!\n\x19translation_units_skipped\x18\x05 \x01(\x04\x12 \n\x18translation_units_failed\x18\x06 \x01(\x04\x12 \n\x18\x63urrent_translation_unit\x18\x07 \x01(\t\x12\r\n\x05\x65rror\x18\x08 \x01(\t\x12$\n\x1clast_reconciled_unix_seconds\x18\t \x01(\x04\x12\x10\n\x08revision\x18\n \x01(\x04\x12!\n\x19translation_units_pending\x18\x0b \x01(\x04\x12\x15\n\rpaused_reason\x18\x0c \x01(\t\x12!\n\x19translation_units_indexed\x18\r \x01(\x04\x12\"\n\x1atranslation_units_indexing\x18\x0e \x01(\x04\x12;\n\x13last_completed_pass\x18\x0f \x01(\x0b\x32\x1e.ctk.index.v1.IndexPassSummary\x12\x14\n\x0cproject_name\x18\x10 \x01(\t\"\xab\x03\n\x12\x46indSymbolsRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\r\n\x05query\x18\x02 \x01(\t\x12\r\n\x05limit\x18\x03 \x01(\r\x12>\n\nmatch_mode\x18\x04 \x01(\x0e\x32*.ctk.index.v1.FindSymbolsRequest.MatchMode\x12\x33\n\x04kind\x18\x05 \x01(\x0e\x32%.ctk.index.v1.FindSymbolsRequest.Kind\x12\x16\n\x0eunique_symbols\x18\x06 \x01(\x08\x12\x13\n\x0bsource_only\x18\x08 \x01(\x08\x12\x0e\n\x06offset\x18\t \x01(\x04\x12\x19\n\x11\x65xpected_revision\x18\n \x01(\x04\"8\n\tMatchMode\x12\x14\n\x10MATCH_MODE_EXACT\x10\x00\x12\x15\n\x11MATCH_MODE_PREFIX\x10\x01\"Z\n\x04Kind\x12\x0c\n\x08KIND_ANY\x10\x00\x12\x11\n\rKIND_FUNCTION\x10\x01\x12\x0e\n\nKIND_CLASS\x10\x02\x12\x11\n\rKIND_VARIABLE\x10\x03\x12\x0e\n\nKIND_ALIAS\x10\x04\"8\n\x13LookupSymbolRequest\x12\x14\n\x0cproject_root\x18\x01 \x01(\t\x12\x0b\n\x03usr\x18\x02 \x01(\t\"\x93\x02\n\x06Symbol\x12\x0b\n\x03usr\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x16\n\x0equalified_name\x18\x03 \x01(\t\x12\x0c\n\x04kind\x18\x04 \x01(\t\x12\x11\n\tfile_path\x18\x05 \x01(\t\x12\x0c\n\x04line\x18\x06 \x01(\r\x12\x0e\n\x06\x63olumn\x18\x07 \x01(\r\x12\x11\n\tsignature\x18\x08 \x01(\t\x12\x18\n\x10translation_unit\x18\t \x01(\t\x12\x17\n\x0f\x63ompile_context\x18\n \x01(\t\x12\x13\n\x0b\x62yte_offset\x18\x0b \x01(\x04\x12\x15\n\ris_definition\x18\x0c \x01(\x08\x12\x16\n\x0eindex_revision\x18\r \x01(\x04\x12\r\n\x05stale\x18\x0e \x01(\x08\"\xc9\x01\n\x13\x46indSymbolsResponse\x12%\n\x07symbols\x18\x01 \x03(\x0b\x32\x14.ctk.index.v1.Symbol\x12\x10\n\x08revision\x18\x02 \x01(\x04\x12\r\n\x05stale\x18\x03 \x01(\x08\x12!\n\x19translation_units_indexed\x18\x04 \x01(\x04\x12\x1f\n\x17translation_units_total\x18\x05 \x01(\x04\x12\x11\n\ttruncated\x18\x06 \x01(\x08\x12\x13\n\x0bnext_offset\x18\x07 \x01(\x04\"\x8c\x02\n\x12IndexWorkerRequest\x12\x0e\n\x06source\x18\x01 \x01(\t\x12\"\n\x1a\x63ompile_commands_directory\x18\x02 \x01(\t\x12\x1e\n\x16list_translation_units\x18\x03 \x01(\x08\x12\x19\n\x11working_directory\x18\x04 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x05 \x03(\t\x12\x1e\n\x16header_cache_directory\x18\x06 \x01(\t\x12L\n\x1fprecomputed_include_inventories\x18\x07 \x03(\x0b\x32#.ctk.index.v1.IndexWorkerDependency\"{\n\x1aIndexWorkerTranslationUnit\x12\x0e\n\x06source\x18\x01 \x01(\t\x12\x17\n\x0f\x63ompile_context\x18\x02 \x01(\t\x12\x19\n\x11working_directory\x18\x03 \x01(\t\x12\x19\n\x11\x63ompile_arguments\x18\x04 \x03(\t\"5\n\x15IndexWorkerDependency\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0e\n\x06sha256\x18\x02 \x01(\t\"\x94\x02\n\x13IndexWorkerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t\x12\x17\n\x0f\x63ompile_context\x18\x03 \x01(\t\x12\x39\n\x0c\x64\x65pendencies\x18\x04 \x03(\x0b\x32#.ctk.index.v1.IndexWorkerDependency\x12%\n\x07symbols\x18\x05 \x03(\x0b\x32\x14.ctk.index.v1.Symbol\x12\x43\n\x11translation_units\x18\x06 \x03(\x0b\x32(.ctk.index.v1.IndexWorkerTranslationUnit\x12\x1d\n\x15reused_header_symbols\x18\x07 \x01(\x04*\xf0\x01\n\nIndexState\x12\x1b\n\x17INDEX_STATE_UNSPECIFIED\x10\x00\x12\x14\n\x10INDEX_STATE_IDLE\x10\x01\x12\x16\n\x12INDEX_STATE_QUEUED\x10\x02\x12\x18\n\x14INDEX_STATE_INDEXING\x10\x03\x12\x16\n\x12INDEX_STATE_PAUSED\x10\x04\x12\x18\n\x14INDEX_STATE_COMPLETE\x10\x05\x12\x19\n\x15INDEX_STATE_CANCELLED\x10\x06\x12\x16\n\x12INDEX_STATE_FAILED\x10\x07\x12\x18\n\x14INDEX_STATE_CHECKING\x10\x08\x32\xcf\x06\n\x0cIndexService\x12g\n\x12ListProjectIndexes\x12\'.ctk.index.v1.ListProjectIndexesRequest\x1a(.ctk.index.v1.ListProjectIndexesResponse\x12]\n\x11StartProjectIndex\x12&.ctk.index.v1.StartProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12_\n\x12RenameProjectIndex\x12\'.ctk.index.v1.RenameProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12\\\n\x15GetProjectIndexStatus\x12!.ctk.index.v1.ProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12X\n\x11PauseProjectIndex\x12!.ctk.index.v1.ProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12Y\n\x12ResumeProjectIndex\x12!.ctk.index.v1.ProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12Y\n\x12\x43\x61ncelProjectIndex\x12!.ctk.index.v1.ProjectIndexRequest\x1a .ctk.index.v1.ProjectIndexStatus\x12R\n\x0b\x46indSymbols\x12 .ctk.index.v1.FindSymbolsRequest\x1a!.ctk.index.v1.FindSymbolsResponse\x12T\n\x0cLookupSymbol\x12!.ctk.index.v1.LookupSymbolRequest\x1a!.ctk.index.v1.FindSymbolsResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'index.v1.index_service_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_INDEXSTATE']._serialized_start=2672
-  _globals['_INDEXSTATE']._serialized_end=2912
-  _globals['_STARTPROJECTINDEXREQUEST']._serialized_start=46
-  _globals['_STARTPROJECTINDEXREQUEST']._serialized_end=151
-  _globals['_PROJECTINDEXREQUEST']._serialized_start=153
-  _globals['_PROJECTINDEXREQUEST']._serialized_end=196
-  _globals['_LISTPROJECTINDEXESREQUEST']._serialized_start=198
-  _globals['_LISTPROJECTINDEXESREQUEST']._serialized_end=225
-  _globals['_LISTPROJECTINDEXESRESPONSE']._serialized_start=227
-  _globals['_LISTPROJECTINDEXESRESPONSE']._serialized_end=328
-  _globals['_INDEXPASSSUMMARY']._serialized_start=330
-  _globals['_INDEXPASSSUMMARY']._serialized_end=449
-  _globals['_PROJECTINDEXSTATUS']._serialized_start=452
-  _globals['_PROJECTINDEXSTATUS']._serialized_end=969
-  _globals['_FINDSYMBOLSREQUEST']._serialized_start=972
-  _globals['_FINDSYMBOLSREQUEST']._serialized_end=1399
-  _globals['_FINDSYMBOLSREQUEST_MATCHMODE']._serialized_start=1251
-  _globals['_FINDSYMBOLSREQUEST_MATCHMODE']._serialized_end=1307
-  _globals['_FINDSYMBOLSREQUEST_KIND']._serialized_start=1309
-  _globals['_FINDSYMBOLSREQUEST_KIND']._serialized_end=1399
-  _globals['_LOOKUPSYMBOLREQUEST']._serialized_start=1401
-  _globals['_LOOKUPSYMBOLREQUEST']._serialized_end=1457
-  _globals['_SYMBOL']._serialized_start=1460
-  _globals['_SYMBOL']._serialized_end=1735
-  _globals['_FINDSYMBOLSRESPONSE']._serialized_start=1738
-  _globals['_FINDSYMBOLSRESPONSE']._serialized_end=1939
-  _globals['_INDEXWORKERREQUEST']._serialized_start=1942
-  _globals['_INDEXWORKERREQUEST']._serialized_end=2210
-  _globals['_INDEXWORKERTRANSLATIONUNIT']._serialized_start=2212
-  _globals['_INDEXWORKERTRANSLATIONUNIT']._serialized_end=2335
-  _globals['_INDEXWORKERDEPENDENCY']._serialized_start=2337
-  _globals['_INDEXWORKERDEPENDENCY']._serialized_end=2390
-  _globals['_INDEXWORKERRESPONSE']._serialized_start=2393
-  _globals['_INDEXWORKERRESPONSE']._serialized_end=2669
-  _globals['_INDEXSERVICE']._serialized_start=2915
-  _globals['_INDEXSERVICE']._serialized_end=3665
+  _globals['_INDEXSTATE']._serialized_start=2812
+  _globals['_INDEXSTATE']._serialized_end=3052
+  _globals['_STARTPROJECTINDEXREQUEST']._serialized_start=47
+  _globals['_STARTPROJECTINDEXREQUEST']._serialized_end=196
+  _globals['_RENAMEPROJECTINDEXREQUEST']._serialized_start=198
+  _globals['_RENAMEPROJECTINDEXREQUEST']._serialized_end=269
+  _globals['_PROJECTINDEXREQUEST']._serialized_start=271
+  _globals['_PROJECTINDEXREQUEST']._serialized_end=314
+  _globals['_LISTPROJECTINDEXESREQUEST']._serialized_start=316
+  _globals['_LISTPROJECTINDEXESREQUEST']._serialized_end=343
+  _globals['_LISTPROJECTINDEXESRESPONSE']._serialized_start=345
+  _globals['_LISTPROJECTINDEXESRESPONSE']._serialized_end=446
+  _globals['_INDEXPASSSUMMARY']._serialized_start=448
+  _globals['_INDEXPASSSUMMARY']._serialized_end=567
+  _globals['_PROJECTINDEXSTATUS']._serialized_start=570
+  _globals['_PROJECTINDEXSTATUS']._serialized_end=1109
+  _globals['_FINDSYMBOLSREQUEST']._serialized_start=1112
+  _globals['_FINDSYMBOLSREQUEST']._serialized_end=1539
+  _globals['_FINDSYMBOLSREQUEST_MATCHMODE']._serialized_start=1391
+  _globals['_FINDSYMBOLSREQUEST_MATCHMODE']._serialized_end=1447
+  _globals['_FINDSYMBOLSREQUEST_KIND']._serialized_start=1449
+  _globals['_FINDSYMBOLSREQUEST_KIND']._serialized_end=1539
+  _globals['_LOOKUPSYMBOLREQUEST']._serialized_start=1541
+  _globals['_LOOKUPSYMBOLREQUEST']._serialized_end=1597
+  _globals['_SYMBOL']._serialized_start=1600
+  _globals['_SYMBOL']._serialized_end=1875
+  _globals['_FINDSYMBOLSRESPONSE']._serialized_start=1878
+  _globals['_FINDSYMBOLSRESPONSE']._serialized_end=2079
+  _globals['_INDEXWORKERREQUEST']._serialized_start=2082
+  _globals['_INDEXWORKERREQUEST']._serialized_end=2350
+  _globals['_INDEXWORKERTRANSLATIONUNIT']._serialized_start=2352
+  _globals['_INDEXWORKERTRANSLATIONUNIT']._serialized_end=2475
+  _globals['_INDEXWORKERDEPENDENCY']._serialized_start=2477
+  _globals['_INDEXWORKERDEPENDENCY']._serialized_end=2530
+  _globals['_INDEXWORKERRESPONSE']._serialized_start=2533
+  _globals['_INDEXWORKERRESPONSE']._serialized_end=2809
+  _globals['_INDEXSERVICE']._serialized_start=3055
+  _globals['_INDEXSERVICE']._serialized_end=3902
 # @@protoc_insertion_point(module_scope)
