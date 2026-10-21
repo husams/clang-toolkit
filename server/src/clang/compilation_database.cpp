@@ -105,7 +105,9 @@ private:
 };
 
 std::string signature(const fs::path &path) {
-  return std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(
+  // Reimport older cache generations once to populate the directory donors.
+  return "directory-donors-v1:" +
+         std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(
                             fs::last_write_time(path).time_since_epoch())
                             .count()) +
          ":" + std::to_string(fs::file_size(path));
@@ -157,6 +159,17 @@ public:
                                            std::move(argv), "")};
   }
 
+  std::optional<std::string> first_sibling(const fs::path &source) const {
+    Statement command(database_,
+                      "SELECT file FROM compilation_directory_donors "
+                      "WHERE database_path=? AND source_directory=?");
+    command.bind(1, path_);
+    command.bind(2, source.parent_path().string());
+    if (command.step())
+      return command.text(0);
+    return std::nullopt;
+  }
+
 private:
   sqlite3 *database_;
   std::string path_;
@@ -180,6 +193,9 @@ public:
             "TEXT NOT NULL, file TEXT NOT NULL, ordinal INTEGER NOT NULL, "
             "directory TEXT NOT NULL, arguments TEXT NOT NULL, PRIMARY "
             "KEY(database_path,file,ordinal))");
+    execute("CREATE TABLE IF NOT EXISTS compilation_directory_donors "
+            "(database_path TEXT NOT NULL, source_directory TEXT NOT NULL, "
+            "file TEXT NOT NULL, PRIMARY KEY(database_path,source_directory))");
   }
 
   std::optional<FileInput> lookup(const fs::path &path,
@@ -198,6 +214,22 @@ public:
       refresh(path);
     IndexedCompilationDatabase exact(database_.get(), path.string());
     auto commands = exact.getCompileCommands(source.string());
+    if (commands.empty()) {
+      if (auto sibling = exact.first_sibling(source)) {
+        // Transfer only the first command in this source directory. Expand
+        // response files before replacing the donor's input/output operands.
+        auto expanded = clang::tooling::inferTargetAndDriverMode(
+            clang::tooling::expandResponseFiles(
+                std::make_unique<IndexedCompilationDatabase>(
+                    database_.get(), path.string()),
+                llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(
+                    llvm::vfs::createPhysicalFileSystem().release())));
+        commands = expanded->getCompileCommands(*sibling);
+        if (!commands.empty())
+          commands.front() = clang::tooling::transferCompileCommand(
+              std::move(commands.front()), source.string());
+      }
+    }
     if (commands.empty()) {
       auto &inferred = inferred_[path.string()];
       if (!inferred.database || inferred.signature != stamp) {
@@ -251,6 +283,11 @@ private:
           "DELETE FROM compilation_commands WHERE database_path=?");
       remove.bind(1, path.string());
       remove.step();
+      Statement remove_donors(
+          database_.get(),
+          "DELETE FROM compilation_directory_donors WHERE database_path=?");
+      remove_donors.bind(1, path.string());
+      remove_donors.step();
       std::size_t ordinal = 0;
       for (const auto &command : commands) {
         if (command.CommandLine.empty())
@@ -274,6 +311,14 @@ private:
         insert.bind(4, directory.string());
         insert.bind(5, serialized);
         insert.step();
+        // The first command in database order owns this source directory.
+        Statement donor(
+            database_.get(),
+            "INSERT OR IGNORE INTO compilation_directory_donors VALUES(?,?,?)");
+        donor.bind(1, path.string());
+        donor.bind(2, source.parent_path().string());
+        donor.bind(3, source.string());
+        donor.step();
       }
       if (signature(path) != before)
         throw std::invalid_argument(

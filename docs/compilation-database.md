@@ -8,7 +8,11 @@ With no selection, the server searches the request working directory and its
 parents for `compile_commands.json` or `build/compile_commands.json`, then the
 source directory and its parents. A database found this way supplies the first
 command for an exact normalized source path. For headers and other files without
-an entry, it uses Clang's command inference, as clang-query does: choose a TU by
+an entry, it first uses the first TU entry in the same source directory, in
+database order. This compares the files' normalized parent directories, not
+their compiler working directories, and does not include subdirectories. The
+donor's options are transferred to the requested file; the donor is not parsed.
+If no entry shares that directory, it uses Clang's command inference: choose a TU by
 filename, language and directory similarity, then transfer its options to the
 requested file. Exact header entries take precedence. Standalone files without
 a usable database command retain explicit-flags/default C++ parsing behavior.
@@ -77,8 +81,15 @@ storage under `$XDG_CACHE_HOME/clang-toolkit/storage` or
 `~/.cache/clang-toolkit/storage`. Lookups use the database path and normalized
 source path. File size and modification time determine when to atomically
 refresh the imported commands and Clang's inference index; a refresh failure
-rejects the request instead of returning old flags. Exact commands expand
-response files for each parse on the private captured filesystem. Inferred
+rejects the request instead of returning old flags.
+
+The first donor for each normalized source directory is saved in a separate
+table during the same atomic import. Missing-file lookups use its primary key,
+without scanning or sorting descendant directories. Older caches reimport once
+to populate these directory donors.
+
+Exact commands expand response files for each parse on the private captured
+filesystem. Inferred
 commands expand them on each lookup before Clang transfers the command, using
 a filesystem with private working-directory state. Effective commands
 participate in AST cache identity, so

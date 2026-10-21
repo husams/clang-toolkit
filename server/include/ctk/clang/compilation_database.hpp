@@ -4,7 +4,8 @@
 
 namespace ctk::clang_layer {
 // Resolve the selected native command before AST cache identity is computed.
-// Exact entries win; missing entries use Clang's TU command inference,
+// Exact entries win; missing entries first use the first TU in the same source
+// directory (database order), then Clang's general TU command inference,
 // including language/standard adjustment for headers. Explicit overrides append
 // last. Without a usable command, automatic discovery preserves standalone
 // defaults; an explicit database miss is an error.

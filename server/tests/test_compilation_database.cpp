@@ -1,9 +1,11 @@
 #include "ctk/clang/compilation_database.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include <cstdlib>
 #include <fstream>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/util/json_util.h>
 #include <gtest/gtest.h>
+#include <sqlite3.h>
 
 namespace ctk::clang_layer {
 namespace {
@@ -11,8 +13,13 @@ void write_database(const std::filesystem::path &database,
                     const std::filesystem::path &directory,
                     const std::string &file,
                     const std::vector<std::string> &arguments,
-                    bool shell_command = false) {
+                    bool shell_command = false, bool append = false) {
   google::protobuf::ListValue entries;
+  if (append) {
+    std::ifstream existing(database);
+    std::string json((std::istreambuf_iterator<char>(existing)), {});
+    ASSERT_TRUE(google::protobuf::util::JsonStringToMessage(json, &entries).ok());
+  }
   auto *entry = entries.add_values()->mutable_struct_value();
   auto &fields = *entry->mutable_fields();
   fields["directory"].set_string_value(directory.string());
@@ -283,6 +290,136 @@ TEST(CompilationDatabase, ExactHeaderEntryWinsOverInferredTu) {
                         {header.string(), {}, project.path().string()},
                         "exact"),
             1);
+}
+
+TEST(CompilationDatabase, MissingSourceUsesFirstCommandInSameSourceDirectory) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-sibling"};
+  std::filesystem::create_directories(project.path() / "src/nested");
+  std::filesystem::create_directory(project.path() / "other");
+  std::filesystem::create_directories(project.path() / "build/include");
+  std::ofstream(project.path() / "build/include/profile.hpp")
+      << "#define INCLUDED_VALUE 17\n";
+  std::ofstream(project.path() / "src/missing.cc")
+      << "#include <profile.hpp>\n"
+         "static_assert(INCLUDED_VALUE == 17 && VALUE == 23 && OVERRIDE == 2);\n"
+         "int sibling_profile(){return VALUE;}";
+  std::ofstream(project.path() / "build/flags.rsp")
+      << "-std=c++20 -Iinclude -DVALUE=23 -DOVERRIDE=1 -c "
+         "../src/z_first.cc -o donor.o -MMD -MF donor.d";
+  const auto database = project.path() / "build/compile_commands.json";
+  // Neither a matching basename elsewhere, a descendant directory nor lexical
+  // filename order may displace the first entry in the same source directory.
+  write_database(database, project.path() / "build", "../other/missing.cc",
+                 {"clang++", "-DVALUE=0", "../other/missing.cc"});
+  write_database(database, project.path() / "build", "../src/nested/missing.cc",
+                 {"clang++", "-DVALUE=0", "../src/nested/missing.cc"}, false, true);
+  write_database(database, project.path() / "build", "../src/z_first.cc",
+                 {"clang++", "@flags.rsp"}, false, true);
+  write_database(database, project.path() / "build", "../src/a_second.cc",
+                 {"clang++", "-DVALUE=0", "../src/a_second.cc"}, false, true);
+  FileInput input{"src/../src/missing.cc", {"-UOVERRIDE", "-DOVERRIDE=2"},
+                  project.path().string(), "build"};
+  auto engine = make_query_engine();
+  EXPECT_EQ(match_count(engine, input, "sibling_profile"), 1);
+  const auto resolved = resolve_compilation_command(input);
+  EXPECT_EQ(resolved.path,
+            std::filesystem::weakly_canonical(project.path() / "src/missing.cc")
+                .string());
+  EXPECT_EQ(resolved.working_directory,
+            std::filesystem::weakly_canonical(project.path() / "build").string());
+  EXPECT_FALSE(std::filesystem::exists(project.path() / "build/donor.o"));
+  EXPECT_FALSE(std::filesystem::exists(project.path() / "build/donor.d"));
+  input.compilation_database.clear();
+  EXPECT_EQ(match_count(engine, input, "sibling_profile"), 1);
+  // An exact entry must still win over the sibling fallback.
+  write_database(database, project.path() / "build", "../src/z_first.cc",
+                 {"clang++", "-DVALUE=0", "../src/z_first.cc"});
+  write_database(database, project.path() / "build", "../src/missing.cc",
+                 {"clang++", "-std=c++20", "-Iinclude", "-DVALUE=23",
+                  "-DOVERRIDE=2", "../src/missing.cc"}, false, true);
+  EXPECT_EQ(match_count(engine, input, "sibling_profile"), 1);
+}
+
+TEST(CompilationDatabase,
+     DirectoryDonorsUpgradeLegacyCachesAndRefreshAtomically) {
+  ctk::platform::TemporaryDirectory project{"ctk-compdb-donor-cache"};
+  const auto database = project.path() / "compile_commands.json";
+  write_database(database, project.path(), "z_first.cc",
+                 {"clang++", "-DVALUE=23", "z_first.cc"});
+  write_database(database, project.path(), "a_second.cc",
+                 {"clang++", "-DVALUE=0", "a_second.cc"}, false, true);
+  FileInput input{"missing.cc", {}, project.path().string(), database.string()};
+  EXPECT_EQ(resolve_compilation_command(input).working_directory,
+            std::filesystem::weakly_canonical(project.path()).string());
+
+  std::filesystem::path storage;
+  if (const char *root = std::getenv("CTK_STORAGE_ROOT"); root && *root)
+    storage = root;
+  else if (const char *root = std::getenv("XDG_CACHE_HOME"); root && *root)
+    storage = std::filesystem::path(root) / "clang-toolkit/storage";
+  else if (const char *root = std::getenv("HOME"); root && *root)
+    storage = std::filesystem::path(root) / ".cache/clang-toolkit/storage";
+  else
+    storage = std::filesystem::temp_directory_path() / "clang-toolkit-storage";
+  sqlite3 *raw = nullptr;
+  ASSERT_EQ(
+      sqlite3_open_v2((storage / "compile_commands.sqlite3").string().c_str(),
+                      &raw, SQLITE_OPEN_READWRITE, nullptr),
+      SQLITE_OK);
+  std::unique_ptr<sqlite3, decltype(&sqlite3_close)> cache(raw, sqlite3_close);
+  ASSERT_EQ(sqlite3_busy_timeout(cache.get(), 5000), SQLITE_OK);
+  const auto cache_key = std::filesystem::weakly_canonical(database).string();
+  const auto source_directory =
+      std::filesystem::weakly_canonical(project.path()).string();
+  auto run = [&](const char *sql) {
+    sqlite3_stmt *statement = nullptr;
+    EXPECT_EQ(sqlite3_prepare_v2(cache.get(), sql, -1, &statement, nullptr),
+              SQLITE_OK);
+    if (!statement)
+      return std::string{};
+    std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> query(
+        statement, sqlite3_finalize);
+    EXPECT_EQ(sqlite3_bind_text(statement, 1, cache_key.c_str(), -1,
+                                SQLITE_TRANSIENT),
+              SQLITE_OK);
+    if (sqlite3_bind_parameter_count(statement) > 1)
+      EXPECT_EQ(sqlite3_bind_text(statement, 2, source_directory.c_str(), -1,
+                                  SQLITE_TRANSIENT),
+                SQLITE_OK);
+    const auto result = sqlite3_step(statement);
+    EXPECT_TRUE(result == SQLITE_ROW || result == SQLITE_DONE)
+        << sqlite3_errmsg(cache.get());
+    EXPECT_EQ(sqlite3_stmt_status(statement, SQLITE_STMTSTATUS_FULLSCAN_STEP, 0), 0);
+    EXPECT_EQ(sqlite3_stmt_status(statement, SQLITE_STMTSTATUS_SORT, 0), 0);
+    if (result != SQLITE_ROW || !sqlite3_column_text(statement, 0))
+      return std::string{};
+    return std::string(
+        reinterpret_cast<const char *>(sqlite3_column_text(statement, 0)));
+  };
+  const char *donor = "SELECT file FROM compilation_directory_donors WHERE "
+                      "database_path=? AND source_directory=?";
+  const auto first =
+      (std::filesystem::path(source_directory) / "z_first.cc").string();
+  EXPECT_EQ(run(donor), first);
+
+  // An old cache has the original file stamp but no directory donor records.
+  run("UPDATE compilation_sources SET "
+      "signature=substr(signature,instr(signature,':')+1) WHERE path=?");
+  run("DELETE FROM compilation_directory_donors WHERE database_path=?");
+  EXPECT_TRUE(run(donor).empty());
+  resolve_compilation_command(input);
+  EXPECT_EQ(run(donor), first);
+
+  // Failed refreshes must preserve the committed donor generation.
+  std::ofstream(database) << "[invalid JSON";
+  EXPECT_THROW(resolve_compilation_command(input), std::invalid_argument);
+  EXPECT_EQ(run(donor), first);
+
+  // Removing the source directory from a new generation must remove its donor.
+  write_database(database, project.path(), "nested/replacement.cc",
+                 {"clang++", "-DVALUE=17", "nested/replacement.cc"});
+  resolve_compilation_command(input);
+  EXPECT_TRUE(run(donor).empty());
 }
 
 TEST(CompilationDatabase, AmbiguousHeaderExtensionInheritsCLanguage) {

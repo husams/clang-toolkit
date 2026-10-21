@@ -66,6 +66,17 @@ Feature: gRPC network client
       | automatic |
       | explicit  |
 
+  Scenario Outline: Missing sources inherit the first TU command in their source directory
+    Given a query server using unix
+    And a source without a compilation entry selected by <selection>
+    When I parse the missing source through both SDKs native scripts and the console
+    Then the sibling options select source declarations and refresh after flag changes
+
+    Examples:
+      | selection |
+      | automatic |
+      | explicit  |
+
   Scenario Outline: Native parse blocks inherit client compilation profiles without a default file
     Given a query server using <transport>
     And a C++ file controlled by a client compilation profile
