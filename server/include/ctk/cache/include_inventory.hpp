@@ -103,15 +103,11 @@ inline std::string include_inventory(
         parents[depth + 1] = canonical;
       }
     }
-    if (names.size() > 500000)
-      throw std::runtime_error("include inventory exceeds 500000 paths");
   }
   std::sort(names.begin(), names.end());
   std::string result;
   for (const auto &name : names) {
     result += std::to_string(name.size()) + ':' + name;
-    if (result.size() > 32 * 1024 * 1024)
-      throw std::runtime_error("include inventory exceeds 32 MiB");
   }
   return result;
 }

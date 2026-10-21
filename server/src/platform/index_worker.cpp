@@ -37,7 +37,6 @@ extern char **environ;
 namespace ctk::platform {
 
 namespace {
-constexpr std::size_t kMaximumIndexWorkers = 4;
 constexpr std::uint64_t kGiB = 1024ULL * 1024 * 1024;
 constexpr std::uint64_t kWorkerMemoryBudget = 1536ULL * 1024 * 1024;
 constexpr std::uint64_t kWorkerOutputBudget = 128ULL * 1024 * 1024;
@@ -345,8 +344,7 @@ index_worker_detail::parallelism_limit(std::size_t logical_cpus,
   const auto memory_slots = (physical_memory_bytes - reserve) /
                             (kWorkerMemoryBudget + kWorkerOutputBudget);
   return std::max<std::size_t>(
-      1, std::min({cpu_slots, static_cast<std::size_t>(memory_slots),
-                   kMaximumIndexWorkers}));
+      1, std::min(cpu_slots, static_cast<std::size_t>(memory_slots)));
 }
 
 std::size_t index_worker_parallelism_limit() {
@@ -418,8 +416,7 @@ void IndexWorker::start(const std::filesystem::path &executable,
   if (!error)
     error = posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO,
                                              "/dev/null", O_WRONLY, 0);
-  // Diagnostics travel through the bounded result file, not the server log
-  // pipe.
+  // Diagnostics travel through the result file, not the server log pipe.
   if (!error)
     error = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO,
                                              "/dev/null", O_WRONLY, 0);
@@ -571,19 +568,6 @@ void lower_index_worker_priority() {
   if (setpriority(PRIO_PROCESS, 0, 15))
     throw std::system_error(errno, std::generic_category(),
                             "lower index worker priority");
-  // Fail closed if budgets cannot be applied. A pathological TU must not occupy
-  // an unbounded amount of CPU time or flood the staging filesystem.
-  const rlimit cpu{120, 120};
-  const rlimit output{128 * 1024 * 1024, 128 * 1024 * 1024};
-  if (setrlimit(RLIMIT_CPU, &cpu) || setrlimit(RLIMIT_FSIZE, &output))
-    throw std::system_error(errno, std::generic_category(),
-                            "limit index worker resources");
-#ifndef __APPLE__
-  const rlimit memory{2ULL * 1024 * 1024 * 1024, 2ULL * 1024 * 1024 * 1024};
-  if (setrlimit(RLIMIT_AS, &memory))
-    throw std::system_error(errno, std::generic_category(),
-                            "limit index worker memory");
-#endif
 }
 
 void lower_index_thread_priority() {

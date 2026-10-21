@@ -4,22 +4,26 @@
 #include "ctk/platform/index_worker.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 
+#include <cerrno>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <future>
 #include <gtest/gtest.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
+#include <system_error>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 namespace ctk::platform {
 namespace {
 namespace fs = std::filesystem;
 
-TEST(IndexWorkerParallelism, ReservesForegroundCpusAndCapsAtFour) {
+TEST(IndexWorkerParallelism, ReservesForegroundCpusWithoutFixedWorkerCap) {
   constexpr std::uint64_t memory = 32ULL * 1024 * 1024 * 1024;
-  EXPECT_EQ(index_worker_detail::parallelism_limit(10, memory), 4u);
+  EXPECT_EQ(index_worker_detail::parallelism_limit(10, memory), 8u);
   EXPECT_EQ(index_worker_detail::parallelism_limit(3, memory), 1u);
   EXPECT_EQ(index_worker_detail::parallelism_limit(2, memory), 1u);
 }
@@ -175,6 +179,49 @@ protected:
     return path;
   }
 };
+
+TEST_F(IndexWorkerProcess, PrioritySetupPreservesResourceLimitsAndLargeFiles) {
+  const auto output = root / "large-result";
+  const auto child = fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    const int resources[] = {RLIMIT_CPU, RLIMIT_FSIZE, RLIMIT_AS};
+    rlimit before[3]{};
+    for (int i = 0; i < 3; ++i)
+      if (getrlimit(resources[i], &before[i]))
+        _exit(1);
+    try {
+      lower_index_worker_priority();
+    } catch (const std::system_error &error) {
+      if (error.code().value() == EPERM || error.code().value() == EACCES)
+        _exit(77);
+      _exit(2);
+    }
+    for (int i = 0; i < 3; ++i) {
+      rlimit after{};
+      if (getrlimit(resources[i], &after) ||
+          before[i].rlim_cur != after.rlim_cur ||
+          before[i].rlim_max != after.rlim_max)
+        _exit(3);
+    }
+    // A sparse file crosses the former cap without allocating 128 MiB.
+    constexpr auto size = 128ULL * 1024 * 1024 + 1;
+    if (before[1].rlim_cur == RLIM_INFINITY || before[1].rlim_cur >= size) {
+      std::ofstream(output).close();
+      std::error_code error;
+      fs::resize_file(output, size, error);
+      if (error)
+        _exit(4);
+    }
+    _exit(0);
+  }
+  int status = 0;
+  ASSERT_EQ(waitpid(child, &status, 0), child);
+  ASSERT_TRUE(WIFEXITED(status));
+  if (WEXITSTATUS(status) == 77)
+    GTEST_SKIP() << "Process priority changes are denied by this environment";
+  EXPECT_EQ(WEXITSTATUS(status), 0);
+}
 
 TEST_F(IndexWorkerProcess, ReturnsExitStatusAndReapsCompletedProcess) {
   IndexWorker worker(script("exit 7\n"), root / "request", root / "result");
