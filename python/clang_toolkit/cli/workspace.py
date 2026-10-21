@@ -1028,6 +1028,9 @@ class WorkspaceConsole:
             return True
         if not buffer.text.strip():
             return False
+        # A new command returns to live output after browsing older results.
+        # Scrolling during execution can still pause following again.
+        self.show_latest()
         self.busy = True
         self.status = "Running"
         self.started = monotonic()

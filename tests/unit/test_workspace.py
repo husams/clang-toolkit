@@ -456,6 +456,40 @@ def test_results_mouse_and_keyboard_pause_following(tmp_path: Path) -> None:
     asyncio.run(interact(tmp_path, drive))
 
 
+@pytest.mark.parametrize("paused", [False, True])
+@pytest.mark.parametrize("wrap", [False, True])
+def test_submitted_command_keeps_latest_output_visible(
+    tmp_path: Path, paused: bool, wrap: bool,
+) -> None:
+    async def execute(source: str) -> DispatchResult:
+        output = "\n".join(f"result {i} " + "wide " * 20 for i in range(50))
+        return DispatchResult(output + "\nLATEST RESULT", True)
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        ui.wrap_results = wrap
+        ui.write("\n".join(f"old result {i}" for i in range(80)))
+        await wait_until(lambda: "old result 79" in ui.results.text)
+        if paused:
+            pipe.send_text("\x1b[<64;20;5M")  # Scroll up to pause following.
+            await wait_until(lambda: not ui.follow)
+            pipe.send_text("\x1b[5~")  # Read older output.
+            pipe.send_text("\x1b[17~")  # F6 returns to the editor.
+            await wait_until(lambda: ui.app.layout.has_focus(ui.editor))
+        pipe.send_text("print 7\n")
+        await wait_until(lambda: not ui.busy and "LATEST RESULT" in ui.results.text)
+        assert ui.follow
+        last_row = ui.results.buffer.document.line_count - 1
+        await wait_until(
+            lambda: ui.results.window.render_info.last_visible_line() == last_row
+        )
+        assert ui.results.window.vertical_scroll > 0
+        assert ui.app.layout.has_focus(ui.editor)
+
+    asyncio.run(interact(
+        tmp_path, drive, execute=execute, output=SizedOutput(rows=14, columns=48)
+    ))
+
+
 def test_wide_command_context_reflows_editor(tmp_path: Path) -> None:
     output = SizedOutput(columns=140)
 
