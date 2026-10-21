@@ -2,6 +2,21 @@ Feature: Pipe filters and tuple callbacks in the console
   Scripts reshape existing values with pipes, preserve native match selections,
   and unpack zip results in collection callbacks and foreach.
 
+  Scenario Outline: Trailing callable blocks preserve normal calls and native rows
+    Given an isolated pipe-filter console and class fixture
+    When I execute trailing callable blocks using the "<engine>" engine
+    Then trailing blocks print the expected values and retain native matching
+
+    Examples:
+      | engine   |
+      | compiled |
+      | tree     |
+
+  Scenario: Paste trailing callable blocks into the real console terminal
+    Given an isolated pipe-filter console and class fixture
+    When I paste trailing callable blocks into the real console terminal
+    Then the terminal prints the verified trailing pipeline result
+
   Scenario Outline: A script combines tuple filters and retained native matches
     Given an isolated pipe-filter console and class fixture
     When I execute the complete filter script using the "<engine>" engine

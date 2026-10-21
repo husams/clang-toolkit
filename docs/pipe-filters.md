@@ -107,6 +107,24 @@ words (`and`, `or`, `in`, `is`, `then`, `do`, `else`, `until`, and `on`) cannot
 appear as word labels, though conventional named calls can use those labels.
 Tab completion offers public labels.
 
+Trailing callable blocks make longer callback pipelines easier to read:
+
+```ctk
+let selected = [1, 2, 3, 4]
+    | filter { (item) item > 2 }
+    | map { (item) item * 10 }
+let descending = selected | sort_by(reverse = true) { (item) item }
+let normal = map(filter([1, 2, 3, 4], { (item) item > 2 }), { (item) item * 10 })
+```
+
+`selected` and `normal` are `[30, 40]`; `descending` is `[40, 30]`.
+The trailing block supplies the final positional argument before named options,
+so `items | sort_by(reverse = true) { (item) item }` is equivalent to
+`sort_by(items, { (item) item }, reverse = true)`. Start the opening brace on
+the same line as the stage name or its closing parenthesis. Each block has
+explicit parameters and can contain a statement body such as
+`map { (item) { let doubled = item * 2; doubled + 1 } }`.
+
 An ungrouped parameter colon now introduces a label: in
 `let first(head : tail) = tail`, `head` is the public keyword and `tail` is
 the local parameter. Group cons callback patterns, for example

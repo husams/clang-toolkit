@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 import pty
+import re
 import select
 import signal
 import struct
@@ -46,6 +47,40 @@ def pipe_console(tmp_path, request, monkeypatch):
 def _command(server, library, *args):
     return [str(Path(sys.executable).with_name("ctk")), "--server", server.endpoint,
             "-c", str(server.config), "--lib-dir", str(library), *args]
+
+
+@when(parsers.parse('I execute trailing callable blocks using the "{engine}" engine'),
+      target_fixture="trailing_output")
+def trailing_output(pipe_console, tmp_path, engine):
+    server, source, library = pipe_console
+    example = Path(__file__).resolve().parents[2] / "examples/trailing_callable_blocks.ctk"
+    script = tmp_path / "trailing.ctk"
+    script.write_text(example.read_text() + '\n'
+        f'let tree = parse {json.dumps(str(source))}\n'
+        'let classes = match cxxRecordDecl(isDefinition(), hasName("demo::Widget")).bind("c") in tree\n'
+        'let kept = classes | filter { (row) row.c.decl_name == "demo::Widget" }\n'
+        'let row = kept[0]\n'
+        'let fields = match fieldDecl().bind("f") in row.c\n'
+        'let names = fields | map { (field) field.f.decl_name } | sort\n'
+        'print "NATIVE={names | json}"\n')
+    result = subprocess.run(
+        _command(server, library, "--script-engine", engine, "--script", str(script)),
+        cwd=tmp_path, text=True, capture_output=True, timeout=90,
+        env=dict(os.environ, NO_COLOR="1"),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout.splitlines()
+
+
+@then("trailing blocks print the expected values and retain native matching")
+def verify_trailing_output(trailing_output):
+    values = dict(line.split("=", 1) for line in trailing_output)
+    assert json.loads(values["TRAILING"]) == json.loads(values["NORMAL"]) == [2, 4, 6, 8]
+    assert json.loads(values["PIPELINE"]) == json.loads(values["EQUIVALENT"]) == [30, 40]
+    assert json.loads(values["SORTED"]) == [4, 3, 2, 1]
+    assert values["CUSTOM"] == "18,18,18,18"
+    assert json.loads(values["TUPLES"]) == ["Ada: 30", "Lin: 50"]
+    assert json.loads(values["NATIVE"]) == ["demo::Widget::height", "demo::Widget::width"]
 
 
 @when(parsers.parse('I execute syntax composition using the "{engine}" engine'),
@@ -173,6 +208,23 @@ def pipe_terminal(pipe_console, tmp_path):
     return _run_pipe_terminal(pipe_console, tmp_path)
 
 
+@when("I paste trailing callable blocks into the real console terminal", target_fixture="trailing_terminal")
+def trailing_terminal(pipe_console, tmp_path):
+    example = Path(__file__).resolve().parents[2] / "examples/trailing_callable_blocks.ctk"
+    script = example.read_text() + '\nprint "TRAILING_PTY_{selected[0]}_{selected[1]}"'
+    visible, _ = _terminal_script(
+        pipe_console, tmp_path, script, "TRAILING_PTY_{selected", "TRAILING_PTY_30_40",
+    )
+    return visible
+
+
+@then("the terminal prints the verified trailing pipeline result")
+def verify_trailing_terminal(trailing_terminal):
+    assert "TRAILING_PTY_30_40" in trailing_terminal
+    assert "CUSTOM=18,18,18,18" in trailing_terminal
+    assert "error:" not in trailing_terminal
+
+
 @when(parsers.parse('I type a multiline pipeline with "{shortcut}" in the "{ui}" console'),
       target_fixture="typed_pipeline_terminal")
 def typed_pipeline_terminal(pipe_console, tmp_path, shortcut, ui):
@@ -214,7 +266,7 @@ def _terminal_script(pipe_console, tmp_path, script, pasted_marker, result_marke
     stream = pyte.ByteStream(screen)
     transcript = bytearray()
 
-    def wait_for(marker, timeout=30):
+    def wait_for(marker, timeout=30, *, completed=False):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if select.select([master], [], [], 0.05)[0]:
@@ -229,6 +281,10 @@ def _terminal_script(pipe_console, tmp_path, script, pasted_marker, result_marke
                 if b"\x1b[6n" in payload:
                     os.write(master, f"\x1b[{screen.cursor.y + 1};{screen.cursor.x + 1}R".encode())
             elif marker in "\n".join(screen.display):
+                # Startup already says Ready. A completed first command also
+                # has an elapsed time; don't submit the next draft while busy.
+                if completed and not re.search(r"Ready \| [0-9]+\.[0-9]s \|", screen.display[-1]):
+                    continue
                 visible = "\n".join(screen.display)
                 return visible
             if process.poll() is not None:
@@ -248,7 +304,7 @@ def _terminal_script(pipe_console, tmp_path, script, pasted_marker, result_marke
                 wait_for(stage.strip())
                 assert not history.read_commands()
             os.write(master, b"\r")
-            wait_for("Ready" if ui == "workspace" else "ctk>")
+            wait_for("Ready" if ui == "workspace" else "ctk>", completed=ui == "workspace")
             os.write(master, b'print "KEY_PIPELINE_{key_result[0]}_{key_result[2]}"\x0a')
             visible = wait_for("KEY_PIPELINE_6_2")
             commands = history.read_commands()
