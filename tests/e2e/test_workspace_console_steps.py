@@ -342,6 +342,18 @@ def run_workspace(
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 28, 100, 0, 0))
         screen.resize(lines=28, columns=100)
         os.kill(process.pid, signal.SIGWINCH)
+        # Browsing old output pauses following. Submitting another command
+        # must bring its final result into view without a scroll shortcut.
+        os.write(master, b"\x1b[<64;20;5M\x1b[5~")
+        read_until("Scroll paused")
+        os.write(master, b"\x1b[17~")  # F6 returns to the editor.
+        commands.append(
+            'print "' + "\\n".join(f"scroll result {i}" for i in range(60))
+            + '\\nLATEST_OUTPUT_VISIBLE"'
+        )
+        submit(commands[-1], "LATEST_OUTPUT_VISIBLE")
+        assert "Follow" in screen.display[-1]
+        assert "scroll result 59" in "\n".join(screen.display)
         # Foreground progress is a single updated bar, backed by native work.
         second_source = tmp_path / "second.cc"
         second_source.write_text("int second() {\n    return 2;\n}\n")
