@@ -182,6 +182,24 @@ helper does not configure builds, rewrite compilation databases, or delete saved
 indexes; restart the desired project monitors through the indexing API afterward.
 
 `index status "ctk-lab"` resolves the Project name shown by `index list`.
+Set an optional name when starting, or rename any saved project:
+
+```ctk
+index start "." as "My library"
+index rename "My library" to "Core library"
+index status "Core library"
+```
+
+Without `as`, start preserves a saved name or defaults to the directory name.
+Names persist across restarts. Renaming changes metadata only, preserving the
+project path, indexed symbols, revision and monitoring state. Status, controls,
+search and autocomplete use the saved name. A full path can always identify a
+project, including when renaming it. Names must be 1–255 bytes and cannot contain
+slashes, control characters or leading/trailing spaces, or be path-like (`.`,
+`..`, or starting with `~`). The wildcard scope `*` is also reserved. The Python APIs accept
+`start_project_index(root, project_name="My library")` and
+`rename_project_index(root, "Core library")`.
+
 Duplicate names report all matching paths; use the full path to select one.
 Unknown names report an error. Explicit paths (including `./ctk-lab`) retain path semantics.
 

@@ -101,6 +101,25 @@ void load_last_pass(Database &db, ProjectIndexStatus &status) {
   }
 }
 
+std::string project_name(Database &db, const std::string &root) {
+  Statement row(db, "SELECT value FROM metadata WHERE key='project_name'");
+  if (row.step() && !row.text(0).empty())
+    return row.text(0);
+  const auto name = fs::path(root).filename().string();
+  return name.empty() ? root : name;
+}
+
+void validate_project_name(const std::string &name) {
+  if (name.empty() || name.size() > 255 || name == "." || name == ".." || name == "*" ||
+      name.front() == '~' || name.front() == ' ' || name.back() == ' ' ||
+      name.find('/') != std::string::npos ||
+      std::any_of(name.begin(), name.end(),
+                  [](unsigned char c) { return c < 32 || c == 127; }))
+    throw std::invalid_argument("project_name must be 1-255 bytes, without "
+                                "slashes, control characters, "
+                                "leading/trailing spaces, or a path-like name");
+}
+
 struct SourcePathFilter {
   explicit SourcePathFilter(const fs::path &root)
       : lexical_root_(root.lexically_normal()) {
@@ -284,6 +303,7 @@ public:
           continue;
         ProjectIndexStatus saved;
         saved.set_project_root(key);
+        saved.set_project_name(project_name(db, key));
         saved.set_state(INDEX_STATE_IDLE);
         saved.set_revision(revision(db));
         saved.set_translation_units_indexed(count_units(db));
@@ -316,11 +336,36 @@ public:
   }
   ProjectIndexStatus start(const StartProjectIndexRequest &request) {
     const auto key = root_key(request.project_root());
+    std::lock_guard name_lock(name_mutex_);
+    if (request.has_project_name())
+      validate_project_name(request.project_name());
+    {
+      std::lock_guard lock(mutex_);
+      if (!job_.root.empty() && !cancelled_ && !request.has_project_name())
+        return status_;
+    }
+    if (!fs::is_directory(key))
+      throw std::invalid_argument("project_root must name a directory");
+    const auto path = database_path(key);
+    fs::create_directories(path.parent_path());
+    fs::permissions(path.parent_path(), fs::perms::owner_all,
+                    fs::perm_options::replace);
+    std::string name;
+    {
+      Database db(path, true, !fs::exists(path));
+      sqlite3_busy_timeout(db.handle, 2000);
+      metadata(db, "project_root", key);
+      if (request.has_project_name())
+        metadata(db, "project_name", request.project_name());
+      name = project_name(db, key);
+    }
     std::lock_guard lock(mutex_);
     if (!thread_.joinable())
       thread_ = std::thread([this] { loop(); });
-    if (!job_.root.empty() && !cancelled_)
+    if (!job_.root.empty() && !cancelled_) {
+      status_.set_project_name(name);
       return status_;
+    }
     job_.root = key;
     job_.commands = request.compile_commands();
     job_.interval = std::clamp(
@@ -332,9 +377,32 @@ public:
     paused_ = false;
     status_.Clear();
     status_.set_project_root(key);
+    status_.set_project_name(name);
     status_.set_state(INDEX_STATE_QUEUED);
     changed_.notify_all();
     return status_;
+  }
+  ProjectIndexStatus rename(const RenameProjectIndexRequest &request) {
+    validate_project_name(request.project_name());
+    const auto key = root_key(request.project_root());
+    std::lock_guard name_lock(name_mutex_);
+    const auto path = database_path(key);
+    if (!fs::is_regular_file(path))
+      throw std::logic_error(
+          "project has no saved index; start it before renaming");
+    {
+      // Never wait for SQLite while holding the progress mutex: publication
+      // takes that mutex while its write transaction is still open.
+      Database db(path, true, false);
+      sqlite3_busy_timeout(db.handle, 2000);
+      metadata(db, "project_name", request.project_name());
+    }
+    {
+      std::lock_guard lock(mutex_);
+      if (job_.root == key)
+        status_.set_project_name(request.project_name());
+    }
+    return status(key);
   }
   ProjectIndexStatus status(const std::string &root) {
     const auto key = root_key(root);
@@ -2057,7 +2125,9 @@ private:
         fs::create_directories(directory);
         fs::permissions(directory, fs::perms::owner_all,
                         fs::perm_options::replace);
-        Database db(database_path(job.root), true);
+        // Name updates use a separate short-lived writer connection. Allow
+        // initialization to wait for that small metadata transaction.
+        Database db(database_path(job.root), true, true, 2000);
         metadata(db, "project_root", job.root);
         // Arm before reconciling, so edits during extraction remain queued.
         platform::IndexInputWatch inputs;
@@ -2099,6 +2169,7 @@ private:
         while (current(job)) {
           try {
             upgrade_symbols(job, db);
+            sqlite3_busy_timeout(db.handle, 2000);
             metadata(db, "schema_version", "2");
             reconcile(job, db, directory, arm_input);
           } catch (const Interrupted &) {
@@ -2189,6 +2260,7 @@ private:
   IncludeInventoryCache inventories_;
   FileDigestCache files_;
   std::mutex mutex_;
+  std::mutex name_mutex_;
   std::condition_variable changed_;
   Job job_;
   ProjectIndexStatus status_;
@@ -2246,17 +2318,27 @@ public:
   ProjectIndexStatus start(const StartProjectIndexRequest &request) {
     const auto key = root_key(request.project_root());
     std::lock_guard lock(mutex_);
-    auto &monitor = monitors_[key];
-    if (!monitor)
-      monitor = std::make_shared<ProjectSymbolMonitor>(
-          storage_, foreground_gate(), executable_, max_workers_,
-          worker_slots_);
-    return monitor->start(request);
+    if (const auto found = monitors_.find(key); found != monitors_.end())
+      return found->second->start(request);
+    auto monitor = std::make_shared<ProjectSymbolMonitor>(
+        storage_, foreground_gate(), executable_, max_workers_, worker_slots_);
+    auto status = monitor->start(request);
+    monitors_.emplace(key, std::move(monitor));
+    return status;
   }
   ProjectIndexStatus status(const std::string &root) {
     if (auto monitor = project(root))
       return monitor->status(root);
     return reader_.status(root);
+  }
+  ProjectIndexStatus rename(const RenameProjectIndexRequest &request) {
+    // Serialize against creating a monitor, so an idle rename cannot race the
+    // name loaded by the first start on this server.
+    std::lock_guard lock(mutex_);
+    const auto found = monitors_.find(root_key(request.project_root()));
+    if (found != monitors_.end())
+      return found->second->rename(request);
+    return reader_.rename(request);
   }
   ProjectIndexStatus control(const std::string &root, int action) {
     auto monitor = project(root);
@@ -2350,6 +2432,11 @@ IndexServiceAdapter::GetProjectIndexStatus(grpc::ServerContext *,
                                            const ProjectIndexRequest *request,
                                            ProjectIndexStatus *out) {
   return rpc([&] { *out = indexer_->status(request->project_root()); });
+}
+grpc::Status IndexServiceAdapter::RenameProjectIndex(
+    grpc::ServerContext *, const RenameProjectIndexRequest *request,
+    ProjectIndexStatus *out) {
+  return rpc([&] { *out = indexer_->rename(*request); });
 }
 grpc::Status
 IndexServiceAdapter::PauseProjectIndex(grpc::ServerContext *,

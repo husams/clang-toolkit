@@ -347,3 +347,56 @@ def test_status_keeps_last_pass_separate_from_current_checking(tmp_path, engine,
         assert first[-3:] == second[-3:] == (["620", "8", "0"] if recorded else ["-", "-", "-"])
     finally:
         runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+def test_custom_names_start_rename_resolve_and_display(tmp_path, engine):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    status = pb.ProjectIndexStatus(project_root=str(tmp_path), project_name="My library")
+    client.start_project_index.return_value = status
+    client.rename_project_index.return_value = pb.ProjectIndexStatus(
+        project_root=str(tmp_path), project_name="Renamed library")
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(
+        projects=[status], total_count=1)
+    client.project_index_status.return_value = status
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        assert "My library" in runtime.execute('index start "." as "My library"')
+        client.start_project_index.assert_called_once_with(str(tmp_path), project_name="My library")
+        assert "My library" in runtime.execute("index list")
+        assert "My library" in runtime.execute('index status "My library"')
+        assert "Renamed library" in runtime.execute('index rename "My library" to "Renamed library"')
+        client.rename_project_index.assert_called_once_with(str(tmp_path), "Renamed library")
+        with pytest.raises(Exception, match="No indexed project named"):
+            runtime.execute(f'index status "{tmp_path.name}"')
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("engine", ["legacy", "tree", "compiled"])
+def test_custom_name_collisions_require_explicit_path(tmp_path, engine):
+    from clang_toolkit._generated.index.v1 import index_service_pb2 as pb
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+
+    client = Mock(spec=Client)
+    client.compilation_database = None
+    client.list_project_indexes.return_value = pb.ListProjectIndexesResponse(projects=[
+        pb.ProjectIndexStatus(project_root="/one/a", project_name="library"),
+        pb.ProjectIndexStatus(project_root="/two/b", project_name="library"),
+    ])
+    client.rename_project_index.return_value = pb.ProjectIndexStatus(project_root="/one/a", project_name="unique")
+    runtime = (Runtime(client, cwd=tmp_path, environment={}) if engine == "legacy"
+               else PrototypeRuntime(client, script_engine=engine, cwd=tmp_path, environment={}))
+    try:
+        with pytest.raises(Exception, match="Ambiguous project name"):
+            runtime.execute('index rename "library" to "unique"')
+        client.rename_project_index.assert_not_called()
+        runtime.execute('index rename "/one/a" to "unique"')
+        client.rename_project_index.assert_called_once_with("/one/a", "unique")
+    finally:
+        runtime.close()

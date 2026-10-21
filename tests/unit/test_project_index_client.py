@@ -137,3 +137,36 @@ def test_source_only_symbol_search_rejects_negative_paging_values(name, value):
         finally:
             await client.aclose()
     asyncio.run(exercise())
+
+
+def test_optional_project_name_presence_and_rename_contract():
+    async def exercise():
+        client = AsyncClient("unix:///tmp/not-connected-index-test.sock")
+        client._index_call = AsyncMock(return_value=pb.ProjectIndexStatus())
+        try:
+            await client.start_project_index("/project")
+            assert not client._index_call.call_args.args[1].HasField("project_name")
+            await client.start_project_index("/project", project_name="My library")
+            assert client._index_call.call_args.args[1].project_name == "My library"
+            await client.start_project_index("/project", project_name="")
+            assert client._index_call.call_args.args[1].HasField("project_name")
+            await client.rename_project_index("/project", "New library")
+            method, request = client._index_call.call_args.args
+            assert method == "RenameProjectIndex"
+            assert request.project_root == "/project" and request.project_name == "New library"
+        finally:
+            await client.aclose()
+    asyncio.run(exercise())
+
+
+def test_sync_project_naming_uses_client_loop(monkeypatch):
+    client = Client("unix:///tmp/not-connected-index-test.sock")
+    calls = []
+    monkeypatch.setattr(client, "_cursor_call", lambda *args, **kwargs: calls.append((args, kwargs)))
+    try:
+        client.start_project_index("/project", project_name="Library")
+        assert calls[-1][1]["project_name"] == "Library"
+        client.rename_project_index("/project", "Renamed")
+        assert calls[-1] == (("rename_project_index", "/project", "Renamed"), {})
+    finally:
+        client.close()

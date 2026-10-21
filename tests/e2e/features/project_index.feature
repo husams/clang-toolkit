@@ -50,3 +50,8 @@ Feature: Background project symbol lookup
   Scenario: Atomic saves stay monitored after a source is removed and re-added
     Given an isolated server and three translation units with a shared header
     Then readded sources refresh immediately after repeated atomic saves and return to idle
+
+  Scenario: Custom project names persist without changing indexed symbols
+    Given an isolated server and three translation units with a shared header
+    When I start and rename the project with custom names through the console
+    Then the saved project name survives server restart and an unnamed start

@@ -859,7 +859,8 @@ Manage background symbol indexing and locate symbols across TUs.
 
 ```text
 index list
-index start "PROJECT"
+index start "PROJECT" [as "NAME"]
+index rename "PROJECT" to "NAME"
 index status "PROJECT"
 index pause "PROJECT"
 index resume "PROJECT"
@@ -870,6 +871,7 @@ index lookup "USR" in "PROJECT"
 
 - Project paths refer to the server filesystem; relative paths use console cwd.
 - Start discovers compile_commands.json; Python start_project_index accepts an explicit path.
+- Start optionally saves a project name with as; otherwise it keeps the saved name or uses the directory name. Rename changes only the saved name, preserving indexed data. Names survive restarts and work in controls, searches and completion; ambiguous names require a full path.
 - Status and controls return immediately; indexing runs independently in the background.
 - List separates saved file counts, current-pass checked/total and active extractions from last completed pass reused/newly indexed/failed counts. Last-pass counts survive checking and restarts; a dash means no recorded pass. Saved indexes without a current job are IDLE until started again.
 - Find matches short or qualified name prefixes (case-insensitive); optional trailing * is supported. Add exact for case-sensitive literal matching. Omit in to search every listed project, or use a wildcard project scope. The optional kind filter includes alias for using/typedef declarations and runs before the result limit; find returns each definition once per project, preserving distinct overloads and locations; results include raw Clang kind. Global results retain each project path and revision; errors are reported per project. Searches return at most 100 matches per project; truncation is shown. Leading/internal wildcards and regex are not supported.
@@ -879,7 +881,8 @@ index lookup "USR" in "PROJECT"
 index list
 let projects = index list
 print $projects.total_count
-index start "."
+index start "." as "My project"
+index rename "My project" to "New name"
 let progress = index status "."
 index pause "."
 index resume "."

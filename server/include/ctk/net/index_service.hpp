@@ -26,6 +26,10 @@ public:
                     const ctk::index::v1::StartProjectIndexRequest *,
                     ctk::index::v1::ProjectIndexStatus *) override;
   grpc::Status
+  RenameProjectIndex(grpc::ServerContext *,
+                     const ctk::index::v1::RenameProjectIndexRequest *,
+                     ctk::index::v1::ProjectIndexStatus *) override;
+  grpc::Status
   GetProjectIndexStatus(grpc::ServerContext *,
                         const ctk::index::v1::ProjectIndexRequest *,
                         ctk::index::v1::ProjectIndexStatus *) override;

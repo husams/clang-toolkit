@@ -52,7 +52,7 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
                  "Extracting", "Last reused", "Last newly indexed", "Last failed")]
         for project in result.projects:
             state = pb.IndexState.Name(project.state).removeprefix("INDEX_STATE_")
-            rows.append((Path(project.project_root).name or project.project_root,
+            rows.append((project.project_name or Path(project.project_root).name or project.project_root,
                          project.project_root, state,
                          str(project.translation_units_indexed), _pass_progress(project),
                          str(project.translation_units_indexing), *_last_pass_counts(project)))
@@ -101,12 +101,12 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
             if not roots:
                 lines.append("No indexed projects.")
             return values, "\n".join(lines)
-    target = strings[-1]
-    if (str(node.data) in {"index_status", "index_find"} and target not in {"", ".", "..", "~"}
+    target = strings[0] if kind in {"index_start", "index_rename"} else strings[-1]
+    if (kind != "index_start" and target not in {"", ".", "..", "~"}
             and "/" not in target and not target.startswith("~")):
         projects = runtime.client.list_project_indexes().projects
         matches = sorted({item.project_root for item in projects
-                          if Path(item.project_root).name == target})
+                          if (item.project_name or Path(item.project_root).name) == target})
         if len(matches) > 1:
             raise ValueError(
                 f"Ambiguous project name {target!r}; use a full path: " + ", ".join(matches))
@@ -130,14 +130,24 @@ def execute_project_index(runtime: Runtime, node: Tree) -> tuple[Any, str]:
             "index_start": "start_project_index", "index_status": "project_index_status",
             "index_pause": "pause_project_index", "index_resume": "resume_project_index",
             "index_cancel": "cancel_project_index",
+            "index_rename": "rename_project_index",
         }[kind]
         commands = runtime.config_store.effective.get("compile_commands", "")
-        if kind == "index_start" and commands:
-            result = runtime.client.start_project_index(project, compile_commands=commands)
+        if kind == "index_start":
+            start_options: dict[str, Any] = {}
+            if commands:
+                start_options["compile_commands"] = commands
+            if len(strings) > 1:
+                start_options["project_name"] = strings[1]
+            result = runtime.client.start_project_index(project, **start_options)
+        elif kind == "index_rename":
+            result = runtime.client.rename_project_index(project, strings[1])
         else:
             result = getattr(runtime.client, method)(project)
         state = pb.IndexState.Name(result.state).removeprefix("INDEX_STATE_")
-        lines = [f"Project index {state}", f"Project  {result.project_root}",
+        lines = [f"Project index {state}",
+                 f"Name  {result.project_name or Path(result.project_root).name}",
+                 f"Project  {result.project_root}",
                  f"Saved index  {result.translation_units_indexed} files",
                  f"Revision {result.revision}"]
         if result.state == pb.INDEX_STATE_IDLE:

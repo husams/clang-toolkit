@@ -470,3 +470,58 @@ def atomic_saves_refresh_readded_source(indexed_project):
         assert final.last_completed_pass.newly_indexed == 1
         assert final.last_completed_pass.reused == 2
         assert client.find_symbols(root, "flow::clamp").symbols
+
+
+@when("I start and rename the project with custom names through the console")
+def named_project(indexed_project):
+    root = indexed_project["root"]
+    output = _console(indexed_project, 'index start "." as "My library"', "compiled")
+    assert "My library" in output
+    with Client(indexed_project["server"].endpoint) as client:
+        _until(lambda: client.project_index_status(root).state == pb.INDEX_STATE_COMPLETE)
+        client.pause_project_index(root)
+        before = client.find_symbols(root, "flow::clamp")
+        indexed_project["named_revision"] = before.revision
+        indexed_project["named_symbols"] = list(before.symbols)
+    for engine in ("legacy", "tree", "compiled"):
+        assert "My library" in _console(indexed_project, 'index status "My library"', engine)
+    assert "Renamed library" in _console(
+        indexed_project, 'index rename "My library" to "Renamed library"', "compiled")
+    for engine in ("legacy", "tree", "compiled"):
+        assert "Renamed library" in _console(indexed_project, "index list", engine)
+        assert "flow::clamp" in _console(indexed_project, 'index find "flow::clamp" in "Renamed library"', engine)
+    with Client(indexed_project["server"].endpoint) as client:
+        assert client.project_index_status(root).state == pb.INDEX_STATE_PAUSED
+        after = client.find_symbols(root, "flow::clamp")
+        assert after.revision == before.revision and after.symbols == before.symbols
+        for bad in ("", "  ", "a/b", ".", "..", "*", "~home", "bad\nname"):
+            from clang_toolkit.cursors import CursorError
+            with pytest.raises(CursorError) as error:
+                client.rename_project_index(root, bad)
+            assert error.value.code == grpc.StatusCode.INVALID_ARGUMENT
+        assert client.project_index_status(root).project_name == "Renamed library"
+
+
+@then("the saved project name survives server restart and an unnamed start")
+def named_project_restart(indexed_project, tmp_path, request):
+    server = indexed_project["server"]
+    server.process.terminate()
+    server.process.communicate(timeout=10)
+    restarted = tmp_path / "restart"
+    restarted.mkdir()
+    indexed_project["server"] = _launch_server("unix", restarted, request)
+    root = indexed_project["root"]
+    with Client(indexed_project["server"].endpoint) as client:
+        status = client.project_index_status(root)
+        assert status.state == pb.INDEX_STATE_IDLE
+        assert status.project_name == "Renamed library"
+        assert status.translation_units_indexed == 3
+        # Renaming a saved index requires neither a running monitor nor a TU parse.
+        status = client.rename_project_index(root, "Final library")
+        assert status.state == pb.INDEX_STATE_IDLE
+        assert status.project_name == "Final library"
+        assert client.start_project_index(root).project_name == "Final library"
+        _until(lambda: client.project_index_status(root).state == pb.INDEX_STATE_COMPLETE)
+        result = client.find_symbols(root, "flow::clamp")
+        assert result.symbols
+        assert client.list_project_indexes().projects[0].project_name == "Final library"

@@ -29,14 +29,24 @@ INDEX_STATE_FAILED: IndexState
 INDEX_STATE_CHECKING: IndexState
 
 class StartProjectIndexRequest(_message.Message):
-    __slots__ = ("project_root", "compile_commands", "poll_interval_seconds")
+    __slots__ = ("project_root", "compile_commands", "poll_interval_seconds", "project_name")
     PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]
     COMPILE_COMMANDS_FIELD_NUMBER: _ClassVar[int]
     POLL_INTERVAL_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    PROJECT_NAME_FIELD_NUMBER: _ClassVar[int]
     project_root: str
     compile_commands: str
     poll_interval_seconds: int
-    def __init__(self, project_root: _Optional[str] = ..., compile_commands: _Optional[str] = ..., poll_interval_seconds: _Optional[int] = ...) -> None: ...
+    project_name: str
+    def __init__(self, project_root: _Optional[str] = ..., compile_commands: _Optional[str] = ..., poll_interval_seconds: _Optional[int] = ..., project_name: _Optional[str] = ...) -> None: ...
+
+class RenameProjectIndexRequest(_message.Message):
+    __slots__ = ("project_root", "project_name")
+    PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]
+    PROJECT_NAME_FIELD_NUMBER: _ClassVar[int]
+    project_root: str
+    project_name: str
+    def __init__(self, project_root: _Optional[str] = ..., project_name: _Optional[str] = ...) -> None: ...
 
 class ProjectIndexRequest(_message.Message):
     __slots__ = ("project_root",)
@@ -71,7 +81,7 @@ class IndexPassSummary(_message.Message):
     def __init__(self, total: _Optional[int] = ..., reused: _Optional[int] = ..., newly_indexed: _Optional[int] = ..., failed: _Optional[int] = ..., finished_unix_seconds: _Optional[int] = ...) -> None: ...
 
 class ProjectIndexStatus(_message.Message):
-    __slots__ = ("project_root", "state", "translation_units_total", "translation_units_completed", "translation_units_skipped", "translation_units_failed", "current_translation_unit", "error", "last_reconciled_unix_seconds", "revision", "translation_units_pending", "paused_reason", "translation_units_indexed", "translation_units_indexing", "last_completed_pass")
+    __slots__ = ("project_root", "state", "translation_units_total", "translation_units_completed", "translation_units_skipped", "translation_units_failed", "current_translation_unit", "error", "last_reconciled_unix_seconds", "revision", "translation_units_pending", "paused_reason", "translation_units_indexed", "translation_units_indexing", "last_completed_pass", "project_name")
     PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]
     STATE_FIELD_NUMBER: _ClassVar[int]
     TRANSLATION_UNITS_TOTAL_FIELD_NUMBER: _ClassVar[int]
@@ -87,6 +97,7 @@ class ProjectIndexStatus(_message.Message):
     TRANSLATION_UNITS_INDEXED_FIELD_NUMBER: _ClassVar[int]
     TRANSLATION_UNITS_INDEXING_FIELD_NUMBER: _ClassVar[int]
     LAST_COMPLETED_PASS_FIELD_NUMBER: _ClassVar[int]
+    PROJECT_NAME_FIELD_NUMBER: _ClassVar[int]
     project_root: str
     state: IndexState
     translation_units_total: int
@@ -102,7 +113,8 @@ class ProjectIndexStatus(_message.Message):
     translation_units_indexed: int
     translation_units_indexing: int
     last_completed_pass: IndexPassSummary
-    def __init__(self, project_root: _Optional[str] = ..., state: _Optional[_Union[IndexState, str]] = ..., translation_units_total: _Optional[int] = ..., translation_units_completed: _Optional[int] = ..., translation_units_skipped: _Optional[int] = ..., translation_units_failed: _Optional[int] = ..., current_translation_unit: _Optional[str] = ..., error: _Optional[str] = ..., last_reconciled_unix_seconds: _Optional[int] = ..., revision: _Optional[int] = ..., translation_units_pending: _Optional[int] = ..., paused_reason: _Optional[str] = ..., translation_units_indexed: _Optional[int] = ..., translation_units_indexing: _Optional[int] = ..., last_completed_pass: _Optional[_Union[IndexPassSummary, _Mapping]] = ...) -> None: ...
+    project_name: str
+    def __init__(self, project_root: _Optional[str] = ..., state: _Optional[_Union[IndexState, str]] = ..., translation_units_total: _Optional[int] = ..., translation_units_completed: _Optional[int] = ..., translation_units_skipped: _Optional[int] = ..., translation_units_failed: _Optional[int] = ..., current_translation_unit: _Optional[str] = ..., error: _Optional[str] = ..., last_reconciled_unix_seconds: _Optional[int] = ..., revision: _Optional[int] = ..., translation_units_pending: _Optional[int] = ..., paused_reason: _Optional[str] = ..., translation_units_indexed: _Optional[int] = ..., translation_units_indexing: _Optional[int] = ..., last_completed_pass: _Optional[_Union[IndexPassSummary, _Mapping]] = ..., project_name: _Optional[str] = ...) -> None: ...
 
 class FindSymbolsRequest(_message.Message):
     __slots__ = ("project_root", "query", "limit", "match_mode", "kind", "unique_symbols", "source_only", "offset", "expected_revision")

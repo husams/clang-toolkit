@@ -4,6 +4,7 @@ package ctk.index.v1;
 service IndexService {
   rpc ListProjectIndexes(ListProjectIndexesRequest) returns (ListProjectIndexesResponse);
   rpc StartProjectIndex(StartProjectIndexRequest) returns (ProjectIndexStatus);
+  rpc RenameProjectIndex(RenameProjectIndexRequest) returns (ProjectIndexStatus);
   rpc GetProjectIndexStatus(ProjectIndexRequest) returns (ProjectIndexStatus);
   rpc PauseProjectIndex(ProjectIndexRequest) returns (ProjectIndexStatus);
   rpc ResumeProjectIndex(ProjectIndexRequest) returns (ProjectIndexStatus);
@@ -28,6 +29,12 @@ message StartProjectIndexRequest {
   string project_root = 1;
   string compile_commands = 2;
   uint32 poll_interval_seconds = 3;
+  // Omission preserves a saved name, or defaults to the root directory name.
+  optional string project_name = 4;
+}
+message RenameProjectIndexRequest {
+  string project_root = 1;
+  string project_name = 2;
 }
 message ProjectIndexRequest { string project_root = 1; }
 message ListProjectIndexesRequest {}
@@ -65,6 +72,7 @@ message ProjectIndexStatus {
   // Current-pass counters above reset on each reconciliation; saved coverage
   // (translation_units_indexed) and this completed summary do not.
   IndexPassSummary last_completed_pass = 15;
+  string project_name = 16;
 }
 message FindSymbolsRequest {
   string project_root = 1;

@@ -39,7 +39,8 @@ parameters: NAME (COMMA NAME)*
         | SESSION ATTACH (STRING | reference) INTO reference -> session_attach
         | SERVER STATUS                  -> server_status
         | INDEX LIST                     -> index_list
-        | INDEX START STRING             -> index_start
+        | INDEX START STRING [AS STRING] -> index_start
+        | INDEX RENAME STRING TO STRING  -> index_rename
         | INDEX STATUS STRING            -> index_status
         | INDEX PAUSE STRING             -> index_pause
         | INDEX RESUME STRING            -> index_resume
