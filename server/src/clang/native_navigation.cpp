@@ -1,11 +1,11 @@
 #include "native_navigation.hpp"
 #include "captured_binding_state.hpp"
 #include "match_row_collector.hpp"
+#include "matcher_parser.hpp"
 #include "native_snapshot_owner.hpp"
 #include "semantic_ast_visitor.hpp"
 #include <clang/AST/ParentMapContext.h>
 #include <clang/ASTMatchers/Dynamic/Diagnostics.h>
-#include <clang/ASTMatchers/Dynamic/Parser.h>
 #include <limits>
 
 namespace ctk::clang_layer {
@@ -65,7 +65,7 @@ MatchExecution navigate_bindings(
   if (!request.query().empty()) {
     dynamic::Diagnostics diagnostics;
     llvm::StringRef text(request.query());
-    auto query = dynamic::Parser::parseMatcherExpression(text, &diagnostics);
+    auto query = parse_matcher_expression(text, diagnostics);
     if (!query)
       return failure(MatchCode::InvalidArgument, diagnostics.toStringFull());
     if (auto root = query->tryBind("root"))

@@ -625,12 +625,14 @@ class AsyncClient:
                 details_result = call.details()
                 details = (await details_result if inspect.isawaitable(details_result)
                            else details_result)
-                raise CursorError(status, details or "match stream did not finish with OK")
+                raise CursorError(status, details or "match stream failed without diagnostic details")
             store.flush()
             succeeded = True
             return completed, store
         except grpc.aio.AioRpcError as error:
-            raise CursorError(error.code(), error.details() or "match stream RPC failed") from error
+            raise CursorError(
+                error.code(), error.details() or "match stream RPC failed without diagnostic details"
+            ) from error
         finally:
             if not succeeded:
                 if call is not None:

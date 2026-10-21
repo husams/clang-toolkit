@@ -2,12 +2,12 @@
 #include "ctk/clang/matching.hpp"
 #include "ctk/clang/tooling.hpp"
 #include "match_row_collector.hpp"
+#include "matcher_parser.hpp"
 #include "native_snapshot_owner.hpp"
 #include "native_navigation.hpp"
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/ASTMatchers/ASTMatchers.h>
 #include <clang/ASTMatchers/Dynamic/Diagnostics.h>
-#include <clang/ASTMatchers/Dynamic/Parser.h>
 #include <clang/AST/RecursiveASTVisitor.h>
 #include <functional>
 #include <mutex>
@@ -253,7 +253,7 @@ private:
     MatchExecution result;
     dynamic::Diagnostics diagnostics;
     llvm::StringRef text(request.query());
-    auto parsed = dynamic::Parser::parseMatcherExpression(text, &diagnostics);
+    auto parsed = parse_matcher_expression(text, diagnostics);
     if (!parsed)
       return failure(MatchCode::InvalidArgument, diagnostics.toStringFull());
     if (auto root = parsed->tryBind("root"))

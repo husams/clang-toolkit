@@ -13,7 +13,9 @@ from clang_toolkit import _row_store as row_store_module
 from clang_toolkit._generated.match.v1 import match_result_pb2, match_service_pb2
 from clang_toolkit._generated.match.v1 import match_stream_pb2
 from clang_toolkit._row_store import RowStore
+from clang_toolkit.cli.app import dispatch_result
 from clang_toolkit.cli.runtime import Runtime
+from clang_toolkit.cursors import CursorError
 
 
 def row(name: str) -> match_result_pb2.MatchResult:
@@ -190,13 +192,76 @@ def test_non_ok_after_completion_discards_rows_and_cleans_new_cursor(monkeypatch
         async def close(identifier):
             closed.append(identifier)
         monkeypatch.setattr(client, "close_match", close)
-        with pytest.raises(Exception, match="mock terminal status"):
+        with pytest.raises(CursorError, match="UNAVAILABLE: mock terminal status"):
             await client.match_in("decl()", "sample.cc")
         assert not client._values
         await client.aclose()
 
     asyncio.run(run())
     assert closed == ["new"]
+
+
+@pytest.mark.parametrize("status, details", [
+    (grpc.StatusCode.INVALID_ARGUMENT, '1:14: Error parsing argument 1 for matcher hasName.'),
+    (grpc.StatusCode.INVALID_ARGUMENT, ""),
+    (grpc.StatusCode.DEADLINE_EXCEEDED, ""),
+    (grpc.StatusCode.CANCELLED, None),
+    (grpc.StatusCode.UNAVAILABLE, ""),
+    (grpc.StatusCode.INTERNAL, ""),
+])
+def test_rpc_failure_reports_status_and_diagnostics_without_publishing(
+    monkeypatch: pytest.MonkeyPatch, status: grpc.StatusCode, details: str | None,
+) -> None:
+    failure = grpc.aio.AioRpcError(status, (), (), details)
+
+    class FailedStream(Stream):
+        async def __anext__(self) -> match_stream_pb2.MatchStreamEvent:
+            if self.index >= len(self.events):
+                raise failure
+            return await super().__anext__()
+
+    stream = FailedStream([match_stream_pb2.MatchStreamEvent(row=row("partial"))])
+    patch_stream(monkeypatch, stream)
+
+    async def run() -> None:
+        async with AsyncClient(address="unix:///tmp/test.sock") as client:
+            with pytest.raises(CursorError) as caught:
+                await client.match_in("decl()", "sample.cc")
+            assert caught.value.code == status
+            assert str(caught.value).startswith(f"{status.name}: ")
+            assert caught.value.__cause__ is failure
+            if details:
+                assert details in str(caught.value)
+            else:
+                assert "without diagnostic details" in str(caught.value)
+            assert not client._values
+
+    asyncio.run(run())
+    assert stream.cancelled
+
+
+@pytest.mark.parametrize("details", ["", "1:14: Error parsing argument 1 for matcher hasName."])
+def test_console_reports_match_rpc_status_and_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, details: str,
+) -> None:
+    class FailedStream(Stream):
+        async def __anext__(self) -> match_stream_pb2.MatchStreamEvent:
+            raise grpc.aio.AioRpcError(grpc.StatusCode.INVALID_ARGUMENT, (), (), details)
+
+    patch_stream(monkeypatch, FailedStream([]))
+    with client_module.Client(address="unix:///tmp/test.sock") as client:
+        runtime = Runtime(client)
+        try:
+            result = dispatch_result(
+                client, 'let failed = match varDecl(hasName(123)) in "sample.cc"', runtime,
+            )
+            assert not result.success
+            assert result.output is not None
+            assert result.output.startswith("error: INVALID_ARGUMENT: ")
+            assert (details or "without diagnostic details") in result.output
+            assert "failed" not in runtime.bindings
+        finally:
+            runtime.close()
 
 
 def test_callback_exception_cancels_stream_without_publishing_value(monkeypatch):

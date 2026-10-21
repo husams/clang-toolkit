@@ -1,4 +1,5 @@
 #include "ctk/clang/tooling.hpp"
+#include "matcher_parser.hpp"
 #include "serialization/node_serializers.hpp"
 
 #include <clang/AST/ASTContext.h>
@@ -8,7 +9,6 @@
 #include <clang/AST/Type.h>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/ASTMatchers/Dynamic/Diagnostics.h>
-#include <clang/ASTMatchers/Dynamic/Parser.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Lex/Preprocessor.h>
@@ -219,8 +219,7 @@ public:
 
     clang::ast_matchers::dynamic::Diagnostics diagnostics;
     llvm::StringRef query_text(query);
-    auto matcher = clang::ast_matchers::dynamic::Parser::parseMatcherExpression(
-        query_text, &diagnostics);
+    auto matcher = parse_matcher_expression(query_text, diagnostics);
     if (!matcher) {
       result.message = diagnostics_text(diagnostics);
       return result;

@@ -38,6 +38,12 @@ Feature: gRPC network client
     When I parse the invalid source through the SDK and real console
     Then both report the missing header and its source location
 
+  Scenario: Match failures expose status and diagnostics while empty matches succeed
+    Given a query server using unix
+    And a C++ file with a class and a variable of that class
+    When I run empty valid and invalid matchers through the SDK and real console
+    Then empty matches succeed and invalid matches report their status and Clang diagnostic
+
   Scenario Outline: Compilation database commands supply and refresh per-file flags
     Given a query server using unix
     And a project with a compilation database selected by <selection>
