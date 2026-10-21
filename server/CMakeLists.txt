@@ -132,6 +132,7 @@ if(CTK_WITH_CLANG)
     src/clang/snapshot/input_identity.cpp
     src/clang/snapshot/native_artifact_closure.cpp
     src/clang/cursor_match_backend.cpp
+    src/clang/matcher_parser.cpp
     src/clang/native_navigation.cpp
     src/clang/match_row_collector.cpp
     src/clang/semantic_ast_visitor.cpp

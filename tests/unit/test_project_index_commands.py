@@ -242,7 +242,7 @@ def test_index_find_global_empty_and_failed_projects_are_explicit(tmp_path, engi
             pb.FindSymbolsResponse(symbols=[pb.Symbol(qualified_name="clamp")]),
         ]
         output = runtime.execute('index find "cla"')
-        assert "Search failed: unavailable test project" in output
+        assert "Search failed: UNAVAILABLE: unavailable test project" in output
         assert "clamp" in output and "/two/good" in output
     finally:
         runtime.close()

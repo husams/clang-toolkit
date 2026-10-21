@@ -1039,6 +1039,71 @@ TEST_F(MatchCursors, FailedQueriesAndStaleRevisionsPreservePriorBindings) {
   EXPECT_EQ(valid.response.result_revision(), 2U);
 }
 
+TEST_F(MatchCursors, CanonicalTypeErrorsReportDiagnosticsAndPreserveParsedTree) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "class X {};\n"
+         "typedef X XAlias;\n"
+         "XAlias aliased;\n"
+         "void useX(X &x) { (void)x; X z; }\n";
+  const auto tree = controller->parse("owner", parse_request(), [] { return true; });
+  ASSERT_EQ(tree.code, MatchCode::Ok) << tree.message;
+  const auto source = tree_response(tree.response);
+  const std::string invalid = R"query(varDecl(
+    hasType(
+           hasCanonicalType(
+               cxxRecordDecl(hasName("X")).bind("type")
+           )
+    )
+).bind("var"))query";
+  const auto unary = run(session(source, invalid));
+  EXPECT_EQ(unary.code, MatchCode::InvalidArgument);
+  EXPECT_NE(unary.message.find("hasCanonicalType"), std::string::npos)
+      << unary.message;
+  EXPECT_NE(unary.message.find("Expected = Matcher<QualType>"), std::string::npos)
+      << unary.message;
+  EXPECT_NE(unary.message.find("Actual = Matcher<Decl>"), std::string::npos)
+      << unary.message;
+
+  std::size_t events = 0;
+  const auto failed = stream(session(source, invalid),
+      [&](const MatchStreamEvent &, std::string &) {
+        ++events;
+        return MatchCode::Ok;
+      });
+  EXPECT_EQ(failed.code, MatchCode::InvalidArgument);
+  EXPECT_EQ(failed.message, unary.message);
+  EXPECT_EQ(events, 0U);
+  EXPECT_TRUE(failed.response.session_id().empty());
+
+  // A valid expression with no matches must still succeed on the same tree.
+  const auto empty = fork(session(source, "varDecl(cxxRecordDecl(hasName(\"X\")))"));
+  ASSERT_EQ(empty.code, MatchCode::Ok) << empty.message;
+  EXPECT_EQ(empty.response.results_size(), 0);
+
+  auto corrected = session(source,
+      "varDecl(hasType(hasCanonicalType(hasDeclaration("
+      "cxxRecordDecl(hasName(\"X\")).bind(\"type\"))))).bind(\"var\")");
+  std::size_t rows = 0;
+  std::size_t completions = 0;
+  const auto valid = stream(corrected,
+      [&](const MatchStreamEvent &event, std::string &) {
+        if (event.has_row()) {
+          ++rows;
+          EXPECT_TRUE(event.row().bindings().contains("var"));
+          EXPECT_TRUE(event.row().bindings().contains("type"));
+        }
+        if (event.has_completed()) {
+          ++completions;
+          EXPECT_EQ(event.completed().row_count(), 2U);
+        }
+        return MatchCode::Ok;
+      });
+  ASSERT_EQ(valid.code, MatchCode::Ok) << valid.message;
+  EXPECT_EQ(rows, 2U);
+  EXPECT_EQ(completions, 1U);
+  EXPECT_EQ(valid.response.result_revision(), source.result_revision() + 1);
+}
+
 TEST_F(MatchCursors, WholeTreeRestartAndZeroMatchesAdvanceRevision) {
   auto first = run(file("functionDecl(hasName(\"missing\")).bind(\"f\")"));
   ASSERT_EQ(first.code, MatchCode::Ok) << first.message;

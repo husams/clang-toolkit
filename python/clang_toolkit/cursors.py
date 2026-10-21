@@ -13,11 +13,15 @@ from clang_toolkit.matchers import MatcherInput, matcher_query
 
 
 class CursorError(RuntimeError):
-    """A failed cursor RPC; failed operations preserve the prior revision."""
+    """A failed cursor RPC with its status and diagnostic in the displayed text."""
 
-    def __init__(self, code: grpc.StatusCode, message: str) -> None:
+    def __init__(self, code: grpc.StatusCode, message: str | None) -> None:
         self.code = code
-        super().__init__(message)
+        super().__init__(message or "RPC failed without diagnostic details")
+
+    def __str__(self) -> str:
+        status = getattr(self.code, "name", self.code)
+        return f"{status}: {super().__str__()}"
 
 
 def file_request(

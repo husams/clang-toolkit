@@ -266,6 +266,68 @@ def parse_error_diagnostics(parse_errors):
         assert "invalid.cc:1:10:" in output
 
 
+@given("a C++ file with a class and a variable of that class", target_fixture="class_source")
+def class_source(tmp_path: Path) -> Path:
+    source = tmp_path / "class_variable.cc"
+    source.write_text(
+        "class X {};\ntypedef X XAlias;\nXAlias aliased;\n"
+        "void useX(X &x) { (void)x; X z; }\n",
+        encoding="utf-8",
+    )
+    return source
+
+
+@when("I run empty valid and invalid matchers through the SDK and real console",
+      target_fixture="match_diagnostics")
+def match_diagnostics(server: RunningServer, class_source: Path) -> tuple[str, str]:
+    import sys
+
+    empty = 'varDecl(cxxRecordDecl(hasName("X")))'
+    valid = ('varDecl(hasType(hasCanonicalType(hasDeclaration('
+             'cxxRecordDecl(hasName("X")).bind("type"))))).bind("var")')
+    invalid = ('varDecl(hasType(hasCanonicalType('
+               'cxxRecordDecl(hasName("X")).bind("type")))).bind("var")')
+
+    async def run() -> str:
+        async with AsyncClient(server.endpoint) as client:
+            async with await client.parse(class_source) as tree:
+                async with await tree.match(empty) as rows:
+                    assert len(rows) == 0
+                with pytest.raises(CursorError) as failure:
+                    await tree.match(invalid)
+                assert failure.value.code == grpc.StatusCode.INVALID_ARGUMENT
+                async with await tree.match(valid) as rows:
+                    assert len(rows) == 2
+                return str(failure.value)
+
+    sdk_error = asyncio.run(run())
+    console = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+        input=f'let tree = parse "{class_source}"\n'
+              f'let empty = match {empty} in tree\n'
+              'print empty.length\n'
+              f'let invalid = match {invalid} in tree\n'
+              f'let valid = match {valid} in tree\n'
+              'print valid.length\nquit\n',
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        timeout=30, check=False,
+    )
+    assert console.returncode == 1, console.stdout
+    assert "0" in console.stdout.splitlines(), console.stdout
+    assert "2" in console.stdout.splitlines(), console.stdout
+    return sdk_error, console.stdout
+
+
+@then("empty matches succeed and invalid matches report their status and Clang diagnostic")
+def verify_match_diagnostics(match_diagnostics: tuple[str, str]) -> None:
+    for output in match_diagnostics:
+        assert "INVALID_ARGUMENT:" in output
+        assert "hasCanonicalType" in output
+        assert "Expected = Matcher<QualType>" in output
+        assert "Actual = Matcher<Decl>" in output
+        assert "match stream RPC failed" not in output
+
+
 @given(parsers.parse("a project with a compilation database selected by {selection}"), target_fixture="database_project")
 def database_project(tmp_path: Path, selection: str):
     import json

@@ -1,5 +1,6 @@
 #include "ctk/clang/call_graph_backend.hpp"
 #include "../captured_binding_state.hpp"
+#include "../matcher_parser.hpp"
 #include "../native_snapshot_owner.hpp"
 #include "../serialization/analysis_projection.hpp"
 #include "../serialization/match_metadata_helpers.hpp"
@@ -12,7 +13,6 @@
 #include <clang/AST/ParentMapContext.h>
 #include <clang/AST/RecursiveASTVisitor.h>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
-#include <clang/ASTMatchers/Dynamic/Parser.h>
 #include <clang/Basic/SourceManager.h>
 #include <functional>
 #include <limits>
@@ -32,8 +32,7 @@ public:
   explicit CallableMatcher(const std::string &text) {
     clang::ast_matchers::dynamic::Diagnostics diagnostics;
     llvm::StringRef matcher_text(text);
-    auto parsed = clang::ast_matchers::dynamic::Parser::parseMatcherExpression(
-        matcher_text, &diagnostics);
+    auto parsed = parse_matcher_expression(matcher_text, diagnostics);
     if (!parsed)
       throw calls::CallGraphFailure(MatchCode::InvalidArgument,
                                     diagnostics.toStringFull().c_str());
