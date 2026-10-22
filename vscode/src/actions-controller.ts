@@ -96,7 +96,7 @@ interface History {
   directoryTarget: vscode.Uri | undefined;
   target: vscode.Uri | undefined;
 }
-const CXX = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i;
+const CXX = /\.(?:c|cc|cpp|cxx|i|ii|h|hh|hpp|hxx)$/i;
 const EXCLUDE =
   "**/{.git,.hg,.svn,node_modules,build,.venv,.cache,dist,out,target,.vscode-test}/**";
 type ActionScope = "file" | "directory" | "workspace";
@@ -169,7 +169,7 @@ export class ActionsController implements vscode.Disposable {
       );
     };
     const watcher = vscode.workspace.createFileSystemWatcher(
-      "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
+      "**/*.{c,cc,cpp,cxx,i,ii,h,hh,hpp,hxx}",
     );
     const remember = (editor: vscode.TextEditor | undefined): void => {
       if (
@@ -602,7 +602,7 @@ export class ActionsController implements vscode.Disposable {
     for (const folder of folders) {
       const exclude = new vscode.RelativePattern(folder, EXCLUDE);
       let found = await vscode.workspace.findFiles(
-        new vscode.RelativePattern(folder, "**/*.{c,cc,cpp,cxx}"),
+        new vscode.RelativePattern(folder, "**/*.{c,cc,cpp,cxx,i,ii}"),
         exclude,
         maximum + 1,
       );

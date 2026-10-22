@@ -37,10 +37,11 @@ import {
 import { ParseProblems } from "./parse-problems.js";
 import { SourceHighlight } from "./source-highlight.js";
 import { selectedSource } from "./source-range.js";
+import { SymbolNavigation } from "./symbol-navigation.js";
 import { AnalysisView } from "./views.js";
 import { startConsoleWorker, type WorkerRun } from "./worker-client.js";
 
-const CXX = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i;
+const CXX = /\.(?:c|cc|cpp|cxx|i|ii|h|hh|hpp|hxx)$/i;
 const EXCLUDE = "**/{.git,node_modules,build,.venv,.cache,dist}/**";
 const messageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
@@ -118,7 +119,7 @@ export class Prototype {
   private indexedSearchInit: Promise<IndexedSymbolSearch> | undefined;
   private indexedSearchGeneration = 0;
   private indexedSearchError = "";
-  private readonly sourceHighlight = new SourceHighlight();
+  private readonly sourceHighlight: SourceHighlight;
   private readonly parseProblems = new ParseProblems();
   private readonly editorSelection: EditorSelectionSync;
   private readonly fileInspection: FileInspectionSync;
@@ -154,6 +155,7 @@ export class Prototype {
     | { action: string; matches: number; groups: number }
     | undefined;
   constructor(private readonly context: vscode.ExtensionContext) {
+    this.sourceHighlight = new SourceHighlight(context.extensionUri);
     this.graphSessions = new GraphSessions(context, (graph, state) =>
       this.details.showSavedGraph(graph, state),
     );
@@ -209,6 +211,9 @@ export class Prototype {
         },
       },
       this.sourceHighlight,
+      new SymbolNavigation(context.extensionUri, (message) =>
+        this.output.appendLine(message),
+      ),
       this.editorSelection,
       vscode.window.registerWebviewViewProvider("ctk.analysis", this.view, {
         webviewOptions: { retainContextWhenHidden: true },
@@ -726,7 +731,7 @@ export class Prototype {
         return { files: [], directory };
       if (!this.target) {
         const candidates = await vscode.workspace.findFiles(
-          "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
+          "**/*.{c,cc,cpp,cxx,i,ii,h,hh,hpp,hxx}",
           EXCLUDE,
           500,
         );
@@ -749,7 +754,10 @@ export class Prototype {
       .getConfiguration("ctk")
       .get<number>("maxFiles", 200);
     const files = await vscode.workspace.findFiles(
-      new vscode.RelativePattern(directory, "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}"),
+      new vscode.RelativePattern(
+        directory,
+        "**/*.{c,cc,cpp,cxx,i,ii,h,hh,hpp,hxx}",
+      ),
       EXCLUDE,
       maximum + 1,
     );

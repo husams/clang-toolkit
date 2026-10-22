@@ -2,6 +2,8 @@
 
 Semantic Analysis has two tabs: **Symbol Search** and **Actions**. Symbol Search finds declarations by name, with scope and kind filters under Options. Actions run YAML-described CTK functions on a file, directory, entire workspace, or selected match binding. Both use the real native server. Ordinary console scripts remain available from the editor and file menu.
 
+Selecting a match reveals its source. Single-line matches are underlined over the exact matched range. Multiline matches receive a vertical marker before the line numbers spanning the entire block, including blank lines. Selecting another match replaces the marker; editing the source clears it.
+
 ## Workspace actions and indexed symbols
 
 In **Actions → Options**, choose **Current C++ file**, **Directory**, or **Workspace folders**. Directory actions also appear in the existing Explorer CTK menu; **Workspace folders** covers every open workspace folder. Discovery prefers C/C++ translation units, uses headers in folders without translation units, and skips build and dependency folders. `ctk.maxFiles` bounds the complete manifest; exceeding it reports an error. Save relevant C/C++ drafts before running.
