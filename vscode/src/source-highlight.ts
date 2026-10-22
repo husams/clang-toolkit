@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
 import * as vscode from "vscode";
+import { gutterIcon, underlineStyle } from "./highlight-style.js";
 import type { Result } from "./model.js";
 import { sourceOffsets, sourceTarget } from "./source-range.js";
 
@@ -9,11 +10,11 @@ export class SourceHighlight implements vscode.Disposable {
   private range: vscode.Range | undefined;
   private expected: { uri: string; range: vscode.Range } | undefined;
   private collapsed: { uri: string; range: vscode.Range }[] = [];
-  private readonly underline = vscode.window.createTextEditorDecorationType({
-    textDecoration: "underline",
-    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-  });
-  private readonly region: vscode.TextEditorDecorationType;
+  private underline = vscode.window.createTextEditorDecorationType(
+    underlineStyle("matchHighlight"),
+  );
+  private region: vscode.TextEditorDecorationType;
+  private readonly configuration: vscode.Disposable;
   private readonly changed = vscode.workspace.onDidChangeTextDocument(
     (event) => {
       if (
@@ -25,15 +26,23 @@ export class SourceHighlight implements vscode.Disposable {
   );
 
   constructor(extensionUri: vscode.Uri) {
-    this.region = vscode.window.createTextEditorDecorationType({
-      gutterIconPath: vscode.Uri.joinPath(
-        extensionUri,
-        "media",
-        "match-region.svg",
-      ),
-      gutterIconSize: "100% 100%",
-      isWholeLine: true,
-      rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+    const createRegion = () =>
+      vscode.window.createTextEditorDecorationType({
+        gutterIconPath: gutterIcon(extensionUri),
+        gutterIconSize: "100% 100%",
+        isWholeLine: true,
+        rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+      });
+    this.region = createRegion();
+    this.configuration = vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration("ctk.matchHighlight")) return;
+      this.underline.dispose();
+      this.region.dispose();
+      this.underline = vscode.window.createTextEditorDecorationType(
+        underlineStyle("matchHighlight"),
+      );
+      this.region = createRegion();
+      if (this.editor && this.range) this.decorate(this.editor, this.range);
     });
   }
 
@@ -150,6 +159,12 @@ export class SourceHighlight implements vscode.Disposable {
       range,
       vscode.TextEditorRevealType.InCenterIfOutsideViewport,
     );
+    this.decorate(editor, range);
+    this.editor = editor;
+    this.range = range;
+    this.expected = undefined;
+  }
+  private decorate(editor: vscode.TextEditor, range: vscode.Range): void {
     if (!range.isEmpty) {
       // Clang's end is exclusive: column zero belongs to the preceding line.
       const lastLine =
@@ -166,14 +181,12 @@ export class SourceHighlight implements vscode.Disposable {
         editor.setDecorations(this.region, lines);
       }
     }
-    this.editor = editor;
-    this.range = range;
-    this.expected = undefined;
   }
   dispose(): void {
     this.clear();
     this.collapsed = [];
     this.changed.dispose();
+    this.configuration.dispose();
     this.underline.dispose();
     this.region.dispose();
   }

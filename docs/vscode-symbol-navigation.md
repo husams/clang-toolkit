@@ -6,6 +6,25 @@ Header declarations also receive links to their indexed definitions, even when t
 Use Command-click on macOS or Control-click on Linux/Windows to follow a link.
 Go to Definition and Peek Definition use the same reference bindings.
 
+Hovering a symbol shows its signature, kind, indexed project, definition or declaration location, and a source preview. The hover includes Go to definition and Find all references actions. Hover metadata is cached for the current editor snapshot and is discarded after edits.
+
+**CTK: Find All References Across Projects** and the normal References provider scan the translation units discovered by the server for every indexed project. They compare native USRs and include references from headers. The References section in Explorer collapses and expands like Outline. Its tree groups locations by project and file and shows the matching source line. A progress notification supports cancellation; file failures remain visible with incomplete coverage instead of being reported as a complete search. This is an on-demand native scan, so a large set of projects can take time. It does not add a result-count or elapsed-time cutoff.
+
+The status bar shows the active file's symbol scan state and link count. Click it for retry, the actual failure message, or compiler settings. **CTK: Show Compiler Settings** displays the server's resolved arguments, working directory, compilation database, and whether the file has a direct command or an inferred context. **CTK: Select Header Translation Unit** chooses the translation unit whose frozen compiler profile is used for a header's symbol navigation. Choose Automatic compiler context to remove an override. Overrides are stored in `ctk.headerTranslationUnits`.
+
+Highlight settings:
+
+| Setting | Values |
+| --- | --- |
+| `ctk.symbolLinks.underline` | `always`, `modifier`, or `never`; modifier uses VS Code's Command/Control link emphasis; never keeps hover and definition commands available |
+| `ctk.symbolLinks.style` | `solid`, `double`, `dotted`, `dashed`, or `wavy` |
+| `ctk.symbolLinks.color` | `#RRGGBB`, or empty for text colour |
+| `ctk.matchHighlight.style` | Selected single-line match underline style |
+| `ctk.matchHighlight.color` | Selected-match underline colour, or empty for text colour |
+| `ctk.matchHighlight.gutterColor` | Multiline gutter marker colour, or empty for amber |
+
+**Pin results** in Symbol Search and Actions opens an independent query snapshot in an editor tab. Each tab retains its own matches, selection, expanded files, and scroll position, including across a window reload. Action snapshots include the currently displayed result page. Navigation verifies the source fingerprint before applying a saved range, so edits cannot send a pinned match to unrelated code. Native AST handles are not retained by pinned tabs. Close a tab to discard its snapshot.
+
 Definition lookup searches every project indexed by the connected CTK server,
 including projects outside the open VS Code workspace. Lookup uses the exact
 Clang USR, preserving overloads and scopes. Available current definitions take

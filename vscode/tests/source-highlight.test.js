@@ -68,6 +68,8 @@ vi.mock("vscode", () => ({
     showTextDocument: (...args) => mock.show(...args),
   },
   workspace: {
+    getConfiguration: () => ({ get: (_key, fallback) => fallback }),
+    onDidChangeConfiguration: () => ({ dispose() {} }),
     get textDocuments() {
       return mock.documents;
     },
@@ -203,7 +205,7 @@ it("underlines only the matched characters for a single-line match", async () =>
     }),
   ]);
   expect(mock.decorations[0].options).toMatchObject({
-    textDecoration: "underline",
+    textDecoration: "underline solid",
   });
   expect(target.setDecorations).not.toHaveBeenCalledWith(
     mock.decorations[1],

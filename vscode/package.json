@@ -2,7 +2,7 @@
   "name": "clang-toolkit-prototype",
   "displayName": "Clang Toolkit Prototype",
   "description": "Unified Semantic Analysis and CTK script editing prototype",
-  "version": "0.3.2",
+  "version": "0.4.1",
   "publisher": "clang-toolkit",
   "license": "MIT",
   "type": "module",
@@ -19,6 +19,7 @@
   ],
   "activationEvents": [
     "onWebviewPanel:ctk.graph",
+    "onWebviewPanel:ctk.pinnedQuery",
     "onLanguage:c",
     "onLanguage:cpp",
     "onView:ctk.analysis",
@@ -72,6 +73,9 @@
       ]
     },
     "views": {
+      "explorer": [
+        {"id":"ctk.references","name":"References","when":"ctk.hasReferences"}
+      ],
       "ctkSemantic": [
         {
           "type": "webview",
@@ -88,6 +92,11 @@
       ]
     },
     "commands": [
+      {"command":"ctk.findSymbolReferences","title":"Find All References Across Projects","category":"CTK"},
+      {"command":"ctk.showCompilerSettings","title":"Show Compiler Settings","category":"CTK"},
+      {"command":"ctk.selectHeaderTranslationUnit","title":"Select Header Translation Unit","category":"CTK"},
+      {"command":"ctk.retrySymbolScan","title":"Retry Symbol Scan","category":"CTK"},
+      {"command":"ctk.pinQueryResults","title":"Pin Query Results","category":"CTK"},
       {"command":"ctk.reopenGraph","title":"Reopen Last Graph","category":"CTK"},
       {"command":"ctk.showCallGraph","title":"Show Call Graph","category":"CTK"},
       {"command":"ctk.showCfg","title":"Show CFG","category":"CTK"},
@@ -144,6 +153,8 @@
         }
       ],
       "editor/context": [
+        {"command":"ctk.findSymbolReferences","when":"editorLangId == cpp || editorLangId == c","group":"navigation@91"},
+        {"command":"ctk.showCompilerSettings","when":"editorLangId == cpp || editorLangId == c","group":"navigation@92"},
         {
           "submenu": "ctk.fileActions",
           "when": "editorLangId == cpp || editorLangId == c",
@@ -174,6 +185,13 @@
     "configuration": {
       "title": "Clang Toolkit Prototype",
       "properties": {
+        "ctk.headerTranslationUnits": {"type":"object","scope":"resource","additionalProperties":{"type":"string"},"default":{},"description":"Header paths mapped to translation units whose server-resolved compiler options are used for symbol navigation. Use Select Header Translation Unit to edit."},
+        "ctk.symbolLinks.underline": {"type":"string","enum":["always","modifier","never"],"default":"always","description":"Always underline symbol references, show link emphasis when holding Command/Control, or disable symbol document links while retaining hover and definition commands."},
+        "ctk.symbolLinks.style": {"type":"string","enum":["solid","double","dotted","dashed","wavy"],"default":"solid","description":"Underline style for symbol references."},
+        "ctk.symbolLinks.color": {"type":"string","pattern":"^(#[0-9a-fA-F]{6})?$","default":"","description":"Symbol underline colour as #RRGGBB. Empty follows the text colour."},
+        "ctk.matchHighlight.style": {"type":"string","enum":["solid","double","dotted","dashed","wavy"],"default":"solid","description":"Underline style for selected single-line matches."},
+        "ctk.matchHighlight.color": {"type":"string","pattern":"^(#[0-9a-fA-F]{6})?$","default":"","description":"Selected-match underline colour as #RRGGBB. Empty follows the text colour."},
+        "ctk.matchHighlight.gutterColor": {"type":"string","pattern":"^(#[0-9a-fA-F]{6})?$","default":"","description":"Selected multiline-match gutter colour as #RRGGBB. Empty uses amber."},
         "ctk.symbolNavigation": {
           "type": "boolean",
           "default": true,

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -48,6 +49,103 @@ def test_reference_token_after_unicode_member_base_and_qualification(tmp_path: P
         start, end = navigation.token_span(value, 'ns::target', buffers, str(file))
         assert text.encode()[start:end] == b'target'
         assert start == len('/* 😀 */ object.'.encode())
+    finally:
+        buffers.close()
+
+
+def test_compiler_inspector_uses_frozen_server_arguments_and_marks_inferred_header(tmp_path: Path) -> None:
+    from clang_toolkit.resources import InputDescriptor
+    database = tmp_path / 'compile_commands.json'
+    database.write_text(json.dumps([dict(directory=str(tmp_path), file='consumer.cpp', arguments=['clang++', '-DMODE=2', 'consumer.cpp'])]))
+    descriptor = InputDescriptor(str(tmp_path / 'api.hpp'), working_directory=str(tmp_path), compile_arguments=('-DMODE=2', '-std=c++20'), compilation_database=str(database), frozen_profile=True)
+    client = Mock()
+    client.discover_files.return_value = SimpleNamespace(inputs=(descriptor,), diagnostics=())
+    response = navigation.compiler_profile(client, dict(file=descriptor.path, directory=str(tmp_path), compileArguments=[]))
+    assert response['profile']['arguments'] == ['-DMODE=2', '-std=c++20']
+    assert response['profile']['provenance'] == 'inferred'
+    assert response['profile']['translationUnits'] == [str(tmp_path / 'consumer.cpp')]
+
+
+def test_header_override_reuses_frozen_tu_profile_without_appending_flags_twice(tmp_path: Path) -> None:
+    from clang_toolkit.resources import InputDescriptor
+    descriptor = InputDescriptor(str(tmp_path / 'consumer.cpp'), compile_arguments=('-DMODE=2',), frozen_profile=True)
+    client = Mock()
+    client.discover_files.return_value = SimpleNamespace(inputs=(descriptor,))
+    buffers = navigation.NavigationBuffers({})
+    try:
+        navigation.parse_input(client, dict(file=str(tmp_path / 'api.hpp'), translationUnit=descriptor.path, directory=str(tmp_path), compileArguments=[]), buffers)
+        selected = client.parse.call_args.args[0]
+        assert selected.path == str(tmp_path / 'api.hpp')
+        assert selected.compile_arguments == ('-DMODE=2',)
+        assert selected.frozen_profile
+    finally:
+        buffers.close()
+
+
+def test_reference_search_checks_native_identity_in_every_project_and_deduplicates_header_usages(tmp_path: Path) -> None:
+    from clang_toolkit.resources import InputDescriptor
+    header = tmp_path / 'api.hpp'
+    header.write_text('target(3);')
+    declaration = binding(header, 'target(3);', 'target', 'exact-overload')
+    wrong = binding(header, 'target(3);', 'target', 'different-overload')
+    reference = binding(header, 'target(3);', 'target')
+    reference.node.Clear()
+    reference.node.decl_ref_expr.SetInParent()
+    rows = [SimpleNamespace(bindings=dict(reference=reference, declaration=value)) for value in (declaration, wrong, declaration)]
+    roots = [str(tmp_path / 'consumer'), str(tmp_path / 'library')]
+    client = Mock()
+    client.list_project_indexes.return_value.projects = [SimpleNamespace(project_root=root) for root in roots]
+    client.discover_files.side_effect = lambda paths, **kwargs: SimpleNamespace(inputs=(InputDescriptor(str(header), frozen_profile=True),), diagnostics=())
+    client.parse.side_effect = lambda *args, **kwargs: nullcontext('tree')
+    client.match_in.side_effect = lambda *args: nullcontext(rows)
+    buffers = navigation.NavigationBuffers({})
+    try:
+        result = navigation.find_references(client, dict(usr='exact-overload', file=str(header), directory=str(tmp_path), compileArguments=[], includeDeclaration=False), buffers)
+        assert [item['project'] for item in result['occurrences']] == roots
+        assert all(item['column'] == 1 and item['preview'] == 'target(3);' for item in result['occurrences'])
+        assert result['coverage'] == dict(completed=2, total=2, projects=2)
+        assert all('isExpansionInMainFile' not in call.args[0] for call in client.match_in.call_args_list)
+        assert len(client.match_in.call_args_list) == 2 * (len(navigation.QUERIES) - 1)
+    finally:
+        buffers.close()
+
+
+def test_header_override_appends_editor_overlay_after_profile_discovery(tmp_path: Path) -> None:
+    from clang_toolkit.resources import InputDescriptor
+    file = str(tmp_path / 'api.hpp')
+    descriptor = InputDescriptor(str(tmp_path / 'consumer.cpp'), profile_id='old-profile', compile_arguments=('-DMODE=2',), frozen_profile=True)
+    client = Mock()
+    client.discover_files.return_value = SimpleNamespace(inputs=(descriptor,))
+    buffers = navigation.NavigationBuffers({file: 'int draft;'})
+    try:
+        navigation.parse_input(client, dict(file=file, translationUnit=descriptor.path, directory=str(tmp_path), compileArguments=[]), buffers)
+        assert client.discover_files.call_args.kwargs['compile_arguments'] == []
+        selected = client.parse.call_args.args[0]
+        assert selected.compile_arguments == ('-DMODE=2', *buffers.arguments)
+        assert selected.profile_id == ''
+    finally:
+        buffers.close()
+
+
+def test_reference_discovery_does_not_leak_the_active_database_into_other_projects(tmp_path: Path) -> None:
+    from clang_toolkit.resources import InputDescriptor
+    consumer, library = str(tmp_path / 'consumer'), str(tmp_path / 'library')
+    client = Mock()
+    client.compilation_database = '/consumer-build/compile_commands.json'
+    client.list_project_indexes.return_value.projects = [SimpleNamespace(project_root=root) for root in (consumer, library)]
+    observed = []
+    def discover(paths: list[str], **kwargs: object) -> SimpleNamespace:
+        observed.append((paths[0], client.compilation_database, kwargs['compilation_database']))
+        return SimpleNamespace(inputs=(InputDescriptor(paths[0] + '/main.cpp', frozen_profile=True),), diagnostics=())
+    client.discover_files.side_effect = discover
+    client.parse.side_effect = lambda *args: nullcontext('tree')
+    client.match_in.side_effect = lambda *args: nullcontext([])
+    buffers = navigation.NavigationBuffers({})
+    try:
+        navigation.find_references(client, dict(usr='c:@F@target#I#', file=consumer + '/main.cpp', directory=consumer,
+                                               compilationDatabase=client.compilation_database, compileArguments=['-DMODE=2']), buffers)
+        assert observed == [(consumer, None, '/consumer-build/compile_commands.json'), (library, None, None)]
+        assert client.compilation_database == '/consumer-build/compile_commands.json'
     finally:
         buffers.close()
 

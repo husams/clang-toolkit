@@ -213,6 +213,29 @@ export class ActionsController implements vscode.Disposable {
       }),
     );
   }
+  queryResults(): readonly Result[] {
+    return groupActionMatches(this.report?.results ?? []).flatMap((file) =>
+      file.matches.flatMap((row) => row.bindings),
+    );
+  }
+  queryTitle(): string {
+    return this.history.at(-1)?.action.title ?? this.action?.title ?? "Action";
+  }
+  queryDescription(): string {
+    const entry = this.history.at(-1);
+    return `${entry?.action.title ?? this.action?.title ?? "Action"}\n${JSON.stringify(entry?.values ?? this.values, null, 2)}\n${entry?.action.body ?? this.action?.body ?? ""}`;
+  }
+  pinGuard(): () => boolean {
+    const report = this.report;
+    return () =>
+      Boolean(
+        report &&
+          report === this.report &&
+          !this.stale &&
+          !this.busy &&
+          !this.execution,
+      );
+  }
   snapshot(): unknown {
     const display = (r: ActionNode) => ({
       ...r,
