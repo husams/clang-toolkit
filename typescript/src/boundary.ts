@@ -89,6 +89,11 @@ export const fileOptionsSchema = z.object({
   compileArguments: z.array(z.string().min(1)).optional(),
   compilationDatabase: z.string().min(1).optional(),
 });
+export const cppSnippetOptionsSchema = fileOptionsSchema.extend({
+  file: z.string().min(1).optional(),
+  includes: z.array(z.string().min(1)).optional(),
+  translationUnit: z.boolean().optional(),
+});
 export const matchOptionsSchema = fileOptionsSchema.extend({
   traversal: z.enum(["asIs", "spelled"]).optional(),
   scope: z.enum(["subtree", "rootOnly"]).optional(),

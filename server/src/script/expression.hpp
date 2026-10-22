@@ -1,14 +1,29 @@
 #pragma once
 #include "analysis/v1/script_scalar.pb.h"
 #include "call_argument.hpp"
-#include <optional>
 #include <cstdint>
+#include <optional>
 #include <vector>
 namespace ctk::script::detail {
 struct ScopedBlock;
 struct Expression {
-  enum class Kind { Literal, Reference, Call, Parse, Match, Scoped, List,
-                    Object, Member, Index, Files, Batch, Foreach, Group };
+  enum class Kind {
+    Literal,
+    Reference,
+    Call,
+    Parse,
+    ParseCpp,
+    Match,
+    Scoped,
+    List,
+    Object,
+    Member,
+    Index,
+    Files,
+    Batch,
+    Foreach,
+    Group
+  };
   Kind kind = Kind::Literal;
   ctk::analysis::v1::ScriptScalar literal;
   std::string name;

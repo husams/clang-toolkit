@@ -185,7 +185,10 @@ def test_missing_and_inaccessible_directories_fail_gracefully(files, monkeypatch
         raise PermissionError("test directory is inaccessible")
 
     monkeypatch.setattr(Path, "iterdir", denied)
-    assert choices("parse ", files) == []
+    # An inaccessible directory suppresses file candidates; the independent
+    # raw-C++ source alternative remains valid without filesystem access.
+    assert [item.text for item in choices("parse ", files)] == ["cpp`"]
+    assert choices("parse sou", files) == []
 
 
 def test_relative_parent_and_dotted_paths(files):

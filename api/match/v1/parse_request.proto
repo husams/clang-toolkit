@@ -1,6 +1,18 @@
 syntax = "proto3";
 package ctk.match.v1;
 
+// Source for a temporary C++ translation unit. Statements are wrapped in a
+// function by default; translation_unit accepts complete top-level C++ source.
+message CppSnippet {
+  string code = 1;
+  // Borrow this file's compilation command. Empty selects the first command
+  // from the current compilation database, when one is available.
+  string settings_file = 2;
+  // Optional headers inserted before the generated function/source.
+  repeated string includes = 3;
+  bool translation_unit = 4;
+}
+
 // Same file/profile validation as FileMatchTarget; no matcher is required.
 message ParseRequest {
   string file_path = 1;
@@ -13,4 +25,7 @@ message ParseRequest {
   string resource_scope_id = 5;
   string expected_profile_id = 6;
   bool frozen_profile = 7;
+  // When present, parse temporary source instead of file_path. Compilation
+  // arguments append overrides to any borrowed command.
+  CppSnippet cpp_snippet = 8;
 }

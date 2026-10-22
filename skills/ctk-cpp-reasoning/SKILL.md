@@ -1,6 +1,6 @@
 ---
 name: ctk-cpp-reasoning
-description: Reason about C++ code through the installed clang-toolkit Python SDK, using typed matcher queries and native AST analyses.
+description: Reason about C++ files and temporary code snippets through the installed clang-toolkit Python SDK, using borrowed project settings, typed matcher queries and native AST analyses.
 ---
 
 # Reason about C++ with clang-toolkit
@@ -28,4 +28,5 @@ Read only the reference needed for the question:
 - [Launch and public API](references/launch-and-api.md) for client setup, compilation databases, and result ownership.
 - [Typed matchers and semantic values](references/matchers-and-values.md) for composition, safe field access, and retained results.
 - [Reasoning recipes](references/recipes.md) for symbol inventory, child/parent relations, callers, type/base/template inspection, CFG, and call graphs.
+- [C++ snippets](references/snippets.md) for temporary statement blocks, concrete template instantiation, borrowed compilation settings, and complete translation units.
 - [Limits and reporting](references/limits-and-reporting.md) for budgets, completeness, and static-analysis boundaries.

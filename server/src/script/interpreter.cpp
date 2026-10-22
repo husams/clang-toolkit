@@ -416,6 +416,7 @@ Value Interpreter::evaluate(const Expression &expression) {
     return {report, {}, {}};
   }
   if (expression.kind == Expression::Kind::Parse ||
+      expression.kind == Expression::Kind::ParseCpp ||
       expression.kind == Expression::Kind::Match) {
     if (!environment_)
       throw Error(Code::FailedPrecondition,
@@ -423,7 +424,13 @@ Value Interpreter::evaluate(const Expression &expression) {
     Value result;
     if (expression.kind == Expression::Kind::Parse)
       result = environment_->parse_file(expression.name);
-    else {
+    else if (expression.kind == Expression::Kind::ParseCpp) {
+      std::optional<Value> options;
+      if (expression.target)
+        options = evaluate(*expression.target);
+      result = environment_->parse_cpp(expression.name,
+                                       options ? &*options : nullptr);
+    } else {
       std::optional<Value> target;
       if (expression.target) {
         const auto &target_expression = *expression.target;
@@ -706,11 +713,10 @@ Value Interpreter::statements(const std::vector<Statement> &body) {
           (!value.wire->has_matches() && !value.wire->has_list()))
         throw Error(Code::InvalidArgument,
                     "foreach requires a list or matched rows");
-      const auto count = value.wire->has_matches()
-                            ? static_cast<std::size_t>(
-                                  value.wire->matches().rows_size())
-                            : static_cast<std::size_t>(
-                                  value.wire->list().values_size());
+      const auto count =
+          value.wire->has_matches()
+              ? static_cast<std::size_t>(value.wire->matches().rows_size())
+              : static_cast<std::size_t>(value.wire->list().values_size());
       if (count > 10000)
         throw Error(Code::ResourceExhausted, "foreach item limit exceeded");
       auto collected = std::make_shared<ctk::analysis::v1::ScriptValue>();

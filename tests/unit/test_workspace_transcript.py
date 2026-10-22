@@ -305,7 +305,10 @@ def test_rendered_help_survives_append_error_markers_trim_and_clear(
             )
         assert "Usage:" not in ui.results.text
         assert "###" not in ui.results.text and "```" not in ui.results.text
-        assert "`" not in ui.results.text
+        # Backticks delimiting C++ literals are source syntax, so rendered help
+        # must retain them while removing Markdown headings and code fences.
+        assert "parse cpp`STATEMENTS`" in ui.results.text
+        assert "parse cpp`int value = 7; value += 2;`" in ui.results.text
         assert "Examples" in ui.results.text
         assert "\x1b" not in ui.results.text
         assert ui.transcript_lexer.blocks

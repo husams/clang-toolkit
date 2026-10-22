@@ -684,6 +684,26 @@ class AsyncClient:
         except grpc.aio.AioRpcError as error:
             raise CursorError(error.code(), error.details()) from error
 
+    async def _parse_cpp_response(
+        self, code: str, *, file: str | Path | None = None,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        compilation_database: str | Path | None = None,
+        includes: Sequence[str] = (), translation_unit: bool = False,
+        scope: ResourceScope[AsyncClient] | str | None = None,
+    ) -> parse_response_pb2.ParseResponse:
+        request = parse_request_pb2.ParseRequest(
+            compile_arguments=compile_arguments,
+            compilation_database=str(compilation_database or ""),
+            working_directory=str(working_directory) if working_directory is not None else str(Path.cwd()),
+            resource_scope_id=_scope_id(scope),
+            cpp_snippet=parse_request_pb2.CppSnippet(
+                code=code, settings_file=str(file or ""), includes=includes,
+                translation_unit=translation_unit,
+            ),
+        )
+        return await self._resource_call("Parse", request)
+
     def _own_value(self, response: Any) -> CursorOwner[AsyncClient]:
         current = self._values.get(response.session_id)
         existing = current() if current else None
@@ -801,6 +821,45 @@ class AsyncClient:
                 path.path if isinstance(path, InputDescriptor) else str(path), self._own_value(response),
                 _absolute_source_file(path, working_directory),
             )
+        finally:
+            self._end_value_operation()
+
+    async def parse_cpp(
+        self, code: str, *, file: str | Path | None = None,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        compilation_database: str | Path | None = None,
+        includes: Sequence[str] = (), translation_unit: bool = False,
+        scope: ResourceScope[AsyncClient] | str | None = None,
+    ) -> ParsedTree[AsyncClient]:
+        """Parse temporary C++ statements, borrowing a file's compiler settings.
+
+        Without ``file``, use the first available compilation database command.
+        ``translation_unit=True`` accepts complete top-level C++ source instead.
+        """
+        return await self._parse_cpp_with_lease(
+            code, file=file, working_directory=working_directory,
+            compile_arguments=compile_arguments, compilation_database=compilation_database,
+            includes=includes, translation_unit=translation_unit, scope=scope, lease=None,
+        )
+
+    async def _parse_cpp_with_lease(
+        self, code: str, *, file: str | Path | None = None,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        compilation_database: str | Path | None = None,
+        includes: Sequence[str] = (), translation_unit: bool = False,
+        scope: ResourceScope[AsyncClient] | str | None = None,
+        lease: OperationLease | None,
+    ) -> ParsedTree[AsyncClient]:
+        self._begin_value_operation(lease)
+        try:
+            response = await self._parse_cpp_response(
+                code, file=file, working_directory=working_directory,
+                compile_arguments=compile_arguments, compilation_database=compilation_database,
+                includes=includes, translation_unit=translation_unit, scope=scope,
+            )
+            return ParsedTree(response.source_file, self._own_value(response), response.source_file)
         finally:
             self._end_value_operation()
 
@@ -1976,6 +2035,27 @@ class Client:
             _absolute_source_file(path, working_directory),
         )
 
+    def parse_cpp(
+        self, code: str, *, file: str | Path | None = None,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        compilation_database: str | Path | None = None,
+        includes: Sequence[str] = (), translation_unit: bool = False,
+        scope: ResourceScope[Client] | str | None = None,
+    ) -> ParsedTree[Client]:
+        """Parse temporary C++ statements or a complete translation unit.
+
+        Borrow compilation settings from ``file``, or the first available
+        compilation database entry when omitted. Explicit flags append overrides.
+        """
+        response = self._cursor_call(
+            "_parse_cpp_response", code, file=file,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            compilation_database=compilation_database, includes=includes,
+            translation_unit=translation_unit, scope=scope,
+        )
+        return ParsedTree(response.source_file, self._own_value(response), response.source_file)
+
     def match_in(
         self, query: MatcherInput, target: MatchTarget, *,
         working_directory: str | Path | None = None,
@@ -2565,6 +2645,22 @@ class _AsyncExpressionAdapter:
         return self._call("_parse_with_lease", path,
             working_directory=working_directory, compile_arguments=compile_arguments,
             lease=self.lease, scope=self.scope)
+
+    def parse_cpp(
+        self, code: str, *, file: str | Path | None = None,
+        working_directory: str | Path | None = None,
+        compile_arguments: Sequence[str] = (),
+        compilation_database: str | Path | None = None,
+        includes: Sequence[str] = (), translation_unit: bool = False,
+        scope: ResourceScope[AsyncClient] | str | None = None,
+    ) -> ParsedTree[AsyncClient]:
+        return self._call(
+            "_parse_cpp_with_lease", code, file=file,
+            working_directory=working_directory, compile_arguments=compile_arguments,
+            compilation_database=compilation_database, includes=includes,
+            translation_unit=translation_unit, lease=self.lease,
+            scope=self.scope if scope is None else scope,
+        )
 
     def match_in(self, query: MatcherInput, target: MatchTarget, *,
                  working_directory: str | Path | None = None,

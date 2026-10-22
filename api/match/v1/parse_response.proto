@@ -9,4 +9,6 @@ message ParseResponse {
   google.protobuf.Timestamp expires_at = 3;
   // Paired explicit file lease; closing this ParsedTree closes its root cursor.
   string file_lease_id = 4;
+  // Actual parsed source path, including the server's temporary snippet file.
+  string source_file = 5;
 }

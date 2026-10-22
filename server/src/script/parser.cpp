@@ -10,6 +10,7 @@
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/util/json_util.h>
 #include <limits>
+#include <string_view>
 namespace ctk::script::detail {
 using Parser = grammar::CtkScriptParser;
 using Code = ctk::clang_layer::MatchCode;
@@ -19,6 +20,24 @@ static std::string string_literal(const std::string &text) {
   if (!google::protobuf::util::JsonStringToMessage(text, &value).ok())
     throw Error(Code::InvalidArgument, "invalid script string");
   return value.string_value();
+}
+static std::string cpp_literal(const std::string &text) {
+  // Strip cpp`...` and decode only an escaped delimiter. C++ escapes and
+  // ${...} text belong to Clang and must not pass through JSON/interpolation.
+  const auto body = std::string_view(text).substr(4, text.size() - 5);
+  std::string code;
+  for (std::size_t i = 0; i < body.size(); ++i) {
+    if (body[i] == '\\' && i + 1 < body.size()) {
+      if (body[i + 1] == '`') {
+        code += '`';
+        ++i;
+        continue;
+      }
+      code += body[i++];
+    }
+    code += body[i];
+  }
+  return code;
 }
 static std::size_t row_index(const std::string &text) {
   std::size_t index;
@@ -83,6 +102,12 @@ expression(Parser::ExpressionContext *context) {
                  dynamic_cast<Parser::ParseExpressionContext *>(context)) {
     result->kind = Expression::Kind::Parse;
     result->name = string_literal(parsed->StringLiteral()->getText());
+  } else if (auto *parsed =
+                 dynamic_cast<Parser::ParseCppExpressionContext *>(context)) {
+    result->kind = Expression::Kind::ParseCpp;
+    result->name = cpp_literal(parsed->CppLiteral()->getText());
+    if (parsed->expression())
+      result->target = expression(parsed->expression());
   } else if (auto *match =
                  dynamic_cast<Parser::MatchExpressionContext *>(context)) {
     result->kind = Expression::Kind::Match;

@@ -148,6 +148,11 @@ def _combined_grammar() -> str:
     # Leave command syntax in the released grammar; expose native commands as
     # opaque leaves while ordinary assignments/displays/loops use prototype IR.
     legacy_source = _prefix_grammar(_LEGACY_GRAMMAR.read_text(encoding="utf-8"), _PREFIX)
+    # Raw C++ must win over the prototype's natural-call identifier tokens in
+    # the lossless editor lexer. Otherwise `cpp` is consumed as a name and its
+    # backtick/body leak into host delimiter and completion handling.
+    legacy_source = legacy_source.replace("LEGACY_CPP_SOURCE.12:", "LEGACY_CPP_SOURCE.40:")
+    legacy_source = legacy_source.replace("LEGACY_OPEN_CPP_SOURCE.11:", "LEGACY_OPEN_CPP_SOURCE.39:")
     # Prefix commands use whitespace before their operands. Keep adjacent
     # `name(...)` callable syntax available, including user-defined names that
     # also spell commands, and pipe calls such as `items | flatten()`.

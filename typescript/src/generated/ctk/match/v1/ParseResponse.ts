@@ -8,6 +8,7 @@ export interface ParseResponse {
   'resultRevision'?: (number | string | Long);
   'expiresAt'?: (_google_protobuf_Timestamp | null);
   'fileLeaseId'?: (string);
+  'sourceFile'?: (string);
 }
 
 export interface ParseResponse__Output {
@@ -15,4 +16,5 @@ export interface ParseResponse__Output {
   'resultRevision': (string);
   'expiresAt': (_google_protobuf_Timestamp__Output | null);
   'fileLeaseId': (string);
+  'sourceFile': (string);
 }

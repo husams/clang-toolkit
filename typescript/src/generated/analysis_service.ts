@@ -424,6 +424,7 @@ import type { CloseFileResponse as _ctk_match_v1_CloseFileResponse, CloseFileRes
 import type { CloseSessionRequest as _ctk_match_v1_CloseSessionRequest, CloseSessionRequest__Output as _ctk_match_v1_CloseSessionRequest__Output } from './ctk/match/v1/CloseSessionRequest.js';
 import type { CloseSessionResponse as _ctk_match_v1_CloseSessionResponse, CloseSessionResponse__Output as _ctk_match_v1_CloseSessionResponse__Output } from './ctk/match/v1/CloseSessionResponse.js';
 import type { CompilationProfile as _ctk_match_v1_CompilationProfile, CompilationProfile__Output as _ctk_match_v1_CompilationProfile__Output } from './ctk/match/v1/CompilationProfile.js';
+import type { CppSnippet as _ctk_match_v1_CppSnippet, CppSnippet__Output as _ctk_match_v1_CppSnippet__Output } from './ctk/match/v1/CppSnippet.js';
 import type { DescribeFileRequest as _ctk_match_v1_DescribeFileRequest, DescribeFileRequest__Output as _ctk_match_v1_DescribeFileRequest__Output } from './ctk/match/v1/DescribeFileRequest.js';
 import type { DiscoverFilesRequest as _ctk_match_v1_DiscoverFilesRequest, DiscoverFilesRequest__Output as _ctk_match_v1_DiscoverFilesRequest__Output } from './ctk/match/v1/DiscoverFilesRequest.js';
 import type { DiscoverFilesResponse as _ctk_match_v1_DiscoverFilesResponse, DiscoverFilesResponse__Output as _ctk_match_v1_DiscoverFilesResponse__Output } from './ctk/match/v1/DiscoverFilesResponse.js';
@@ -952,6 +953,7 @@ export interface ProtoGrpcType {
         CloseSessionRequest: MessageTypeDefinition<_ctk_match_v1_CloseSessionRequest, _ctk_match_v1_CloseSessionRequest__Output>
         CloseSessionResponse: MessageTypeDefinition<_ctk_match_v1_CloseSessionResponse, _ctk_match_v1_CloseSessionResponse__Output>
         CompilationProfile: MessageTypeDefinition<_ctk_match_v1_CompilationProfile, _ctk_match_v1_CompilationProfile__Output>
+        CppSnippet: MessageTypeDefinition<_ctk_match_v1_CppSnippet, _ctk_match_v1_CppSnippet__Output>
         DescribeFileRequest: MessageTypeDefinition<_ctk_match_v1_DescribeFileRequest, _ctk_match_v1_DescribeFileRequest__Output>
         DiscoverFilesRequest: MessageTypeDefinition<_ctk_match_v1_DiscoverFilesRequest, _ctk_match_v1_DiscoverFilesRequest__Output>
         DiscoverFilesResponse: MessageTypeDefinition<_ctk_match_v1_DiscoverFilesResponse, _ctk_match_v1_DiscoverFilesResponse__Output>

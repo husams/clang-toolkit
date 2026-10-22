@@ -47,11 +47,13 @@ public:
     T__34 = 35,
     T__35 = 36,
     T__36 = 37,
-    Identifier = 38,
-    StringLiteral = 39,
-    Number = 40,
-    Whitespace = 41,
-    Comment = 42
+    T__37 = 38,
+    Identifier = 39,
+    CppLiteral = 40,
+    StringLiteral = 41,
+    Number = 42,
+    Whitespace = 43,
+    Comment = 44
   };
 
   enum {
@@ -319,6 +321,16 @@ public:
 
     std::vector<ExpressionContext *> expression();
     ExpressionContext *expression(size_t i);
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class ParseCppExpressionContext : public ExpressionContext {
+  public:
+    ParseCppExpressionContext(ExpressionContext *ctx);
+
+    antlr4::tree::TerminalNode *CppLiteral();
+    ExpressionContext *expression();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

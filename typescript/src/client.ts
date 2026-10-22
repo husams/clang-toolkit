@@ -3,6 +3,7 @@ import { status } from "@grpc/grpc-js";
 import { z } from "zod";
 import { BindingSelection } from "./binding-selection.js";
 import {
+  cppSnippetOptionsSchema,
   fileOptionsSchema,
   matchOptionsSchema,
   parseResponseSchema,
@@ -27,6 +28,7 @@ import {
 import { MatchValue } from "./match-value.js";
 import type {
   ClientOptions,
+  CppSnippetOptions,
   FileOptions,
   MatchOptions,
   ScriptOptions,
@@ -216,6 +218,48 @@ export class Client implements AsyncDisposable {
             compileArguments: [...(file.compileArguments ?? [])],
             ...(file.compilationDatabase
               ? { compilationDatabase: file.compilationDatabase }
+              : {}),
+          },
+        );
+      })(),
+    );
+  }
+
+  /** Parse retained temporary C++ source, borrowing a compilation command. */
+  parseCpp(code: string, options: CppSnippetOptions = {}): Promise<ParsedTree> {
+    this.assertOpen();
+    z.string().parse(code);
+    const parsed = cppSnippetOptionsSchema.parse(options);
+    const profile = this.compilationProfile(options);
+    return this.track(
+      (async () => {
+        const response = await this.transport.invoke<ParseResponse__Output>(
+          (metadata, callOptions, callback) =>
+            this.transport.matches.Parse(
+              {
+                ...profile,
+                cppSnippet: {
+                  code,
+                  settingsFile: parsed.file ?? "",
+                  includes: [...(parsed.includes ?? [])],
+                  translationUnit: parsed.translationUnit ?? false,
+                },
+              },
+              metadata,
+              callOptions,
+              callback,
+            ),
+        );
+        parseResponseSchema.parse(response);
+        const source = z.string().min(1).parse(response.sourceFile);
+        return new ParsedTree(
+          this.own(response.sessionId, response.resultRevision),
+          source,
+          {
+            workingDirectory: profile.workingDirectory,
+            compileArguments: profile.compileArguments,
+            ...(profile.compilationDatabase
+              ? { compilationDatabase: profile.compilationDatabase }
               : {}),
           },
         );

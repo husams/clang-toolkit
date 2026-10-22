@@ -26,6 +26,7 @@ _KEYWORD_TYPES = {
     "INFO",
     "REFRESH",
     "PARSE",
+    "USING",
     "YIELD",
     "LET",
     "MATCH",

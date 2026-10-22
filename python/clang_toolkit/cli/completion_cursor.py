@@ -60,6 +60,7 @@ _WORD_TYPES = {
     "REPLACE",
     "JOIN_WITH",
     "FLATTEN",
+    "USING",
 }
 
 
@@ -87,6 +88,8 @@ def cursor_context(source: str, cursor: int) -> CursorContext | None:
     for token in tokens:
         start, end = _offset(token, "start_pos"), _offset(token, "end_pos")
         if start < cursor <= end and token.type == "COMMENT":
+            return None
+        if start < cursor <= end and token.type in {"CPP_SOURCE", "OPEN_CPP_SOURCE"}:
             return None
         if start < cursor < end and token.type in {
             "STRING", "FILE_STRING", "DIRECTORY_STRING", "PATH_STRING", "OPEN_STRING"

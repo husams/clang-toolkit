@@ -104,6 +104,25 @@ for (const transport of ["unix", "tcp"] as const) {
       });
     }
 
+    it("retains temporary C++ statements and their independently matched values", async () => {
+      await using sdk = client();
+      const tree = await sdk.parseCpp("int snippet_value = 41 + 1;", {
+        file: "fixture.cc",
+      });
+      expect(tree.file.endsWith(".cpp")).toBe(true);
+      await using variables = await sdk.match(
+        'varDecl(hasName("snippet_value")).bind("value")',
+        tree,
+      );
+      expect(variables.length).toBe(1);
+      await tree.close();
+      await using literals = await sdk.match(
+        'integerLiteral().bind("literal")',
+        variables.binding("value"),
+      );
+      expect(literals.length).toBe(2);
+    });
+
     it("captures roots and named bindings from large included results", async () => {
       const source = resolve(directory, "large.cc");
       await writeFile(

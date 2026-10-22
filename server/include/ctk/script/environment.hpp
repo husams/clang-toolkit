@@ -14,6 +14,10 @@ public:
     throw Error(ctk::clang_layer::MatchCode::FailedPrecondition,
                 "native script parsing is unavailable");
   }
+  virtual Value parse_cpp(const std::string &, const Value *) {
+    throw Error(ctk::clang_layer::MatchCode::FailedPrecondition,
+                "native C++ snippet parsing is unavailable");
+  }
   virtual Value match(const std::string &, const Value *, const std::string &) {
     throw Error(ctk::clang_layer::MatchCode::FailedPrecondition,
                 "native script matching is unavailable");

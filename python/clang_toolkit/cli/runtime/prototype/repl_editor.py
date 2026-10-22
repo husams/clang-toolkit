@@ -106,7 +106,7 @@ def input_state(source: str) -> InputState:
     open_string = False
     for token in lex(source):
         kind = _kind(token)
-        if kind == "OPEN_STRING":
+        if kind in {"OPEN_STRING", "OPEN_CPP_SOURCE"}:
             open_string = True
             continue
         if kind in {"COMMENT", "WS", "BATCH_SEPARATOR", "NEWLINE"}:
@@ -225,6 +225,8 @@ def highlight(source: str) -> StyleAndTextTuples:
         if kind == "COMMENT":
             style = "comment"
         elif kind in {
+            "CPP_SOURCE",
+            "OPEN_CPP_SOURCE",
             "OPEN_STRING",
             "STRING",
             "PREDICATE_STRING",
@@ -408,11 +410,24 @@ class PrototypeCompleter(Completer):
         # Use token spans from the complete draft: a closed string may extend
         # past the cursor, and an earlier line's comment is no longer active.
         cursor = document.cursor_position
+        draft_tokens = lex(document.text)
+        if any(
+            _kind(token) in {"CPP_SOURCE", "OPEN_CPP_SOURCE"}
+            and int(token.start_pos) < cursor
+            and (
+                cursor < int(token.end_pos)
+                or (_kind(token) == "OPEN_CPP_SOURCE" and cursor == int(token.end_pos))
+            )
+            for token in draft_tokens
+        ):
+            return
         in_literal = any(
             int(token.start_pos) < cursor < int(token.end_pos)
             and _kind(token)
             in {
                 "COMMENT",
+                "CPP_SOURCE",
+                "OPEN_CPP_SOURCE",
                 "OPEN_STRING",
                 "STRING",
                 "PREDICATE_STRING",
@@ -420,7 +435,7 @@ class PrototypeCompleter(Completer):
                 "DIRECTORY_STRING",
                 "PATH_STRING",
             }
-            for token in lex(document.text)
+            for token in draft_tokens
         )
         existing = list(self.base.get_completions(document, complete_event))
         tokens = lex(before)
@@ -436,7 +451,7 @@ class PrototypeCompleter(Completer):
             None,
         )
         if not existing and not in_literal and (
-            not tokens or _kind(tokens[-1]) not in {"COMMENT", "OPEN_STRING"}
+            not tokens or _kind(tokens[-1]) not in {"COMMENT", "OPEN_STRING", "OPEN_CPP_SOURCE"}
         ):
             # A runnable header is outside the legacy parser. Recover the
             # native operand's grammar context from its lossless token spans.
@@ -470,7 +485,7 @@ class PrototypeCompleter(Completer):
         yield from existing
         if in_literal:
             return
-        if tokens and _kind(tokens[-1]) in {"COMMENT", "OPEN_STRING"}:
+        if tokens and _kind(tokens[-1]) in {"COMMENT", "OPEN_STRING", "OPEN_CPP_SOURCE"}:
             return
         if native is not None and str(native) == "index":
             start = int(native.start_pos)
