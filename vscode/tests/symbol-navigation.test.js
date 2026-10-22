@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
+import { gutterIcon, underlineStyle } from "../src/highlight-style.js";
 import { SymbolNavigation } from "../src/symbol-navigation.js";
 
 const mock = vi.hoisted(() => ({
@@ -13,6 +14,11 @@ const mock = vi.hoisted(() => ({
   response: undefined,
   enabled: true,
   hold: false,
+  settings: {},
+  status: undefined,
+  hover: undefined,
+  references: undefined,
+  referenceView: undefined,
 }));
 vi.mock("../src/console-service.js", () => ({
   findPython: async () => "python",
@@ -75,6 +81,41 @@ vi.mock("vscode", () => {
     return { dispose() {} };
   };
   return {
+    StatusBarAlignment: { Left: 1 },
+    ProgressLocation: { Notification: 1 },
+    EventEmitter: class {
+      event = () => ({ dispose() {} });
+      fire() {}
+      dispose() {}
+    },
+    TreeItem: class {
+      constructor(label, collapsibleState) {
+        this.label = label;
+        this.collapsibleState = collapsibleState;
+      }
+    },
+    TreeItemCollapsibleState: { None: 0, Expanded: 2 },
+    MarkdownString: class {
+      value = "";
+      appendText(text) {
+        this.value += text;
+        return this;
+      }
+      appendMarkdown(text) {
+        this.value += text;
+        return this;
+      }
+      appendCodeblock(text) {
+        this.value += `\n${text}\n`;
+        return this;
+      }
+    },
+    Hover: class {
+      constructor(contents, range) {
+        this.contents = contents;
+        this.range = range;
+      }
+    },
     Position,
     Range,
     Location: class {
@@ -96,6 +137,14 @@ vi.mock("vscode", () => {
     },
     DecorationRangeBehavior: { ClosedClosed: 0 },
     languages: {
+      registerHoverProvider: (_selector, provider) => {
+        mock.hover = provider;
+        return { dispose() {} };
+      },
+      registerReferenceProvider: (_selector, provider) => {
+        mock.references = provider;
+        return { dispose() {} };
+      },
       registerDocumentLinkProvider: (_selector, provider) => {
         mock.links = provider;
         return { dispose() {} };
@@ -113,18 +162,37 @@ vi.mock("vscode", () => {
       executeCommand: vi.fn(),
     },
     window: {
+      createStatusBarItem: () =>
+        (mock.status = { show: vi.fn(), hide: vi.fn(), dispose() {} }),
+      createTreeView: (_id, options) =>
+        (mock.referenceView = { ...options, dispose() {} }),
+      onDidChangeActiveTextEditor: subscribe("active"),
+      showErrorMessage: vi.fn(),
+      showInformationMessage: vi.fn(),
+      showQuickPick: vi.fn(),
+      withProgress: (_options, run) =>
+        run(
+          { report: vi.fn() },
+          {
+            isCancellationRequested: false,
+            onCancellationRequested: () => ({ dispose() {} }),
+          },
+        ),
       visibleTextEditors: [],
       createTextEditorDecorationType: vi.fn(() => ({ dispose() {} })),
       onDidChangeVisibleTextEditors: subscribe("visible"),
       showTextDocument: vi.fn(),
     },
     workspace: {
+      registerTextDocumentContentProvider: () => ({ dispose() {} }),
       isTrusted: true,
       textDocuments: [],
       getWorkspaceFolder: () => ({ uri: uri("/project") }),
       getConfiguration: () => ({
         get: (key, fallback) =>
-          key === "symbolNavigation" ? mock.enabled : fallback,
+          key === "symbolNavigation"
+            ? mock.enabled
+            : (mock.settings[key] ?? fallback),
       }),
       onDidOpenTextDocument: subscribe("open"),
       onDidCloseTextDocument: subscribe("close"),
@@ -156,6 +224,8 @@ beforeEach(() => {
   mock.requests = [];
   mock.enabled = true;
   mock.hold = false;
+  mock.settings = {};
+  vscode.window.activeTextEditor = undefined;
   vscode.workspace.isTrusted = true;
   vscode.workspace.textDocuments = [];
   vscode.window.visibleTextEditors = [];
@@ -359,3 +429,134 @@ it.each(["h", "hh", "hpp", "hxx", "i", "ii"])(
     expect(mock.requests[0].file).toBe(document.uri.fsPath);
   },
 );
+
+it("shows rich native hover details with validated navigation commands and caches index metadata", async () => {
+  const original = mock.response;
+  mock.response = (request) =>
+    request.mode === "details"
+      ? {
+          details: {
+            project: "/library",
+            signature: "int target(int value)",
+            kind: "Function",
+            preview: "int target(int value) { return value; }",
+          },
+        }
+      : original(request);
+  const { document } = setup();
+  const links = await mock.links.provideDocumentLinks(document, cancellation);
+  const hover = await mock.hover.provideHover(
+    document,
+    links[0].range.start,
+    cancellation,
+  );
+  expect(hover.contents.value).toContain("int target(int value)");
+  expect(hover.contents.value).toContain("Project: /library");
+  expect(hover.contents.value).toContain("command:ctk.findSymbolReferences?");
+  expect(hover.contents.isTrusted.enabledCommands).toEqual([
+    "ctk.openSymbolDefinition",
+    "ctk.findSymbolReferences",
+  ]);
+  await mock.hover.provideHover(document, links[0].range.start, cancellation);
+  expect(
+    mock.requests.filter((request) => request.mode === "details"),
+  ).toHaveLength(1);
+});
+
+it("keeps modifier-only links clickable while removing permanent decoration, and supports disabling links", async () => {
+  mock.settings["symbolLinks.underline"] = "modifier";
+  const { document, editor } = setup();
+  expect(
+    await mock.links.provideDocumentLinks(document, cancellation),
+  ).toHaveLength(1);
+  expect(editor.setDecorations.mock.calls.at(-1)[1]).toEqual([]);
+  mock.settings["symbolLinks.underline"] = "never";
+  expect(await mock.links.provideDocumentLinks(document, cancellation)).toEqual(
+    [],
+  );
+});
+
+it("reports scan errors in the active file's status and retries successfully", async () => {
+  const original = mock.response;
+  mock.response = () => ({ error: "missing third-party/header.hpp" });
+  const { document, editor } = setup();
+  vscode.window.activeTextEditor = editor;
+  mock.events.active(editor);
+  await mock.links.provideDocumentLinks(document, cancellation);
+  expect(mock.status.text).toContain("failed");
+  expect(mock.status.tooltip).toContain("missing third-party/header.hpp");
+  mock.response = original;
+  await mock.commands["ctk.retrySymbolScan"]();
+  await mock.links.provideDocumentLinks(document, cancellation);
+  expect(mock.status.text).toContain("CTK links: 1");
+});
+
+it("finds references by exact identity and groups preview rows by project and file", async () => {
+  const original = mock.response;
+  mock.response = (request) =>
+    request.mode === "references"
+      ? {
+          occurrences: ["/consumer", "/library"].map((project) => ({
+            project,
+            file: `${project}/api.cpp`,
+            line: 1,
+            column: 1,
+            preview: "target(3);",
+            length: 6,
+          })),
+          coverage: { completed: 2, total: 2, projects: 2 },
+          errors: [],
+        }
+      : original(request);
+  const { document } = setup();
+  const links = await mock.links.provideDocumentLinks(document, cancellation);
+  const locations = await mock.references.provideReferences(
+    document,
+    links[0].range.start,
+    { includeDeclaration: false },
+    { ...cancellation, onCancellationRequested: () => ({ dispose() {} }) },
+  );
+  expect(locations.map((item) => item.uri.fsPath)).toEqual([
+    "/consumer/api.cpp",
+    "/library/api.cpp",
+  ]);
+  expect(mock.requests.at(-1)).toMatchObject({
+    mode: "references",
+    usr: "exact-overload",
+    includeDeclaration: false,
+  });
+  const provider = mock.referenceView.treeDataProvider;
+  const roots = provider.getChildren();
+  expect(roots).toHaveLength(2);
+  expect(
+    provider.getChildren(provider.getChildren(roots[0])[0])[0].label,
+  ).toContain("target(3);");
+  expect(mock.referenceView.message).toContain("2/2 files");
+});
+
+it("sends a selected header translation unit with the navigation request", async () => {
+  const { document } = setup();
+  mock.events.close(document);
+  document.uri = vscode.Uri.file("/project/api.hpp");
+  mock.settings.headerTranslationUnits = {
+    [document.uri.fsPath]: "/project/consumer.cpp",
+  };
+  mock.events.open(document);
+  await mock.links.provideDocumentLinks(document, cancellation);
+  expect(mock.requests.at(-1).translationUnit).toBe("/project/consumer.cpp");
+});
+
+it("accepts custom highlight colours and styles while rejecting arbitrary CSS", () => {
+  mock.settings["symbolLinks.style"] = "wavy";
+  mock.settings["symbolLinks.color"] = "#4fc1ff";
+  mock.settings["matchHighlight.gutterColor"] = "#ff00ff";
+  expect(underlineStyle("symbolLinks").textDecoration).toBe(
+    "underline wavy #4fc1ff",
+  );
+  expect(
+    decodeURIComponent(gutterIcon(vscode.Uri.file("/extension")).toString()),
+  ).toContain('fill="#ff00ff"');
+  mock.settings["symbolLinks.style"] = "url(file:///arbitrary)";
+  mock.settings["symbolLinks.color"] = "red; display:none";
+  expect(underlineStyle("symbolLinks").textDecoration).toBe("underline solid");
+});

@@ -35,6 +35,7 @@ import {
   validateParameters,
 } from "./model.js";
 import { ParseProblems } from "./parse-problems.js";
+import { PinnedQueries } from "./pinned-queries.js";
 import { SourceHighlight } from "./source-highlight.js";
 import { selectedSource } from "./source-range.js";
 import { SymbolNavigation } from "./symbol-navigation.js";
@@ -120,6 +121,7 @@ export class Prototype {
   private indexedSearchGeneration = 0;
   private indexedSearchError = "";
   private readonly sourceHighlight: SourceHighlight;
+  private readonly pinnedQueries: PinnedQueries;
   private readonly parseProblems = new ParseProblems();
   private readonly editorSelection: EditorSelectionSync;
   private readonly fileInspection: FileInspectionSync;
@@ -145,6 +147,9 @@ export class Prototype {
   private kinds = ["variables", "classes", "functions"];
   private scope: "file" | "workspace" = "file";
   private results: Result[] = [];
+  private sourceVersion = 0;
+  private resultSourceVersion = -1;
+  private resultQuery = "";
   private errors: string[] = [];
   private consoleOutput: string[] = [];
   private status = "Ready · native server required";
@@ -156,6 +161,18 @@ export class Prototype {
     | undefined;
   constructor(private readonly context: vscode.ExtensionContext) {
     this.sourceHighlight = new SourceHighlight(context.extensionUri);
+    this.pinnedQueries = new PinnedQueries(
+      context.extensionUri,
+      async (result, text) => {
+        this.editorSelection.cancel();
+        this.fileInspection.pause();
+        try {
+          await this.sourceHighlight.reveal(result, text);
+        } finally {
+          this.fileInspection.resume();
+        }
+      },
+    );
     this.graphSessions = new GraphSessions(context, (graph, state) =>
       this.details.showSavedGraph(graph, state),
     );
@@ -213,6 +230,14 @@ export class Prototype {
       this.sourceHighlight,
       new SymbolNavigation(context.extensionUri, (message) =>
         this.output.appendLine(message),
+      ),
+      this.pinnedQueries,
+      vscode.workspace.onDidChangeTextDocument((event) => {
+        if (event.contentChanges.length && CXX.test(event.document.uri.fsPath))
+          this.sourceVersion++;
+      }),
+      vscode.commands.registerCommand("ctk.pinQueryResults", () =>
+        this.pinQuery(),
       ),
       this.editorSelection,
       vscode.window.registerWebviewViewProvider("ctk.analysis", this.view, {
@@ -425,6 +450,10 @@ export class Prototype {
     this.publish();
   }
   private async receive(raw: unknown): Promise<void> {
+    if (z.object({ type: z.literal("pinQuery") }).safeParse(raw).success) {
+      await this.pinQuery();
+      return;
+    }
     const tab = z
       .object({ type: z.literal("tab"), tab: z.enum(["symbols", "actions"]) })
       .safeParse(raw);
@@ -779,6 +808,7 @@ export class Prototype {
     if (this.active || this.preparing)
       throw new Error("An analysis is already running");
     this.indexedSearchActive = false;
+    const sourceVersion = this.sourceVersion;
     this.preparing = true;
     this.status = "Preparing analysis…";
     this.publish();
@@ -858,6 +888,8 @@ export class Prototype {
         const report = await worker.completion;
         if (this.action.kind === "script") this.searchAst.close();
         this.results = report.results;
+        this.resultSourceVersion = sourceVersion;
+        this.resultQuery = `${this.action.title}\n${JSON.stringify(this.values, null, 2)}\n${this.action.source ?? ""}`;
         this.errors = report.errors;
         this.consoleOutput = report.output;
         this.completed = true;
@@ -881,6 +913,44 @@ export class Prototype {
     const result = this.results.find((r) => r.id === id);
     if (!result) throw new Error("This result is no longer available");
     await this.showResult(result);
+  }
+  private async pinQuery(): Promise<void> {
+    if (this.tab === "actions") {
+      await this.pinnedQueries.pin(
+        `Pinned: ${this.actions.queryTitle()}`,
+        this.actions.queryDescription(),
+        this.actions.queryResults(),
+        this.actions.pinGuard(),
+      );
+      return;
+    }
+    const indexed = this.indexedSearchActive
+      ? this.indexedSearch?.state
+      : undefined;
+    const results: Result[] = indexed
+      ? indexed.results.map((symbol) => ({
+          ...symbol,
+          raw: { indexedSymbol: true },
+        }))
+      : this.results;
+    const savedResults = indexed?.results ?? this.results;
+    const sourceVersion = this.sourceVersion;
+    const description = indexed
+      ? `${indexed.query || "All symbols"}\nScope: ${indexed.scope}\nProject: ${indexed.project}\nKinds: ${indexed.kinds.join(", ")}\n${indexed.status}`
+      : `${this.resultQuery}\n${this.status}`;
+    await this.pinnedQueries.pin(
+      `Pinned: ${indexed?.query || this.action.title}`,
+      description,
+      results,
+      () =>
+        sourceVersion === this.sourceVersion &&
+        (indexed
+          ? !indexed.running && indexed.results === savedResults
+          : !this.active &&
+            !this.preparing &&
+            this.results === savedResults &&
+            this.resultSourceVersion === this.sourceVersion),
+    );
   }
   reloadFileAst(): void {
     const editor = vscode.window.activeTextEditor;

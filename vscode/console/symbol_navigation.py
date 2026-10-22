@@ -15,6 +15,7 @@ if (_workspace / 'clang_toolkit').is_dir():
 
 from clang_toolkit.client import Client
 from editor_buffers import EditorBuffers
+from clang_toolkit.resources import InputDescriptor
 
 # Bind the referenced declaration in Clang, preserving overloads and scopes.
 QUERIES = (
@@ -121,8 +122,7 @@ def scan(client: Any, request: dict[str, Any], buffers: EditorBuffers) -> dict[s
     file = str(Path(request['file']).resolve())
     references: dict[tuple[int, int], dict[str, Any]] = {}
     locations: dict[tuple[str, str, int, int], dict[str, Any] | None] = {}
-    with client.parse(file, working_directory=request['directory'],
-                      compile_arguments=[*request['compileArguments'], *buffers.arguments]) as tree:
+    with parse_input(client, request, buffers) as tree:
         for query in QUERIES:
             with client.match_in(query, tree) as rows:
                 for row in rows:
@@ -142,7 +142,8 @@ def scan(client: Any, request: dict[str, Any], buffers: EditorBuffers) -> dict[s
                     if span and target:
                         references[span] = dict(start=span[0], end=span[1], name=name,
                                                 usr=declaration.symbol_identity, target=target,
-                                                nativeDefinition=native_definition(declaration.node))
+                                                nativeDefinition=native_definition(declaration.node),
+                                                **symbol_details(declaration, name, buffers))
         identities = {item['usr'] for item in references.values() if item['usr']}
         definitions = {}
         if identities:
@@ -158,6 +159,171 @@ def scan(client: Any, request: dict[str, Any], buffers: EditorBuffers) -> dict[s
                 item['target'] = definitions[item['usr']]
                 item['nativeDefinition'] = True
     return dict(references=sorted(references.values(), key=lambda item: item['start']))
+
+
+def symbol_details(binding: Any, name: str, buffers: EditorBuffers) -> dict[str, Any]:
+    payload = binding.node.WhichOneof('payload') or ''
+    kind = ''.join(part.capitalize() for part in payload.split('_'))
+    preview = ''
+    signature = name
+    begin, end = binding.range.expansion_begin, binding.range.expansion_end_exclusive
+    try:
+        if begin.valid and end.valid and begin.file == end.file and begin.HasField('offset') and end.HasField('offset'):
+            declaration = buffers.read_bytes(begin.file)[int(begin.offset):int(end.offset)].decode('utf-8')
+            signature = declaration.split('{', 1)[0].split(';', 1)[0].strip() or name
+        if binding.location.valid:
+            lines = buffers.read_bytes(binding.location.file).decode('utf-8').splitlines()
+            preview = '\n'.join(lines[max(0, binding.location.line - 1):binding.location.line + 3])
+    except (OSError, UnicodeError):
+        pass
+    return dict(kind=kind, signature=signature, preview=preview)
+
+
+def parse_input(client: Any, request: dict[str, Any], buffers: EditorBuffers) -> Any:
+    arguments = [*request.get('compileArguments', []), *buffers.arguments]
+    selected = request.get('translationUnit')
+    if selected:
+        files = client.discover_files([selected], working_directory=request['directory'],
+                                     compile_arguments=request.get('compileArguments', []))
+        if not files.inputs:
+            raise ValueError(f'No compilation context for {selected}')
+        descriptor = replace(files.inputs[0], path=request['file'],
+                             compile_arguments=(*files.inputs[0].compile_arguments, *buffers.arguments),
+                             profile_id='' if buffers.arguments else files.inputs[0].profile_id)
+        return client.parse(descriptor)
+    return client.parse(request['file'], working_directory=request['directory'], compile_arguments=arguments)
+
+
+def compiler_profile(client: Any, request: dict[str, Any]) -> dict[str, Any]:
+    selected = request.get('translationUnit') or request['file']
+    files = client.discover_files([selected], working_directory=request['directory'],
+                                 compile_arguments=request.get('compileArguments', []))
+    if not files.inputs:
+        raise ValueError(f'No compilation context for {selected}')
+    descriptor = files.inputs[0]
+    entries = []
+    if descriptor.compilation_database:
+        database = Path(descriptor.compilation_database)
+        if database.is_dir():
+            database /= 'compile_commands.json'
+        entries = json.loads(database.read_text())
+    units = sorted({str((Path(entry.get('directory') or Path(descriptor.compilation_database).parent) / entry['file']).resolve())
+                    for entry in entries if entry.get('file')})
+    exact = str(Path(selected).resolve()) in units
+    return dict(profile=dict(file=request['file'], translationUnit=request.get('translationUnit') or '',
+                             workingDirectory=descriptor.working_directory,
+                             compilationDatabase=descriptor.compilation_database,
+                             arguments=list(descriptor.compile_arguments),
+                             provenance='exact' if exact else 'inferred' if entries else 'arguments',
+                             translationUnits=units), errors=list(files.diagnostics))
+
+
+def find_references(client: Any, request: dict[str, Any], buffers: EditorBuffers) -> dict[str, Any]:
+    """Scan server-discovered TUs and compare native identities, including headers."""
+    usr = request['usr']
+    if not usr:
+        raise ValueError('This symbol has no native identity; references cannot be resolved safely')
+    found = {}
+    errors = []
+    projects = client.list_project_indexes().projects
+    active_roots = [project.project_root for project in projects
+                    if Path(request['directory']).resolve().is_relative_to(Path(project.project_root).resolve())]
+    active_root = max(active_roots, key=len) if active_roots else None
+    inputs: list[tuple[str, InputDescriptor]] = []
+    for project in projects:
+        previous_database = client.compilation_database
+        try:
+            # The active workspace's explicit database must never leak into a
+            # different project's discovery. Frozen inputs keep their own flags.
+            client.compilation_database = None
+            active = project.project_root == active_root
+            files = client.discover_files([project.project_root], working_directory=project.project_root,
+                                         compilation_database=request.get('compilationDatabase') if active else None,
+                                         compile_arguments=request.get('compileArguments', []) if active else [])
+            errors.extend(f'{project.project_root}: {error}' for error in files.diagnostics)
+            inputs.extend((project.project_root, descriptor) for descriptor in files.inputs)
+        except Exception as error:
+            errors.append(f'{project.project_root}: {error}')
+        finally:
+            client.compilation_database = previous_database
+    # Include the current file even when it has not been indexed yet.
+    if not any(str(Path(descriptor.path).resolve()) == str(Path(request['file']).resolve()) for _, descriptor in inputs):
+        try:
+            files = client.discover_files([request['file']], working_directory=request['directory'],
+                                         compile_arguments=request.get('compileArguments', []))
+            inputs.extend((request['directory'], descriptor) for descriptor in files.inputs)
+        except Exception as error:
+            errors.append(f"{request['file']}: {error}")
+    completed = 0
+    for project, descriptor in inputs:
+        print(json.dumps(dict(progress=dict(file=descriptor.path, completed=completed, total=len(inputs)))), flush=True)
+        try:
+            # Frozen inputs retain each project's compiler settings. The VFS
+            # overlay is appended once and profile identity is recomputed.
+            current = replace(descriptor, compile_arguments=(*descriptor.compile_arguments, *buffers.arguments), profile_id='')
+            with client.parse(current) as tree:
+                queries = QUERIES if request.get('includeDeclaration', True) else QUERIES[:-1]
+                for query in queries:
+                    query = query.replace('isExpansionInMainFile()', 'anything()')
+                    with client.match_in(query, tree) as rows:
+                        for row in rows:
+                            declaration = row.bindings['declaration']
+                            reference = row.bindings['reference']
+                            if declaration.symbol_identity != usr:
+                                continue
+                            if (usr.startswith('c:') and not usr.startswith('c:@') and
+                                    str(Path(declaration.location.file).resolve()) != str(Path(request['target']['file']).resolve())):
+                                continue
+                            file = str(Path(reference.range.expansion_begin.file).resolve())
+                            payload = reference.node.WhichOneof('payload') or ''
+                            span = token_span(reference, declaration_name(declaration.node), buffers, file,
+                                              declaration=payload.endswith('_decl'))
+                            if not span:
+                                continue
+                            data = buffers.read_bytes(file)
+                            prefix = data[:span[0]]
+                            line = prefix.count(b'\n') + 1
+                            column = len(prefix.rsplit(b'\n', 1)[-1]) + 1
+                            preview = data.splitlines()[line - 1].decode('utf-8')
+                            found[(project, file, span[0])] = dict(project=project, file=file, line=line,
+                                column=column, preview=preview, length=span[1] - span[0])
+            completed += 1
+        except Exception as error:
+            errors.append(f'{descriptor.path}: {error}')
+    return dict(occurrences=sorted(found.values(), key=lambda item: (item['project'], item['file'], item['line'], item['column'])),
+                errors=errors, coverage=dict(completed=completed, total=len(inputs), projects=len(projects)))
+
+
+def describe_symbol(client: Any, request: dict[str, Any]) -> dict[str, Any]:
+    errors = []
+    projects = client.list_project_indexes().projects
+    candidates = []
+    scoped = request['usr'].startswith('c:') and not request['usr'].startswith('c:@')
+    for project in (() if scoped else projects):
+        try:
+            response = client.lookup_symbol(project.project_root, request['usr'])
+            if response.stale:
+                continue
+            symbols = [symbol for symbol in response.symbols if symbol.usr == request['usr'] and not symbol.stale]
+            candidates.extend((project.project_root, symbol) for symbol in symbols)
+        except Exception as error:
+            errors.append(f'{project.project_root}: {error}')
+    candidates.sort(key=lambda item: not item[1].is_definition)
+    for project, symbol in candidates:
+        preview = ''
+        try:
+            lines = Path(symbol.file_path).read_text().splitlines()
+            preview = '\n'.join(lines[symbol.line - 1:symbol.line + 3])
+        except (OSError, UnicodeError):
+            pass
+        return dict(details=dict(project=project, signature=symbol.signature,
+                                 kind=symbol.kind, preview=preview,
+                                 target=dict(file=symbol.file_path, line=int(symbol.line), column=max(1, int(symbol.column))),
+                                 isDefinition=symbol.is_definition), errors=errors)
+    roots = [project.project_root for project in projects
+             if Path(request['target']['file']).is_relative_to(project.project_root)]
+    return dict(details=dict(project=max(roots, key=len) if roots else '', signature=request.get('signature', ''),
+                             kind=request.get('kind', ''), preview=request.get('preview', '')), errors=errors)
 
 
 def resolve(client: Any, request: dict[str, Any]) -> dict[str, Any]:
@@ -192,9 +358,13 @@ def execute(request: dict[str, Any]) -> dict[str, Any]:
     try:
         if request['mode'] == 'resolve':
             return resolve(client, request)
+        if request['mode'] == 'profile':
+            return compiler_profile(client, request)
+        if request['mode'] == 'details':
+            return describe_symbol(client, request)
         buffers = NavigationBuffers(request.get('buffers', {}))
         try:
-            return scan(client, request, buffers)
+            return find_references(client, request, buffers) if request['mode'] == 'references' else scan(client, request, buffers)
         finally:
             buffers.close()
     finally:

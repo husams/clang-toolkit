@@ -7,6 +7,8 @@ let searchRevision;
 let resultRevision;
 let indexSearchTimer;
 let searchResults;
+for (const id of ["pin-search", "pin-action"])
+  element(id).addEventListener("click", () => post("pinQuery"));
 const values = (selector, key) =>
   Object.fromEntries(
     [...document.querySelectorAll(selector)].map((input) => [
@@ -405,6 +407,7 @@ function renderActions() {
     button.disabled = a.running;
   element("node-run").disabled =
     a.running || a.stale || a.invalidAction || !a.action;
+  element("pin-action").disabled = a.running || a.stale || !a.completed;
   element("node-edit").disabled = a.running || !a.action;
   element("node-back").hidden = !a.back;
   element("node-root").hidden = !a.root;
