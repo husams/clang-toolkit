@@ -108,16 +108,13 @@ def test_expression_rule_uses_utf8_byte_columns_tabs_and_exclusive_boundary() ->
     assert presentation.gutter(1, 0)[0][1] == " "
 
 
-def test_source_catalog_contains_all_file_matches_and_omits_other_files(tmp_path: Path) -> None:
+def test_source_snapshot_contains_only_the_clicked_match(tmp_path: Path) -> None:
     path = tmp_path / "demo.cpp"
     path.write_text("int target() {\n  return 1;\n}\n\nint a = target();\nint b = target();\n")
     matches = source_matches(path, 75)
-    other = source_matches(tmp_path / "other.cpp")
-    target = source_target(matches[0])
-    snapshot = source_snapshot(target, (matches, matches, {"alias": matches, "other": other}), tmp_path)
-    assert len(snapshot.matches) == 75
-    assert snapshot.matches[0].target.line == 5
-    assert next(link for link in snapshot.matches[0].bindings if link.label == "callee").end_line == 3
+    target = source_target(matches[1])
+    snapshot = source_snapshot(target, tmp_path)
+    assert snapshot.matches == (SourceMatch(target.label, target, ()),)
     assert snapshot.text == path.read_text()
     assert snapshot.display_path == "demo.cpp"
 
@@ -145,24 +142,25 @@ def test_source_header_uses_relative_paths_only_beneath_current_directory(tmp_pa
     child = cwd / "src" / "demo.cc"
     child.parent.mkdir(parents=True)
     child.write_text("int value;\n")
-    snapshot = source_snapshot(SourceTarget(str(child), 1, 1, 1), (), cwd)
+    snapshot = source_snapshot(SourceTarget(str(child), 1, 1, 1), cwd)
     assert snapshot.path == child and snapshot.display_path == "src/demo.cc"
-    relative = source_snapshot(SourceTarget("src/demo.cc", 1, 1, 1), (), cwd)
+    relative = source_snapshot(SourceTarget("src/demo.cc", 1, 1, 1), cwd)
     assert relative.display_path == snapshot.display_path
     sibling = tmp_path / "project-other.cc"
     sibling.write_text("int outside;\n")
-    outside = source_snapshot(SourceTarget(str(sibling), 1, 1, 1), (), cwd)
+    outside = source_snapshot(SourceTarget(str(sibling), 1, 1, 1), cwd)
     assert outside.display_path == str(sibling)
 
 
 @pytest.mark.parametrize("columns", [48, 100])
-def test_click_binding_opens_cpp_window_and_outline_navigates_without_changing_draft(tmp_path: Path, columns: int) -> None:
+def test_click_binding_opens_only_its_range_without_changing_draft(tmp_path: Path, columns: int) -> None:
     path = tmp_path / "demo.cpp"
     path.write_text("int target() {\n  return 1;\n}\n\nint a = target();\nint b = target();\n")
     matches = source_matches(path)
 
     async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
         ui.buffer.set_document(Document('print "draft"', 7))
+        await ui.result_trees.show("match", source_matches(path, 75))
         await ui.result_trees.show("match", matches)
         select_result(ui, "$Matches")
         pipe.send_text("\x1b[C")
@@ -178,28 +176,70 @@ def test_click_binding_opens_cpp_window_and_outline_navigates_without_changing_d
         await wait_until(lambda: ui.source.code.window.render_info is not None and ui.source.code.window.render_info.window_height >= 18)
         assert ui.source.target.line == 1 and ui.source.target.end_line == 3
         assert ui.source.snapshot.display_path == "demo.cpp"
-        assert ui.source.code.lexer.gutter(5, 0)[0][1] == "▷"  # Unclicked matches remain marked.
+        assert len(ui.source.snapshot.matches) == 1
+        assert ui.source.snapshot.matches[0].target == ui.source.target
+        assert ui.source.code.lexer.gutter(4, 0)[0][1] == " "
+        assert ui.source.code.lexer.gutter(5, 0)[0][1] == " "
         syntax = ui.source.code.lexer.lex_document(ui.source.code.buffer.document)(0)
         assert any("pygments.keyword" in style for style, text in syntax if "int" in text)
         pipe.send_text("\t")
         await wait_until(lambda: ui.app.layout.has_focus(ui.source.tree.window))
-        ui.source.tree.selected = 1
-        pipe.send_text("\r")
-        await wait_until(lambda: ui.source.target.line == 5)
-        assert ui.source.code.lexer.gutter(0, 0)[0][1] == "▷"  # Binding range remains marked.
-        assert ui.source.code.lexer.gutter(4, 0)[0][1] == "▶"
-        assert len(ui.source.tree.entries) == 5  # count, two matches, two named bindings
+        assert len(ui.source.tree.entries) == 2  # Count and the selected link only.
         pipe.send_text("n")
-        await wait_until(lambda: ui.source.target.line == 6)
         pipe.send_text("p")
-        await wait_until(lambda: ui.source.target.line == 5)
+        await asyncio.sleep(0.05)
+        assert ui.source.target.line == 1
         pipe.send_text("\x1b")
         await wait_until(lambda: not ui.source.visible)
         assert ui.app.layout.has_focus(ui.results.window)
         assert ui.buffer.text == 'print "draft"' and ui.buffer.cursor_position == 7
         assert not ui.files_visible and ui.panel_kind == "help"
+        # Opening a different row replaces the earlier binding's range.
+        select_result(ui, "$Matches[1]")
+        pipe.send_text("o")
+        await wait_until(lambda: ui.source.visible and ui.source.target is not None and ui.source.target.line == 6)
+        assert ui.source.target.line == 6
+        assert len(ui.source.snapshot.matches) == 1
+        assert ui.source.code.lexer.gutter(0, 0)[0][1] == " "
+        assert ui.source.code.lexer.gutter(4, 0)[0][1] == " "
+        assert ui.source.code.lexer.gutter(5, 0)[0][1] == "▶"
+        pipe.send_text("\x1b")
+        await wait_until(lambda: not ui.source.visible)
+        assert ui.buffer.text == 'print "draft"' and ui.buffer.cursor_position == 7
 
     asyncio.run(interact(tmp_path, drive, output=SizedOutput(columns=columns)))
+
+
+def test_selected_expression_is_not_broadened_by_an_overlapping_function(tmp_path: Path) -> None:
+    path = tmp_path / "overlap.cpp"
+    expression = "value * 3"
+    path.write_text("int f() {\n    return 6 + " + expression + ";\n}\n")
+    line = path.read_text().splitlines()[1]
+    start = line.index(expression) + 1
+    target = SourceTarget(str(path), 2, start, 2, end_column=start + len(expression))
+
+    async def drive(ui: WorkspaceConsole, pipe: PipeInput) -> None:
+        await ui.result_trees.show("match", source_matches(path))
+        reads: list[SourceTarget] = []
+
+        async def read(selected: SourceTarget) -> SourceSnapshot:
+            reads.append(selected)
+            return source_snapshot(selected, tmp_path)
+
+        ui.read_source = read
+        ui.open_source(target)
+        await wait_until(lambda: ui.source.snapshot is not None)
+        assert reads == [target]
+        assert len(ui.source.snapshot.matches) == 1
+        presentation = ui.source.code.lexer
+        fragments = presentation.lex_document(ui.source.code.buffer.document)(1)
+        assert "".join(text for style, text in fragments if " underline" in style) == expression
+        assert presentation.gutter(0, 0)[0][1] == " "
+        assert presentation.gutter(1, 0)[0][1] == "▶"
+        assert presentation.gutter(2, 0)[0][1] == " "
+        ui.close_source()
+
+    asyncio.run(interact(tmp_path, drive))
 
 
 def test_keyboard_source_open_and_missing_file_error_are_recoverable(tmp_path: Path) -> None:
@@ -313,24 +353,21 @@ def test_source_reader_bounds_file_size_and_sanitizes_terminal_controls(tmp_path
     path = tmp_path / "controls.cpp"
     path.write_bytes(b"int x;\x1b[31m\x00\r\n")
     target = SourceTarget(str(path), 1, 1, 1)
-    assert "\x1b" not in source_snapshot(target, (), tmp_path).text
+    assert "\x1b" not in source_snapshot(target, tmp_path).text
     path.write_bytes(b"x" * (MAX_SOURCE_BYTES + 1))
     with pytest.raises(ValueError, match="8 MB"):
-        source_snapshot(target, (), tmp_path)
+        source_snapshot(target, tmp_path)
 
 
-def test_expired_result_does_not_block_source_and_fresh_matches(tmp_path: Path) -> None:
+def test_source_view_does_not_read_or_depend_on_session_matches(tmp_path: Path) -> None:
     path = tmp_path / "demo.cpp"
     path.write_text("int value;\n" * 6)
-    good, expired = source_matches(path), source_matches(path)
-    original = MatchValue.iter_rows
-    def rows(value):
-        if value is expired:
-            raise ValueError("closed row store")
-        return original(value)
-    with patch.object(MatchValue, "iter_rows", rows):
-        snapshot = source_snapshot(source_target(good[0]), (expired, good), tmp_path)
-    assert len(snapshot.matches) == 2 and "1 result preview(s) unavailable" in snapshot.notice
+    matches = source_matches(path)
+    target = source_target(matches[0])
+    with patch.object(MatchValue, "iter_rows", side_effect=AssertionError("must not scan matches")):
+        snapshot = source_snapshot(target, tmp_path)
+    assert snapshot.matches == (SourceMatch(target.label, target, ()),)
+    assert snapshot.notice == ""
 
 
 def batch_runtime(tmp_path):

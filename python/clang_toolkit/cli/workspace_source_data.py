@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from clang_toolkit._generated.match.v1 import match_result_pb2 as pb
 from clang_toolkit.cli.runtime.semantic import MessageView
-from clang_toolkit.cli.runtime.values import MatchSet
-from clang_toolkit.match_values import (
-    BindingSelection, MatchRow, MatchValue, NativeBindingCollection, NativeMatchCollection,
-)
+from clang_toolkit.match_values import BindingSelection, MatchRow
 from clang_toolkit.batches import DetachedMatchRow
 
 MAX_SOURCE_BYTES = 8_000_000
@@ -100,8 +96,8 @@ def binding_label(name: str, value: pb.MatchBinding) -> str:
     return name + (f" — {declaration}" if declaration else "") + (f" · {type_name}" if type_name else "")
 
 
-def source_snapshot(target: SourceTarget, values: Iterable[Any], cwd: Path) -> SourceSnapshot:
-    """Read on a worker; rendering and navigation never touch disk or RPCs."""
+def source_snapshot(target: SourceTarget, cwd: Path) -> SourceSnapshot:
+    """Read local code on a worker and mark only the selected link's range."""
     path = Path(target.path)
     path = (cwd / path).resolve() if not path.is_absolute() else path.resolve()
     with path.open("rb") as stream:
@@ -111,72 +107,9 @@ def source_snapshot(target: SourceTarget, values: Iterable[Any], cwd: Path) -> S
     text = data.decode("utf-8", errors="replace")
     # Never interpret source-file control sequences as terminal instructions.
     text = "".join(char if char in "\n\t" or char.isprintable() else " " for char in text.replace("\r\n", "\n"))
-    matches: list[SourceMatch] = []
-    seen: set[int] = set()
-    file_cache: dict[str, bool] = {}
-
-    def same_file(link: SourceTarget) -> bool:
-        if link.path not in file_cache:
-            candidate = Path(link.path)
-            file_cache[link.path] = (cwd / candidate).resolve() == path if not candidate.is_absolute() else candidate.resolve() == path
-        return file_cache[link.path]
-
-    def visit(value: Any, label: str) -> None:
-        if id(value) in seen:
-            return
-        seen.add(id(value))
-        if isinstance(value, MatchValue):
-            for index, row in enumerate(value.iter_rows()):
-                row_summary(row._message(), f"{label}[{index}]")
-        elif isinstance(value, NativeMatchCollection):
-            for index, match in enumerate(value.matches):
-                visit(match, f"{label}[file {index}]")
-        elif isinstance(value, NativeBindingCollection):
-            for index, match in enumerate(value.matches):
-                visit(match, f"{label}[file {index}]")
-        elif isinstance(value, MatchRow | DetachedMatchRow):
-            row_summary(value._message(), label)
-        elif isinstance(value, BindingSelection):
-            link = source_target(value, value.name)
-            if link and same_file(link):
-                matches.append(SourceMatch(label, link, (link,)))
-        elif isinstance(value, MessageView):
-            message = value._message()
-            if isinstance(message, pb.MatchResult):
-                row_summary(message, label)
-            elif isinstance(message, pb.MatchBinding):
-                link = source_target(message, label)
-                if link and same_file(link):
-                    matches.append(SourceMatch(label, link, (link,)))
-        elif isinstance(value, MatchSet):
-            for index, row in enumerate(value.rows):
-                visit(row, f"{label}[{index}]")
-        elif isinstance(value, Mapping):
-            for name, child in value.items():
-                visit(child, f"{label}.{name}")
-        elif isinstance(value, list | tuple):
-            for index, child in enumerate(value):
-                visit(child, f"{label}[{index}]")
-
-    def row_summary(row: pb.MatchResult, label: str) -> None:
-        links = tuple(
-            link for name, binding in sorted(row.bindings.items())
-            if (link := source_target(binding, binding_label(name, binding))) and same_file(link)
-        )
-        if links:
-            primary = source_target(row, label)
-            primary = primary if primary and same_file(primary) else links[0]
-            matches.append(SourceMatch(label, primary, links))
-
-    unavailable = 0
-    for index, value in enumerate(values):
-        try:
-            visit(value, f"Results {index + 1}")
-        except Exception:  # noqa: BLE001 - one expired preview must not block source viewing
-            unavailable += 1
-    notice = f"{unavailable} result preview(s) unavailable; print fresh results to include them" if unavailable else ""
+    matches = (SourceMatch(target.label, target, ()),)
     try:
         display_path = str(path.relative_to(cwd.resolve()))
     except ValueError:
         display_path = str(path)
-    return SourceSnapshot(path, text, tuple(matches), notice, display_path)
+    return SourceSnapshot(path, text, matches, display_path=display_path)

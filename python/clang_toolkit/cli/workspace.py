@@ -112,7 +112,7 @@ class WorkspaceConsole:
         resources: Callable[[], Awaitable[list[PanelEntry]]] | None = None,
         result_outline: SnapshotReader | None = None,
         source_reader: Callable[
-            [SourceTarget, tuple[Any, ...]], Awaitable[SourceSnapshot]
+            [SourceTarget], Awaitable[SourceSnapshot]
         ]
         | None = None,
         batch_status: Callable[[str], Awaitable[BatchProgress]] | None = None,
@@ -848,19 +848,14 @@ class WorkspaceConsole:
         self.source.notice = "Loading source…"
         self.app.layout.focus(self.source.code.window)
         self.app.invalidate()
-        values = tuple(
-            tree.value
-            for tree in self.result_trees.trees
-            if tree.kind != "batch_progress"
-        )
 
         async def load() -> None:
             try:
                 snapshot = (
-                    await self.read_source(target, values)
+                    await self.read_source(target)
                     if self.read_source
                     else await asyncio.to_thread(
-                        source_snapshot, target, values, self.files.root
+                        source_snapshot, target, self.files.root
                     )
                 )
                 if self.source.visible and generation == self.source_generation:

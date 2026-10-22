@@ -1,4 +1,4 @@
-"""A separate, closable C++ source window with a paged match outline."""
+"""A separate, closable C++ source window for the selected match."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ class SourceWindow:
                 Window(toolbar, height=1, style="class:toolbar"),
                 VSplit([
                     self.scrollbar.container,
-                    Frame(self.tree.container, title="Matches in file", width=Dimension(min=20, weight=1)),
+                    Frame(self.tree.container, title="Selected match", width=Dimension(min=20, weight=1)),
                 ]),
                 Window(FormattedTextControl(lambda: compact(self.notice, 4096)), height=1, style="class:toolbar"),
             ], key_bindings=keys),
@@ -153,7 +153,7 @@ class SourceWindow:
         for index in range(start, stop):
             match = matches[index]
             identity = f"source:{index}"
-            rows.append(PanelEntry(identity, f"[{index}] {match.target.location}", expandable=True, source=match.target))
+            rows.append(PanelEntry(identity, f"[{index}] {match.target.location}", expandable=bool(match.bindings), source=match.target))
             if identity in self.tree.expanded:
                 for binding, link in enumerate(match.bindings):
                     rows.append(PanelEntry(f"{identity}:{binding}", compact(f"{link.label} · {link.location}", 4096), depth=1, source=link))
