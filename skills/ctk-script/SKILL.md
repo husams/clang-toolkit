@@ -1,6 +1,6 @@
 ---
 name: ctk-script
-description: Write, run, explain, and debug clang-toolkit .ctk scripts. Includes ready-made callgraph, CFG, local-variable and value-range analysis, class helpers, console queries, navigation, runnables, pipes, tuples and batches. Use the SDK reasoning skill for Python API tasks.
+description: Write, run, explain, and debug clang-toolkit .ctk scripts. Includes temporary C++ snippets with borrowed project settings, ready-made callgraph, CFG, local-variable and value-range analysis, class helpers, console queries, navigation, runnables, pipes, tuples and batches. Use the SDK reasoning skill for Python API tasks.
 ---
 
 # Write and use CTK scripts
@@ -26,6 +26,7 @@ Use `--script` for executable analysis scripts. Import the definitions-only help
 - **Named script arguments:** `ctk FILE.ctk x=value` runs the file and exposes the literal string as `arg.x`; `--script`, `--execute`, and piped runs accept the same arguments.
 - **Text and CSV inputs:** `read` returns text lines or CSV records; trim strings explicitly with `.strip()`. See the complete input example in [console.md](references/console.md).
 - **Native node navigation and inheritance:** read [navigation.md](references/navigation.md) for `traverse` from any retained node, filtered `peek`/`step`, matcher scopes, direct base bindings, and streaming versus explicit collection.
+- **Temporary C++ snippets:** read [snippets.md](references/snippets.md) for `parse cpp` raw literals, statement blocks, borrowed file settings, optional headers, and complete translation units. [snippet_statements.ctk](scripts/snippet_statements.ctk) is self-contained; [snippet_template.ctk](scripts/snippet_template.ctk) probes a concrete template using supplied `file` and `header` arguments.
 - **Native server DSL:** the console's `script "SOURCE" [in "TARGET"]`, SDK `run_script`, or a `background batch`/`durable batch` body. Read [native.md](references/native.md). This language uses explicit `emit` statements.
 - For multi-file discovery, batching, resource cleanup, and exports, also read [batches.md](references/batches.md).
 

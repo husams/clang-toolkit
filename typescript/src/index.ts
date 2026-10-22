@@ -13,6 +13,7 @@ export { MatchRow } from "./match-row.js";
 export { MatchValue } from "./match-value.js";
 export type {
   ClientOptions,
+  CppSnippetOptions,
   FileOptions,
   MatchOptions,
   ScriptOptions,

@@ -31,6 +31,8 @@ _REGEX_LITERALS = {
     "REFRESH": "refresh",
     "BACKGROUND": "background",
     "PARSE": "parse",
+    "CPP_SOURCE": "cpp`",
+    "USING": "using",
     "READ": "read",
     "YIELD": "yield",
     "CURSOR": "cursor",

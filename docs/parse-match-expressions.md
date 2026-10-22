@@ -52,6 +52,21 @@ The compiler settings come from the console configuration or explicit SDK
 options. Paths, include paths and compilation flags refer to the server's
 filesystem; the server must be able to read the source.
 
+To analyze code that is not in an existing source file, use a raw C++ literal:
+
+```text
+let tree = parse cpp`int value = 7; value += 2;`
+let variables = match varDecl(hasName("value")).bind("variable") in tree
+```
+
+Statements are the default and are inserted into a generated function in a
+temporary `.cpp` file. Optional `using "src/example.cpp"` borrows compiler
+settings; without a donor, the first compilation database entry is selected.
+`using {file: "src/example.cpp", includes: ["header.hpp"]}` supplies optional
+headers, while `translation_unit: true` accepts complete source. The SDK exposes
+`client.parse_cpp(...)`. See [C++ snippets](cpp-snippets.md) for the complete
+options, template examples, source provenance and cleanup rules.
+
 `$functions.f` selects `f` from every result row containing it.
 `$functions[0].f` selects `f` from zero-based row zero. The fixture above returns
 two functions, two calls, one call in the first row and the literals 7 and 9.

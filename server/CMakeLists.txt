@@ -124,6 +124,7 @@ if(CTK_WITH_CLANG)
     src/clang/project_index_extract.cpp
     src/clang/cached_query_engine.cpp
     src/clang/compilation_database.cpp
+    src/clang/cpp_snippet.cpp
     src/clang/file_discovery.cpp
     src/clang/snapshot_resource_scope.cpp
     src/clang/snapshot/compilation_environment.cpp

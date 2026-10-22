@@ -111,6 +111,12 @@ Read [runnables.md](runnables.md) for named and inline Python-compiled bodies, d
 
 ## Match and extract fields
 
+For new code rather than an existing file, use `parse cpp` with a raw backtick
+literal. Statements are the default, `using "src/example.cpp"` optionally borrows
+compilation settings, and an options object can add headers or select complete
+translation-unit mode. See [snippets.md](snippets.md) and the bundled statement
+and template probe scripts.
+
 Substitute a server-accessible target for `/project/src/widget.cpp`:
 
 ```text

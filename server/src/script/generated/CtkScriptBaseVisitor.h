@@ -104,6 +104,11 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitParseCppExpression(
+      CtkScriptParser::ParseCppExpressionContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any
   visitParseExpression(CtkScriptParser::ParseExpressionContext *ctx) override {
     return visitChildren(ctx);

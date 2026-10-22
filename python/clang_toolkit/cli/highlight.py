@@ -14,6 +14,7 @@ from clang_toolkit.cli.language import lex, parser as parser
 
 KEYWORDS = {
     "PARSE",
+    "USING",
     "YIELD",
     "LET",
     "MATCH",
@@ -95,6 +96,8 @@ TOKEN_STYLES = {
     "HELP_WORD": "keyword",
     "QUESTION": "punctuation",
     "OPEN_STRING": "string",
+    "CPP_SOURCE": "string",
+    "OPEN_CPP_SOURCE": "string",
     "NUMBER": "number",
     "TRUE": "value",
     "FALSE": "value",

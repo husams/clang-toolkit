@@ -1,0 +1,8 @@
+// Required arguments: file (compilation-settings donor), header (fixture header).
+let options = {file: arg.file, includes: [arg.header]}
+let tree = parse cpp`
+    TemplateType<MyTest> test;
+    test.add(MyTest{7});
+` using options
+let calls = match cxxMemberCallExpr().bind("call") in tree
+print calls.length

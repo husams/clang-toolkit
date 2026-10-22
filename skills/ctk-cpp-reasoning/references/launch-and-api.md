@@ -61,6 +61,7 @@ The synchronous public entry points used by this skill are:
 ```text
 Client(address=None, config_path=None, config=None, compilation_database=None)
 client.parse(path)
+client.parse_cpp(code, file=None)
 client.match_in(matcher, target)
 client.traverse(path)
 client.cfg("ns::function", path=source)
@@ -68,6 +69,15 @@ client.callgraph(path)
 ```
 
 `parse` also accepts `working_directory`, `compile_arguments`, and `compilation_database`. `match_in` accepts `working_directory`, `compile_arguments`, `traversal_mode`, and `on_row`; set its compilation database on the client. `target` can be a source path, a `ParsedTree`, a retained `MatchValue`, or a binding selection. `parse` returns a retained tree; `match_in` returns a retained `MatchValue`. `ParsedTree`, `MatchValue`, and client objects are context managers. Their asynchronous counterparts are `AsyncClient`, awaited calls, and `async with` cleanup.
+
+`parse_cpp` accepts C++ source text and returns the same retained `ParsedTree`.
+Statements are the default and are inserted into a generated function in a real
+temporary `.cpp` file on the server. `file` optionally borrows an existing file's
+compilation settings; without it, the first command in the selected/discovered
+compilation database is used when available. Optional `includes` inserts headers
+before the function, and `translation_unit=True` parses complete top-level source.
+It also accepts `working_directory`, `compile_arguments`, `compilation_database`
+and `scope`. See [snippets.md](snippets.md) for executable examples and boundaries.
 
 ### Graph options
 

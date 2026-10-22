@@ -1,5 +1,6 @@
 // Original file: /Users/husam/workspace/clang-toolkit/typescript/schema/match/v1/parse_request.proto
 
+import type { CppSnippet as _ctk_match_v1_CppSnippet, CppSnippet__Output as _ctk_match_v1_CppSnippet__Output } from '../../../ctk/match/v1/CppSnippet.js';
 
 export interface ParseRequest {
   'filePath'?: (string);
@@ -9,6 +10,7 @@ export interface ParseRequest {
   'resourceScopeId'?: (string);
   'expectedProfileId'?: (string);
   'frozenProfile'?: (boolean);
+  'cppSnippet'?: (_ctk_match_v1_CppSnippet | null);
 }
 
 export interface ParseRequest__Output {
@@ -19,4 +21,5 @@ export interface ParseRequest__Output {
   'resourceScopeId': (string);
   'expectedProfileId': (string);
   'frozenProfile': (boolean);
+  'cppSnippet': (_ctk_match_v1_CppSnippet__Output | null);
 }

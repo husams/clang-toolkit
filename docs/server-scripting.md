@@ -59,6 +59,21 @@ the serving machine.
 
 Native expressions also support lists, objects, grouped values, member/index
 access, serving-side `files`, and value-producing `foreach ... do { ... }`.
+`parse cpp` accepts raw C++ snippets with optional borrowed compilation settings:
+
+```text
+let tree = parse cpp`int value = 7;` using "src/example.cpp";
+let variables = match varDecl(hasName("value")).bind("variable") in tree;
+emit count(variables);
+```
+
+The default is a statement block in a generated function in a real temporary
+`.cpp` file. `using` is optional and can also be an options object; omitted donors
+select the first compilation database entry. Optional `includes` provides headers
+before the function, and `translation_unit: true` parses complete source without
+the wrapper. Native values retain temporary source while in use; returned
+emissions are detached data. See [C++ snippets](cpp-snippets.md).
+
 `batch part in inputs size N|count N [jobs N] [memory "..."] do { ... }`
 admits one group at a time and returns a report containing detached final values
 from successful groups. A `let` statement contributes its assigned value; a

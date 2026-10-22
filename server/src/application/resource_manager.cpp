@@ -111,6 +111,7 @@ struct ResourceManager::Impl {
     std::string owner;
     std::string scope_id;
     std::map<const ctk::cache::SnapshotEntry *, Pin> snapshots;
+    std::vector<std::string> generated_reservations;
   };
 
   explicit Impl(ResourceManagerSettings config) : settings(config) {
@@ -698,6 +699,69 @@ Code ResourceManager::begin_work(const std::string &owner,
   const auto work_id = make_id();
   impl_->works.emplace(work_id, Impl::Work{owner, scope_id, {}});
   lease = WorkLease(shared_from_this(), work_id, owner);
+  return Code::Ok;
+}
+
+Code ResourceManager::admit_generated_input(
+    const std::string &owner, const std::string &work_token,
+    const ResourceInputReservation &input, std::string &message) {
+  if (input.identity.empty()) {
+    message = "generated input identity is empty";
+    return Code::InvalidArgument;
+  }
+  std::lock_guard guard(impl_->mutex);
+  const auto work = impl_->works.find(work_token);
+  if (work == impl_->works.end() || work->second.owner != owner) {
+    message = "native work lease unavailable for generated source";
+    return Code::NotFound;
+  }
+  if (work->second.scope_id.empty())
+    return Code::Ok;
+  const auto found = impl_->scopes.find(work->second.scope_id);
+  if (found == impl_->scopes.end() || found->second.owner != owner) {
+    message = "resource scope unavailable for generated source";
+    return Code::NotFound;
+  }
+  auto &scope = found->second;
+  if (scope.state != ctk::match::v1::RESOURCE_SCOPE_STATE_OPEN ||
+      scope.expires <= std::chrono::steady_clock::now()) {
+    message =
+        "resource scope cancelled or closed before generated source admission";
+    return Code::Cancelled;
+  }
+  if (scope.reservations.contains(input.identity))
+    return Code::Ok;
+  for (const auto &[snapshot_id, claim] : scope.native) {
+    (void)snapshot_id;
+    if (claim.input_identity == input.identity)
+      return Code::Ok;
+  }
+  const bool new_input = !impl_->contains_input(input.identity);
+  if (new_input && impl_->active_inputs() >= impl_->settings.max_inputs) {
+    message = "generated source exceeds the server input admission limit";
+    return Code::ResourceExhausted;
+  }
+  const auto info = impl_->info(scope);
+  const auto scoped_bytes =
+      add_saturated(add_saturated(add_saturated(scope.reserved_bytes,
+                                                info.accounted_native_bytes()),
+                                  info.result_buffer_bytes()),
+                    input.estimated_bytes);
+  const auto global_bytes =
+      add_saturated(add_saturated(add_saturated(impl_->active_reservations(),
+                                                impl_->active_accounted()),
+                                  impl_->active_result_bytes()),
+                    input.estimated_bytes);
+  if (scoped_bytes > scope.memory_limit ||
+      global_bytes > impl_->settings.max_memory_bytes) {
+    message = "generated source exceeds its memory admission limit";
+    return Code::ResourceExhausted;
+  }
+  work->second.generated_reservations.push_back(input.identity);
+  scope.reservations.emplace(input.identity, input.estimated_bytes);
+  scope.reserved_bytes += input.estimated_bytes;
+  ++scope.admitted_input_count;
+  scope.peak_reserved = std::max(scope.peak_reserved, scope.reserved_bytes);
   return Code::Ok;
 }
 
@@ -1292,6 +1356,18 @@ void ResourceManager::finish_work(const std::string &owner,
   if (work == impl_->works.end() || work->second.owner != owner)
     return;
   const auto scope_id = work->second.scope_id;
+  const auto scoped = impl_->scopes.find(scope_id);
+  if (scoped != impl_->scopes.end() && scoped->second.owner == owner) {
+    auto &scope = scoped->second;
+    for (const auto &identity : work->second.generated_reservations) {
+      const auto reservation = scope.reservations.find(identity);
+      if (reservation != scope.reservations.end()) {
+        scope.reserved_bytes -= reservation->second;
+        scope.reservations.erase(reservation);
+        --scope.admitted_input_count;
+      }
+    }
+  }
   impl_->works.erase(work);
   if (scope_id.empty()) {
     impl_->changed.notify_all();

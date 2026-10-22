@@ -53,6 +53,16 @@ public:
     result.message = "native parsing is unavailable";
     return result;
   }
+  // Generated disk source must follow native snapshot ownership, including
+  // acquisitions that finish parsing but are cancelled before publication.
+  virtual MatchExecution parse_retaining_source(
+      const ctk::match::v1::ParseRequest &request, const Checkpoint &checkpoint,
+      const MatchLimits &limits, std::shared_ptr<const void> source) {
+    auto result = parse(request, checkpoint, limits);
+    if (source && result.state && result.state->snapshot())
+      result.state->snapshot()->retain_source(std::move(source));
+    return result;
+  }
   virtual MatchExecution
   execute(const ctk::match::v1::MatchRequest &request,
           std::shared_ptr<const NativeBindingState> previous,

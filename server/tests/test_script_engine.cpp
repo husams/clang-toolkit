@@ -1,6 +1,7 @@
 #include "ctk/script/engine.hpp"
 #include "ctk/script/error.hpp"
 #include <gtest/gtest.h>
+#include <optional>
 namespace ctk::script {
 using Code = ctk::clang_layer::MatchCode;
 TEST(ScriptEngine, TypedLiteralsAndAliasesAreExecutedInsteadOfEchoed) {
@@ -95,9 +96,9 @@ TEST(ScriptEngine, StatementForeachCollectsListValues) {
   EXPECT_EQ(values.Get(1).scalar().text(), "eight");
 }
 TEST(ScriptEngine, StatementForeachHandlesEmptyAndNestedLists) {
-  const auto empty = Engine{}.run("foreach value in [] do { $value; };",
-                                  nullptr, {}, [] { return true; }, {}, {},
-                                  true);
+  const auto empty = Engine{}.run(
+      "foreach value in [] do { $value; };", nullptr, {}, [] { return true; },
+      {}, {}, true);
   ASSERT_EQ(empty.code, Code::Ok) << empty.message;
   ASSERT_EQ(empty.response.emissions_size(), 1);
   EXPECT_TRUE(empty.response.emissions(0).value().list().values().empty());
@@ -350,6 +351,96 @@ public:
                 std::vector<std::size_t>{0})};
   }
 };
+class SnippetEnvironment final : public Environment {
+public:
+  std::vector<std::string> snippets;
+  std::vector<std::optional<ctk::analysis::v1::ScriptValue>> settings;
+  Value call(const std::string &, const std::vector<Value> &,
+             const std::map<std::string, Value> &) override {
+    throw Error(Code::InvalidArgument, "unexpected legacy operation");
+  }
+  Value parse_cpp(const std::string &code, const Value *options) override {
+    snippets.push_back(code);
+    settings.push_back(options ? std::optional(*options->wire) : std::nullopt);
+    auto wire = std::make_shared<ctk::analysis::v1::ScriptValue>();
+    wire->mutable_tree()->mutable_file()->set_file_path("snippet.cpp");
+    return {wire, std::make_shared<ScriptBindingState>(), {}};
+  }
+};
+TEST(ScriptEngine, CppSnippetsPreserveRawSourceAndDefaultSettings) {
+  SnippetEnvironment environment;
+  auto result = Engine{}.run(R"script(
+    let label = "must not interpolate";
+    let tree = parse cpp`
+      // A CTK-looking expression and a C++ string stay literal.
+      const char *text = "${label}\\n";
+      if (text) { use(text); }
+    `;
+    emit tree;
+  )script",
+                             &environment);
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  ASSERT_EQ(environment.snippets.size(), 1);
+  EXPECT_EQ(environment.snippets.front(), R"cpp(
+      // A CTK-looking expression and a C++ string stay literal.
+      const char *text = "${label}\\n";
+      if (text) { use(text); }
+    )cpp");
+  ASSERT_EQ(environment.settings.size(), 1);
+  EXPECT_FALSE(environment.settings.front().has_value());
+  ASSERT_EQ(result.response.emissions_size(), 1);
+  EXPECT_TRUE(result.response.emissions(0).value().has_tree());
+}
+TEST(ScriptEngine, CppSnippetsAcceptBorrowedPathsAndEvaluatedOptions) {
+  SnippetEnvironment environment;
+  auto result = Engine{}.run(R"script(
+    let options = {file: "src/main.cpp", includes: ["sample.hpp"],
+                   compile_arguments: ["-DMODE=1"], translation_unit: true};
+    let first = parse cpp`int value;` using "src/first.cpp";
+    let second = parse cpp`void example() {}` using options;
+    let third = parse cpp`return;` using {working_directory: "/tmp"};
+  )script",
+                             &environment);
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  ASSERT_EQ(environment.snippets.size(), 3);
+  ASSERT_EQ(environment.settings.size(), 3);
+  ASSERT_TRUE(environment.settings[0].has_value());
+  EXPECT_EQ(environment.settings[0]->scalar().text(), "src/first.cpp");
+  const auto &options = environment.settings[1]->object().fields();
+  EXPECT_EQ(options.at("file").scalar().text(), "src/main.cpp");
+  EXPECT_EQ(options.at("includes").list().values(0).scalar().text(),
+            "sample.hpp");
+  EXPECT_TRUE(options.at("translation_unit").scalar().boolean());
+  EXPECT_EQ(environment.settings[2]
+                ->object()
+                .fields()
+                .at("working_directory")
+                .scalar()
+                .text(),
+            "/tmp");
+}
+TEST(ScriptEngine, CppSnippetsEscapeOnlyBacktickDelimiters) {
+  SnippetEnvironment environment;
+  auto result = Engine{}.run(R"script(
+    let tree = parse cpp`const char *text = "a\`b\\n";`;
+  )script",
+                             &environment);
+  ASSERT_EQ(result.code, Code::Ok) << result.message;
+  ASSERT_EQ(environment.snippets.size(), 1);
+  EXPECT_EQ(environment.snippets[0], R"cpp(const char *text = "a`b\\n";)cpp");
+}
+TEST(ScriptEngine, CppSnippetSyntaxErrorsPrecedeNativeEvaluation) {
+  SnippetEnvironment environment;
+  for (const auto &source :
+       {"let tree = parse cpp`int x;", "let tree = parse cpp`int x;` using;",
+        "let tree = parse cpp`int x;`; let bad = ;"}) {
+    auto result = Engine{}.run(source, &environment);
+    EXPECT_EQ(result.code, Code::InvalidArgument) << result.message;
+    EXPECT_TRUE(environment.snippets.empty());
+  }
+  EXPECT_EQ(Engine{}.run("let tree = parse cpp`int x;`;").code,
+            Code::FailedPrecondition);
+}
 TEST(ScriptEngine, ScopedTreesShadowLocalsRestoreDefaultsAndYieldValues) {
   ScopedEnvironment environment;
   auto result = Engine{}.run(R"script(

@@ -17,6 +17,7 @@ expression: scalar                                      # literalExpression
               ('progress' progressPolicy)? 'do' '{' statement* '}' # batchExpression
           | functionName '(' arguments? ')'             # callExpression
           | 'parse' StringLiteral                       # parseExpression
+          | 'parse' CppLiteral ('using' expression)?     # parseCppExpression
           | 'match' matcherExpression ('in' expression)? # matchExpression
           | expression '.' memberName                   # memberExpression
           | expression '[' expression ']'                # indexExpression
@@ -36,6 +37,9 @@ argument: Identifier '=' expression                     # namedArgument
         | expression                                    # positionalArgument;
 scalar: StringLiteral | Number | 'true' | 'false';
 Identifier: [a-zA-Z_] [a-zA-Z_0-9]*;
+// C++ content is opaque to the script parser. Preserve ordinary backslashes;
+// a backslash-backtick escapes the delimiter itself.
+CppLiteral: 'cpp`' ('\\' . | ~[`\\])* '`';
 StringLiteral: '"' (Escape | ~["\\\r\n])* '"';
 fragment Escape: '\\' (["\\/bfnrt] | 'u' Hex Hex Hex Hex);
 fragment Hex: [0-9a-fA-F];

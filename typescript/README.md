@@ -85,6 +85,29 @@ client:
 
 `parse()` acquires a native tree without running a matcher. Paths are server-side paths, relative to the explicit `workingDirectory` or the Node process's current directory. Compilation flags are ordered and remain attached to a retained tree. Every retained-target match creates an independent result cursor with a revision guard; previous trees and rows stay selectable, and closing the source does not close its forks.
 
+`parseCpp()` parses statements in a real temporary `.cpp` file, wrapped in a
+generated function. Borrow compilation settings from an existing source file:
+
+```ts
+await using tree = await client.parseCpp(`
+  TemplateType<MyTest> test;
+  test.add(MyTest{});
+`, {
+  file: "src/example.cpp",
+  includes: ["template_type.hpp", "my_test.hpp"],
+});
+await using calls = await client.match('cxxMemberCallExpr().bind("call")', tree);
+```
+
+`file` and `includes` are optional. Without `file`, the server borrows the first
+entry in the selected or discovered compilation database, in database order.
+`compileArguments` append overrides; `workingDirectory` and
+`compilationDatabase` select the context. Borrowing settings supplies flags and
+header search paths; declarations still need to be present in the snippet or
+included headers. Set `translationUnit: true` to supply complete top-level C++
+source. `tree.file` is the server's temporary source path, retained with the tree
+and derived native values.
+
 `MatchValue` spools streamed rows to disk with a disk-backed offset index, so retained results do not accumulate in RAM. `iterateRows()` and synchronous iteration read rows lazily; `rows` explicitly materializes a detached eager snapshot. Objects and arrays are frozen, and binary values are copied on access. `binding(name)` selects every source row containing that binding. `row(0).binding(name)` selects one row, including index zero. Empty unindexed collections continue to empty collections; missing bindings on nonempty collections and out-of-range rows fail explicitly. The reusable cursor is published only after completion metadata and terminal gRPC `OK` agree with the received row count.
 
 Use `close()` or `await using` for a tree, result, binding selection, or the client. Aliases of one result share their owner, so closing an indexed row or selection closes that result. `Client.close()` waits for pending calls and releases all remaining sessions; failures are reported. Server expiry also bounds abandoned sessions. There is no reliance on JavaScript garbage collection for deterministic cleanup.

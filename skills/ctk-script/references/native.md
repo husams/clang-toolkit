@@ -43,6 +43,10 @@ emit labels[1];
 
 Native expressions also accept `parse "PATH"`, `match functionDecl().bind("f") in TARGET`, and `in TREE { ... yield VALUE; }`. This does not make all console commands available on the server.
 
+`parse cpp` also accepts raw temporary C++ statement blocks, optional borrowed
+file settings or an options object, and complete translation-unit mode. See
+[snippets.md](snippets.md); use native semicolons and `emit` when returning data.
+
 | Function | Role |
 | --- | --- |
 | `match("MATCHER")` | Match default target; optional traversal `"as_is"`/`"spelled"`. |

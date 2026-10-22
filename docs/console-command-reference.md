@@ -104,21 +104,27 @@ help hasDescendant
 
 ## parse
 
-Parse a file and retain its native tree as a value.
+Parse a file or temporary C++ snippet and retain its native tree as a value.
 
 ```text
 parse PATH
 let tree = parse PATH
+let tree = parse cpp`STATEMENTS` [using FILE_OR_OPTIONS]
 ```
 
 - PATH: quoted file path or a reference to a path/File; relative to the session directory.
 - Automatically loads compile_commands.json; extra_args append compiler overrides.
 - Select a database with ctk --compile-commands PATH or set compile_commands PATH.
 - Use the result with match ... in $tree or a scoped in $tree block.
+- `cpp` backtick literals preserve raw C++ without CTK interpolation. Statements are inserted into a generated function in a real temporary `.cpp` file.
+- Optional `using "src/example.cpp"` borrows that file's compile settings; omission selects the first database entry in database order.
+- An options object supports optional `file`, `includes`, `compile_arguments`, `working_directory`, `compilation_database`, and `translation_unit` fields. `translation_unit: true` omits the function wrapper.
+- Borrowing settings supplies flags and paths, not declarations. Provide required headers through `includes` or complete source. See [C++ snippets](cpp-snippets.md).
 
 ```text
 parse "examples/parse_match.cc"
 let tree = parse "examples/parse_match.cc"
+let probe = parse cpp`int value = 7; value += 2;`
 ```
 
 ## match

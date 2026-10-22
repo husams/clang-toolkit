@@ -38,6 +38,11 @@ struct LoadedSnapshot {
 };
 
 class SnapshotEntry final {
+private:
+  // Release native ownership before removing any generated disk sources.
+  mutable std::mutex source_mutex_;
+  mutable std::vector<std::shared_ptr<const void>> retained_sources_;
+
 public:
   SnapshotEntry(std::uint64_t generation, std::string profile_identity,
                 LoadedSnapshot loaded);
@@ -53,6 +58,16 @@ public:
   // Hold this lane for every native operation; never acquire it under the
   // cache metadata lock. Immutable ownership does not make Clang thread-safe.
   std::mutex &execution_mutex() const noexcept { return execution_mutex_; }
+
+  // Native consumers may retain generated source alongside a parsed snapshot.
+  // Every derived cursor shares this owner, so source text remains available
+  // until the snapshot itself is released (including any cache retention).
+  void retain_source(std::shared_ptr<const void> source) const {
+    if (!source)
+      return;
+    std::lock_guard lock(source_mutex_);
+    retained_sources_.push_back(std::move(source));
+  }
 
 private:
   mutable std::mutex execution_mutex_;

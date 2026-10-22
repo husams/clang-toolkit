@@ -12,6 +12,13 @@ export interface FileOptions {
   compileArguments?: readonly string[];
   compilationDatabase?: string;
 }
+export interface CppSnippetOptions extends FileOptions {
+  /** Existing server-side source file whose compilation command is borrowed. */
+  file?: string;
+  includes?: readonly string[];
+  /** Parse complete top-level C++ source instead of statements in a function. */
+  translationUnit?: boolean;
+}
 export interface ClientOptions extends FileOptions, ConfigurationOptions {
   credentials?: ChannelCredentials;
   channelOptions?: ChannelOptions;

@@ -221,7 +221,11 @@ durable_batch_option: JOBS NUMBER -> batch_jobs
                        | FILE_STRING
                        | NUMBER
 
-parse_expression: PARSE path_target_expression
+parse_expression: PARSE CPP_SOURCE [USING cpp_options] -> parse_cpp_expression
+                | PARSE path_target_expression
+?cpp_options: FILE_STRING | reference | bare_value | cpp_options_object
+cpp_options_object: LBRACE BATCH_SEPARATOR* [cpp_option_entry (COMMA BATCH_SEPARATOR* cpp_option_entry)* BATCH_SEPARATOR*] RBRACE -> dict_value
+cpp_option_entry: (STRING | collection_name | FILE) COLON value_expression -> dict_entry
 read_expression: READ output_path [AS NAME]
 analysis_block: IN BATCH_SEPARATOR* (parse_expression | reference) BATCH_SEPARATOR* LBRACE BATCH_SEPARATOR* (assignment (SEMICOLON | BATCH_SEPARATOR)+)* YIELD yield_expression SEMICOLON? BATCH_SEPARATOR* RBRACE
 statement_block: LBRACE BATCH_SEPARATOR* (statement (SEMICOLON | BATCH_SEPARATOR)+)* statement? RBRACE
@@ -311,6 +315,7 @@ editor_start: editor_token*
 ?editor_token: LET
              | READ
              | PARSE
+             | USING
              | YIELD
              | MATCH
              | BACKGROUND
@@ -420,6 +425,8 @@ editor_start: editor_token*
              | DIRECTORY_STRING
              | PATH_STRING
              | OPEN_STRING
+             | CPP_SOURCE
+             | OPEN_CPP_SOURCE
              | HELP_WORD
              | HELP_SHORT_TOPIC
              | QUESTION
@@ -444,6 +451,7 @@ editor_start: editor_token*
 
 LET.2: /let(?![a-zA-Z0-9_])/
 PARSE.2: /parse(?![a-zA-Z0-9_])/
+USING.2: /using(?![a-zA-Z0-9_])/
 YIELD.2: /yield(?![a-zA-Z0-9_])/
 MATCH.2: /match(?![a-zA-Z0-9_])/
 BACKGROUND.2: /background(?![a-zA-Z0-9_])/
@@ -561,6 +569,8 @@ NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
 EDITOR_NAME.10: /[a-zA-Z_][a-zA-Z0-9_]*/
 BIND.3: /\.bind(?![a-zA-Z0-9_])/
 STRING.3: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/s
+CPP_SOURCE.12: /cpp`(?:\\.|[^`\\])*`/s
+OPEN_CPP_SOURCE.11: /cpp`(?:\\.|[^`\\])*(?:\\)?$/s
 FILE_STRING.3: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/s
 DIRECTORY_STRING.3: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/s
 PATH_STRING.3: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/s

@@ -180,7 +180,12 @@ public:
   }
   MatchExecution parse(const ParseRequest &request,
                        const Checkpoint &checkpoint,
-                       const MatchLimits &) override {
+                       const MatchLimits &limits) override {
+    return parse_retaining_source(request, checkpoint, limits, {});
+  }
+  MatchExecution parse_retaining_source(
+      const ParseRequest &request, const Checkpoint &checkpoint,
+      const MatchLimits &, std::shared_ptr<const void> source) override {
     try {
       if (!checkpoint())
         return failure(MatchCode::Cancelled, "parse cancelled");
@@ -194,6 +199,7 @@ public:
       if (!snapshot)
         return failure(MatchCode::FailedPrecondition,
                        "native snapshot unavailable");
+      snapshot->retain_source(std::move(source));
       std::lock_guard lane(snapshot->execution_mutex());
       const auto owner =
           std::dynamic_pointer_cast<const AstSnapshotOwner>(snapshot->owner);

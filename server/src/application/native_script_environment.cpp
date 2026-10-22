@@ -1,5 +1,6 @@
 #include "native_script_environment.hpp"
 #include "ctk/clang/file_discovery.hpp"
+#include "ctk/clang/cpp_snippet.hpp"
 #include "ctk/platform/durable_file.hpp"
 #include "ctk/script/error.hpp"
 #include "file_target_validation.hpp"
@@ -70,9 +71,11 @@ void validate_binding_scope(const ctk::script::Value &rows,
 NativeScriptEnvironment::NativeScriptEnvironment(
     const ctk::analysis::v1::ScriptRequest &request, CursorSettings settings,
     std::shared_ptr<ctk::clang_layer::IQueryEngine> engine,
-    ctk::clang_layer::IMatchBackend::Checkpoint checkpoint, std::string owner)
+    ctk::clang_layer::IMatchBackend::Checkpoint checkpoint, std::string owner,
+    std::string work_token)
     : request_(request), settings_(settings), engine_(std::move(engine)),
-      owner_(std::move(owner)), checkpoint_(std::move(checkpoint)) {
+      owner_(std::move(owner)), work_token_(std::move(work_token)),
+      checkpoint_(std::move(checkpoint)) {
 #ifdef CTK_WITH_CLANG
   if (!engine_)
     engine_ = ctk::clang_layer::make_query_engine();
@@ -138,21 +141,25 @@ NativeScriptEnvironment::file_target(const std::string &path) const {
     throw Error(Code::InvalidArgument, error.what());
   }
 }
-void NativeScriptEnvironment::acquire_file(
-    const ctk::match::v1::FileMatchTarget &file) {
+ctk::cache::SnapshotPtr NativeScriptEnvironment::acquire_file(
+    const ctk::match::v1::FileMatchTarget &file,
+    std::shared_ptr<const void> source_lifetime) {
   if (!matches_)
     throw Error(Code::FailedPrecondition, "Clang analysis is disabled");
   if (!checkpoint_())
     throw Error(Code::Cancelled, "script cancelled");
   // Enforce script snapshot bounds before native backends translate failures.
-  pinned_->acquire_snapshot(
+  auto snapshot = pinned_->acquire_snapshot(
       {file.file_path(),
        {file.compile_arguments().begin(), file.compile_arguments().end()},
        file.working_directory(),
        file.compilation_database(),
        file.frozen_profile()});
+  if (snapshot)
+    snapshot->retain_source(std::move(source_lifetime));
   if (!checkpoint_())
     throw Error(Code::Cancelled, "script cancelled");
+  return snapshot;
 }
 ctk::script::Value
 NativeScriptEnvironment::parse_file(const std::string &path) {
@@ -174,6 +181,162 @@ NativeScriptEnvironment::parse_file(const std::string &path) {
   // native target carries an absolute path paired with its frozen profile.
   wire->mutable_tree()->mutable_file()->set_file_path(path);
   return {wire, std::move(result.state), {}};
+}
+ctk::script::Value
+NativeScriptEnvironment::parse_cpp(const std::string &code,
+                                   const ctk::script::Value *options) {
+#ifndef CTK_WITH_CLANG
+  throw Error(Code::FailedPrecondition, "Clang analysis is disabled");
+#else
+  if (!matches_)
+    throw Error(Code::FailedPrecondition, "Clang analysis is disabled");
+  if (!checkpoint_())
+    throw Error(Code::Cancelled, "script cancelled");
+  ctk::match::v1::ParseRequest request;
+  auto *snippet = request.mutable_cpp_snippet();
+  snippet->set_code(code);
+  if (request_.has_profile()) {
+    request.set_working_directory(request_.profile().working_directory());
+    request.set_compilation_database(request_.profile().compilation_database());
+    *request.mutable_compile_arguments() =
+        request_.profile().compile_arguments();
+    request.set_frozen_profile(request_.profile().frozen());
+  } else if (request_.has_file()) {
+    request.set_working_directory(request_.file().working_directory());
+    request.set_compilation_database(request_.file().compilation_database());
+    *request.mutable_compile_arguments() = request_.file().compile_arguments();
+    request.set_frozen_profile(request_.file().frozen_profile());
+  }
+  if (request.working_directory().empty())
+    request.set_working_directory(std::filesystem::current_path().string());
+  const bool inherited_frozen = request.frozen_profile();
+  bool replace_compilation_settings = false;
+  std::vector<std::string> explicit_arguments;
+  if (options) {
+    if (!options->wire)
+      throw Error(Code::InvalidArgument,
+                  "snippet options require a file or object");
+    if (options->wire->has_scalar()) {
+      snippet->set_settings_file(script_text(*options));
+      request.set_frozen_profile(false);
+      replace_compilation_settings = true;
+    } else if (options->wire->has_object()) {
+      for (const auto &[key, value] : options->wire->object().fields()) {
+        const ctk::script::Value option{
+            std::make_shared<ctk::analysis::v1::ScriptValue>(value), {}, {}};
+        if (key == "file") {
+          snippet->set_settings_file(script_text(option));
+          request.set_frozen_profile(false);
+          replace_compilation_settings = true;
+        } else if (key == "working_directory") {
+          request.set_working_directory(script_text(option));
+        } else if (key == "compilation_database") {
+          request.set_compilation_database(script_text(option));
+          request.set_frozen_profile(false);
+          replace_compilation_settings = true;
+        } else if (key == "compile_arguments" || key == "includes") {
+          if (!value.has_list())
+            throw Error(Code::InvalidArgument,
+                        "snippet " + key + " requires a list of strings");
+          for (const auto &entry : value.list().values()) {
+            const auto text = script_text(
+                {std::make_shared<ctk::analysis::v1::ScriptValue>(entry),
+                 {},
+                 {}});
+            if (key == "includes")
+              snippet->add_includes(text);
+            else
+              explicit_arguments.push_back(text);
+          }
+        } else if (key == "translation_unit") {
+          if (!value.has_scalar() ||
+              value.scalar().value_case() !=
+                  ctk::analysis::v1::ScriptScalar::kBoolean)
+            throw Error(Code::InvalidArgument,
+                        "snippet translation_unit requires a boolean");
+          snippet->set_translation_unit(value.scalar().boolean());
+        } else {
+          throw Error(Code::InvalidArgument, "unknown snippet option: " + key);
+        }
+      }
+    } else {
+      throw Error(Code::InvalidArgument,
+                  "snippet options require a file or object");
+    }
+  }
+  if (inherited_frozen &&
+      (replace_compilation_settings || !request.compilation_database().empty())) {
+    // Frozen argv contains the entire old command, rather than user overrides.
+    // Reusing it would overwrite the newly selected donor's defines/standard.
+    request.clear_compile_arguments();
+    request.set_frozen_profile(false);
+  }
+  for (const auto &argument : explicit_arguments)
+    request.add_compile_arguments(argument);
+  ctk::match::v1::FileMatchTarget validation;
+  validation.set_file_path("snippet.cpp");
+  validation.set_working_directory(request.working_directory());
+  validation.set_compilation_database(request.compilation_database());
+  *validation.mutable_compile_arguments() = request.compile_arguments();
+  const auto invalid = invalid_file_target(validation);
+  if (!invalid.empty())
+    throw Error(Code::InvalidArgument, invalid);
+  try {
+    auto prepared = ctk::clang_layer::prepare_cpp_snippet(request);
+    const auto &source = prepared.request;
+    ctk::match::v1::InputDescriptor descriptor;
+    descriptor.set_file_path(source.file_path());
+    auto *profile = descriptor.mutable_profile();
+    profile->set_working_directory(source.working_directory());
+    profile->set_compilation_database(source.compilation_database());
+    profile->set_frozen(true);
+    *profile->mutable_compile_arguments() = source.compile_arguments();
+    auto resolved = ctk::clang_layer::resolve_file_descriptor(descriptor);
+    if (settings_.resources && !request_.resource_scope_id().empty()) {
+      auto token = work_token_;
+      for (auto work = work_stack_.rbegin(); work != work_stack_.rend(); ++work)
+        if (*work && **work) {
+          token = (*work)->token();
+          break;
+        }
+      std::string message;
+      const auto admitted = settings_.resources->admit_generated_input(
+          owner_, token,
+          {ctk::application::input_identity(resolved.descriptor),
+           resolved.descriptor.estimated_parse_bytes()}, message);
+      if (admitted != Code::Ok)
+        throw Error(admitted, message);
+    }
+    ctk::match::v1::FileMatchTarget file;
+    file.set_file_path(resolved.descriptor.file_path());
+    file.set_working_directory(resolved.file.working_directory);
+    file.set_compilation_database(resolved.file.compilation_database);
+    file.set_frozen_profile(true);
+    file.set_expected_profile_id(resolved.descriptor.profile().profile_id());
+    for (const auto &argument : resolved.file.compile_arguments)
+      file.add_compile_arguments(argument);
+    acquire_file(file, prepared.lifetime);
+    prepared.request.set_working_directory(file.working_directory());
+    prepared.request.clear_compile_arguments();
+    *prepared.request.mutable_compile_arguments() = file.compile_arguments();
+    prepared.request.set_expected_profile_id(file.expected_profile_id());
+    auto result =
+        matches_->parse(prepared.request, checkpoint_, settings_.results);
+    if (result.code != Code::Ok)
+      throw Error(result.code, result.message);
+    auto wire = std::make_shared<ctk::analysis::v1::ScriptValue>();
+    *wire->mutable_tree()->mutable_file() = std::move(file);
+    return {wire, std::move(result.state), {}};
+  } catch (const Error &) {
+    throw;
+  } catch (const ctk::clang_layer::ProfileMismatch &error) {
+    throw Error(Code::FailedPrecondition, error.what());
+  } catch (const std::length_error &error) {
+    throw Error(Code::ResourceExhausted, error.what());
+  } catch (const std::exception &error) {
+    throw Error(Code::InvalidArgument, error.what());
+  }
+#endif
 }
 ctk::script::Value NativeScriptEnvironment::files(const std::string &pattern) {
   ctk::match::v1::DiscoverFilesRequest request;

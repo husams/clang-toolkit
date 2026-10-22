@@ -1,0 +1,6 @@
+let tree = parse cpp`
+    int value = 7;
+    value += 2;
+`
+let variables = match varDecl(hasName("value")).bind("variable") in tree
+print variables.length

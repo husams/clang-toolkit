@@ -81,6 +81,17 @@ def test_match_and_graph_help_document_typed_provenance_and_projection():
     assert "ProtoJSON" in graph_help
 
 
+def test_parse_help_describes_optional_snippet_settings_and_statement_default():
+    client = Mock(spec=Client)
+    details = dispatch(client, "parse?")
+    assert "parse cpp`STATEMENTS` [using FILE_OR_OPTIONS]" in details
+    assert "Statements are inserted into a generated function" in details
+    assert "first database entry in database order" in details
+    assert "optional `file`, `includes`" in details
+    assert "translation_unit: true" in details
+    assert client.mock_calls == []
+
+
 def test_runtime_help_stays_visible_when_values_are_redirected(tmp_path):
     runtime = Runtime(Mock(spec=Client), cwd=tmp_path, environment={})
     destination = tmp_path / "results.txt"

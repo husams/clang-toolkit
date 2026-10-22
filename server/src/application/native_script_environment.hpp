@@ -14,11 +14,13 @@ public:
       const ctk::analysis::v1::ScriptRequest &request, CursorSettings settings,
       std::shared_ptr<ctk::clang_layer::IQueryEngine> engine,
       ctk::clang_layer::IMatchBackend::Checkpoint checkpoint,
-      std::string owner = "local-user");
+      std::string owner = "local-user", std::string work_token = {});
   ctk::script::Value
   call(const std::string &, const std::vector<ctk::script::Value> &,
        const std::map<std::string, ctk::script::Value> &) override;
   ctk::script::Value parse_file(const std::string &) override;
+  ctk::script::Value parse_cpp(const std::string &,
+                              const ctk::script::Value *) override;
   ctk::script::Value match(const std::string &, const ctk::script::Value *,
                            const std::string &) override;
   ctk::script::Value
@@ -36,7 +38,9 @@ private:
   matching(const std::string &, const std::vector<ctk::script::Value> &,
            const std::map<std::string, ctk::script::Value> &);
   ctk::match::v1::FileMatchTarget file_target(const std::string &) const;
-  void acquire_file(const ctk::match::v1::FileMatchTarget &);
+  ctk::cache::SnapshotPtr acquire_file(
+      const ctk::match::v1::FileMatchTarget &,
+      std::shared_ptr<const void> source_lifetime = {});
   ctk::script::Value
   execute_match(const ctk::match::v1::MatchRequest &,
                 std::shared_ptr<const ctk::clang_layer::NativeBindingState>);
@@ -44,6 +48,7 @@ private:
   CursorSettings settings_;
   std::shared_ptr<ctk::clang_layer::IQueryEngine> engine_;
   std::string owner_;
+  std::string work_token_;
   ctk::clang_layer::IMatchBackend::Checkpoint checkpoint_;
   std::shared_ptr<ctk::clang_layer::IQueryEngine> pinned_;
   std::shared_ptr<ctk::clang_layer::IMatchBackend> matches_;

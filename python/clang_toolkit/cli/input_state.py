@@ -53,7 +53,7 @@ def input_state(text: str) -> InputState:
                 block_depth += 1
         elif token.type in {"DONE", "DONE_AFTER_NEWLINE"} and block_depth:
             block_depth -= 1
-        if token.type == "OPEN_STRING":
+        if token.type in {"OPEN_STRING", "OPEN_CPP_SOURCE"}:
             open_string = True
             continue
         if token.type == "ERROR":

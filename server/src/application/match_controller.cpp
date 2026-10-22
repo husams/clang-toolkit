@@ -1,5 +1,6 @@
 #include "ctk/application/match_controller.hpp"
 #include "ctk/clang/file_discovery.hpp"
+#include "ctk/clang/cpp_snippet.hpp"
 #include "resource_scope_guard.hpp"
 #include "cursor_registry.hpp"
 #include "file_target_validation.hpp"
@@ -24,9 +25,15 @@ MatchReply failure(MatchCode code, std::string message) {
   return {code, std::move(message), {}};
 }
 std::string invalid_request(const ParseRequest &request) {
+  if (request.has_cpp_snippet() && !request.file_path().empty())
+    return "file_path and cpp_snippet are mutually exclusive";
   FileMatchTarget file;
-  file.set_file_path(request.file_path());
-  file.set_working_directory(request.working_directory());
+  file.set_file_path(request.has_cpp_snippet() ? "snippet.cpp"
+                                               : request.file_path());
+  file.set_working_directory(request.has_cpp_snippet() &&
+                                     request.working_directory().empty()
+                                 ? std::filesystem::current_path().string()
+                                 : request.working_directory());
   file.set_compilation_database(request.compilation_database());
   file.mutable_compile_arguments()->CopyFrom(request.compile_arguments());
   return detail::invalid_file_target(file);
@@ -266,14 +273,25 @@ struct MatchController::Impl {
       return failure(MatchCode::FailedPrecondition,
                      "Clang analysis is disabled");
     registry->find(owner, "");
+    ParseRequest source_request = request;
+    std::shared_ptr<const void> source_lifetime;
+#ifdef CTK_WITH_CLANG
+    try {
+      auto source = ctk::clang_layer::prepare_cpp_snippet(request);
+      source_request = std::move(source.request);
+      source_lifetime = std::move(source.lifetime);
+    } catch (const std::exception &error) {
+      return failure(MatchCode::InvalidArgument, error.what());
+    }
+#endif
     ctk::match::v1::InputDescriptor descriptor;
-    descriptor.set_file_path(request.file_path());
+    descriptor.set_file_path(source_request.file_path());
     auto *profile = descriptor.mutable_profile();
-    profile->set_profile_id(request.expected_profile_id());
-    profile->set_working_directory(request.working_directory());
-    profile->set_compilation_database(request.compilation_database());
-    profile->set_frozen(request.frozen_profile());
-    for (const auto &argument : request.compile_arguments())
+    profile->set_profile_id(source_request.expected_profile_id());
+    profile->set_working_directory(source_request.working_directory());
+    profile->set_compilation_database(source_request.compilation_database());
+    profile->set_frozen(source_request.frozen_profile());
+    for (const auto &argument : source_request.compile_arguments())
       profile->add_compile_arguments(argument);
     ctk::clang_layer::ResolvedFileDescriptor resolved;
     try {
@@ -285,30 +303,43 @@ struct MatchController::Impl {
     } catch (const std::exception &error) {
       return failure(MatchCode::InvalidArgument, error.what());
     }
-    ParseRequest prepared = request;
+    ParseRequest prepared = source_request;
     prepared.set_file_path(resolved.descriptor.file_path());
     prepared.clear_compile_arguments();
-    for (const auto &argument : resolved.descriptor.profile().compile_arguments())
+    for (const auto &argument :
+         resolved.descriptor.profile().compile_arguments())
       prepared.add_compile_arguments(argument);
-    prepared.set_working_directory(resolved.descriptor.profile().working_directory());
+    prepared.set_working_directory(
+        resolved.descriptor.profile().working_directory());
     prepared.set_compilation_database(
         resolved.descriptor.profile().compilation_database());
     prepared.set_frozen_profile(true);
-    prepared.set_expected_profile_id(resolved.descriptor.profile().profile_id());
+    prepared.set_expected_profile_id(
+        resolved.descriptor.profile().profile_id());
     auto cursor = std::make_shared<detail::ResultCursor>();
     cursor->owner = owner;
     cursor->file_path = resolved.descriptor.file_path();
     cursor->input_identity = descriptor_identity(resolved.descriptor);
     cursor->scope_id = request.resource_scope_id();
     cursor->input = resolved.descriptor;
+    if (source_lifetime && !request.resource_scope_id().empty()) {
+      std::string message;
+      const auto admitted = resources->admit_generated_input(
+          owner, work_token,
+          {cursor->input_identity, resolved.descriptor.estimated_parse_bytes()},
+          message);
+      if (admitted != MatchCode::Ok)
+        return failure(admitted, message);
+    }
     std::unique_lock operation(cursor->operation);
     if (cursor->state)
       resources->register_work_snapshot(
-          owner, work_token, cursor->input_identity,
-          cursor->state->snapshot(), cursor->input);
+          owner, work_token, cursor->input_identity, cursor->state->snapshot(),
+          cursor->input);
     auto resource_scope = detail::make_snapshot_scope(
         resources, owner, request.resource_scope_id(), work_token);
-    auto result = backend->parse(prepared, checkpoint, settings.results);
+    auto result = backend->parse_retaining_source(
+        prepared, checkpoint, settings.results, std::move(source_lifetime));
     if (result.code != MatchCode::Ok)
       return failure(result.code, result.message);
     if (!result.rows.empty())
@@ -598,8 +629,8 @@ ParseReply MatchController::parse(
   auto promise = std::make_shared<std::promise<MatchReply>>();
   const auto work_token = work.token();
   auto future = promise->get_future();
-  if (!impl_->executor->enqueue([this, promise, owner, request, scoped_checkpoint,
-                                 work_token] {
+  if (!impl_->executor->enqueue([this, promise, owner, request,
+                                 scoped_checkpoint, work_token] {
         try {
           promise->set_value(
               impl_->run_parse(owner, request, scoped_checkpoint, work_token));
@@ -621,29 +652,18 @@ ParseReply MatchController::parse(
     reply.response.mutable_expires_at()->Swap(
         result.response.mutable_expires_at());
     try {
-      auto resolved = ctk::clang_layer::resolve_file_descriptor(
-          [&] {
-            InputDescriptor descriptor;
-            descriptor.set_file_path(request.file_path());
-            auto *profile = descriptor.mutable_profile();
-            profile->set_profile_id(request.expected_profile_id());
-            profile->set_working_directory(request.working_directory());
-            profile->set_compilation_database(request.compilation_database());
-            profile->set_frozen(request.frozen_profile());
-            for (const auto &argument : request.compile_arguments())
-              profile->add_compile_arguments(argument);
-            return descriptor;
-          }());
       auto cursor = impl_->registry->find(owner, result.response.session_id());
       if (!cursor || !cursor->state)
-        throw std::runtime_error("parsed cursor expired before lease publication");
+        throw std::runtime_error(
+            "parsed cursor expired before lease publication");
+      reply.response.set_source_file(cursor->file_path);
       auto lease = std::make_shared<Impl::FileLeaseRecord>();
       lease->owner = owner;
       lease->scope_id = request.resource_scope_id();
-      lease->identity = descriptor_identity(resolved.descriptor);
+      lease->identity = descriptor_identity(cursor->input);
       lease->id = new_lease_id();
       lease->root_session_id = cursor->id;
-      lease->input = resolved.descriptor;
+      lease->input = cursor->input;
       lease->state = cursor->state;
       lease->snapshot = cursor->state->snapshot();
       const auto lease_id = lease->id;

@@ -283,6 +283,104 @@ TEST(ResourceScopes, WorkSnapshotAdmissionEnforcesUniqueInputLimit) {
                std::runtime_error);
 }
 
+TEST(ResourceScopes, GeneratedInputsUseLiveWorkAndExistingScopeBudgets) {
+  ResourceManagerSettings settings;
+  settings.max_inputs = 2;
+  settings.max_memory_bytes = 100;
+  auto manager = std::make_shared<ResourceManager>(settings);
+  ResourceScopeInfo scope;
+  std::string message;
+  ASSERT_EQ(manager->open_scope("alice", scope_request(100), reservations(60),
+                                scope, message),
+            MatchCode::Ok);
+  const auto scope_id = scope.resource_scope_id();
+  ResourceManager::WorkLease work;
+  ASSERT_EQ(manager->begin_work("alice", scope_id, work, message),
+            MatchCode::Ok);
+  const ResourceInputReservation generated{"/tmp/generated.cpp\nprofile", 30};
+  EXPECT_THROW(manager->claim_snapshot("alice", scope_id, generated.identity,
+                                       snapshot(30), {}),
+               std::runtime_error);
+  EXPECT_EQ(
+      manager->admit_generated_input("bob", work.token(), generated, message),
+      MatchCode::NotFound);
+  EXPECT_EQ(
+      manager->admit_generated_input("alice", "missing", generated, message),
+      MatchCode::NotFound);
+  EXPECT_EQ(manager->admit_generated_input("alice", work.token(),
+                                           {generated.identity, 50}, message),
+            MatchCode::ResourceExhausted);
+  ASSERT_EQ(
+      manager->admit_generated_input("alice", work.token(), generated, message),
+      MatchCode::Ok);
+  EXPECT_TRUE(
+      manager->scope_contains_input("alice", scope_id, generated.identity));
+  EXPECT_EQ(manager->admit_generated_input(
+                "alice", work.token(), {"/tmp/third.cpp\nprofile", 1}, message),
+            MatchCode::ResourceExhausted);
+  ASSERT_EQ(manager->describe_scope("alice", scope_id, scope), MatchCode::Ok);
+  EXPECT_EQ(scope.reserved_bytes(), 90U);
+  EXPECT_EQ(scope.admitted_inputs(), 2U);
+  work = {};
+  ASSERT_EQ(manager->describe_scope("alice", scope_id, scope), MatchCode::Ok);
+  EXPECT_EQ(scope.reserved_bytes(), 60U);
+  EXPECT_EQ(scope.admitted_inputs(), 1U);
+  EXPECT_FALSE(
+      manager->scope_contains_input("alice", scope_id, generated.identity));
+}
+
+TEST(ResourceScopes, GeneratedInputsRetainNativeClaimsAfterWorkCompletes) {
+  ResourceManagerSettings settings;
+  settings.max_inputs = 2;
+  settings.max_memory_bytes = 100;
+  auto manager = std::make_shared<ResourceManager>(settings);
+  ResourceScopeInfo scope;
+  std::string message;
+  ASSERT_EQ(manager->open_scope("alice", scope_request(100), reservations(60),
+                                scope, message),
+            MatchCode::Ok);
+  const auto scope_id = scope.resource_scope_id();
+  ResourceManager::WorkLease work;
+  ASSERT_EQ(manager->begin_work("alice", scope_id, work, message),
+            MatchCode::Ok);
+  const ResourceInputReservation generated{"/tmp/generated.cpp\nprofile", 30};
+  ASSERT_EQ(
+      manager->admit_generated_input("alice", work.token(), generated, message),
+      MatchCode::Ok);
+  int released = 0;
+  manager->claim_snapshot("alice", scope_id, generated.identity, snapshot(30),
+                          [&] { ++released; });
+  work = {};
+  ASSERT_EQ(manager->describe_scope("alice", scope_id, scope), MatchCode::Ok);
+  EXPECT_EQ(scope.reserved_bytes(), 60U);
+  EXPECT_EQ(scope.admitted_inputs(), 2U);
+  EXPECT_EQ(scope.accounted_native_bytes(), 30U);
+  EXPECT_EQ(manager->release_scope("alice", scope_id, scope), MatchCode::Ok);
+  EXPECT_EQ(released, 1);
+  EXPECT_TRUE(scope.cleanup_acknowledged());
+}
+
+TEST(ResourceScopes, GeneratedInputsCannotEnterCancelledScopes) {
+  auto manager = std::make_shared<ResourceManager>(ResourceManagerSettings{});
+  ResourceScopeInfo scope;
+  std::string message;
+  ASSERT_EQ(manager->open_scope("alice", scope_request(100), reservations(60),
+                                scope, message),
+            MatchCode::Ok);
+  const auto scope_id = scope.resource_scope_id();
+  ResourceManager::WorkLease work;
+  ASSERT_EQ(manager->begin_work("alice", scope_id, work, message),
+            MatchCode::Ok);
+  ASSERT_EQ(manager->cancel_scope("alice", scope_id, scope), MatchCode::Ok);
+  EXPECT_EQ(manager->admit_generated_input("alice", work.token(),
+                                           {"/tmp/generated.cpp\nprofile", 30},
+                                           message),
+            MatchCode::Cancelled);
+  work = {};
+  EXPECT_EQ(manager->release_scope("alice", scope_id, scope), MatchCode::Ok);
+  EXPECT_TRUE(scope.cleanup_acknowledged());
+}
+
 TEST(ResourceScopes, DetachedScopeClaimStaysInFileInventoryUntilRelease) {
   auto manager = std::make_shared<ResourceManager>(ResourceManagerSettings{});
   CursorSettings settings;
@@ -291,13 +389,13 @@ TEST(ResourceScopes, DetachedScopeClaimStaysInFileInventoryUntilRelease) {
   auto request = scope_request(100);
   ResourceScopeInfo scope;
   std::string message;
-  ASSERT_EQ(manager->open_scope("alice", request, reservations(100), scope,
-                                message),
-            MatchCode::Ok);
+  ASSERT_EQ(
+      manager->open_scope("alice", request, reservations(100), scope, message),
+      MatchCode::Ok);
   ResourceManager::WorkLease work;
-  ASSERT_EQ(manager->begin_work("alice", scope.resource_scope_id(), work,
-                                message),
-            MatchCode::Ok);
+  ASSERT_EQ(
+      manager->begin_work("alice", scope.resource_scope_id(), work, message),
+      MatchCode::Ok);
   const auto pinned = snapshot(80);
   manager->claim_snapshot("alice", scope.resource_scope_id(),
                           "/tmp/a.cc\nprofile", pinned, {}, descriptor());

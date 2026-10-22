@@ -79,6 +79,12 @@ public:
                                          const std::string &scope_id,
                                          WorkLease &lease,
                                          std::string &message);
+  // Enroll server-generated source in this operation's existing scope. Native
+  // acquisition consumes its reservation; failed work drops unclaimed entries.
+  ctk::clang_layer::MatchCode
+  admit_generated_input(const std::string &owner, const std::string &work_token,
+                        const ResourceInputReservation &input,
+                        std::string &message);
   bool scope_transient(const std::string &owner,
                        const std::string &scope_id) const;
   bool scope_contains_input(const std::string &owner,

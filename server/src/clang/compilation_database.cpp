@@ -3,6 +3,7 @@
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <llvm/Support/JSON.h>
+#include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/raw_ostream.h>
 #include <sqlite3.h>
 
@@ -387,5 +388,75 @@ FileInput resolve_compilation_command(const FileInput &input) {
                                     input.compile_arguments.end());
   command->compilation_database = database->string();
   return *command;
+}
+
+FileInput resolve_snippet_compilation_command(const FileInput &input) {
+  if (!input.path.empty())
+    return resolve_compilation_command(input);
+  if (input.compilation_profile_frozen)
+    return input;
+  const auto working = fs::absolute(input.working_directory.empty()
+                                        ? fs::current_path()
+                                        : fs::path(input.working_directory));
+  const auto database = discover(input, working / "ctk-snippet.cpp", working);
+  if (!database)
+    return input;
+  // Clang's database enumeration can group commands by filename. The fallback
+  // deliberately means the first entry written in compile_commands.json.
+  const auto bytes = llvm::MemoryBuffer::getFile(database->string());
+  if (!bytes)
+    throw std::invalid_argument("cannot read compilation database: " +
+                                database->string());
+  auto json = llvm::json::parse((*bytes)->getBuffer());
+  if (!json)
+    throw std::invalid_argument("cannot load compilation database " +
+                                database->string() + ": " +
+                                llvm::toString(json.takeError()));
+  const auto *entries = json->getAsArray();
+  if (!entries)
+    throw std::invalid_argument("compilation database must be a JSON array: " +
+                                database->string());
+  if (entries->empty())
+    throw std::invalid_argument("compilation database has no entries: " +
+                                database->string());
+  const auto *entry = entries->front().getAsObject();
+  const auto source = entry ? entry->getString("file") : std::nullopt;
+  const auto directory = entry ? entry->getString("directory") : std::nullopt;
+  if (!source || !directory || source->empty())
+    throw std::invalid_argument("invalid first compilation database entry: " +
+                                database->string());
+  FileInput selected = input;
+  selected.path = absolute(source->str(),
+                           absolute(directory->str(), database->parent_path()))
+                      .string();
+  selected.compilation_database = database->string();
+  return resolve_compilation_command(selected);
+}
+FileInput transfer_snippet_compilation_command(
+    FileInput donor, const std::vector<std::string> &overrides) {
+  if (!donor.path.empty()) {
+    // Expand in the donor CWD before transferring language/standard flags.
+    // In particular, a C command's -std=c17 must not leak into C++ parsing.
+    llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> filesystem(
+        llvm::vfs::createPhysicalFileSystem().release());
+    if (auto error =
+            filesystem->setCurrentWorkingDirectory(donor.working_directory))
+      throw std::invalid_argument("cannot use compilation working directory: " +
+                                  error.message());
+    auto database = clang::tooling::expandResponseFiles(
+        std::make_unique<clang::tooling::FixedCompilationDatabase>(
+            donor.working_directory, donor.compile_arguments),
+        filesystem);
+    auto command = database->getCompileCommands(donor.path).front();
+    command.CommandLine.front() = "clang";
+    command = clang::tooling::transferCompileCommand(std::move(command),
+                                                     "ctk-snippet.cpp");
+    donor.compile_arguments.assign(command.CommandLine.begin() + 1,
+                                   command.CommandLine.end());
+  }
+  const auto separator = std::find(donor.compile_arguments.begin(),
+                                   donor.compile_arguments.end(), "--");
+  donor.compile_arguments.insert(separator, overrides.begin(), overrides.end());
+  return donor;
 }
 } // namespace ctk::clang_layer

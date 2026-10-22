@@ -1477,6 +1477,10 @@ class Runtime:
                     ),
                 )
             )
+        if kind == "parse_cpp_expression":
+            from .cpp_snippet import parse_cpp
+
+            return parse_cpp(self, node)
         if kind == "read_expression":
             format_name = (
                 str(node.children[-1])
@@ -1577,7 +1581,7 @@ class Runtime:
         owners: set[Any] = set()
         if (
             isinstance(node.children[1], Tree)
-            and node.children[1].data == "parse_expression"
+            and node.children[1].data in {"parse_expression", "parse_cpp_expression"}
         ):
             owners.add(target._owner)
         self._scopes.append(scope)

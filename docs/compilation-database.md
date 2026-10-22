@@ -95,6 +95,27 @@ a filesystem with private working-directory state. Effective commands
 participate in AST cache identity, so
 changed flags acquire a new AST while previously retained trees stay immutable.
 
+## Borrow settings for temporary snippets
+
+`parse cpp` creates a temporary `.cpp` file. `using "src/example.cpp"` borrows
+the specified source file's compilation settings. With no donor, it selects the
+first command in the current compilation database in database order; it does not
+infer a donor from the generated temporary filename. Both forms replace the
+command's source/output operands with the temporary source.
+
+```text
+let tree = parse cpp`int value = 7;` using "src/example.cpp"
+let first = parse cpp`int value = 7;`
+```
+
+The options object supports `file`, `compile_arguments`, `working_directory`,
+`compilation_database`, optional `includes` and `translation_unit`. Additional
+arguments append after borrowed flags. Borrowing transfers compile settings,
+not source declarations: include the required headers through `includes`, or
+provide complete source with `translation_unit: true`. Python exposes the same
+operation as `client.parse_cpp(code, file="src/example.cpp", ...)`.
+See [C++ snippets](cpp-snippets.md).
+
 When parsing fails, the SDK and console include Clang's compiler diagnostics
 after the AST error, with source file, line, and column when available. This
 reports missing headers, invalid compiler options, and source/preprocessor

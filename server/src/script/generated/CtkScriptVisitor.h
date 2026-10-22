@@ -69,6 +69,9 @@ public:
   virtual std::any
   visitListExpression(CtkScriptParser::ListExpressionContext *context) = 0;
 
+  virtual std::any visitParseCppExpression(
+      CtkScriptParser::ParseCppExpressionContext *context) = 0;
+
   virtual std::any
   visitParseExpression(CtkScriptParser::ParseExpressionContext *context) = 0;
 

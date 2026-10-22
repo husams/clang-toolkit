@@ -76,7 +76,8 @@ ctk::script::Result ScriptController::run(
               settings_.resources, owner, request.resource_scope_id(),
               work->token());
           detail::NativeScriptEnvironment environment(
-              request, settings_, engine_, scoped_checkpoint, owner);
+              request, settings_, engine_, scoped_checkpoint, owner,
+              work->token());
           ctk::script::Limits limits;
           limits.max_steps =
               request.has_max_steps() ? request.max_steps() : 100;
