@@ -16,12 +16,12 @@ Implementation branch: `codex/console-source-progress`, in the isolated `console
 
 - [x] Match, binding, location and range rows link to valid physical AST coordinates.
 - [x] Click a linked label or select it and press **O**; triangle clicks and Enter still expand trees.
-- [x] A full-screen window overlays the console with numbered C++ on the left and file matches on the right.
-- [x] All available matches and binding ranges in the file remain marked and underlined inline, retaining C++ syntax colors and normal line spacing. The compact gutter uses red `▶` for selected lines and `▷` for other matched lines.
+- [x] A full-screen window overlays the console with numbered C++ on the left and the selected match on the right.
+- [x] Only the clicked match, binding, location or range is marked and underlined inline, retaining C++ syntax colors and normal line spacing. The compact gutter uses red `▶` for selected lines; unrelated ranges remain unmarked.
 - [x] Underlines use valid exclusive AST endpoint columns and UTF-8 byte coordinates; tabs expand to four spaces. Older results without exclusive columns mark through the end of the final line.
 - [x] Each named binding navigates to its own range; macro links use expansion coordinates.
-- [x] The outline pages all matches in the file from current bindings and retained result previews, 50 matches per page.
-- [x] **Tab/F6** changes focus, **N/P** navigates matches, **Escape/Close** restores the originating selection and draft.
+- [x] The outline contains only the selected link. Opening source does not traverse current bindings or retained result previews.
+- [x] **Tab/F6** changes focus; **Escape/Close** restores the originating selection and draft. Open another result link to inspect a different match.
 - [x] Source reads occur off the UI thread; missing and oversized files show a recoverable message. The viewer reads local files up to 8 MB.
 - [x] Existing console layout, theme, pair closing and indentation are preserved.
 
@@ -63,7 +63,7 @@ Validation evidence is retained under this worktree's ignored `build/source-prog
 - [x] Exact expression bounds still exclude adjacent operators and semicolons.
 - [x] Updated source/terminal checks: 23 passed; all 1,036 unit tests, 116 acceptance cases, and 336 native tests pass (**1,488 total**). Type checking, focused lint and whitespace checks pass; evidence is retained in `build/source-compact-*.log`.
 
-### All file matches and relative paths
+### All file matches and relative paths (historical; selection scope superseded below)
 
 - [x] Every available match and named binding range remains marked, including collapsed and off-page outline entries; navigation changes the selected arrow without clearing other ranges.
 - [x] Overlapping, nested and duplicate ranges merge into one underline; gaps between separate expressions remain unmarked unless another match covers them.
@@ -103,13 +103,13 @@ print $expressions
 
 Expand a match or binding, then click its underlined label or press **O**. For a running bar, click **Cancel**, or select its row and press **C**. Foreground **Ctrl+C** retains its existing cancellation behavior. Body output remains available; completion leaves one final bar and an expandable batch report. A completed batch can have fewer done files than discovered files when its body deliberately targets only a subset.
 
-The multiplication example selects `scale(bounded, 3) * 2`. Its exact text is underlined inline with its original syntax colors and a red marker in the gutter; if a function or class match also covers that statement, that larger range remains underlined too:
+The multiplication example selects `scale(bounded, 3) * 2`. Its exact text is underlined inline with its original syntax colors and a red marker in the gutter. Surrounding expressions and the semicolon remain unmarked, even when a retained function or class match covers the statement:
 
 ```text
 ▶19│         const int result = 7 + scale(bounded, 3) * 2;
 ```
 
-The selected Calculator definition spans multiple lines, each marked with the same `▶` arrow; other available matches use `▷`. Navigation uses original file line numbers, with one screen row per source line.
+The selected Calculator definition spans multiple lines, each marked with the same `▶` arrow. Other matches remain unmarked. Navigation uses original file line numbers, with one screen row per source line.
 
 For a three-file batch:
 
@@ -147,3 +147,9 @@ State: running · 14 succeeded · 0 failed · [Cancel]
 ```
 
 Live verification found **6 functions, 1 Calculator class, 1 scale call, and 1 evaluate multiplication** in `calculator.cc`; the three-file and 24-file batches both completed with zero failed files. Each generated input produced 70 function definitions with the main-file matcher. Verification logs are `build/source-progress-refinement-*.log`.
+
+### Selected match source scope
+
+Clicking a result link or pressing **O** opens source for that exact link only. The code keeps its surrounding file context, while the outline and inline markings contain only the selected range. Current runtime bindings and earlier result previews are no longer collected, so an overlapping function match cannot obscure the bounds of a selected expression. Opening another link replaces the previous selection.
+
+Validation for this change: 28 focused source/workspace checks pass, including exact expression bounds with an overlapping retained function, mouse and keyboard opening, and replacing a previous selection. The native build, focused lint and whitespace checks pass. The full Python unit run reports 3,661 passed and two unchanged server-lifecycle failures because the sandbox blocks the `ps` command used to recognize the server process. The real-server terminal scenario is blocked by Unix-socket bind permissions. Native validation also encounters socket permission errors, unavailable watcher notifications and index-worker failures; a fully green native/end-to-end run remains unverified in this environment.

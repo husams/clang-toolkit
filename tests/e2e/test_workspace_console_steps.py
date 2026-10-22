@@ -279,10 +279,10 @@ def run_workspace(
         os.write(master, f"\x1b[<0;{bar_left + 2};{bar_row + 1}M\x1b[<0;{bar_left + 2};{bar_row + 1}m".encode())
         read_until("int workspace_native")
         (tmp_path / "workspace-source-window.txt").write_text("\n".join(screen.display))
-        os.write(master, b"\t\r")
-        read_until("f — workspace_native")
+        os.write(master, b"\t")
+        read_until("Matches [1]")
         os.write(master, b"\x1b")
-        read_until("f - workspace_native", recorded=lambda: not any("Matches in file" in line for line in screen.display))
+        read_until("f - workspace_native", recorded=lambda: not any("Selected match" in line for line in screen.display))
         os.write(master, b"\x1b[D" * 6)
         read_until("▸ Matches", recorded=lambda: not any("decl_name =" in line for line in screen.display))
         os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")  # Resume following; cycle through help to input.
@@ -304,14 +304,17 @@ def run_workspace(
         column = screen.display[code_row].index(expression)
         assert "▶3│" in screen.display[code_row]
         assert all(screen.buffer[code_row][column + offset].underscore for offset in range(len(expression)))
-        # The retained function match still marks its whole region while the
-        # selected expression has the filled arrow on its own line.
-        assert screen.buffer[code_row][column + len(expression)].underscore
+        # The retained function match must not mark the selected expression's
+        # surrounding statement or any other lines in this source window.
+        assert not screen.buffer[code_row][column + len(expression)].underscore
+        assert not screen.buffer[code_row][column - 1].underscore
         function_row = next(i for i, line in enumerate(screen.display) if "int workspace_native" in line)
-        assert "▷1│" in screen.display[function_row]
+        assert "▷" not in screen.display[function_row] and "▶" not in screen.display[function_row]
+        assert not any("▷" in line for line in screen.display)
+        assert any("Matches [1]" in line for line in screen.display)
         (tmp_path / "workspace-source-expression.txt").write_text("\n".join(screen.display))
         os.write(master, b"\x1b")
-        read_until("CTK console", recorded=lambda: not any("Matches in file" in line for line in screen.display))
+        read_until("CTK console", recorded=lambda: not any("Selected match" in line for line in screen.display))
         os.write(master, b"\x1b[1;5F\x1b[17~\x1b[17~")
         commands.append('binding drop $expressions')
         submit(commands[-1], "Ready")

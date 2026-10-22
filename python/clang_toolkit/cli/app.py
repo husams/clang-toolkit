@@ -934,15 +934,9 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
                         await async_client.cancel_resource_scope(scope.resource_scope_id)
                         return "Batch cancellation acknowledged; waiting for cleanup."
 
-                    async def read_source(target, values):
+                    async def read_source(target):
                         from clang_toolkit.cli.workspace_source_data import source_snapshot
-                        async with runtime_lock:
-                            worker = asyncio.create_task(asyncio.to_thread(source_snapshot, target, (*runtime.bindings.values(), *values), runtime.cwd))
-                            try:
-                                return await asyncio.shield(worker)
-                            except asyncio.CancelledError:
-                                await worker
-                                raise
+                        return await asyncio.to_thread(source_snapshot, target, runtime.cwd)
 
                     async def read_batch_status(run_id):
                         from clang_toolkit.cli.runtime.progress import durable_progress
