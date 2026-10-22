@@ -2,7 +2,7 @@
   "name": "clang-toolkit-prototype",
   "displayName": "Clang Toolkit Prototype",
   "description": "Unified Semantic Analysis and CTK script editing prototype",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "publisher": "clang-toolkit",
   "license": "MIT",
   "type": "module",
@@ -31,6 +31,10 @@
   },
   "contributes": {
     "languages": [
+      {
+        "id": "cpp",
+        "extensions": [".i", ".ii"]
+      },
       {
         "id": "ctk",
         "aliases": [
@@ -130,7 +134,7 @@
       "explorer/context": [
         {
           "submenu": "ctk.fileActions",
-          "when": "resourceScheme == file && resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$/",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(c|cc|cpp|cxx|i|ii|h|hh|hpp|hxx)$/",
           "group": "navigation@90"
         },
         {
@@ -170,6 +174,11 @@
     "configuration": {
       "title": "Clang Toolkit Prototype",
       "properties": {
+        "ctk.symbolNavigation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan opened C/C++ files in the background, underline resolved symbol references, and navigate to definitions across all indexed projects."
+        },
         "ctk.server": {
           "type": "string",
           "default": "",

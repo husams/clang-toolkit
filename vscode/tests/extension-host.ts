@@ -9,6 +9,7 @@ import {
 } from "../src/actions.js";
 import type { Prototype } from "../src/extension.js";
 import { predefined, scriptAction } from "../src/model.js";
+import { testSymbolNavigation } from "./symbol-navigation-host.js";
 export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension<Prototype>(
     "clang-toolkit.clang-toolkit-prototype",
@@ -34,6 +35,10 @@ export async function run(): Promise<void> {
     extension.isActive,
     "opening C++ must activate the extension without a CTK command",
   );
+  if (process.env.CTK_TEST_NAVIGATION_ONLY === "1") {
+    await testSymbolNavigation(extension.extensionUri, folder.uri);
+    return;
+  }
   const api = extension.exports;
   const astState = () => api.details.snapshot();
   async function automaticFile(

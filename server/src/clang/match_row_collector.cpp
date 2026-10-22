@@ -68,8 +68,9 @@ void RowCollector::emit(const CapturedBindingState::Row &nodes,
       result_.message = "native binding serialization failed";
       return;
     }
-    if (serialized)
-      serialization::helpers::write_match_metadata(node, value, context);
+    // Native location wrappers (TypeLoc and NestedNameSpecifierLoc) retain
+    // source ranges even when their payload is reported as unsupported.
+    serialization::helpers::write_match_metadata(node, value, context);
     value.add_supported_scopes(ctk::match::v1::BINDING_MATCH_SCOPE_CHILDREN);
     if (target_parent && candidate_node &&
         ((target_node && name == "target") ||

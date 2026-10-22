@@ -22,7 +22,7 @@ export async function registerLanguage(
     vscode.Uri.joinPath(context.extensionUri, "dist/worker.js").fsPath,
   );
   const watcher = vscode.workspace.createFileSystemWatcher(
-    "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx,json,yaml,yml}",
+    "**/*.{c,cc,cpp,cxx,i,ii,h,hh,hpp,hxx,json,yaml,yml}",
   );
   const invalidate = () => classes.invalidate();
   context.subscriptions.push(

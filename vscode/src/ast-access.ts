@@ -57,7 +57,7 @@ export class SearchAstAccess implements vscode.Disposable {
     private readonly retained = false,
   ) {
     const watcher = vscode.workspace.createFileSystemWatcher(
-      "**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}",
+      "**/*.{c,cc,cpp,cxx,i,ii,h,hh,hpp,hxx}",
     );
     const reset = (reason?: "edit") => {
       this.reset();
@@ -100,7 +100,7 @@ export class SearchAstAccess implements vscode.Disposable {
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (
           e.contentChanges.length &&
-          /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(e.document.uri.fsPath)
+          /\.(?:c|cc|cpp|cxx|i|ii|h|hh|hpp|hxx)$/i.test(e.document.uri.fsPath)
         )
           void changed(e.document.uri);
       }),
@@ -227,7 +227,7 @@ export class SearchAstAccess implements vscode.Disposable {
           (doc) =>
             !doc.isClosed &&
             doc.isDirty &&
-            /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
+            /\.(?:c|cc|cpp|cxx|i|ii|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
         )
       )
         throw new Error("Save C++ changes before inspecting search results.");
@@ -278,7 +278,7 @@ export class SearchAstAccess implements vscode.Disposable {
       (doc) =>
         !doc.isClosed &&
         doc.uri.scheme === "file" &&
-        /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
+        /\.(?:c|cc|cpp|cxx|i|ii|h|hh|hpp|hxx)$/i.test(doc.uri.fsPath),
     );
     if (!this.retained && documents.some((doc) => doc.isDirty))
       throw new Error("Save C++ changes before inspecting AST nodes.");

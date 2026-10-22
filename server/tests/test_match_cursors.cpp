@@ -1952,3 +1952,34 @@ TEST(CursorPublication, CloseReclaimsCapacityAndInvalidTargetsAreRejected) {
 }
 } // namespace
 } // namespace ctk::application
+
+namespace ctk::application {
+namespace {
+TEST_F(MatchCursors, LocationWrappersKeepReferenceSourceMetadata) {
+  std::ofstream(directory.path() / "fixture.cc")
+      << "namespace vendor { struct Item {}; }\n"
+         "vendor::Item value;\n";
+  for (const auto &query : {
+           "typeLoc(isExpansionInMainFile(), loc(qualType(hasDeclaration("
+           "namedDecl().bind(\"declaration\"))))).bind(\"reference\")",
+           "nestedNameSpecifierLoc(loc(nestedNameSpecifier(specifiesNamespace("
+           "namespaceDecl().bind(\"declaration\"))))).bind(\"reference\")"}) {
+    const auto result = run(file(query));
+    ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
+    ASSERT_GT(result.response.results_size(), 0);
+    for (const auto &row : result.response.results()) {
+      const auto &reference = row.bindings().at("reference");
+      EXPECT_TRUE(reference.has_unsupported());
+      EXPECT_TRUE(reference.location().valid());
+      EXPECT_EQ(reference.location().line(), 2);
+      const auto &range = reference.range();
+      EXPECT_TRUE(range.expansion_begin().valid());
+      EXPECT_TRUE(range.expansion_end_exclusive().valid());
+      EXPECT_GT(range.expansion_end_exclusive().offset(),
+                range.expansion_begin().offset());
+      EXPECT_FALSE(row.bindings().at("declaration").symbol_identity().empty());
+    }
+  }
+}
+} // namespace
+} // namespace ctk::application

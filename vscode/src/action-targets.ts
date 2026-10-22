@@ -1,4 +1,4 @@
-const SOURCE = /\.(?:c|cc|cpp|cxx)$/i;
+const SOURCE = /\.(?:c|cc|cpp|cxx|i|ii)$/i;
 const HEADER = /\.(?:h|hh|hpp|hxx)$/i;
 const EXCLUDED = new Set([
   ".git",

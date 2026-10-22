@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import * as vscode from "vscode";
 
-const cxx = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i;
+const cxx = /\.(?:c|cc|cpp|cxx|i|ii|h|hh|hpp|hxx)$/i;
 
 export class FileInspectionSync implements vscode.Disposable {
   private document: vscode.TextDocument | undefined;

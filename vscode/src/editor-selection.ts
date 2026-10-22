@@ -32,7 +32,7 @@ export class EditorSelectionSync implements vscode.Disposable {
       if (
         !vscode.workspace.isTrusted ||
         document.uri.scheme !== "file" ||
-        !/\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(document.uri.fsPath)
+        !/\.(?:c|cc|cpp|cxx|i|ii|h|hh|hpp|hxx)$/i.test(document.uri.fsPath)
       )
         return;
       const source = selectedSource(
