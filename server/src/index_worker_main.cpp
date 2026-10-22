@@ -2,11 +2,16 @@
 #include "ctk/platform/index_worker.hpp"
 #include "index/v1/index_service.pb.h"
 #include <algorithm>
+#include <cstdio>
+#include <exception>
 #include <fstream>
 #include <iostream>
+#include <system_error>
 
-int main(int argc, char **argv) {
-  std::string request_path, result_path;
+namespace {
+int run_worker(int argc, char **argv, std::string &result_path,
+               ctk::index::v1::IndexWorkerResponse &response) {
+  std::string request_path;
   for (int i = 1; i < argc; ++i) {
     const std::string arg(argv[i]);
     if (arg == "--request" && i + 1 < argc)
@@ -18,12 +23,23 @@ int main(int argc, char **argv) {
   }
   if (request_path.empty() || result_path.empty())
     return 2;
-  ctk::platform::lower_index_worker_priority();
+  try {
+    ctk::platform::lower_index_worker_priority();
+  } catch (const std::system_error &error) {
+    if (error.code() != std::errc::operation_not_permitted &&
+        error.code() != std::errc::permission_denied)
+      throw;
+    // Scheduling policy is optional; denied priority changes must not prevent
+    // an otherwise valid extraction from running.
+    std::cerr << "ctk-index-worker: warning: " << error.what()
+              << "; continuing with inherited priority\n";
+  }
   ctk::index::v1::IndexWorkerRequest request;
   std::ifstream request_file(request_path, std::ios::binary);
-  if (!request.ParseFromIstream(&request_file))
+  if (!request_file || !request.ParseFromIstream(&request_file)) {
+    response.set_error("cannot read index worker request: " + request_path);
     return 3;
-  ctk::index::v1::IndexWorkerResponse response;
+  }
   if (request.list_translation_units()) {
     std::vector<ctk::clang_layer::ProjectIndexCommand> units;
     std::string error;
@@ -38,9 +54,6 @@ int main(int argc, char **argv) {
         unit->add_compile_arguments(argument);
       unit->set_compile_context(command.serialized_context);
     }
-    std::ofstream result_file(result_path, std::ios::binary | std::ios::trunc);
-    if (!response.SerializeToOstream(&result_file))
-      return 4;
     return response.success() ? 0 : 1;
   }
   ctk::clang_layer::ProjectIndexExtraction extraction;
@@ -75,8 +88,64 @@ int main(int argc, char **argv) {
     output->set_byte_offset(symbol.byte_offset);
     output->set_is_definition(symbol.is_definition);
   }
-  std::ofstream result_file(result_path, std::ios::binary | std::ios::trunc);
-  if (!response.SerializeToOstream(&result_file))
-    return 4;
   return response.success() ? 0 : 1;
+}
+
+int worker_main(int argc, char **argv) {
+  std::string result_path;
+  ctk::index::v1::IndexWorkerResponse response;
+  int exit_code = 1;
+  try {
+    exit_code = run_worker(argc, argv, result_path, response);
+  } catch (const std::exception &error) {
+    response.Clear();
+    response.set_error(std::string("index worker failed: ") + error.what());
+  } catch (...) {
+    response.Clear();
+    response.set_error("index worker failed: unknown exception");
+  }
+  if (!response.error().empty())
+    std::cerr << "ctk-index-worker: " << response.error() << '\n';
+  if (result_path.empty())
+    return exit_code;
+  try {
+    std::ofstream result_file(result_path, std::ios::binary | std::ios::trunc);
+    if (!result_file) {
+      std::cerr << "ctk-index-worker: cannot open result file: " << result_path
+                << '\n';
+      return 4;
+    }
+    const bool serialized = response.SerializeToOstream(&result_file);
+    result_file.close();
+    if (!serialized || !result_file) {
+      std::cerr << "ctk-index-worker: cannot write result file: " << result_path
+                << '\n';
+      return 4;
+    }
+  } catch (const std::exception &error) {
+    std::cerr << "ctk-index-worker: cannot write result file: " << result_path
+              << ": " << error.what() << '\n';
+    return 4;
+  } catch (...) {
+    std::cerr << "ctk-index-worker: cannot write result file: " << result_path
+              << ": unknown exception\n";
+    return 4;
+  }
+  return exit_code;
+}
+} // namespace
+
+int main(int argc, char **argv) {
+  try {
+    return worker_main(argc, argv);
+  } catch (const std::exception &error) {
+    // Error reporting can itself fail (for example, after allocation failure).
+    // Keep the executable boundary non-throwing even in that case.
+    std::fprintf(stderr, "ctk-index-worker: failed to report error: %s\n",
+                 error.what());
+  } catch (...) {
+    std::fputs("ctk-index-worker: failed to report unknown exception\n",
+               stderr);
+  }
+  return 1;
 }

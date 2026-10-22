@@ -223,6 +223,23 @@ TEST_F(IndexWorkerProcess, PrioritySetupPreservesResourceLimitsAndLargeFiles) {
   EXPECT_EQ(WEXITSTATUS(status), 0);
 }
 
+TEST_F(IndexWorkerProcess, PreservesWorkerStderrForStartupDiagnostics) {
+  testing::internal::CaptureStderr();
+  IndexWorker worker(script("echo 'worker startup diagnostic' >&2\nexit 7\n"),
+                     root / "request", root / "result");
+  std::optional<int> result;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!(result = worker.poll()) &&
+         std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  worker.stop();
+  const auto diagnostic = testing::internal::GetCapturedStderr();
+  ASSERT_TRUE(result);
+  EXPECT_EQ(*result, 7);
+  EXPECT_NE(diagnostic.find("worker startup diagnostic"), std::string::npos);
+}
+
 TEST_F(IndexWorkerProcess, ReturnsExitStatusAndReapsCompletedProcess) {
   IndexWorker worker(script("exit 7\n"), root / "request", root / "result");
   std::optional<int> result;
