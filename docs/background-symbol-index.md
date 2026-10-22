@@ -154,6 +154,12 @@ SQLite database. Workers run at lower priority, and
 foreground activity takes priority over background admission. Status and control
 calls do not perform project scans or parse source files.
 
+If the operating environment denies a worker priority change, extraction
+continues at the inherited priority and writes a warning to stderr. Worker
+exceptions produce a failed response with the original error instead of
+aborting. The parent preserves worker stderr so startup diagnostics and failures
+to write a response remain visible in server logs.
+
 CTK imposes no worker output-file size, CPU-time, elapsed-time, or per-worker
 memory cutoff. Workers inherit the operating environment's resource limits.
 Long-running extraction remains cancellable and yields to foreground activity.

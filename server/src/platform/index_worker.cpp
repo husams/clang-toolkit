@@ -416,10 +416,8 @@ void IndexWorker::start(const std::filesystem::path &executable,
   if (!error)
     error = posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO,
                                              "/dev/null", O_WRONLY, 0);
-  // Diagnostics travel through the result file, not the server log pipe.
-  if (!error)
-    error = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO,
-                                             "/dev/null", O_WRONLY, 0);
+  // Inherit stderr so startup warnings, fatal signals and failures to write a
+  // structured response remain visible in the server's diagnostic output.
   pid_t child = -1;
   if (!error)
     error = posix_spawn(&child, program.c_str(), &actions, &attributes,

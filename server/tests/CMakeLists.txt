@@ -39,7 +39,7 @@ if(CTK_WITH_CLANG)
     ../src/clang/serialization/testing/test_cached_values.cpp
     test_temporary_directory.cpp test_project_facade.cpp test_snapshot_closure.cpp)
   if(CTK_BUILD_NETWORK)
-    target_sources(ctk_tests PRIVATE test_match_cursors.cpp test_resource_management.cpp test_ast_traversal.cpp test_cfg.cpp test_variable_flow.cpp test_call_graph.cpp test_project_index_service.cpp test_project_index_names.cpp)
+    target_sources(ctk_tests PRIVATE test_match_cursors.cpp test_resource_management.cpp test_ast_traversal.cpp test_cfg.cpp test_variable_flow.cpp test_call_graph.cpp test_project_index_service.cpp test_project_index_names.cpp test_index_worker_main.cpp)
     target_compile_definitions(ctk_tests PRIVATE CTK_TEST_INDEX_WORKER="$<TARGET_FILE:ctk-index-worker>")
     add_dependencies(ctk_tests ctk-index-worker)
   endif()
