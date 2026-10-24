@@ -1,5 +1,28 @@
 # Console pipelines, tuples, and filters
 
+## Finding help
+
+Bare `help` lists pipeline syntax and every built-in callable. Use `help pipes`
+for the `|` operator, `help callables` for the catalog, and `help NAME` or `NAME?`
+for a callable's purpose, ordinary and pipeline signatures, arguments, defaults,
+and self-contained examples. All help works without a server in both plain and
+workspace consoles. For example:
+
+```ctk
+help pipes
+help map
+first?
+help sort_by
+help let
+```
+
+The [complete callable reference](console-command-reference.md#built-in-callable-reference)
+is generated from the same help metadata. It includes every registered filter
+below plus `len(value)`, `range(stop)` / `range(start, stop, step)`, and
+`ctk(command)` for dynamic console commands. Use `help let` for user-defined
+runnables, inline and trailing callbacks, defaults, public labels and closures;
+`help NAME` shows the active local definition when a built-in is shadowed.
+
 ## List selection
 
 Compiled and tree consoles support negative indexing and Python-style slices:

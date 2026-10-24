@@ -505,17 +505,7 @@ class PrototypeCompleter(Completer):
             r"(?:^|[;\n])\s*help\s+([A-Za-z_][A-Za-z0-9_]*)?$", before
         )
         if help_query is not None:
-            partial_topic = help_query.group(1) or ""
-            suffix = re.match(r"[A-Za-z_0-9]+", document.text_after_cursor)
-            word_suffix = suffix[0] if suffix else ""
-            if "pipes".startswith(partial_topic) and "pipes".endswith(word_suffix):
-                text = "pipes"[:-len(word_suffix)] if word_suffix else "pipes"
-                yield Completion(
-                    text,
-                    start_position=-len(partial_topic),
-                    display="pipes",
-                    display_meta="console pipeline syntax and filter stages",
-                )
+            # The shared help catalog includes pipes and callable topics.
             return
         pipeline_partial = _pipeline_stage_partial(before, cursor, tokens)
         pipeline_arguments = _pipeline_call_arguments(before, cursor, tokens)

@@ -64,10 +64,15 @@ help [command [subcommand]]
 command [subcommand]?
 help MATCHER
 MATCHER?
+help pipes
+help callables
+help CALLABLE
+CALLABLE?
 ```
 
 - No topic: list commands. A topic: purpose, usage, arguments and examples.
 - Clang matcher help includes category, overloads, argument/node types and reference examples; help matchers lists the categories.
+- help pipes explains |; help callables lists built-ins. help map / first? provide ordinary and pipeline usage, defaults and executable examples. Active local callable definitions take precedence.
 - Help and errors always appear in the console, regardless of output routing.
 - Every syntax error explains the expected input and marks its location with a caret; unknown commands suggest help.
 
@@ -78,6 +83,9 @@ help cursor open
 cursor open?
 help functionDecl
 hasName?
+help pipes
+help map
+first?
 ```
 
 ## matchers
@@ -1358,6 +1366,162 @@ exit
 exit
 ```
 
+## pipes
+
+Compose console values with |, callable stages and tuple-aware callbacks.
+
+```text
+VALUE | stage(arguments)
+VALUE | stage
+VALUE | stage public_label value
+let result = VALUE | stage(arguments) | stage(arguments)
+```
+
+- Each stage receives the value on its left as its first argument; its result flows to the next stage.
+- A bare stage such as values | first calls first(values); values | first(2) calls first(values, 2). Empty parentheses are also accepted.
+- Stages run eagerly, once each, left to right. Pipes bind below arithmetic, Boolean and conditional expressions; on error handles the whole preceding pipeline. take(n) cannot undo work in earlier stages.
+- A leading | continues the preceding expression on the next line without outer parentheses; semicolons end statements.
+- While typing, Ctrl+Enter or Option+Enter (macOS) inserts a line for the next | stage. Enter runs complete input at its end; Ctrl+J runs the whole draft. A trailing | requests another line automatically.
+- Built-in stages include collection, tuple, string, and formatting helpers. Their signatures are shown by stage completion.
+- List selection: xs[-1] selects the last item; xs[start:stop:step] returns a shallow list with an exclusive stop. Bounds clamp; step must be nonzero. xs[::-1] reverses order.
+- first and last return one item or null for empty input. first(n) and last(n) return up to n items as lists; counts must be nonnegative integers. last(n) keeps original order; reverse returns a new reversed list.
+- Selection requires finite lists, tuples or retained collection views; it preserves native handles and selects only available rows. Inspect the originating query for completeness.
+- A callback with two or more required parameters receives tuple elements as separate arguments. A unary callback receives the whole item, even when it has optional parameters.
+- Use an explicit tuple parameter pattern such as `(name, count)` when a callback should receive the tuple as one value.
+- User-defined console runnables can be pipeline stages. Label arguments use their public name, for example `5 | multiply by 6`; ordinary calls such as `multiply(5, by = 6)` remain available.
+- Callbacks accept inline (item) EXPR, the older (item) = EXPR, or a trailing block: values | map { (item) item * 2 }. A trailing block supplies the last positional argument before named options, as in sort_by(reverse = true) { (item) item }.
+- Console runnables support defaults, closures, public labels and aliases; local definitions can shadow built-ins. help NAME and NAME? show the active definition. See help let for full callable syntax.
+- These features belong to the compiled and tree consoles; legacy mode, native server scripts and server-side batch bodies retain their separate language.
+- Use help NAME or NAME? for each callable's arguments, defaults and runnable examples.
+- map(value, callback): Transform each item with a callback.
+- filter(value, callback): Keep items whose callback returns a boolean true.
+- take(value, n): Return at most the first n items without over-reading.
+- drop(value, n): Skip the first n items and return the rest.
+- split_by(value, separator): Split a string on an exact nonempty separator, preserving empty parts.
+- join(value, separator=''): Join a sequence of strings with a separator.
+- keys(value): Return mapping keys in iteration order.
+- values(value): Return mapping values in iteration order.
+- entries(value): Return ordered records with key and value fields.
+- pick(value, *names): Select named fields from a mapping while preserving requested order.
+- flatten(value): Flatten one level of nested lists and tuples.
+- zip(value, other, *others, strict=true): Combine sequences, requiring equal lengths unless strict is false.
+- zip_longest(value, other, *others, fill=null): Combine sequences and fill missing positions.
+- enumerate(value, start=0): Pair each item with its integer index.
+- length(value): Count string code points, mapping fields, or collection items.
+- first(value, n=omitted): Return the first item or null; first(n) returns up to n items as a list.
+- last(value, n=omitted): Return the last item or null; last(n) returns up to n items in original order.
+- reverse(value): Return items in reverse order.
+- unique(value): Keep the first item for each supported typed key.
+- unique_by(value, callback): Keep the first item for each callback-produced key.
+- sort(value, reverse=false): Stably sort homogeneous finite numbers or strings.
+- sort_by(value, callback, reverse=false): Stably sort by homogeneous finite numeric or string callback keys.
+- to_list(value): Materialize an iterable as a bounded list.
+- to_tuple(value): Materialize an iterable as a bounded tuple.
+- upper(value): Convert a string to uppercase.
+- lower(value): Convert a string to lowercase.
+- casefold(value): Apply Unicode case folding to a string.
+- camel_case(value): Convert words to lower camel case.
+- pascal_case(value): Convert words to PascalCase.
+- snake_case(value): Convert words to snake_case.
+- kebab_case(value): Convert words to kebab-case.
+- trim(value): Remove leading and trailing whitespace.
+- trim_start(value): Remove leading whitespace.
+- trim_end(value): Remove trailing whitespace.
+- replace(value, old, new, count=-1): Replace non-overlapping occurrences of a nonempty string.
+- strip_prefix(value, prefix): Remove an exact leading prefix when present.
+- strip_suffix(value, suffix): Remove an exact trailing suffix when present.
+- starts_with(value, part): Test whether a string starts with an exact substring.
+- ends_with(value, part): Test whether a string ends with an exact substring.
+- contains(value, part): Test whether a string contains an exact substring.
+- pretty(value, indent=2, depth=8, max_items=100): Render a bounded human-readable preview.
+- json(value, indent=0): Render strict JSON for ordinary serializable values.
+- table(value, columns, max_items=100): Render selected top-level record fields as a bounded table.
+- len(value): Count a sized value locally.
+- range(*args): Construct a bounded integer sequence with an exclusive stop.
+- ctk(command): Evaluate a console command string in the current session.
+
+```text
+print [1, 2, 3] | filter((item) item > 1) | map((item) item * 10)
+print [("a", 2), ("b", 1)] | sort_by((name, count) count) | json
+print [1, 2, 3] | first(2)
+print [] | first
+print [1, 2] | map { (item) item * 2 }
+let my_filter(input, amount) = input + amount; print 10 | my_filter(1)
+let multiply(value, by: factor) = value * factor; 5 | multiply by 6
+let selected = [3, 1, 2]
+    | sort
+    | first(2); print selected
+```
+
+## callables
+
+List all built-in callables and discover help for active user definitions.
+
+```text
+help callables
+help NAME
+NAME?
+help let
+help pipes
+```
+
+- All built-ins below are available locally in compiled/tree consoles, without a server. Native query commands and imported helper libraries have separate help.
+- Use help let for runnable definitions, defaults, labels, inline callbacks, aliases and closures. help NAME displays a local definition when it shadows a built-in.
+- Use help NAME or NAME? for each callable's arguments, defaults and runnable examples.
+- map(value, callback): Transform each item with a callback.
+- filter(value, callback): Keep items whose callback returns a boolean true.
+- take(value, n): Return at most the first n items without over-reading.
+- drop(value, n): Skip the first n items and return the rest.
+- split_by(value, separator): Split a string on an exact nonempty separator, preserving empty parts.
+- join(value, separator=''): Join a sequence of strings with a separator.
+- keys(value): Return mapping keys in iteration order.
+- values(value): Return mapping values in iteration order.
+- entries(value): Return ordered records with key and value fields.
+- pick(value, *names): Select named fields from a mapping while preserving requested order.
+- flatten(value): Flatten one level of nested lists and tuples.
+- zip(value, other, *others, strict=true): Combine sequences, requiring equal lengths unless strict is false.
+- zip_longest(value, other, *others, fill=null): Combine sequences and fill missing positions.
+- enumerate(value, start=0): Pair each item with its integer index.
+- length(value): Count string code points, mapping fields, or collection items.
+- first(value, n=omitted): Return the first item or null; first(n) returns up to n items as a list.
+- last(value, n=omitted): Return the last item or null; last(n) returns up to n items in original order.
+- reverse(value): Return items in reverse order.
+- unique(value): Keep the first item for each supported typed key.
+- unique_by(value, callback): Keep the first item for each callback-produced key.
+- sort(value, reverse=false): Stably sort homogeneous finite numbers or strings.
+- sort_by(value, callback, reverse=false): Stably sort by homogeneous finite numeric or string callback keys.
+- to_list(value): Materialize an iterable as a bounded list.
+- to_tuple(value): Materialize an iterable as a bounded tuple.
+- upper(value): Convert a string to uppercase.
+- lower(value): Convert a string to lowercase.
+- casefold(value): Apply Unicode case folding to a string.
+- camel_case(value): Convert words to lower camel case.
+- pascal_case(value): Convert words to PascalCase.
+- snake_case(value): Convert words to snake_case.
+- kebab_case(value): Convert words to kebab-case.
+- trim(value): Remove leading and trailing whitespace.
+- trim_start(value): Remove leading whitespace.
+- trim_end(value): Remove trailing whitespace.
+- replace(value, old, new, count=-1): Replace non-overlapping occurrences of a nonempty string.
+- strip_prefix(value, prefix): Remove an exact leading prefix when present.
+- strip_suffix(value, suffix): Remove an exact trailing suffix when present.
+- starts_with(value, part): Test whether a string starts with an exact substring.
+- ends_with(value, part): Test whether a string ends with an exact substring.
+- contains(value, part): Test whether a string contains an exact substring.
+- pretty(value, indent=2, depth=8, max_items=100): Render a bounded human-readable preview.
+- json(value, indent=0): Render strict JSON for ordinary serializable values.
+- table(value, columns, max_items=100): Render selected top-level record fields as a bounded table.
+- len(value): Count a sized value locally.
+- range(*args): Construct a bounded integer sequence with an exclusive stop.
+- ctk(command): Evaluate a console command string in the current session.
+
+```text
+help map
+first?
+help let
+help pipes
+```
+
 ## add extra_arg
 
 Append one compiler argument to the project configuration.
@@ -2150,4 +2314,1252 @@ MATCHER?
 help functionDecl
 help hasName
 help hasDescendant
+```
+
+## Built-in callable reference
+
+These callables run locally in compiled/tree consoles. `VALUE | stage(...)`
+supplies the first argument; ordinary calls supply it explicitly. Each example
+below is self-contained and works without a server.
+
+## Built-in callable: map
+
+Transform each item with a callback.
+
+### Usage
+
+```ctk
+map(value, callback)
+```
+
+```ctk
+VALUE | map(callback)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- callback(item) returns the replacement value; the result is a list.
+- callback may be a named runnable, inline (item) EXPR, or trailing { (item) EXPR } block. Two or more required parameters unpack tuple items; a unary callback receives the whole item. See help pipes and help let.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [1, 2, 3] | map((item) item * 2)
+```
+
+```ctk
+print [1, 2] | map { (item) item + 1 }
+```
+
+## Built-in callable: filter
+
+Keep items whose callback returns a boolean true.
+
+### Usage
+
+```ctk
+filter(value, callback)
+```
+
+```ctk
+VALUE | filter(callback)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- callback(item) must return bool; keep true items in input order.
+- callback may be a named runnable, inline (item) EXPR, or trailing { (item) EXPR } block. Two or more required parameters unpack tuple items; a unary callback receives the whole item. See help pipes and help let.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [1, 2, 3] | filter((item) item > 1)
+```
+
+## Built-in callable: take
+
+Return at most the first n items without over-reading.
+
+### Usage
+
+```ctk
+take(value, n)
+```
+
+```ctk
+VALUE | take(n)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- n is a nonnegative integer; return up to n items as a list.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [10, 20, 30] | take(2)
+```
+
+## Built-in callable: drop
+
+Skip the first n items and return the rest.
+
+### Usage
+
+```ctk
+drop(value, n)
+```
+
+```ctk
+VALUE | drop(n)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- n is a nonnegative integer; return the remaining items as a list.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [10, 20, 30] | drop(1)
+```
+
+## Built-in callable: split_by
+
+Split a string on an exact nonempty separator, preserving empty parts.
+
+### Usage
+
+```ctk
+split_by(value, separator)
+```
+
+```ctk
+VALUE | split_by(separator)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value is a string; separator is a nonempty exact string. Empty parts are preserved.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "a,,b" | split_by(",")
+```
+
+## Built-in callable: join
+
+Join a sequence of strings with a separator.
+
+### Usage
+
+```ctk
+join(value, separator='')
+```
+
+```ctk
+VALUE | join(separator='')
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value is a collection of strings; separator defaults to an empty string.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print ["a", "b"] | join("-")
+```
+
+## Built-in callable: keys
+
+Return mapping keys in iteration order.
+
+### Usage
+
+```ctk
+keys(value)
+```
+
+```ctk
+VALUE | keys()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value is a mapping; return its keys as a list in iteration order.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print {name: "Widget", count: 2} | keys
+```
+
+## Built-in callable: values
+
+Return mapping values in iteration order.
+
+### Usage
+
+```ctk
+values(value)
+```
+
+```ctk
+VALUE | values()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value is a mapping; return its values as a list in iteration order.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print {name: "Widget", count: 2} | values
+```
+
+## Built-in callable: entries
+
+Return ordered records with key and value fields.
+
+### Usage
+
+```ctk
+entries(value)
+```
+
+```ctk
+VALUE | entries()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value is a mapping; return a list of {key, value} records, not tuples.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print {name: "Widget"} | entries
+```
+
+## Built-in callable: pick
+
+Select named fields from a mapping while preserving requested order.
+
+### Usage
+
+```ctk
+pick(value, *names)
+```
+
+```ctk
+VALUE | pick(*names)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value is a mapping; pass distinct string field names positionally, in the desired order. No names returns an empty mapping; missing fields fail.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print {name: "Widget", count: 2, skip: true} | pick("name", "count")
+```
+
+## Built-in callable: flatten
+
+Flatten one level of nested lists and tuples.
+
+### Usage
+
+```ctk
+flatten(value)
+```
+
+```ctk
+VALUE | flatten()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Flatten one level of list, tuple or supported query-result children into a list; strings, mappings and scalar children fail.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [[1, 2], [], [3]] | flatten
+```
+
+## Built-in callable: zip
+
+Combine sequences, requiring equal lengths unless strict is false.
+
+### Usage
+
+```ctk
+zip(value, other, *others, strict=true)
+```
+
+```ctk
+VALUE | zip(other, *others, strict=true)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- other and any additional positional collections are paired with value into tuples. strict defaults to true (equal lengths); strict = false stops at the shortest.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print ["a", "b"] | zip([1, 2])
+```
+
+```ctk
+print [1] | zip([2, 3], strict = false)
+```
+
+## Built-in callable: zip_longest
+
+Combine sequences and fill missing positions.
+
+### Usage
+
+```ctk
+zip_longest(value, other, *others, fill=null)
+```
+
+```ctk
+VALUE | zip_longest(other, *others, fill=null)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Pair value, other and additional positional collections into tuples; fill defaults to null for missing positions.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [1] | zip_longest([2, 3], fill = 0)
+```
+
+## Built-in callable: enumerate
+
+Pair each item with its integer index.
+
+### Usage
+
+```ctk
+enumerate(value, start=0)
+```
+
+```ctk
+VALUE | enumerate(start=0)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Return (index, item) tuples; start is an integer, default 0.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print ["a", "b"] | enumerate(start = 1)
+```
+
+## Built-in callable: length
+
+Count string code points, mapping fields, or collection items.
+
+### Usage
+
+```ctk
+length(value)
+```
+
+```ctk
+VALUE | length()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Count string code points, mapping fields or collection items; return an integer.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [10, 20, 30] | length
+```
+
+## Built-in callable: first
+
+Return the first item or null; first(n) returns up to n items as a list.
+
+### Usage
+
+```ctk
+first(value, n=omitted)
+```
+
+```ctk
+VALUE | first(n=omitted)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a finite list, tuple or supported retained collection view. Selection preserves the selected objects and native handles.
+- Omit n to return one item, or null for empty input. n is a nonnegative integer; first(n) always returns a list of up to n items. omitted is a signature marker, not a value to pass.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [10, 20, 30] | first
+```
+
+```ctk
+print [10, 20, 30] | first(2)
+```
+
+```ctk
+print [] | first
+```
+
+```ctk
+print first([10, 20], 1)
+```
+
+## Built-in callable: last
+
+Return the last item or null; last(n) returns up to n items in original order.
+
+### Usage
+
+```ctk
+last(value, n=omitted)
+```
+
+```ctk
+VALUE | last(n=omitted)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a finite list, tuple or supported retained collection view. Selection preserves the selected objects and native handles.
+- Omit n to return one item, or null for empty input. n is a nonnegative integer; last(n) always returns a list in original order. last(0) returns []. omitted is a signature marker, not a value to pass.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [10, 20, 30] | last
+```
+
+```ctk
+print [10, 20, 30] | last(2)
+```
+
+```ctk
+print [] | last
+```
+
+```ctk
+print [10, 20] | last(0)
+```
+
+## Built-in callable: reverse
+
+Return items in reverse order.
+
+### Usage
+
+```ctk
+reverse(value)
+```
+
+```ctk
+VALUE | reverse()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Return a new reversed list from a finite list, tuple or supported collection view; do not mutate the input.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [10, 20, 30] | reverse
+```
+
+## Built-in callable: unique
+
+Keep the first item for each supported typed key.
+
+### Usage
+
+```ctk
+unique(value)
+```
+
+```ctk
+VALUE | unique()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Keep the first item for each typed scalar/tuple key; arbitrary record keys are unsupported.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [2, 1, 2] | unique
+```
+
+## Built-in callable: unique_by
+
+Keep the first item for each callback-produced key.
+
+### Usage
+
+```ctk
+unique_by(value, callback)
+```
+
+```ctk
+VALUE | unique_by(callback)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- callback(item) supplies a typed scalar/tuple key; keep the first item for each key.
+- callback may be a named runnable, inline (item) EXPR, or trailing { (item) EXPR } block. Two or more required parameters unpack tuple items; a unary callback receives the whole item. See help pipes and help let.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [{name: "a", n: 1}, {name: "a", n: 2}] | unique_by((item) item.name)
+```
+
+## Built-in callable: sort
+
+Stably sort homogeneous finite numbers or strings.
+
+### Usage
+
+```ctk
+sort(value, reverse=false)
+```
+
+```ctk
+VALUE | sort(reverse=false)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Items must be homogeneous finite numbers or strings. Sorting is stable; reverse is bool, default false.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [3, 1, 2] | sort(reverse = true)
+```
+
+## Built-in callable: sort_by
+
+Stably sort by homogeneous finite numeric or string callback keys.
+
+### Usage
+
+```ctk
+sort_by(value, callback, reverse=false)
+```
+
+```ctk
+VALUE | sort_by(callback, reverse=false)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- callback(item) supplies homogeneous finite numeric or string keys. Sorting is stable; reverse is bool, default false.
+- callback may be a named runnable, inline (item) EXPR, or trailing { (item) EXPR } block. Two or more required parameters unpack tuple items; a unary callback receives the whole item. See help pipes and help let.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [("a", 2), ("b", 1)] | sort_by((name, count) count)
+```
+
+## Built-in callable: to_list
+
+Materialize an iterable as a bounded list.
+
+### Usage
+
+```ctk
+to_list(value)
+```
+
+```ctk
+VALUE | to_list()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Materialize a collection as a new bounded list; strings and mappings are not collection inputs.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print (1, 2) | to_list
+```
+
+## Built-in callable: to_tuple
+
+Materialize an iterable as a bounded tuple.
+
+### Usage
+
+```ctk
+to_tuple(value)
+```
+
+```ctk
+VALUE | to_tuple()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Materialize a collection as an immutable bounded tuple; strings and mappings are not collection inputs.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [1, 2] | to_tuple
+```
+
+## Built-in callable: upper
+
+Convert a string to uppercase.
+
+### Usage
+
+```ctk
+upper(value)
+```
+
+```ctk
+VALUE | upper()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; return its Unicode uppercase form.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "Widget" | upper
+```
+
+## Built-in callable: lower
+
+Convert a string to lowercase.
+
+### Usage
+
+```ctk
+lower(value)
+```
+
+```ctk
+VALUE | lower()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; return its Unicode lowercase form.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "Widget" | lower
+```
+
+## Built-in callable: casefold
+
+Apply Unicode case folding to a string.
+
+### Usage
+
+```ctk
+casefold(value)
+```
+
+```ctk
+VALUE | casefold()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; return its Unicode case-folded form for caseless comparisons.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "Straße" | casefold
+```
+
+## Built-in callable: camel_case
+
+Convert words to lower camel case.
+
+### Usage
+
+```ctk
+camel_case(value)
+```
+
+```ctk
+VALUE | camel_case()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; split words and return lower camel case.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "hello_world" | camel_case
+```
+
+## Built-in callable: pascal_case
+
+Convert words to PascalCase.
+
+### Usage
+
+```ctk
+pascal_case(value)
+```
+
+```ctk
+VALUE | pascal_case()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; split words and return PascalCase.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "hello_world" | pascal_case
+```
+
+## Built-in callable: snake_case
+
+Convert words to snake_case.
+
+### Usage
+
+```ctk
+snake_case(value)
+```
+
+```ctk
+VALUE | snake_case()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; split words and join lowercase words with underscores.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "HelloWorld" | snake_case
+```
+
+## Built-in callable: kebab_case
+
+Convert words to kebab-case.
+
+### Usage
+
+```ctk
+kebab_case(value)
+```
+
+```ctk
+VALUE | kebab_case()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; split words and join lowercase words with hyphens.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "HelloWorld" | kebab_case
+```
+
+## Built-in callable: trim
+
+Remove leading and trailing whitespace.
+
+### Usage
+
+```ctk
+trim(value)
+```
+
+```ctk
+VALUE | trim()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; remove whitespace from both ends.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "  hello  " | trim
+```
+
+## Built-in callable: trim_start
+
+Remove leading whitespace.
+
+### Usage
+
+```ctk
+trim_start(value)
+```
+
+```ctk
+VALUE | trim_start()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; remove leading whitespace only.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "  hello  " | trim_start
+```
+
+## Built-in callable: trim_end
+
+Remove trailing whitespace.
+
+### Usage
+
+```ctk
+trim_end(value)
+```
+
+```ctk
+VALUE | trim_end()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value must be a string; remove trailing whitespace only.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "  hello  " | trim_end
+```
+
+## Built-in callable: replace
+
+Replace non-overlapping occurrences of a nonempty string.
+
+### Usage
+
+```ctk
+replace(value, old, new, count=-1)
+```
+
+```ctk
+VALUE | replace(old, new, count=-1)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value, old and new are strings; old must be nonempty. count is an integer, default -1 (all occurrences); 0 replaces none.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "a-a-a" | replace("a", "b", count = 2)
+```
+
+## Built-in callable: strip_prefix
+
+Remove an exact leading prefix when present.
+
+### Usage
+
+```ctk
+strip_prefix(value, prefix)
+```
+
+```ctk
+VALUE | strip_prefix(prefix)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value and prefix are strings; remove one exact prefix if present, otherwise keep value.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "class_Widget" | strip_prefix("class_")
+```
+
+## Built-in callable: strip_suffix
+
+Remove an exact trailing suffix when present.
+
+### Usage
+
+```ctk
+strip_suffix(value, suffix)
+```
+
+```ctk
+VALUE | strip_suffix(suffix)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value and suffix are strings; remove one exact suffix if present, otherwise keep value.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "widget.cpp" | strip_suffix(".cpp")
+```
+
+## Built-in callable: starts_with
+
+Test whether a string starts with an exact substring.
+
+### Usage
+
+```ctk
+starts_with(value, part)
+```
+
+```ctk
+VALUE | starts_with(part)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value and part are strings; return bool using an exact, case-sensitive prefix test.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "widget.cpp" | starts_with("widget")
+```
+
+## Built-in callable: ends_with
+
+Test whether a string ends with an exact substring.
+
+### Usage
+
+```ctk
+ends_with(value, part)
+```
+
+```ctk
+VALUE | ends_with(part)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value and part are strings; return bool using an exact, case-sensitive suffix test.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "widget.cpp" | ends_with(".cpp")
+```
+
+## Built-in callable: contains
+
+Test whether a string contains an exact substring.
+
+### Usage
+
+```ctk
+contains(value, part)
+```
+
+```ctk
+VALUE | contains(part)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- value and part are strings; return bool using an exact, case-sensitive substring test.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print "widget.cpp" | contains("get")
+```
+
+## Built-in callable: pretty
+
+Render a bounded human-readable preview.
+
+### Usage
+
+```ctk
+pretty(value, indent=2, depth=8, max_items=100)
+```
+
+```ctk
+VALUE | pretty(indent=2, depth=8, max_items=100)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Return a preview string; indent=2 and depth=8 accept integers 0..8; max_items=100 is nonnegative. Output is capped at 20000 characters with omission markers.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [1, 2] | pretty(indent = 0)
+```
+
+## Built-in callable: json
+
+Render strict JSON for ordinary serializable values.
+
+### Usage
+
+```ctk
+json(value, indent=0)
+```
+
+```ctk
+VALUE | json(indent=0)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Return complete strict JSON text for ordinary serializable values; indent=0 (compact), valid 0..8. Limits: 1 MiB UTF-8, depth 32, 10000 items and the active execution budget. Project native rows to ordinary records first.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print {name: "Widget", count: 2} | json(indent = 2)
+```
+
+## Built-in callable: table
+
+Render selected top-level record fields as a bounded table.
+
+### Usage
+
+```ctk
+table(value, columns, max_items=100)
+```
+
+```ctk
+VALUE | table(columns, max_items=100)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- columns is a required nonempty list/tuple of unique top-level string field names (at most 50). max_items=100 is nonnegative, capped at 100; output is a preview string capped at 20000 characters. Rows must be ordinary dictionaries; missing fields fail.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print [{name: "Widget", count: 2}] | table(columns = ["name", "count"])
+```
+
+## Built-in callable: len
+
+Count a sized value locally.
+
+### Usage
+
+```ctk
+len(value)
+```
+
+```ctk
+VALUE | len()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Count a sized value such as a string, list, tuple or mapping; the result cannot exceed the active item limit. Use length for collection iteration.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print len([10, 20])
+```
+
+```ctk
+print [10, 20] | len
+```
+
+## Built-in callable: range
+
+Construct a bounded integer sequence with an exclusive stop.
+
+### Usage
+
+```ctk
+range(*args)
+```
+
+```ctk
+VALUE | range(*args)
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- Use range(stop), range(start, stop), or range(start, stop, step), with positional signed 64-bit integers only. start defaults to 0, step to 1; stop is exclusive and step must be nonzero. Return a bounded list of integers.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print range(1, 6, 2)
+```
+
+```ctk
+print 3 | range
+```
+
+## Built-in callable: ctk
+
+Evaluate a console command string in the current session.
+
+### Usage
+
+```ctk
+ctk(command)
+```
+
+```ctk
+VALUE | ctk()
+```
+
+### Arguments, options and defaults
+
+- Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.
+- command is a console command string evaluated in the current session. Native operations need a server; help is offline. Dynamic commands are unsupported inside foreground batches.
+- Collection work and callbacks share execution and item budgets.
+
+### Examples
+
+```ctk
+print ctk("help first")
 ```

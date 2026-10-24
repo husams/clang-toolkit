@@ -17,6 +17,12 @@ class CallableHelp:
     pipeline_signature: str | None = None
     pipeline_parameters: tuple[str, ...] = ()
     parameter_names: tuple[str, ...] = ()
+    arguments: tuple[str, ...] = ()
+    examples: tuple[str, ...] = ()
+
+    @property
+    def usage(self) -> tuple[str, ...]:
+        return (self.signature, f"VALUE | {self.pipeline_signature}")
 
     @property
     def hint(self) -> str:
@@ -40,6 +46,19 @@ class CallableHelp:
             )
             return f"{fence}ctk\n{source}\n{fence}"
 
+        if self.origin == "built-in":
+            return "\n\n".join(
+                (
+                    f"## {self.name}",
+                    self.definition,
+                    "### Usage",
+                    *(code(source) for source in self.usage),
+                    "### Arguments, options and defaults",
+                    "\n".join(f"- {note}" for note in self.arguments),
+                    "### Examples",
+                    *(code(source) for source in self.examples),
+                )
+            )
         return "\n\n".join(
             (
                 f"## {self.name}",
@@ -52,6 +71,18 @@ class CallableHelp:
         )
 
     def plain(self) -> str:
+        if self.origin == "built-in":
+            return "\n".join(
+                (
+                    f"{self.name}: {self.definition}",
+                    "Usage:",
+                    *(f"  {source}" for source in self.usage),
+                    "Arguments, options and defaults:",
+                    *(f"  {note}" for note in self.arguments),
+                    "Examples:",
+                    *(f"  {source}" for source in self.examples),
+                )
+            )
         label = "User defined expression." if self.origin == "user defined" else self.definition
         return (
             f"{self.name}: {label}\nSignature:\n  {self.signature}"
@@ -109,6 +140,8 @@ def describe_callable(name: str, value: Any) -> CallableHelp:
 
 
 def _python_signature(function: Any, *, skip_first: bool = False) -> str:
+    from clang_toolkit.cli.runtime.prototype.filters import _MISSING
+
     parameters = tuple(signature(function).parameters.values())
     if skip_first:
         parameters = parameters[1:]
@@ -126,7 +159,7 @@ def _python_signature(function: Any, *, skip_first: bool = False) -> str:
         part = _parameter_display(parameter)
         if parameter.default is not Parameter.empty:
             default = parameter.default
-            literal = "null" if default is None else (
+            literal = "omitted" if default is _MISSING else "null" if default is None else (
                 "true" if default is True else "false" if default is False else repr(default)
             )
             part += "=" + literal
@@ -184,24 +217,51 @@ def builtin_callable_help(functions: dict[str, Any] | None = None) -> dict[str, 
         FILTER_DESCRIPTIONS,
         FILTER_SIGNATURES,
     )
+    from clang_toolkit.cli.callable_reference import BUILTIN_ARGUMENTS, BUILTIN_EXAMPLES
 
     result: dict[str, CallableHelp] = {}
-    for name, registered in FILTER_SIGNATURES.items():
+    signatures = {
+        **FILTER_SIGNATURES,
+        "len": "(value)",
+        "range": "(*args)",
+        "ctk": "(command)",
+    }
+    descriptions = {
+        **FILTER_DESCRIPTIONS,
+        "len": "Count a sized value locally.",
+        "range": "Construct a bounded integer sequence with an exclusive stop.",
+        "ctk": "Evaluate a console command string in the current session.",
+    }
+    for name, registered in signatures.items():
         function = (functions or {}).get(name)
-        rendered = registered
+        actual_parameters = ()
         if function is not None:
             try:
                 actual_parameters = tuple(signature(function).parameters.values())
-                rendered = _python_signature(function)
             except (TypeError, ValueError):
-                actual_parameters = ()
+                pass
+        # Registered signatures use CTK literals and a stable 'omitted' marker,
+        # rather than leaking Python's private first/last sentinel address.
+        inner = registered[1:-1]
+        pipeline = registered if inner.startswith("*") else f"({inner.partition(', ')[2]})"
+        arguments = [
+            "Compiled/tree console callable; VALUE | stage(...) supplies VALUE as the first argument. Ordinary calls supply it explicitly.",
+            *BUILTIN_ARGUMENTS[name],
+        ]
+        if name in {"map", "filter", "sort_by", "unique_by"}:
+            arguments.append(
+                "callback may be a named runnable, inline (item) EXPR, or trailing { (item) EXPR } block. Two or more required parameters unpack tuple items; a unary callback receives the whole item. See help pipes and help let."
+            )
+        arguments.append("Collection work and callbacks share execution and item budgets.")
         result[name] = CallableHelp(
-            name,
-            f"{name}{rendered}",
-            FILTER_DESCRIPTIONS[name],
-            "built-in",
-            f"{name}{_python_signature(function, skip_first=True)}" if function is not None else f"{name}{registered}",
-            _parameter_names(actual_parameters[1:]) if function is not None else (),
-            _parameter_names(actual_parameters) if function is not None else (),
+            name=name,
+            signature=f"{name}{registered}",
+            definition=descriptions[name],
+            origin="built-in",
+            pipeline_signature=f"{name}{pipeline}",
+            pipeline_parameters=_parameter_names(actual_parameters[1:]),
+            parameter_names=_parameter_names(actual_parameters),
+            arguments=tuple(arguments),
+            examples=BUILTIN_EXAMPLES[name],
         )
     return result
