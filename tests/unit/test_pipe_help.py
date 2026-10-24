@@ -132,6 +132,51 @@ def test_builtin_alias_signatures_do_not_expose_selection_sentinels(runtime):
         assert "object at 0x" not in submit(runtime, f"help {name}")
 
 
+@pytest.mark.parametrize("topic", ["help", "help callables", "help pipes"])
+def test_normal_help_hides_imported_private_helpers(runtime, tmp_path, topic):
+    from clang_toolkit.cli.runtime.prototype.help import render_help_markdown
+
+    (tmp_path / "helpers.ctk").write_text(
+        "let _ctkBase(edge) = edge + 1\n"
+        "let __private(edge) = edge + 2\n"
+        "let directBases(edge) = _ctkBase(edge)\n"
+        "let visibleBase = _ctkBase\n"
+    )
+    submit(runtime, 'import "helpers.ctk"')
+    statement = parser().parse(topic).children[0]
+    for output in (
+        submit(runtime, topic),
+        render_help_markdown(statement, runtime.callable_help()),
+    ):
+        assert "_ctkBase" not in output
+        assert "__private" not in output
+        assert "directBases(edge)" in output
+        assert "visibleBase(edge)" in output
+        assert "map(value, callback)" in output
+    assert submit(runtime, "print directBases(4)") == "5"
+    assert submit(runtime, "print visibleBase(4)") == "5"
+    assert "_ctkBase(edge)" in submit(runtime, "help _ctkBase")
+    assert submit(runtime, "help _ctkBase") == submit(runtime, "_ctkBase?")
+
+
+def test_help_suggestions_hide_private_helpers_until_explicitly_requested(runtime):
+    submit(runtime, "let _ctkBase(edge) = edge; let directBases(edge) = _ctkBase(edge)")
+    for completer in (
+        ReplCompleter(function_help=runtime.callable_help),
+        PrototypeCompleter(ReplCompleter(function_help=runtime.callable_help)),
+    ):
+        normal = {
+            item.text for item in completer.get_completions(Document("help "), None)
+        }
+        assert "_ctkBase" not in normal
+        assert "directBases" in normal
+        explicit = {
+            item.text
+            for item in completer.get_completions(Document("help _ctk"), None)
+        }
+        assert "_ctkBase" in explicit
+
+
 def test_pipe_overview_examples_are_self_contained(runtime):
     for source in help_entry("pipes").examples:
         submit(runtime, source)

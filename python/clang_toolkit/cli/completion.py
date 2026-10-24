@@ -145,6 +145,8 @@ class ReplCompleter(Completer):
                 for name, entry in functions_help.items():
                     if name in topics:
                         continue
+                    if name.startswith("_") and not context.partial.startswith("_"):
+                        continue
                     if name.startswith(context.partial) and name.endswith(
                         context.word_suffix
                     ):
