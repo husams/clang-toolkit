@@ -145,7 +145,7 @@ class ReplCompleter(Completer):
                 for name, entry in functions_help.items():
                     if name in topics:
                         continue
-                    if name.startswith("_") and not context.partial.startswith("_"):
+                    if name.startswith("_"):
                         continue
                     if name.startswith(context.partial) and name.endswith(
                         context.word_suffix
@@ -162,13 +162,18 @@ class ReplCompleter(Completer):
         current_references = (
             self._references() if callable(self._references) else self._references
         )
-        references = {
-            name: tuple(dict.fromkeys(fields))
-            for name, fields in (current_references or {}).items()
-        }
         functions = tuple(self._matcher_functions() if callable(self._matcher_functions)
                           else self._matcher_functions or ())
         functions = tuple(dict.fromkeys((*functions, *functions_help)))
+        private_functions = {name for name in functions if name.startswith("_")}
+        # Callables also appear in the bindings map; keep them from resurfacing
+        # as reference suggestions while retaining ordinary underscore data.
+        references = {
+            name: tuple(dict.fromkeys(fields))
+            for name, fields in (current_references or {}).items()
+            if name not in private_functions
+        }
+        functions = tuple(name for name in functions if name not in private_functions)
         for item in candidates_for(
             context,
             accepted,
