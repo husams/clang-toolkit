@@ -349,7 +349,8 @@ def run_workspace(
         # must bring its final result into view without a scroll shortcut.
         os.write(master, b"\x1b[<64;20;5M\x1b[5~")
         read_until("Scroll paused")
-        os.write(master, b"\x1b[17~")  # F6 returns to the editor.
+        # Cycle backward from results to input; forward F6 visits open panels.
+        os.write(master, b"\x1b[17;2~")  # Shift+F6.
         commands.append(
             'print "' + "\\n".join(f"scroll result {i}" for i in range(60))
             + '\\nLATEST_OUTPUT_VISIBLE"'
