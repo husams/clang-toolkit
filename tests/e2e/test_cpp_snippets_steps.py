@@ -115,10 +115,11 @@ def verify_first(first_command_count: int) -> None:
 def console(snippet_project: SnippetProject, engine: str) -> subprocess.CompletedProcess[str]:
     project = snippet_project
     options = {"file": str(project.named_source), "includes": ["template_type.hpp"]}
+    reference_prefix = "$" if engine == "legacy" else ""
     source = (
         f"let tree = parse cpp`{BODY}` using {json.dumps(options)}\n"
-        f"let calls = match {CALL_QUERY} in tree\n"
-        "print calls.length\n"
+        f"let calls = match {CALL_QUERY} in {reference_prefix}tree\n"
+        f"print {reference_prefix}calls.length\n"
     )
     return subprocess.run(
         [sys.executable, "-m", "clang_toolkit.cli.app", "--server", project.server.endpoint,
