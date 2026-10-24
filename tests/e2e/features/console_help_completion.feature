@@ -23,6 +23,16 @@ Feature: Detailed help and contextual filesystem completion
       | hasName?         | hasName(StringRef     |
       | help hasDescendant | hasDescendant(Matcher |
       | help matchers    | registered matcher names |
+      | help pipes       | VALUE \| stage(arguments) |
+      | pipes?           | VALUE \| stage(arguments) |
+      | help callables   | help NAME             |
+      | help map         | map(value, callback)  |
+      | first?           | first(value, n=omitted) |
+      | help last        | last(value, n=omitted) |
+      | help sort_by     | sort_by(value, callback |
+      | help len         | len(value)            |
+      | range?           | range(*args)          |
+      | help ctk         | ctk(command)          |
 
   Scenario Outline: Matcher completion shows its category
     Given an offline interactive console

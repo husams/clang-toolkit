@@ -167,7 +167,7 @@ def render_help(statement: Any, functions: Mapping[str, CallableHelp] | None = N
         return _PLAIN.rstrip()
     if topic in {"let", "runnables", "functions"}:
         return _LET.rstrip()
-    result = legacy_help.render_help(statement).replace("$", "")
+    result = legacy_help.render_help(statement, functions).replace("$", "")
     if not topic:
         result += "\nUse help loops for iteration, help let for runnable bodies, help predicates for value tests and help pipes for pipelines."
     return result
@@ -183,7 +183,7 @@ def render_help_markdown(statement: Any, functions: Mapping[str, CallableHelp] |
         return _MARKDOWN.rstrip()
     if topic in {"let", "runnables", "functions"}:
         return "# Let values and runnable bodies\n\n```text\n" + _LET.rstrip() + "\n```"
-    result = legacy_help.render_help_markdown(statement).replace("$", "")
+    result = legacy_help.render_help_markdown(statement, functions).replace("$", "")
     if not topic:
         result += "\n\nUse `help loops` for iteration, `help let` for runnable bodies, `help predicates` for value tests and `help pipes` for pipelines."
     return result

@@ -105,9 +105,12 @@ def test_runtime_help_stays_visible_when_values_are_redirected(tmp_path):
 
 
 def test_every_help_example_is_accepted_by_the_current_grammar():
+    from clang_toolkit.cli.runtime.prototype.repl_language import parser as console_parser
+
     for entry in COMMAND_HELP.values():
         for example in entry.examples:
-            assert parser().parse(example), (entry.topic, example)
+            grammar = console_parser() if entry.topic == "pipes" else parser()
+            assert grammar.parse(example), (entry.topic, example)
 
 
 def test_checked_in_reference_matches_console_entries():

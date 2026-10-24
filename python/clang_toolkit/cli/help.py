@@ -54,24 +54,26 @@ MATCHER_HELP = {
 }
 
 
-def help_entry(topic: str) -> CommandHelp | None:
+def help_entry(topic: str, functions: Mapping[str, CallableHelp] | None = None) -> CommandHelp | None:
     """Resolve commands and all bundled Clang matchers through one help surface."""
-    entry = (
-        _PIPE_ENTRY if topic == "pipes"
-        else COMMAND_HELP.get(topic) or MATCHER_HELP.get(topic)
-    )
+    from clang_toolkit.cli.callable_help import builtin_callable_help
+
+    entry = COMMAND_HELP.get(topic) or MATCHER_HELP.get(topic)
+    if entry is None:
+        item = builtin_callable_help().get(topic)
+        if item is not None:
+            entry = CommandHelp(topic, item.definition, item.usage, item.arguments, item.examples)
     if entry is None and topic.startswith("matchers "):
         entry = MATCHER_HELP.get(topic.removeprefix("matchers "))
-    if entry is not None and topic == "pipes":
-        from clang_toolkit.cli.callable_help import builtin_callable_help
-
+    if entry is not None and topic in {"pipes", "callables"}:
         entry = replace(
             entry,
             arguments=(
                 *entry.arguments,
+                "Use help NAME or NAME? for each callable's arguments, defaults and runnable examples.",
                 *(
-                    f"{item.signature}: {item.definition}"
-                    for item in builtin_callable_help().values()
+                    f"{item.signature}: {item.summary}"
+                    for item in _callable_entries(functions).values()
                 ),
             ),
         )
@@ -107,14 +109,15 @@ _ENTRIES = (
     CommandHelp(
         "help",
         "Explain console syntax locally; no server is required.",
-        ("help [command [subcommand]]", "command [subcommand]?", "help MATCHER", "MATCHER?"),
+        ("help [command [subcommand]]", "command [subcommand]?", "help MATCHER", "MATCHER?", "help pipes", "help callables", "help CALLABLE", "CALLABLE?"),
         (
             "No topic: list commands. A topic: purpose, usage, arguments and examples.",
             "Clang matcher help includes category, overloads, argument/node types and reference examples; help matchers lists the categories.",
+            "help pipes explains |; help callables lists built-ins. help map / first? provide ordinary and pipeline usage, defaults and executable examples. Active local callable definitions take precedence.",
             "Help and errors always appear in the console, regardless of output routing.",
             "Every syntax error explains the expected input and marks its location with a caret; unknown commands suggest help.",
         ),
-        ("help match", "parse?", "help cursor open", "cursor open?", "help functionDecl", "hasName?"),
+        ("help match", "parse?", "help cursor open", "cursor open?", "help functionDecl", "hasName?", "help pipes", "help map", "first?"),
     ),
     CommandHelp(
         "matchers", "Browse all bundled Clang matchers by category.",
@@ -1071,14 +1074,17 @@ _ENTRIES = (
 
 _PIPE_ENTRY = CommandHelp(
     "pipes",
-    "Compose console values with callable stages and tuple-aware callbacks.",
+    "Compose console values with |, callable stages and tuple-aware callbacks.",
     (
         "VALUE | stage(arguments)",
+        "VALUE | stage",
         "VALUE | stage public_label value",
         "let result = VALUE | stage(arguments) | stage(arguments)",
     ),
     (
         "Each stage receives the value on its left as its first argument; its result flows to the next stage.",
+        "A bare stage such as values | first calls first(values); values | first(2) calls first(values, 2). Empty parentheses are also accepted.",
+        "Stages run eagerly, once each, left to right. Pipes bind below arithmetic, Boolean and conditional expressions; on error handles the whole preceding pipeline. take(n) cannot undo work in earlier stages.",
         "A leading | continues the preceding expression on the next line without outer parentheses; semicolons end statements.",
         "While typing, Ctrl+Enter or Option+Enter (macOS) inserts a line for the next | stage. Enter runs complete input at its end; Ctrl+J runs the whole draft. A trailing | requests another line automatically.",
         "Built-in stages include collection, tuple, string, and formatting helpers. Their signatures are shown by stage completion.",
@@ -1088,18 +1094,31 @@ _PIPE_ENTRY = CommandHelp(
         "A callback with two or more required parameters receives tuple elements as separate arguments. A unary callback receives the whole item, even when it has optional parameters.",
         "Use an explicit tuple parameter pattern such as `(name, count)` when a callback should receive the tuple as one value.",
         "User-defined console runnables can be pipeline stages. Label arguments use their public name, for example `5 | multiply by 6`; ordinary calls such as `multiply(5, by = 6)` remain available.",
-        "These features belong to the compiled interactive console; native server scripts and server-side batch bodies retain their separate language.",
+        "Callbacks accept inline (item) EXPR, the older (item) = EXPR, or a trailing block: values | map { (item) item * 2 }. A trailing block supplies the last positional argument before named options, as in sort_by(reverse = true) { (item) item }.",
+        "Console runnables support defaults, closures, public labels and aliases; local definitions can shadow built-ins. help NAME and NAME? show the active definition. See help let for full callable syntax.",
+        "These features belong to the compiled and tree consoles; legacy mode, native server scripts and server-side batch bodies retain their separate language.",
     ),
     (
-        "let positive = pairs | filter((name, count) count > 0)",
-        "let ordered = pairs | sort_by((name, count) count, reverse = true)",
-        "print values | json(indent = 2)",
-        "print 10 | my_filter(1)",
+        "print [1, 2, 3] | filter((item) item > 1) | map((item) item * 10)",
+        'print [("a", 2), ("b", 1)] | sort_by((name, count) count) | json',
+        "print [1, 2, 3] | first(2)",
+        "print [] | first",
+        "print [1, 2] | map { (item) item * 2 }",
+        "let my_filter(input, amount) = input + amount; print 10 | my_filter(1)",
         "let multiply(value, by: factor) = value * factor; 5 | multiply by 6",
+        "let selected = [3, 1, 2]\n    | sort\n    | first(2); print selected",
     ),
 )
 
 COMMAND_HELP = {entry.topic: entry for entry in _ENTRIES}
+COMMAND_HELP["pipes"] = _PIPE_ENTRY
+COMMAND_HELP["callables"] = CommandHelp(
+    "callables", "List all built-in callables and discover help for active user definitions.",
+    ("help callables", "help NAME", "NAME?", "help let", "help pipes"),
+    ("All built-ins below are available locally in compiled/tree consoles, without a server. Native query commands and imported helper libraries have separate help.",
+     "Use help let for runnable definitions, defaults, labels, inline callbacks, aliases and closures. help NAME displays a local definition when it shadows a built-in."),
+    ("help map", "first?", "help let", "help pipes"),
+)
 COMMAND_HELP["add extra_arg"] = replace(COMMAND_HELP["add"], topic="add extra_arg")
 
 for setting, usage, detail, example in (
@@ -1186,7 +1205,7 @@ COMMAND_HELP["set user"] = replace(
         line.replace("set ", "set user ", 1) for line in COMMAND_HELP["set"].examples
     ),
 )
-COMMANDS = tuple(entry.topic for entry in _ENTRIES if " " not in entry.topic)
+COMMANDS = tuple(topic for topic in COMMAND_HELP if " " not in topic)
 for _kind in ("node", "narrowing", "traversal"):
     COMMAND_HELP[f"matchers {_kind}"] = CommandHelp(
         f"matchers {_kind}", f"Browse {_kind} matchers from LLVM {LLVM_VERSION}.",
@@ -1226,8 +1245,11 @@ def render_help_markdown(statement: Tree, functions: Mapping[str, CallableHelp] 
             )
             + "\n\nUse `help COMMAND` or `COMMAND?` for usage and examples."
             + "\n\nUse `help matchers` to browse Clang matchers, or `help functionDecl` / `functionDecl?` for one matcher."
+            + "\n\n### Built-in callables and active definitions (compiled/tree consoles)\n\n"
+            + "\n".join(f"- `{item.signature}` — {item.summary}" for item in _callable_entries(functions).values())
+            + "\n\nUse `help pipes` for `|`, `help callables` for the catalog, and `help NAME` / `NAME?` for arguments and examples."
         )
-    entry = help_entry(topic)
+    entry = help_entry(topic, functions)
     if entry is None:
         return render_help(statement)
     return "\n\n".join(
@@ -1265,11 +1287,20 @@ def render_help(statement: Tree, functions: Mapping[str, CallableHelp] | None = 
         lines.append(
             "Examples using PATH need an existing source file; CURSOR_ID placeholders come from cursor open."
         )
+        lines.append("Built-in callables and active definitions (compiled/tree consoles):")
+        lines.extend(f"  {item.signature}: {item.summary}" for item in _callable_entries(functions).values())
+        lines.append("Use help pipes for |, help callables for the catalog, and help NAME / NAME? for arguments and examples.")
         return "\n".join(lines)
-    entry = help_entry(topic)
+    entry = help_entry(topic, functions)
     if entry is None:
         return f"unknown help topic: {topic}; use help to list commands"
     return entry.render()
+
+
+def _callable_entries(functions: Mapping[str, CallableHelp] | None = None) -> dict[str, CallableHelp]:
+    from clang_toolkit.cli.callable_help import builtin_callable_help
+
+    return {**builtin_callable_help(), **(functions or {})}
 
 
 def reference_markdown() -> str:
@@ -1292,9 +1323,8 @@ def reference_markdown() -> str:
         "place of `CURSOR_ID`; the console opens its query session automatically.",
         "",
     ]
-    for entry in COMMAND_HELP.values():
-        if entry.topic == "pipes":
-            continue
+    for topic in COMMAND_HELP:
+        entry = help_entry(topic)
         sections.extend(
             (
                 f"## {entry.topic}",
@@ -1309,4 +1339,10 @@ def reference_markdown() -> str:
         )
         sections.extend(f"- {argument}" for argument in entry.arguments)
         sections.extend(("", "```text", *entry.examples, "```", ""))
+    sections.extend(("## Built-in callable reference", "",
+                     "These callables run locally in compiled/tree consoles. `VALUE | stage(...)`",
+                     "supplies the first argument; ordinary calls supply it explicitly. Each example",
+                     "below is self-contained and works without a server.", ""))
+    for item in _callable_entries().values():
+        sections.extend((item.markdown().replace(f"## {item.name}\n", f"## Built-in callable: {item.name}\n", 1), ""))
     return "\n".join(sections)

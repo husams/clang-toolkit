@@ -114,6 +114,9 @@ class ReplCompleter(Completer):
             return
         functions_help = self.function_descriptions()
         if "HELP_WORD" in accepted:
+            from clang_toolkit.cli.callable_help import builtin_callable_help
+
+            functions_help = {**builtin_callable_help(), **functions_help}
             prefix = " ".join(str(token) for token in context.prefix_tokens[1:])
             topics = {**COMMAND_HELP, **MATCHER_HELP}
             if prefix == "matchers":
@@ -140,6 +143,8 @@ class ReplCompleter(Completer):
                     )
             if not prefix:
                 for name, entry in functions_help.items():
+                    if name in topics:
+                        continue
                     if name.startswith(context.partial) and name.endswith(
                         context.word_suffix
                     ):
