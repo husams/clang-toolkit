@@ -1300,7 +1300,11 @@ def render_help(statement: Tree, functions: Mapping[str, CallableHelp] | None = 
 def _callable_entries(functions: Mapping[str, CallableHelp] | None = None) -> dict[str, CallableHelp]:
     from clang_toolkit.cli.callable_help import builtin_callable_help
 
-    return {**builtin_callable_help(), **(functions or {})}
+    return {
+        name: entry
+        for name, entry in {**builtin_callable_help(), **(functions or {})}.items()
+        if not name.startswith("_")
+    }
 
 
 def reference_markdown() -> str:

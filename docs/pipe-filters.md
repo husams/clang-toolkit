@@ -23,6 +23,9 @@ below plus `len(value)`, `range(stop)` / `range(start, stop, step)`, and
 runnables, inline and trailing callbacks, defaults, public labels and closures;
 `help NAME` shows the active local definition when a built-in is shadowed.
 
+Names beginning with `_` are private: normal help catalogs and default help
+suggestions omit them. Explicit `help _name` or `_name?` still shows their help.
+
 ## List selection
 
 Compiled and tree consoles support negative indexing and Python-style slices:
