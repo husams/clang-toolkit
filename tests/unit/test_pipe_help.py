@@ -159,7 +159,7 @@ def test_normal_help_hides_imported_private_helpers(runtime, tmp_path, topic):
     assert submit(runtime, "help _ctkBase") == submit(runtime, "_ctkBase?")
 
 
-def test_help_suggestions_hide_private_helpers_until_explicitly_requested(runtime):
+def test_help_suggestions_hide_private_helpers_even_with_private_prefix(runtime):
     submit(runtime, "let _ctkBase(edge) = edge; let directBases(edge) = _ctkBase(edge)")
     for completer in (
         ReplCompleter(function_help=runtime.callable_help),
@@ -174,7 +174,7 @@ def test_help_suggestions_hide_private_helpers_until_explicitly_requested(runtim
             item.text
             for item in completer.get_completions(Document("help _ctk"), None)
         }
-        assert "_ctkBase" in explicit
+        assert "_ctkBase" not in explicit
 
 
 def test_pipe_overview_examples_are_self_contained(runtime):

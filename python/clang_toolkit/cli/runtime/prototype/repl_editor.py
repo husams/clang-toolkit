@@ -599,6 +599,8 @@ class PrototypeCompleter(Completer):
                     )
         if pipeline_partial is not None:
             for name in sorted(functions):
+                if name.startswith("_"):
+                    continue
                 text = insertion(name, call=True)
                 if text is None or text in known:
                     continue
@@ -658,6 +660,8 @@ class PrototypeCompleter(Completer):
                         text, start_position=-len(partial), display_meta="binding"
                     )
             for name in sorted(functions):
+                if name.startswith("_"):
+                    continue
                 text = insertion(name, call=True)
                 if text is not None and text not in known:
                     hint = (

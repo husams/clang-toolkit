@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
+import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import to_plain_text
@@ -139,3 +140,84 @@ def test_pipeline_separator_is_highlighted_as_an_operator(tmp_path):
     assert ("class:operator", "|") in fragments
     assert ("class:function", "map") in fragments
     assert TOKEN_STYLES["PIPE"] == "operator"
+
+
+@pytest.mark.parametrize("engine", ["tree", "compiled"])
+def test_private_callables_stay_out_of_expression_and_pipe_suggestions(tmp_path, engine):
+    (tmp_path / "helpers.ctk").write_text(
+        "let _ctkBase(edge, extra = 1) = edge + extra\n"
+        "let __private(edge) = edge\n"
+        "let directBases(edge) = _ctkBase(edge)\n"
+        "let visibleBase = _ctkBase\n"
+        "let _privateData = [1, 2]\n"
+    )
+    runtime = PrototypeRuntime(Mock(), script_engine=engine, cwd=tmp_path, environment={})
+    try:
+        result = dispatch_result(runtime.client, 'import "helpers.ctk"', runtime)
+        assert result.success, result.output
+        base = ReplCompleter(
+            references=runtime.completion_references,
+            matcher_functions=runtime.matcher_function_names,
+            function_help=runtime.callable_help,
+        )
+        completer = PrototypeCompleter(base)
+        for source in (
+            "print _", "print __", "print _ctk", "print $_",
+            "let found = _", "match _", "match recordDecl(_",
+            "print [] | ", "print [] | _", "print [] |\n  _ctk",
+            "help _",
+        ):
+            for adapter in (base, completer):
+                choices = {
+                    item.display_text
+                    for item in adapter.get_completions(Document(source), CompleteEvent())
+                }
+                assert not any("_ctkBase" in name or "__private" in name for name in choices), (
+                    source, choices
+                )
+        for source in ("print d", "print [] | d"):
+            choices = {
+                item.text for item in completer.get_completions(Document(source), CompleteEvent())
+            }
+            assert "directBases(" in choices
+        for source in ("print v", "print [] | v"):
+            choices = {
+                item.text for item in completer.get_completions(Document(source), CompleteEvent())
+            }
+            assert "visibleBase(" in choices
+        # Underscore data bindings and fields keep their normal completion behavior.
+        choices = {
+            item.text for item in completer.get_completions(Document("print _priv"), CompleteEvent())
+        }
+        assert "_privateData" in choices
+        arguments = {
+            item.text for item in completer.get_completions(
+                Document("print 2 | _ctkBase("), CompleteEvent()
+            )
+        }
+        assert arguments == {"extra="}
+        result = dispatch_result(runtime.client, "print 2 | _ctkBase(extra=3)", runtime)
+        assert result.success and result.output == "5"
+        result = dispatch_result(runtime.client, "help _ctkBase", runtime)
+        assert result.success and "_ctkBase(edge, extra = 1)" in result.output
+        assert runtime.client.mock_calls == []
+    finally:
+        runtime.close()
+
+
+def test_private_matcher_without_help_cannot_leak_as_a_reference():
+    base = ReplCompleter(
+        references={"_helper": (), "publicHelper": (), "_data": ("_field",)},
+        matcher_functions=("_helper", "publicHelper"),
+    )
+    for completer in (base, PrototypeCompleter(base)):
+        for source in ("match _", "print $_", "print [] | _"):
+            choices = {
+                item.display_text
+                for item in completer.get_completions(Document(source), CompleteEvent())
+            }
+            assert not any("_helper" in name for name in choices)
+        fields = {
+            item.text for item in completer.get_completions(Document("print $_data._"), CompleteEvent())
+        }
+        assert "_field" in fields

@@ -23,8 +23,9 @@ below plus `len(value)`, `range(stop)` / `range(start, stop, step)`, and
 runnables, inline and trailing callbacks, defaults, public labels and closures;
 `help NAME` shows the active local definition when a built-in is shadowed.
 
-Names beginning with `_` are private: normal help catalogs and default help
-suggestions omit them. Explicit `help _name` or `_name?` still shows their help.
+Callable names beginning with `_` are private: normal help catalogs and
+autocomplete omit them, including pipe stages and help suggestions, even when
+typing an underscore prefix. Explicit calls, `help _name`, and `_name?` still work.
 
 ## List selection
 
