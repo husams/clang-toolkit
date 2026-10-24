@@ -302,13 +302,14 @@ def match_diagnostics(server: RunningServer, class_source: Path) -> tuple[str, s
 
     sdk_error = asyncio.run(run())
     console = subprocess.run(
-        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint],
+        [sys.executable, "-m", "clang_toolkit.cli.app", "--server", server.endpoint,
+         "--script-engine", "legacy", "--continue-on-error"],
         input=f'let tree = parse "{class_source}"\n'
-              f'let empty = match {empty} in tree\n'
-              'print empty.length\n'
-              f'let invalid = match {invalid} in tree\n'
-              f'let valid = match {valid} in tree\n'
-              'print valid.length\nquit\n',
+              f'let empty = match {empty} in $tree\n'
+              'print $empty.length\n'
+              f'let invalid = match {invalid} in $tree\n'
+              f'let valid = match {valid} in $tree\n'
+              'print $valid.length\nquit\n',
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         timeout=30, check=False,
     )
