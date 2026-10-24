@@ -72,7 +72,7 @@ def help_entry(topic: str, functions: Mapping[str, CallableHelp] | None = None) 
                 *entry.arguments,
                 "Use help NAME or NAME? for each callable's arguments, defaults and runnable examples.",
                 *(
-                    f"{item.signature}: {item.definition}"
+                    f"{item.signature}: {item.summary}"
                     for item in _callable_entries(functions).values()
                 ),
             ),
@@ -1246,7 +1246,7 @@ def render_help_markdown(statement: Tree, functions: Mapping[str, CallableHelp] 
             + "\n\nUse `help COMMAND` or `COMMAND?` for usage and examples."
             + "\n\nUse `help matchers` to browse Clang matchers, or `help functionDecl` / `functionDecl?` for one matcher."
             + "\n\n### Built-in callables and active definitions (compiled/tree consoles)\n\n"
-            + "\n".join(f"- `{item.signature}` — {item.definition}" for item in _callable_entries(functions).values())
+            + "\n".join(f"- `{item.signature}` — {item.summary}" for item in _callable_entries(functions).values())
             + "\n\nUse `help pipes` for `|`, `help callables` for the catalog, and `help NAME` / `NAME?` for arguments and examples."
         )
     entry = help_entry(topic, functions)
@@ -1288,7 +1288,7 @@ def render_help(statement: Tree, functions: Mapping[str, CallableHelp] | None = 
             "Examples using PATH need an existing source file; CURSOR_ID placeholders come from cursor open."
         )
         lines.append("Built-in callables and active definitions (compiled/tree consoles):")
-        lines.extend(f"  {item.signature}: {item.definition}" for item in _callable_entries(functions).values())
+        lines.extend(f"  {item.signature}: {item.summary}" for item in _callable_entries(functions).values())
         lines.append("Use help pipes for |, help callables for the catalog, and help NAME / NAME? for arguments and examples.")
         return "\n".join(lines)
     entry = help_entry(topic, functions)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import Mock
+import sys
 
 import pytest
 from prompt_toolkit.document import Document
@@ -16,6 +17,20 @@ from clang_toolkit.cli.language import parser
 from clang_toolkit.cli.runtime.prototype import Context, run_source
 from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
 from clang_toolkit.cli.runtime.prototype.repl_editor import PrototypeCompleter
+
+
+def test_launcher_help_points_to_offline_pipeline_and_callable_reference(
+    monkeypatch, capsys
+):
+    from clang_toolkit.cli.app import prototype_main
+
+    monkeypatch.setattr(sys, "argv", ["ctk", "--help"])
+    with pytest.raises(SystemExit) as stopped:
+        prototype_main()
+    assert stopped.value.code == 0
+    output = capsys.readouterr().out
+    for topic in ("help pipes", "help callables", "help map", "first?"):
+        assert topic in output
 
 
 def test_catalog_covers_every_registered_callable_and_has_no_private_sentinels():
@@ -100,7 +115,10 @@ def test_active_user_definitions_are_listed_and_keep_source_help(runtime):
     submit(runtime, "let scale(value, by: factor = 2) = value * factor")
     assert "scale(value, by: factor = 2)" in submit(runtime, "help")
     assert "scale(value, by: factor = 2)" in submit(runtime, "help callables")
+    assert "value * factor" not in submit(runtime, "help")
+    assert "value * factor" not in submit(runtime, "help callables")
     assert "User defined expression." in submit(runtime, "help scale")
+    assert "value * factor" in submit(runtime, "help scale")
     submit(runtime, "let first(value) = 99")
     assert "let first(value) = 99" in submit(runtime, "first?")
 

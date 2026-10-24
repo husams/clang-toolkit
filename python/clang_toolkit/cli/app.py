@@ -455,7 +455,11 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
             "With a nonterminal stdin and no --query, input runs as a batch script. "
             "Batch commands may be separated by newlines or semicolons; execution "
             "stops at the first failed command unless --continue-on-error is set. "
-            "Run ctk SCRIPT KEY=VALUE ... to pass literal strings through $arg."
+            "Run ctk SCRIPT KEY=VALUE ... to pass literal strings through $arg. "
+            "Offline language reference: ctk -e 'help' lists commands and callables; "
+            "ctk -e 'help pipes' explains | pipelines; ctk -e 'help callables' lists "
+            "all built-ins; ctk -e 'help map' and ctk -e 'first?' show arguments, "
+            "defaults and executable examples."
         ),
     )
     parser.add_argument(

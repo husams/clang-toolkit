@@ -25,6 +25,10 @@ class CallableHelp:
         return (self.signature, f"VALUE | {self.pipeline_signature}")
 
     @property
+    def summary(self) -> str:
+        return "User defined expression." if self.origin == "user defined" else self.definition
+
+    @property
     def hint(self) -> str:
         return f"{self.origin} · {self.signature}"
 
@@ -62,7 +66,7 @@ class CallableHelp:
         return "\n\n".join(
             (
                 f"## {self.name}",
-                "User defined expression." if self.origin == "user defined" else self.definition,
+                self.summary,
                 "### Signature",
                 code(self.signature),
                 "### Definition",
@@ -83,7 +87,7 @@ class CallableHelp:
                     *(f"  {source}" for source in self.examples),
                 )
             )
-        label = "User defined expression." if self.origin == "user defined" else self.definition
+        label = self.summary
         return (
             f"{self.name}: {label}\nSignature:\n  {self.signature}"
             f"\nDefinition:\n{self.definition}"
