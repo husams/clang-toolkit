@@ -352,6 +352,10 @@ public:
     {
       Database db(path, true, !fs::exists(path));
       sqlite3_busy_timeout(db.handle, 2000);
+      // An existing file may not have an index schema yet. Bootstrap only
+      // metadata here; the background worker owns the remaining schema work.
+      db.exec("CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value "
+              "TEXT NOT NULL) WITHOUT ROWID;");
       metadata(db, "project_root", key);
       if (request.has_project_name())
         metadata(db, "project_name", request.project_name());
