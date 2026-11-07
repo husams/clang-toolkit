@@ -32,20 +32,17 @@ The prototype supports one parse of `arg.file`, one bound `functionDecl` or
 `cxxMethodDecl` match, and one projection of `decl_name` or `qualified_name`
 per row. Supported predicates are `isDefinition`, `isExpansionInMainFile`,
 `isImplicit`, `isConst` (methods), `hasName` with a literal, and `unless`.
-The existing CTK parser feeds a local C++ generator by default. The runner
-executes the resulting native code against the local AST.
+By default, `ctk-jit` lowers `.ctk` queries and their row loops directly to LLVM
+IR. The runner uses precompiled helpers to construct the matcher, collect rows,
+and print the selected declaration name. Repeated runs reuse a native object
+keyed by the script, front end, and toolchain. Use `--no-cache` for cold IR JIT.
+The compilation database still supplies the flags for parsing the target.
 
-Use `--llvm-ir` to try the direct LLVM IR backend for `.ctk` scripts.
+Use `--cpp-jit` to select the C++ backend or `--llvm-ir` to select IR explicitly.
 
 ```sh
-uv run ctk-jit run query.ctk --file src/example.cpp --compdb build/ --llvm-ir
+uv run ctk-jit run query.ctk --cpp-jit --no-cache --file src/example.cpp --compdb build/
 ```
-
-This path generates LLVM IR for the query and its row loop and runs it against
-precompiled helpers that construct the Clang matcher, collect rows, and print
-the selected declaration name. Repeated runs reuse a native object keyed by the
-script, front end, and toolchain. Use `--no-cache` to measure cold IR JIT.
-The compilation database still supplies the flags for parsing the target.
 
 To exercise a custom matcher, pass a trusted `.cpp` file to `run`. Include
 `<ctk/jit/runtime.hpp>` and define `void run(ctk::jit::RunContext &ctx)`.
@@ -63,14 +60,8 @@ uv run ctk-jit precompile query.ctk --output query.ctk-bundle
 uv run ctk-jit run --bundle query.ctk-bundle --file src/example.cpp --compdb build/
 ```
 
-For a direct IR bundle, add `--llvm-ir` to the precompile command.
-
-```sh
-uv run ctk-jit precompile query.ctk --llvm-ir --output query.ctk-bundle
-uv run ctk-jit run --bundle query.ctk-bundle --file src/example.cpp --compdb build/
-```
-
-`run --bundle` selects the runtime from the manifest.
+Add `--cpp-jit` to precompile a C++ bundle.
+`run --bundle` selects the backend from the manifest.
 
 Bundles contain a relocatable object and a manifest with the toolchain,
 build input, and object fingerprints. A bundle freezes the script

@@ -147,7 +147,7 @@ def test_jit_runs_ctk_with_project_compile_flags(jit_project: Path) -> None:
         ('functionDecl(hasName("missing"))', "decl_name", "", ""),
     ],
 )
-def test_direct_ir_matches_cold_cpp_jit(
+def test_default_ir_matches_cold_cpp_jit(
     jit_project: Path, matcher: str, projection: str, target_suffix: str, expected: str
 ) -> None:
     with (jit_project / "example.cpp").open("a", encoding="utf-8") as target:
@@ -160,7 +160,7 @@ def test_direct_ir_matches_cold_cpp_jit(
     )
     args = ("run", "query.ctk", *_TARGET, "--no-cache")
     assert _output(jit_project, *args) == expected
-    assert _output(jit_project, *args, "--llvm-ir") == expected
+    assert _output(jit_project, *args, "--cpp-jit") == expected
     assert not (jit_project / "cache").exists()
 
 
@@ -205,7 +205,7 @@ def test_jit_fails_before_execution_on_invalid_target_flags(jit_project: Path) -
 
 
 @pytest.mark.parametrize(
-    ("backend", "object_glob"), [((), "obj-*"), (("--llvm-ir",), "ir-obj-*")]
+    ("backend", "object_glob"), [((), "ir-obj-*"), (("--cpp-jit",), "obj-*")]
 )
 def test_bundle_matches_source_and_reuses_cached_object(
     jit_project: Path, backend: tuple[str, ...], object_glob: str
@@ -251,7 +251,7 @@ def test_bundle_matches_source_and_reuses_cached_object(
 
 
 @pytest.mark.parametrize(
-    ("backend", "object_glob"), [((), "obj-*"), (("--llvm-ir",), "ir-obj-*")]
+    ("backend", "object_glob"), [((), "ir-obj-*"), (("--cpp-jit",), "obj-*")]
 )
 def test_jit_run_reuses_and_refreshes_cached_bundle(
     jit_project: Path, backend: tuple[str, ...], object_glob: str
@@ -290,7 +290,7 @@ def test_warm_ir_skips_lowering(
     capfd: pytest.CaptureFixture[str],
 ) -> None:
     (jit_project / "query.ctk").write_text(QUERY, encoding="utf-8")
-    args = ["run", "query.ctk", *_TARGET, "--llvm-ir"]
+    args = ["run", "query.ctk", *_TARGET]
     assert _output(jit_project, *args) == "add\nsquare\n"
 
     def unexpected_lowering(source: str) -> str:
@@ -353,7 +353,7 @@ else:
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
-    args = ("run", "query.ctk", *_TARGET, "--runner", str(wrapper))
+    args = ("run", "query.ctk", *_TARGET, "--cpp-jit", "--runner", str(wrapper))
     assert _output(jit_project, *args) == "one add\none square\n"
     driver_log.write_text("", encoding="utf-8")
     warm = subprocess.run(

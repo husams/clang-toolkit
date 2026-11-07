@@ -366,7 +366,7 @@ def _native_command(args: argparse.Namespace, runner: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run a CTK script with Clang JIT")
+    parser = argparse.ArgumentParser(description="Run a CTK script with LLVM JIT")
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="run source or a precompiled bundle")
     run.add_argument("script", type=Path, nargs="?")
@@ -382,9 +382,19 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("script", type=Path)
     build.add_argument("--output", "-o", type=Path, required=True)
     for command in (run, build):
-        command.add_argument(
-            "--llvm-ir", action="store_true", help="compile a .ctk script via LLVM IR"
+        backend = command.add_mutually_exclusive_group()
+        backend.add_argument(
+            "--llvm-ir",
+            action="store_true",
+            help="use direct LLVM IR (default for .ctk)",
         )
+        backend.add_argument(
+            "--cpp-jit",
+            dest="llvm_ir",
+            action="store_false",
+            help="use the C++ backend",
+        )
+        command.set_defaults(llvm_ir=None)
         command.add_argument(
             "--runner", type=Path, help="override the native runner executable"
         )
@@ -396,8 +406,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("provide either a script or --bundle")
     if args.llvm_ir and (args.script is None or args.script.suffix != ".ctk"):
         parser.error("--llvm-ir requires a .ctk script")
+    if args.llvm_ir is False and args.script is None:
+        parser.error("--cpp-jit requires a source script")
     if args.script is not None and args.script.suffix not in {".ctk", ".cpp"}:
         parser.error("expected a .ctk script or .cpp extension")
+    if args.llvm_ir is None:
+        args.llvm_ir = args.script is not None and args.script.suffix == ".ctk"
     if args.command == "precompile" and args.output.resolve() == args.script.resolve():
         parser.error("bundle output must differ from the source script")
     runner = args.runner or _runner()
