@@ -32,8 +32,19 @@ The prototype supports one parse of `arg.file`, one bound `functionDecl` or
 `cxxMethodDecl` match, and one projection of `decl_name` or `qualified_name`
 per row. Supported predicates are `isDefinition`, `isExpansionInMainFile`,
 `isImplicit`, `isConst` (methods), `hasName` with a literal, and `unless`.
-The existing CTK parser feeds a local C++ generator. The runner executes the
-resulting native code against the local AST.
+The existing CTK parser feeds a local C++ generator by default. The runner
+executes the resulting native code against the local AST.
+
+Use `--llvm-ir` to try the direct LLVM IR backend for `.ctk` scripts.
+
+```sh
+uv run ctk-jit run query.ctk --file src/example.cpp --compdb build/ --llvm-ir
+```
+
+This path generates LLVM IR for the query and its row loop. ORC compiles it
+against precompiled helpers that construct the Clang matcher, collect rows,
+and print the selected declaration name. This mode compiles the query on every
+run. The compilation database still supplies the flags for parsing the target.
 
 To exercise a custom matcher, pass a trusted `.cpp` file to `run`. Include
 `<ctk/jit/runtime.hpp>` and define `void run(ctk::jit::RunContext &ctx)`.

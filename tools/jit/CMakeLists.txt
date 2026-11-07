@@ -24,7 +24,7 @@ if(APPLE)
   endif()
 endif()
 
-add_executable(ctk-jit-runner main.cpp)
+add_executable(ctk-jit-runner main.cpp ir.cpp)
 target_compile_features(ctk-jit-runner PRIVATE cxx_std_20)
 set_target_properties(ctk-jit-runner PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(ctk-jit-runner PRIVATE include)

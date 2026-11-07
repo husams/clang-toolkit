@@ -25,6 +25,7 @@
 #include <llvm/TargetParser/Triple.h>
 
 #include "ctk/jit/runtime.hpp"
+#include "ir.hpp"
 
 namespace {
 
@@ -163,7 +164,7 @@ llvm::Error run_object(std::unique_ptr<llvm::MemoryBuffer> object,
 }
 
 llvm::Error run(const char *target_path, const char *database_path,
-                const char *source_dir, const char *prelude) {
+                bool ir, const char *source_dir, const char *prelude) {
   if (llvm::InitializeNativeTarget() ||
       llvm::InitializeNativeTargetAsmPrinter())
     return failure("could not initialize LLVM's native target");
@@ -178,6 +179,8 @@ llvm::Error run(const char *target_path, const char *database_path,
   if (!ast)
     return ast.takeError();
 
+  if (ir)
+    return ctk::jit::run_ir((*input)->getBuffer(), (*ast)->getASTContext());
   ctk::jit::RunContext context((*ast)->getASTContext());
   if (source_dir)
     return run_source((*input)->getBuffer(), source_dir, prelude, context);
@@ -193,14 +196,15 @@ int main(int argc, char **argv) {
   }
   const bool source = argc >= 2 && llvm::StringRef(argv[1]) == "source";
   const bool object = argc >= 2 && llvm::StringRef(argv[1]) == "object";
-  if (!(source && (argc == 5 || argc == 6)) && !(object && argc == 4)) {
+  const bool ir = argc >= 2 && llvm::StringRef(argv[1]) == "ir";
+  if (!(source && (argc == 5 || argc == 6)) && !((object || ir) && argc == 4)) {
     llvm::errs()
         << "usage: ctk-jit-runner source FILE COMPDB SCRIPT_DIRECTORY [PCH]\n"
-           "       ctk-jit-runner object FILE COMPDB\n";
+           "       ctk-jit-runner object|ir FILE COMPDB\n";
     return 2;
   }
   try {
-    if (auto error = run(argv[2], argv[3], source ? argv[4] : nullptr,
+    if (auto error = run(argv[2], argv[3], ir, source ? argv[4] : nullptr,
                          argc == 6 ? argv[5] : nullptr)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
       return 1;

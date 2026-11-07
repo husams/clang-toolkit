@@ -128,6 +128,41 @@ def test_jit_runs_ctk_with_project_compile_flags(jit_project: Path) -> None:
     assert not (jit_project / "cache").exists()
 
 
+@pytest.mark.parametrize(
+    ("matcher", "projection", "target_suffix", "expected"),
+    [
+        (
+            "functionDecl(isDefinition(), isExpansionInMainFile(), unless(isImplicit()))",
+            "decl_name",
+            "",
+            "add\nsquare\n",
+        ),
+        (
+            'cxxMethodDecl(isConst(), hasName("::Example::get"))',
+            "qualified_name",
+            "struct Example { int get() const { return 1; } };\n",
+            "Example::get\n",
+        ),
+        ('functionDecl(hasName("missing"))', "decl_name", "", ""),
+    ],
+)
+def test_direct_ir_matches_cold_cpp_jit(
+    jit_project: Path, matcher: str, projection: str, target_suffix: str, expected: str
+) -> None:
+    with (jit_project / "example.cpp").open("a", encoding="utf-8") as target:
+        target.write(target_suffix)
+    (jit_project / "query.ctk").write_text(
+        f"let tree = parse arg.file\n"
+        f'let rows = match {matcher}.bind("f") in tree\n'
+        f"foreach row in rows do {{ print row.f.{projection} }}\n",
+        encoding="utf-8",
+    )
+    args = ("run", "query.ctk", *_TARGET, "--no-cache")
+    assert _output(jit_project, *args) == expected
+    assert _output(jit_project, *args, "--llvm-ir") == expected
+    assert not (jit_project / "cache").exists()
+
+
 def test_jit_can_execute_a_custom_native_matcher(jit_project: Path) -> None:
     (jit_project / "filter.hpp").write_text(
         """\

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import subprocess
@@ -52,6 +53,20 @@ extern "C" void ctk_jit_run_v1(ctk::jit::RunContext *ctx) {
 """
 
 
+@dataclass(frozen=True)
+class Matcher:
+    name: str
+    arguments: tuple[Matcher | str, ...]
+
+
+@dataclass(frozen=True)
+class Query:
+    matcher: Matcher
+    binding: str
+    projection: str
+    match_line: int
+
+
 def _unsupported(node: Node | Tree, message: str) -> ValueError:
     location = node if isinstance(node, Node) else node.meta
     return ValueError(f"line {location.line}, column {location.column}: {message}")
@@ -93,7 +108,7 @@ def _matcher_arguments(matcher: Tree) -> list[Tree | Token | Node]:
     return []
 
 
-def _predicate(node: Tree | Token | Node, context: Tree) -> str:
+def _predicate(node: Tree | Token | Node, context: Tree) -> Matcher:
     if not isinstance(node, Tree) or node.data != "matcher":
         raise _unsupported(context, "expected a supported matcher predicate")
     name = str(node.children[0])
@@ -101,28 +116,28 @@ def _predicate(node: Tree | Token | Node, context: Tree) -> str:
     if any(isinstance(child, Tree) and child.data == "bind" for child in node.children):
         raise _unsupported(node, "only the outer matcher can bind a node")
     if name in _NULLARY_PREDICATES and not arguments:
-        return f"{name}()"
+        return Matcher(name, ())
     if name == "unless" and len(arguments) == 1:
-        return f"unless({_predicate(arguments[0], node)})"
+        return Matcher(name, (_predicate(arguments[0], node),))
     if name == "hasName" and len(arguments) == 1:
         token = arguments[0]
         if isinstance(token, Token) and str(token).startswith(('"', "'")):
-            return f"hasName({_cpp_string(ast.literal_eval(str(token)))})"
+            return Matcher(name, (ast.literal_eval(str(token)),))
     raise _unsupported(node, f"unsupported matcher predicate or arguments: {name}")
 
 
-def _matcher_code(matcher: Tree) -> tuple[str, str]:
+def _parse_matcher(matcher: Tree) -> tuple[Matcher, str]:
     name = str(matcher.children[0])
     if name not in _ROOT_MATCHERS:
         raise _unsupported(matcher, f"unsupported outer matcher: {name}")
     for child in matcher.children:
         if isinstance(child, Tree) and child.data == "bind":
             binding = ast.literal_eval(str(child.children[2]))
-            predicates = ", ".join(
+            predicates = tuple(
                 _predicate(argument, matcher)
                 for argument in _matcher_arguments(matcher)
             )
-            return f"{name}({predicates}).bind({_cpp_string(binding)})", binding
+            return Matcher(name, predicates), binding
     raise _unsupported(matcher, "the outer matcher requires an explicit .bind()")
 
 
@@ -141,11 +156,10 @@ def _projection(loop: Node, rows: str, binding: str) -> str:
         raise _unsupported(field, message)
     if field.value not in _PROJECTIONS:
         raise _unsupported(field, message)
-    return _PROJECTIONS[field.value]
+    return field.value
 
 
-def lower_script(source: str, filename: Path) -> str:
-    """Lower the pilot's parse, match and print subset to typed Clang calls."""
+def _parse_query(source: str) -> Query:
     program = parse(source)
     if len(program.children) != 3:
         raise _unsupported(
@@ -169,13 +183,30 @@ def lower_script(source: str, filename: Path) -> str:
         case [_, Tree("matcher") as matcher, "in", Node("ref", name)] if (
             name == target.value
         ):
-            matcher_code, binding = _matcher_code(matcher)
+            root, binding = _parse_matcher(matcher)
         case _:
             raise _unsupported(
                 match_call, "expected match ... in the parsed target binding"
             )
 
-    getter = _projection(loop, rows.value, binding)
+    return Query(
+        root, binding, _projection(loop, rows.value, binding), match_call.meta.line
+    )
+
+
+def _cpp_matcher(matcher: Matcher) -> str:
+    arguments = ", ".join(
+        _cpp_string(arg) if isinstance(arg, str) else _cpp_matcher(arg)
+        for arg in matcher.arguments
+    )
+    return f"{matcher.name}({arguments})"
+
+
+def lower_script(source: str, filename: Path) -> str:
+    """Lower the pilot's parse, match and print subset to typed Clang calls."""
+    query = _parse_query(source)
+    binding = _cpp_string(query.binding)
+    getter = _PROJECTIONS[query.projection]
     return f"""\
 #include <ctk/jit/runtime.hpp>
 #include <string>
@@ -183,16 +214,77 @@ def lower_script(source: str, filename: Path) -> str:
 
 void run(ctk::jit::RunContext &ctx) {{
   using namespace clang::ast_matchers;
-#line {match_call.meta.line} {_cpp_string(str(filename))}
-  const auto matcher = {matcher_code};
+#line {query.match_line} {_cpp_string(str(filename))}
+  const auto matcher = {_cpp_matcher(query.matcher)}.bind({binding});
 #line 1 "<ctk-jit>"
   std::vector<std::string> names;
   ctx.match(matcher, [&](const MatchFinder::MatchResult &result) {{
-    if (const auto *node = result.Nodes.getNodeAs<clang::FunctionDecl>({_cpp_string(binding)}))
+    if (const auto *node = result.Nodes.getNodeAs<clang::FunctionDecl>({binding}))
       names.push_back(node->{getter}());
   }});
   for (const auto &name : names)
     ctx.emit_text(name);
+}}
+"""
+
+
+def lower_ir(source: str) -> str:
+    """Emit LLVM assembly for the same query and the runner's matcher ABI."""
+    query = _parse_query(source)
+    constants: list[str] = []
+
+    def constant(value: str) -> str:
+        symbol = f"@.ctk.{len(constants)}"
+        constants.append(f"{symbol} = private unnamed_addr constant {value}")
+        return symbol
+
+    def string(value: str) -> str:
+        if "\0" in value:
+            raise ValueError("NUL bytes are unsupported in generated IR strings")
+        data = value.encode("utf-8") + b"\0"
+        escaped = "".join(f"\\{byte:02X}" for byte in data)
+        return constant(f'[{len(data)} x i8] c"{escaped}"')
+
+    def argument(value: Matcher | str) -> str:
+        if isinstance(value, str):
+            return f"%arg {{ ptr null, ptr {string(value)}, ptr null, i32 0 }}"
+        name = string(value.name)
+        children = [argument(child) for child in value.arguments]
+        count = len(children)
+        args = (
+            constant(f"[{count} x %arg] [{', '.join(children)}]") if count else "null"
+        )
+        return f"%arg {{ ptr {name}, ptr null, ptr {args}, i32 {count} }}"
+
+    matcher = constant(argument(query.matcher))
+    binding = string(query.binding)
+    printer = f"ctk_jit_print_{query.projection}_v1"
+    data = "\n".join(constants)
+    return f"""\
+%arg = type {{ ptr, ptr, ptr, i32 }}
+{data}
+
+declare i32 @ctk_jit_match_v1(ptr, ptr, ptr)
+declare ptr @ctk_jit_next_row_v1(ptr)
+declare void @{printer}(ptr)
+
+define i32 @ctk_jit_run_ir_v1(ptr %context) {{
+entry:
+  %status = call i32 @ctk_jit_match_v1(ptr %context, ptr {matcher}, ptr {binding})
+  %failed = icmp ne i32 %status, 0
+  br i1 %failed, label %done, label %next
+
+next:
+  %decl = call ptr @ctk_jit_next_row_v1(ptr %context)
+  %end = icmp eq ptr %decl, null
+  br i1 %end, label %done, label %print
+
+print:
+  call void @{printer}(ptr %decl)
+  br label %next
+
+done:
+  ret i32 %status
 }}
 """
 
@@ -205,12 +297,16 @@ def _runner() -> Path | None:
     return Path(installed) if installed else None
 
 
-def _script_input(path: Path, contents: bytes | None = None) -> tuple[bytes, str]:
+def _script_input(
+    path: Path, contents: bytes | None = None, *, llvm_ir: bool = False
+) -> tuple[bytes, str]:
     try:
         script = path.resolve()
         source = (script.read_bytes() if contents is None else contents).decode("utf-8")
         source = source.replace("\r\n", "\n").replace("\r", "\n")
         if script.suffix == ".ctk":
+            if llvm_ir:
+                return lower_ir(source).encode("utf-8"), ""
             return (lower_script(source, script) + "\n" + _ENTRY).encode("utf-8"), ""
         source = f"#line 1 {_cpp_string(str(script))}\n{source}\n{_ENTRY}"
         return source.encode("utf-8"), str(script.parent)
@@ -236,6 +332,9 @@ def _native_command(args: argparse.Namespace, runner: Path) -> int:
     mode = "object"
     if args.bundle is not None:
         program = bundle_object(args.bundle.read_bytes(), Toolchain.from_runner(runner))
+    elif args.llvm_ir:
+        mode = "ir"
+        program, _ = _script_input(args.script, llvm_ir=True)
     else:
         bundle = None
         if args.script.suffix == ".ctk" and not args.no_cache:
@@ -269,6 +368,9 @@ def main(argv: list[str] | None = None) -> int:
     run = commands.add_parser("run", help="run source or a precompiled bundle")
     run.add_argument("script", type=Path, nargs="?")
     run.add_argument("--bundle", type=Path, help="run a precompiled bundle")
+    run.add_argument(
+        "--llvm-ir", action="store_true", help="JIT a .ctk script directly as LLVM IR"
+    )
     run.add_argument("--file", type=Path, required=True, help="target translation unit")
     run.add_argument(
         "--compdb",
@@ -289,6 +391,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "run" and (args.script is None) == (args.bundle is None):
         parser.error("provide either a script or --bundle")
+    if (
+        args.command == "run"
+        and args.llvm_ir
+        and (args.script is None or args.script.suffix != ".ctk")
+    ):
+        parser.error("--llvm-ir requires a .ctk script")
     if args.script is not None and args.script.suffix not in {".ctk", ".cpp"}:
         parser.error("expected a .ctk script or .cpp extension")
     if args.command == "precompile" and args.output.resolve() == args.script.resolve():
