@@ -22,6 +22,7 @@ from .jit_cache import (
     precompile,
     write_atomic,
 )
+from .jit_repl import run_repl
 from .runtime.prototype.repl_language import parse
 from .runtime.prototype.syntax import Node
 
@@ -78,13 +79,15 @@ def _only_child(node: Node, kind: str, message: str) -> Node:
     return node.children[0]
 
 
-def _host_call(binding: Node, name: str) -> Tree:
+def _host_call(binding: Node, name: str | None = None) -> Tree:
     value = _only_child(binding, "let", "expected a let binding")
     if value.kind == "host":
         tree, mode = value.value
-        if mode == "expression" and tree.data == name:
+        if mode == "expression" and (name is None or tree.data == name):
             return tree
-    raise _unsupported(value, f"expected {name} as the binding value")
+    raise _unsupported(
+        value, f"expected {name or 'parse or match'} as the binding value"
+    )
 
 
 def _cpp_string(value: str) -> str:
@@ -141,22 +144,47 @@ def _parse_matcher(matcher: Tree) -> tuple[Matcher, str]:
     raise _unsupported(matcher, "the outer matcher requires an explicit .bind()")
 
 
-def _projection(loop: Node, rows: str, binding: str) -> str:
+def _projection(
+    loop: Node, rows: str | None = None, binding: str | None = None
+) -> tuple[str, str, str]:
     if loop.kind != "foreach" or len(loop.children) != 2:
         raise _unsupported(loop, "expected foreach over the matched rows")
     collection, block = loop.children
-    if collection.kind != "ref" or collection.value != rows:
-        raise _unsupported(collection, f"expected foreach over {rows}")
+    if collection.kind != "ref" or (rows is not None and collection.value != rows):
+        raise _unsupported(
+            collection, f"expected foreach over {rows or 'a match binding'}"
+        )
     statement = _only_child(block, "block", "expected one print in foreach")
     field = _only_child(statement, "print", "expected print in foreach")
     message = "expected a bound declaration's decl_name or qualified_name"
     bound = _only_child(field, "get", message)
     row = _only_child(bound, "get", message)
-    if row.kind != "ref" or row.value != loop.value or bound.value != binding:
+    if (
+        row.kind != "ref"
+        or row.value != loop.value
+        or (binding is not None and bound.value != binding)
+    ):
         raise _unsupported(field, message)
     if field.value not in _PROJECTIONS:
         raise _unsupported(field, message)
-    return field.value
+    return collection.value, bound.value, field.value
+
+
+def _validate_target(call: Tree) -> None:
+    match call.children:
+        case [_, Node("get", "file", (Node("ref", "arg"),))]:
+            return
+    raise _unsupported(call, "expected parse arg.file")
+
+
+def _match_target(call: Tree, expected: str | None = None) -> tuple[Matcher, str, str]:
+    match call.children:
+        case [_, Tree("matcher") as matcher, "in", Node("ref", name)] if (
+            expected is None or name == expected
+        ):
+            root, binding = _parse_matcher(matcher)
+            return root, binding, name
+    raise _unsupported(call, "expected match ... in the parsed target binding")
 
 
 def _parse_query(source: str) -> Query:
@@ -173,25 +201,10 @@ def _parse_query(source: str) -> Query:
             rows, "the target and match bindings must have distinct names"
         )
 
-    match parse_call.children:
-        case [_, Node("get", "file", (Node("ref", "arg"),))]:
-            pass
-        case _:
-            raise _unsupported(parse_call, "expected parse arg.file")
-
-    match match_call.children:
-        case [_, Tree("matcher") as matcher, "in", Node("ref", name)] if (
-            name == target.value
-        ):
-            root, binding = _parse_matcher(matcher)
-        case _:
-            raise _unsupported(
-                match_call, "expected match ... in the parsed target binding"
-            )
-
-    return Query(
-        root, binding, _projection(loop, rows.value, binding), match_call.meta.line
-    )
+    _validate_target(parse_call)
+    root, binding, _ = _match_target(match_call, target.value)
+    _, _, projection = _projection(loop, rows.value, binding)
+    return Query(root, binding, projection, match_call.meta.line)
 
 
 def _cpp_matcher(matcher: Matcher) -> str:
@@ -228,49 +241,54 @@ void run(ctk::jit::RunContext &ctx) {{
 """
 
 
-def lower_ir(source: str) -> str:
-    """Emit LLVM assembly for the same query and the runner's matcher ABI."""
-    query = _parse_query(source)
-    constants: list[str] = []
+class _IrConstants:
+    def __init__(self) -> None:
+        self.definitions: list[str] = []
 
-    def constant(value: str) -> str:
-        symbol = f"@.ctk.{len(constants)}"
-        constants.append(f"{symbol} = private unnamed_addr constant {value}")
+    def constant(self, value: str) -> str:
+        symbol = f"@.ctk.{len(self.definitions)}"
+        self.definitions.append(f"{symbol} = private unnamed_addr constant {value}")
         return symbol
 
-    def string(value: str) -> str:
+    def string(self, value: str) -> str:
         if "\0" in value:
             raise ValueError("NUL bytes are unsupported in generated IR strings")
         data = value.encode("utf-8") + b"\0"
         escaped = "".join(f"\\{byte:02X}" for byte in data)
-        return constant(f'[{len(data)} x i8] c"{escaped}"')
+        return self.constant(f'[{len(data)} x i8] c"{escaped}"')
 
-    def argument(value: Matcher | str) -> str:
+    def argument(self, value: Matcher | str) -> str:
         if isinstance(value, str):
-            return f"%arg {{ ptr null, ptr {string(value)}, ptr null, i32 0 }}"
-        name = string(value.name)
-        children = [argument(child) for child in value.arguments]
+            return f"%arg {{ ptr null, ptr {self.string(value)}, ptr null, i32 0 }}"
+        name = self.string(value.name)
+        children = [self.argument(child) for child in value.arguments]
         count = len(children)
         args = (
-            constant(f"[{count} x %arg] [{', '.join(children)}]") if count else "null"
+            self.constant(f"[{count} x %arg] [{', '.join(children)}]")
+            if count
+            else "null"
         )
         return f"%arg {{ ptr {name}, ptr null, ptr {args}, i32 {count} }}"
 
-    matcher = constant(argument(query.matcher))
-    binding = string(query.binding)
-    printer = f"ctk_jit_print_{query.projection}_v1"
-    data = "\n".join(constants)
+
+def _ir_module(constants: _IrConstants, declarations: str, body: str) -> str:
+    data = "\n".join(constants.definitions)
     return f"""\
 %arg = type {{ ptr, ptr, ptr, i32 }}
 {data}
 
-declare i32 @ctk_jit_match_v1(ptr, ptr, ptr)
-declare ptr @ctk_jit_next_row_v1(ptr)
-declare void @{printer}(ptr)
+{declarations}
 
 define i32 @ctk_jit_run_ir_v1(ptr %context) {{
 entry:
-  %status = call i32 @ctk_jit_match_v1(ptr %context, ptr {matcher}, ptr {binding})
+{body}
+}}
+"""
+
+
+def _ir_loop(setup: str, emit: str) -> str:
+    return f"""\
+  %status = {setup}
   %failed = icmp ne i32 %status, 0
   br i1 %failed, label %done, label %next
 
@@ -280,13 +298,78 @@ next:
   br i1 %end, label %done, label %print
 
 print:
-  call void @{printer}(ptr %decl)
+  {emit}
   br label %next
 
 done:
-  ret i32 %status
-}}
-"""
+  ret i32 %status"""
+
+
+def _ir_call(name: str, *arguments: str) -> tuple[str, str]:
+    operands = ", ".join(f"ptr {argument}" for argument in ("%context", *arguments))
+    types = ", ".join(["ptr"] * (len(arguments) + 1))
+    return f"declare i32 @{name}({types})", f"call i32 @{name}({operands})"
+
+
+def lower_ir(source: str) -> str:
+    """Emit LLVM assembly for a complete one-shot query."""
+    query = _parse_query(source)
+    constants = _IrConstants()
+    matcher = constants.constant(constants.argument(query.matcher))
+    binding = constants.string(query.binding)
+    declaration, setup = _ir_call("ctk_jit_match_v1", matcher, binding)
+    printer = f"ctk_jit_print_{query.projection}_v1"
+    return _ir_module(
+        constants,
+        f"{declaration}\ndeclare ptr @ctk_jit_next_row_v1(ptr)\ndeclare void @{printer}(ptr)",
+        _ir_loop(setup, f"call void @{printer}(ptr %decl)"),
+    )
+
+
+def lower_repl(source: str) -> str | None:
+    """Lower one CTK statement against the runner's session bindings."""
+    program = parse(source)
+    if not program.children:
+        return None
+    if len(program.children) != 1:
+        raise _unsupported(program, "submit one statement at a time")
+    (statement,) = program.children
+    constants = _IrConstants()
+    if statement.kind == "foreach":
+        rows, binding, projection = _projection(statement)
+        declaration, setup = _ir_call(
+            "ctk_jit_repl_select_rows_v1",
+            constants.string(rows),
+            constants.string(binding),
+        )
+        qualified = int(projection == "qualified_name")
+        return _ir_module(
+            constants,
+            f"{declaration}\ndeclare ptr @ctk_jit_next_row_v1(ptr)\n"
+            "declare void @ctk_jit_repl_print_v1(ptr, ptr, i32)",
+            _ir_loop(
+                setup,
+                f"call void @ctk_jit_repl_print_v1(ptr %context, ptr %decl, i32 {qualified})",
+            ),
+        )
+
+    call = _host_call(statement)
+    name = constants.string(statement.value)
+    if call.data == "parse_expression":
+        _validate_target(call)
+        declaration, setup = _ir_call("ctk_jit_repl_bind_target_v1", name)
+    elif call.data == "match":
+        root, binding, target = _match_target(call)
+        declaration, setup = _ir_call(
+            "ctk_jit_repl_match_v1",
+            constants.constant(constants.argument(root)),
+            constants.string(binding),
+            constants.string(target),
+            name,
+        )
+    else:
+        raise _unsupported(call, "expected parse or match as the binding value")
+    return _ir_module(constants, declaration, f"  %status = {setup}\n  ret i32 %status")
 
 
 def _runner() -> Path | None:
@@ -371,13 +454,17 @@ def main(argv: list[str] | None = None) -> int:
     run = commands.add_parser("run", help="run source or a precompiled bundle")
     run.add_argument("script", type=Path, nargs="?")
     run.add_argument("--bundle", type=Path, help="run a precompiled bundle")
-    run.add_argument("--file", type=Path, required=True, help="target translation unit")
-    run.add_argument(
-        "--compdb",
-        type=Path,
-        required=True,
-        help="compilation database or its directory",
-    )
+    repl = commands.add_parser("repl", help="start a standalone LLVM IR session")
+    for command in (run, repl):
+        command.add_argument(
+            "--file", type=Path, required=True, help="target translation unit"
+        )
+        command.add_argument(
+            "--compdb",
+            type=Path,
+            required=True,
+            help="compilation database or its directory",
+        )
     build = commands.add_parser("precompile", help="compile source to a local bundle")
     build.add_argument("script", type=Path)
     build.add_argument("--output", "-o", type=Path, required=True)
@@ -396,29 +483,36 @@ def main(argv: list[str] | None = None) -> int:
         )
         command.set_defaults(llvm_ir=None)
         command.add_argument(
-            "--runner", type=Path, help="override the native runner executable"
-        )
-        command.add_argument(
             "--no-cache", action="store_true", help="bypass the local cache"
         )
+    for command in (run, build, repl):
+        command.add_argument(
+            "--runner", type=Path, help="override the native runner executable"
+        )
     args = parser.parse_args(argv)
-    if args.command == "run" and (args.script is None) == (args.bundle is None):
-        parser.error("provide either a script or --bundle")
-    if args.llvm_ir and (args.script is None or args.script.suffix != ".ctk"):
-        parser.error("--llvm-ir requires a .ctk script")
-    if args.llvm_ir is False and args.script is None:
-        parser.error("--cpp-jit requires a source script")
-    if args.script is not None and args.script.suffix not in {".ctk", ".cpp"}:
-        parser.error("expected a .ctk script or .cpp extension")
-    if args.llvm_ir is None:
-        args.llvm_ir = args.script is not None and args.script.suffix == ".ctk"
-    if args.command == "precompile" and args.output.resolve() == args.script.resolve():
-        parser.error("bundle output must differ from the source script")
+    if args.command != "repl":
+        if args.command == "run" and (args.script is None) == (args.bundle is None):
+            parser.error("provide either a script or --bundle")
+        if args.llvm_ir and (args.script is None or args.script.suffix != ".ctk"):
+            parser.error("--llvm-ir requires a .ctk script")
+        if args.llvm_ir is False and args.script is None:
+            parser.error("--cpp-jit requires a source script")
+        if args.script is not None and args.script.suffix not in {".ctk", ".cpp"}:
+            parser.error("expected a .ctk script or .cpp extension")
+        if args.llvm_ir is None:
+            args.llvm_ir = args.script is not None and args.script.suffix == ".ctk"
+        if (
+            args.command == "precompile"
+            and args.output.resolve() == args.script.resolve()
+        ):
+            parser.error("bundle output must differ from the source script")
     runner = args.runner or _runner()
     if runner is None:
         parser.error("build the native runner in build/jit or specify --runner")
     try:
         runner = runner.resolve()
+        if args.command == "repl":
+            return run_repl(runner, args.file, args.compdb, lower_repl)
         if args.command == "run":
             return _native_command(args, runner)
         cache = None if args.no_cache else cache_directory()

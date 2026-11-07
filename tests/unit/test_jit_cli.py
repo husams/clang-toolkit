@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from select import select
 import subprocess
 import sys
 from zipfile import ZipFile
@@ -126,6 +127,52 @@ def test_jit_runs_ctk_with_project_compile_flags(jit_project: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout == "add\nsquare\n"
     assert result.stderr == ""
+    assert not (jit_project / "cache").exists()
+
+
+def test_repl_retains_target_and_bindings_after_source_edit(jit_project: Path) -> None:
+    initial = """\
+let tree = parse arg.file
+let saved = match functionDecl(hasName("add")).bind("f") in tree
+foreach row in saved do { print row.f.decl_name }
+"""
+    later = """\
+let rows = match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in tree
+foreach row in rows do {
+    print row.f.decl_name
+}
+let rows = match functionDecl(isConst()).bind("f") in tree
+foreach row in rows do { print row.f.qualified_name }
+foreach row in saved do { print row.f.decl_name }
+:quit
+"""
+    with subprocess.Popen(
+        [sys.executable, "-m", "clang_toolkit.cli.jit", "repl", *_TARGET],
+        cwd=jit_project,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as process:
+        assert process.stdin is not None and process.stdout is not None
+        try:
+            process.stdin.write(initial)
+            process.stdin.flush()
+            assert select([process.stdout], [], [], 30)[0], (
+                "REPL did not produce a result"
+            )
+            assert process.stdout.readline() == "add\n"
+            (jit_project / "example.cpp").write_text(
+                "int replacement() { return 0; }\n"
+            )
+            output, errors = process.communicate(later, timeout=30)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+    assert process.returncode == 1
+    assert output == "add\nsquare\nadd\nsquare\nadd\n"
+    assert "Incorrect type for arg 1" in errors
     assert not (jit_project / "cache").exists()
 
 

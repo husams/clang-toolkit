@@ -170,11 +170,15 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
       llvm::InitializeNativeTargetAsmPrinter())
     return failure("could not initialize LLVM's native target");
 
-  auto input = llvm::MemoryBuffer::getSTDIN();
-  if (!input)
-    return llvm::errorCodeToError(input.getError());
+  std::unique_ptr<llvm::MemoryBuffer> input;
+  if (mode != "repl") {
+    auto buffer = llvm::MemoryBuffer::getSTDIN();
+    if (!buffer)
+      return llvm::errorCodeToError(buffer.getError());
+    input = std::move(*buffer);
+  }
   if (mode == "compile-ir")
-    return ctk::jit::compile_ir((*input)->getBuffer());
+    return ctk::jit::compile_ir(input->getBuffer());
 
   clang::DiagnosticOptions diagnostic_options;
   clang::TextDiagnosticPrinter diagnostics(llvm::errs(), diagnostic_options);
@@ -182,13 +186,15 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
   if (!ast)
     return ast.takeError();
 
+  if (mode == "repl")
+    return ctk::jit::repl_ir((*ast)->getASTContext());
   if (mode == "ir" || mode == "ir-object")
-    return ctk::jit::run_ir(std::move(*input), (*ast)->getASTContext(),
+    return ctk::jit::run_ir(std::move(input), (*ast)->getASTContext(),
                             mode == "ir-object");
   ctk::jit::RunContext context((*ast)->getASTContext());
   if (source_dir)
-    return run_source((*input)->getBuffer(), source_dir, prelude, context);
-  return run_object(std::move(*input), context);
+    return run_source(input->getBuffer(), source_dir, prelude, context);
+  return run_object(std::move(input), context);
 }
 
 } // namespace
@@ -200,12 +206,13 @@ int main(int argc, char **argv) {
     return 0;
   }
   const bool source = mode == "source" && (argc == 5 || argc == 6);
-  const bool query = argc == 4 && (mode == "object" || mode == "ir" || mode == "ir-object");
+  const bool query = argc == 4 && (mode == "object" || mode == "ir" ||
+                                  mode == "ir-object" || mode == "repl");
   const bool compile = argc == 2 && mode == "compile-ir";
   if (!source && !query && !compile) {
     llvm::errs()
         << "usage: ctk-jit-runner source FILE COMPDB SCRIPT_DIRECTORY [PCH]\n"
-           "       ctk-jit-runner object|ir|ir-object FILE COMPDB\n"
+           "       ctk-jit-runner object|ir|ir-object|repl FILE COMPDB\n"
            "       ctk-jit-runner compile-ir\n";
     return 2;
   }

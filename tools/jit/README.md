@@ -78,3 +78,30 @@ for cold JIT or `precompile --no-cache` to build a bundle from scratch.
 
 The default cache is `~/.cache/ctk-jit` or `$XDG_CACHE_HOME/ctk-jit`.
 Set `CTK_JIT_CACHE_DIR` to use a different private directory.
+
+## Stateful LLVM IR session
+
+`repl` opens the target AST once and keeps named bindings in the native
+runner. `let tree = parse arg.file` binds that AST. A match saves its rows
+for later commands, and `foreach` can print the same rows more than once.
+
+```text
+$ uv run ctk-jit repl --file src/example.cpp --compdb build/
+ctk-jit> let tree = parse arg.file
+ctk-jit> let rows = match functionDecl(isDefinition()).bind("f") in tree
+ctk-jit> foreach row in rows do { print row.f.decl_name }
+add
+square
+ctk-jit> let selected = match functionDecl(hasName("square")).bind("f") in tree
+ctk-jit> foreach row in selected do { print row.f.decl_name }
+square
+ctk-jit> foreach row in rows do { print row.f.qualified_name }
+add
+square
+ctk-jit> :quit
+```
+
+Submit one statement at a time. The continuation prompt accepts an open
+`foreach` block across lines. A failed command leaves earlier bindings
+available. Use `:quit` or EOF to exit, and start a new session to pick up
+changes to the target. Piped input uses the same syntax.

@@ -15,5 +15,6 @@ namespace ctk::jit {
 llvm::Error compile_ir(llvm::StringRef source);
 llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext& ast,
                    bool precompiled);
+llvm::Error repl_ir(clang::ASTContext& ast);
 
 } // namespace ctk::jit
