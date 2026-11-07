@@ -30,6 +30,10 @@ set_target_properties(ctk-jit-runner PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(ctk-jit-runner PRIVATE include)
 target_include_directories(ctk-jit-runner SYSTEM PRIVATE ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(ctk-jit-runner PRIVATE
+  CTK_JIT_COMPILER="${CTK_JIT_CLANG}"
+  CTK_JIT_CLANG_LIBRARY="$<TARGET_FILE:clang-cpp>"
+  CTK_JIT_LLVM_LIBRARY="$<TARGET_FILE:LLVM>"
+  CTK_JIT_PRELUDE="${CMAKE_CURRENT_SOURCE_DIR}/prelude.hpp"
   CTK_JIT_SDK_INCLUDE="${CMAKE_CURRENT_SOURCE_DIR}/include"
   CTK_JIT_CLANG_INCLUDE="${CLANG_INCLUDE_DIRS}"
   CTK_JIT_LLVM_INCLUDE="${LLVM_INCLUDE_DIRS}"

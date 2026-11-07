@@ -12,6 +12,14 @@ import sys
 from lark import Token, Tree
 from lark.exceptions import LarkError
 
+from .jit_cache import (
+    Toolchain,
+    bundle_object,
+    cache_directory,
+    cached_prelude,
+    precompile,
+    write_atomic,
+)
 from .runtime.prototype.repl_language import parse
 from .runtime.prototype.syntax import Node
 
@@ -21,6 +29,12 @@ _PROJECTIONS = {
     "decl_name": "getNameAsString",
     "qualified_name": "getQualifiedNameAsString",
 }
+_ENTRY = """
+#line 1 "<ctk-jit-entry>"
+extern "C" void ctk_jit_run_v1(ctk::jit::RunContext *ctx) {
+  run(*ctx);
+}
+"""
 
 
 def _unsupported(node: Node | Tree, message: str) -> ValueError:
@@ -176,56 +190,36 @@ def _runner() -> Path | None:
     return Path(installed) if installed else None
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run a CTK script with Clang JIT")
-    commands = parser.add_subparsers(required=True)
-    run = commands.add_parser("run", help="run a .ctk script or trusted .cpp extension")
-    run.add_argument("script", type=Path)
-    run.add_argument("--file", type=Path, required=True, help="target translation unit")
-    run.add_argument(
-        "--compdb",
-        type=Path,
-        required=True,
-        help="compilation database or its directory",
-    )
-    run.add_argument(
-        "--runner", type=Path, help="override the native runner executable"
-    )
-    args = parser.parse_args(argv)
-    if args.script.suffix not in {".ctk", ".cpp"}:
-        parser.error("expected a .ctk script or .cpp extension")
-
+def _script_input(path: Path) -> tuple[bytes, str]:
     try:
-        script = args.script.resolve()
+        script = path.resolve()
         source = script.read_text(encoding="utf-8")
         if script.suffix == ".ctk":
-            source = lower_script(source, script)
-        else:
-            source = f"#line 1 {_cpp_string(str(script))}\n{source}"
+            return (lower_script(source, script) + "\n" + _ENTRY).encode("utf-8"), ""
+        source = f"#line 1 {_cpp_string(str(script))}\n{source}\n{_ENTRY}"
+        return source.encode("utf-8"), str(script.parent)
     except (LarkError, OSError, SyntaxError, ValueError) as error:
-        print(f"ctk-jit: {args.script}: {error}", file=sys.stderr)
-        return 1
+        raise ValueError(f"{path}: {error}") from error
 
-    runner = args.runner or _runner()
-    if runner is None:
-        parser.error("build the native runner in build/jit or specify --runner")
-    try:
-        result = subprocess.run(
-            [
-                str(runner.resolve()),
-                str(args.file),
-                str(args.compdb),
-                str(script.parent),
-            ],
-            input=source,
-            encoding="utf-8",
-            check=False,
-        )
-    except OSError as error:
-        print(f"ctk-jit: {error}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        return 130
+
+def _native_command(args: argparse.Namespace, runner: Path) -> int:
+    command = [str(runner)]
+    if args.bundle is not None:
+        program = bundle_object(args.bundle.read_bytes(), Toolchain.from_runner(runner))
+        command.extend(("object", str(args.file), str(args.compdb)))
+    else:
+        program, quote_dir = _script_input(args.script)
+        command.extend(("source", str(args.file), str(args.compdb), quote_dir))
+        if args.script.suffix == ".ctk" and not args.no_cache:
+            try:
+                prelude = cached_prelude(
+                    Toolchain.from_runner(runner), cache_directory()
+                )
+            except (OSError, ValueError):
+                prelude = None  # A failed optimization can use source headers.
+            if prelude is not None:
+                command.append(str(prelude))
+    result = subprocess.run(command, input=program, check=False)
     if result.returncode < 0:
         print(
             f"ctk-jit: native runner terminated by signal {-result.returncode}",
@@ -233,6 +227,55 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 128 - result.returncode
     return result.returncode
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run a CTK script with Clang JIT")
+    commands = parser.add_subparsers(dest="command", required=True)
+    run = commands.add_parser("run", help="run source or a precompiled bundle")
+    run.add_argument("script", type=Path, nargs="?")
+    run.add_argument("--bundle", type=Path, help="run a precompiled bundle")
+    run.add_argument("--file", type=Path, required=True, help="target translation unit")
+    run.add_argument(
+        "--compdb",
+        type=Path,
+        required=True,
+        help="compilation database or its directory",
+    )
+    build = commands.add_parser("precompile", help="compile source to a local bundle")
+    build.add_argument("script", type=Path)
+    build.add_argument("--output", "-o", type=Path, required=True)
+    for command in (run, build):
+        command.add_argument(
+            "--runner", type=Path, help="override the native runner executable"
+        )
+        command.add_argument(
+            "--no-cache", action="store_true", help="bypass the local cache"
+        )
+    args = parser.parse_args(argv)
+    if args.command == "run" and (args.script is None) == (args.bundle is None):
+        parser.error("provide either a script or --bundle")
+    if args.script is not None and args.script.suffix not in {".ctk", ".cpp"}:
+        parser.error("expected a .ctk script or .cpp extension")
+    if args.command == "precompile" and args.output.resolve() == args.script.resolve():
+        parser.error("bundle output must differ from the source script")
+    runner = args.runner or _runner()
+    if runner is None:
+        parser.error("build the native runner in build/jit or specify --runner")
+    try:
+        runner = runner.resolve()
+        if args.command == "run":
+            return _native_command(args, runner)
+        source, quote_dir = _script_input(args.script)
+        cache = None if args.no_cache else cache_directory()
+        data = precompile(Toolchain.from_runner(runner), source, quote_dir, cache)
+        write_atomic(args.output, data)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"ctk-jit: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+    return 0
 
 
 if __name__ == "__main__":

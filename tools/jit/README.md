@@ -40,3 +40,26 @@ To exercise a custom matcher, pass a trusted `.cpp` file to `run`. Include
 Use `ctx.match(matcher, callback)` to traverse the target and
 `ctx.emit_text(text)` to emit a line. The extension executes with the invoking
 user's permissions.
+
+## Precompile and run a bundle
+
+Precompile the script without a target file. Load its native object with the
+same runner and toolchain. Each invocation reads the target's current AST.
+
+```sh
+uv run ctk-jit precompile query.ctk --output query.ctk-bundle
+uv run ctk-jit run --bundle query.ctk-bundle --file src/example.cpp --compdb build/
+```
+
+Bundles contain a relocatable object and a manifest with the toolchain,
+preprocessed input, and object fingerprints. A bundle freezes the script
+and its included code at precompile time. Precompile again to include edits.
+The original script is optional when running the bundle. Load only trusted
+bundles, just as with native C++ extensions.
+
+On arm64 macOS with LLVM 22 or newer, ordinary `.ctk` runs reuse a precompiled
+SDK header. Other toolchains parse the SDK headers during source execution.
+Repeated `precompile` commands reuse objects when the preprocessed inputs and
+toolchain match. The default cache is `~/.cache/ctk-jit` or `$XDG_CACHE_HOME/ctk-jit`.
+Set `CTK_JIT_CACHE_DIR` to use a different private directory, or pass
+`--no-cache` to run or precompile from scratch.

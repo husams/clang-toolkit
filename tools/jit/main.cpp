@@ -15,10 +15,14 @@
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/Support/Error.h>
+#include <llvm/Support/JSON.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/TargetParser/Host.h>
+#include <llvm/TargetParser/Triple.h>
 
 #include "ctk/jit/runtime.hpp"
 
@@ -26,6 +30,9 @@ namespace {
 
 namespace fs = std::filesystem;
 namespace tooling = clang::tooling;
+
+using EntryPoint = void (*)(ctk::jit::RunContext *);
+constexpr auto entry_symbol = "ctk_jit_run_v1";
 
 llvm::Error failure(const llvm::Twine &message) {
   return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
@@ -69,40 +76,56 @@ parse_target(const fs::path &target_path, fs::path database_path,
   return std::move(asts.front());
 }
 
-llvm::Error run(const char *target_path, const char *database_path,
-                const char *source_dir) {
-  if (llvm::InitializeNativeTarget() ||
-      llvm::InitializeNativeTargetAsmPrinter())
-    return failure("could not initialize LLVM's native target");
-
-  auto source = llvm::MemoryBuffer::getSTDIN();
-  if (!source)
-    return llvm::errorCodeToError(source.getError());
-
-  clang::DiagnosticOptions diagnostic_options;
-  clang::TextDiagnosticPrinter diagnostics(llvm::errs(), diagnostic_options);
-  auto ast = parse_target(target_path, database_path, diagnostics);
-  if (!ast)
-    return ast.takeError();
-
+std::vector<const char *> script_flags() {
+  // Distro clang drivers can use a different vendor triple than the
+  // interpreter.
+  static const auto target = "--target=" + llvm::sys::getProcessTriple();
   // PIC lets ELF JIT code reference host data outside the small code range.
   std::vector<const char *> args{
-      "-std=c++20",
-      "-fPIC",
-      "-resource-dir",
-      CTK_JIT_RESOURCE_DIR,
-      "-I",
-      CTK_JIT_SDK_INCLUDE,
-      "-I",
-      CTK_JIT_CLANG_INCLUDE,
-      "-I",
-      CTK_JIT_LLVM_INCLUDE,
-      "-iquote",
-      source_dir,
+      "-std=c++20",          "-fPIC", target.c_str(),       "-resource-dir",
+      CTK_JIT_RESOURCE_DIR,  "-I",    CTK_JIT_SDK_INCLUDE,  "-I",
+      CTK_JIT_CLANG_INCLUDE, "-I",    CTK_JIT_LLVM_INCLUDE,
   };
   if (llvm::StringRef(CTK_JIT_SYSROOT) != "") {
     args.push_back("-isysroot");
     args.push_back(CTK_JIT_SYSROOT);
+  }
+  return args;
+}
+
+void print_config() {
+  llvm::json::Array flags;
+  for (const auto *flag : script_flags())
+    flags.emplace_back(flag);
+  const llvm::Triple target(llvm::sys::getProcessTriple());
+  // Incremental PCH code generation is verified on Apple arm64 with LLVM 22.
+  const bool use_prelude =
+      LLVM_VERSION_MAJOR >= 22 && target.isOSDarwin() && target.isAArch64();
+  llvm::outs()
+      << llvm::json::Value(llvm::json::Object{
+             {"compiler", CTK_JIT_COMPILER},
+             {"flags", std::move(flags)},
+             {"llvm", LLVM_VERSION_STRING},
+             {"target", target.str()},
+             {"prelude", use_prelude ? llvm::json::Value(CTK_JIT_PRELUDE)
+                                     : llvm::json::Value(nullptr)},
+             {"libraries",
+              llvm::json::Array{CTK_JIT_CLANG_LIBRARY, CTK_JIT_LLVM_LIBRARY}},
+             {"runtime_header", CTK_JIT_SDK_INCLUDE "/ctk/jit/runtime.hpp"},
+         })
+      << '\n';
+}
+
+llvm::Error run_source(llvm::StringRef source, const char *source_dir,
+                       const char *prelude, ctk::jit::RunContext &context) {
+  auto args = script_flags();
+  if (*source_dir) {
+    args.push_back("-iquote");
+    args.push_back(source_dir);
+  }
+  if (prelude) {
+    args.push_back("-include-pch");
+    args.push_back(prelude);
   }
   clang::IncrementalCompilerBuilder builder;
   builder.SetCompilerArgs(args);
@@ -112,33 +135,73 @@ llvm::Error run(const char *target_path, const char *database_path,
   auto interpreter = clang::Interpreter::create(std::move(*compiler));
   if (!interpreter)
     return interpreter.takeError();
-  if (auto error = (*interpreter)->ParseAndExecute((*source)->getBuffer()))
-    return error;
-  if (auto error =
-          (*interpreter)
-              ->ParseAndExecute(
-                  R"cpp(extern "C" void ctk_jit_run_v1(ctk::jit::RunContext *ctx) {
-                   run(*ctx);
-                 })cpp"))
+  if (auto error = (*interpreter)->ParseAndExecute(source))
     return error;
 
-  auto entry = (*interpreter)->getSymbolAddress("ctk_jit_run_v1");
+  auto entry = (*interpreter)->getSymbolAddress(entry_symbol);
   if (!entry)
     return entry.takeError();
-  ctk::jit::RunContext context((*ast)->getASTContext());
-  entry->toPtr<void (*)(ctk::jit::RunContext *)>()(&context);
+  entry->toPtr<EntryPoint>()(&context);
   return llvm::Error::success();
+}
+
+llvm::Error run_object(std::unique_ptr<llvm::MemoryBuffer> object,
+                       ctk::jit::RunContext &context) {
+  auto jit = llvm::orc::LLJITBuilder().create();
+  if (!jit)
+    return jit.takeError();
+  if (auto error = (*jit)->addObjectFile(std::move(object)))
+    return error;
+  auto entry = (*jit)->lookup(entry_symbol);
+  if (!entry)
+    return entry.takeError();
+  auto &dylib = (*jit)->getMainJITDylib();
+  if (auto error = (*jit)->initialize(dylib))
+    return error;
+  entry->toPtr<EntryPoint>()(&context);
+  return (*jit)->deinitialize(dylib);
+}
+
+llvm::Error run(const char *target_path, const char *database_path,
+                const char *source_dir, const char *prelude) {
+  if (llvm::InitializeNativeTarget() ||
+      llvm::InitializeNativeTargetAsmPrinter())
+    return failure("could not initialize LLVM's native target");
+
+  auto input = llvm::MemoryBuffer::getSTDIN();
+  if (!input)
+    return llvm::errorCodeToError(input.getError());
+
+  clang::DiagnosticOptions diagnostic_options;
+  clang::TextDiagnosticPrinter diagnostics(llvm::errs(), diagnostic_options);
+  auto ast = parse_target(target_path, database_path, diagnostics);
+  if (!ast)
+    return ast.takeError();
+
+  ctk::jit::RunContext context((*ast)->getASTContext());
+  if (source_dir)
+    return run_source((*input)->getBuffer(), source_dir, prelude, context);
+  return run_object(std::move(*input), context);
 }
 
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 4) {
-    llvm::errs() << "usage: ctk-jit-runner FILE COMPDB SCRIPT_DIRECTORY\n";
+  if (argc == 2 && llvm::StringRef(argv[1]) == "config") {
+    print_config();
+    return 0;
+  }
+  const bool source = argc >= 2 && llvm::StringRef(argv[1]) == "source";
+  const bool object = argc >= 2 && llvm::StringRef(argv[1]) == "object";
+  if (!(source && (argc == 5 || argc == 6)) && !(object && argc == 4)) {
+    llvm::errs()
+        << "usage: ctk-jit-runner source FILE COMPDB SCRIPT_DIRECTORY [PCH]\n"
+           "       ctk-jit-runner object FILE COMPDB\n";
     return 2;
   }
   try {
-    if (auto error = run(argv[1], argv[2], argv[3])) {
+    if (auto error = run(argv[2], argv[3], source ? argv[4] : nullptr,
+                         argc == 6 ? argv[5] : nullptr)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
       return 1;
     }
