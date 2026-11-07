@@ -32,8 +32,8 @@ The prototype supports one parse of `arg.file`, one bound `functionDecl` or
 `cxxMethodDecl` match, and one projection of `decl_name` or `qualified_name`
 per row. Supported predicates are `isDefinition`, `isExpansionInMainFile`,
 `isImplicit`, `isConst` (methods), `hasName` with a literal, and `unless`.
-The existing CTK parser feeds a local C++ generator. Clang Interpreter executes
-the generated code against the local AST.
+The existing CTK parser feeds a local C++ generator. The runner executes the
+resulting native code against the local AST.
 
 To exercise a custom matcher, pass a trusted `.cpp` file to `run`. Include
 `<ctk/jit/runtime.hpp>` and define `void run(ctk::jit::RunContext &ctx)`.
@@ -57,9 +57,11 @@ and its included code at precompile time. Precompile again to include edits.
 The original script is optional when running the bundle. Load only trusted
 bundles, just as with native C++ extensions.
 
-On arm64 macOS with LLVM 22 or newer, ordinary `.ctk` runs reuse a precompiled
-SDK header. Other toolchains parse the SDK headers during source execution.
-Repeated `precompile` commands reuse objects when the preprocessed inputs and
-toolchain match. The default cache is `~/.cache/ctk-jit` or `$XDG_CACHE_HOME/ctk-jit`.
-Set `CTK_JIT_CACHE_DIR` to use a different private directory, or pass
-`--no-cache` to run or precompile from scratch.
+`run query.ctk` and `precompile query.ctk` share the object cache. A source run
+checks the toolchain and preprocessed inputs, builds a bundle on a miss, and
+loads the cached object on a hit. Target file edits are picked up when the
+runner builds its analysis AST. Pass `run --no-cache` to use Clang Interpreter
+directly or `precompile --no-cache` to build a bundle from scratch.
+
+The default cache is `~/.cache/ctk-jit` or `$XDG_CACHE_HOME/ctk-jit`.
+Set `CTK_JIT_CACHE_DIR` to use a different private directory.

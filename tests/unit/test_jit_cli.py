@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import platform
 import subprocess
 import sys
 from zipfile import ZipFile
@@ -125,6 +124,7 @@ def test_jit_runs_ctk_with_project_compile_flags(jit_project: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout == "add\nsquare\n"
     assert result.stderr == ""
+    assert not (jit_project / "cache").exists()
 
 
 def test_jit_can_execute_a_custom_native_matcher(jit_project: Path) -> None:
@@ -178,6 +178,8 @@ def test_bundle_matches_source_and_reuses_cached_object(jit_project: Path) -> No
     _output(jit_project, "precompile", "query.ctk", "--output", "again.ctk-bundle")
     assert cached.stat().st_mtime_ns == timestamp
     assert (jit_project / "again.ctk-bundle").read_bytes() == cached.read_bytes()
+    assert _output(jit_project, "run", "query.ctk", *_TARGET) == direct.stdout
+    assert cached.stat().st_mtime_ns == timestamp
 
     (jit_project / "query.ctk").unlink()
     assert (
@@ -201,27 +203,39 @@ def test_bundle_matches_source_and_reuses_cached_object(jit_project: Path) -> No
         assert diagnostic in result.stderr
 
 
-def test_jit_reuses_and_repairs_cached_prelude(jit_project: Path) -> None:
-    (jit_project / "query.ctk").write_text(QUERY, encoding="utf-8")
+def test_jit_run_reuses_and_refreshes_cached_bundle(jit_project: Path) -> None:
+    query = jit_project / "query.ctk"
+    query.write_text(QUERY, encoding="utf-8")
     args = ("run", "query.ctk", *_TARGET)
+    cache = jit_project / "cache"
     assert _output(jit_project, *args) == "add\nsquare\n"
-    config = json.loads(subprocess.check_output([_RUNNER, "config"], timeout=15))
-    uses_prelude = (
-        sys.platform == "darwin"
-        and platform.machine() == "arm64"
-        and int(config["llvm"].split(".")[0]) >= 22
+    (original,) = cache.glob("obj-*.bundle")
+    timestamp = original.stat().st_mtime_ns
+    assert _output(jit_project, *args) == "add\nsquare\n"
+    assert original.stat().st_mtime_ns == timestamp
+
+    with (jit_project / "example.cpp").open("a", encoding="utf-8") as target:
+        target.write("int twice(int x) { return 2 * x; }\n")
+    assert _output(jit_project, *args) == "add\nsquare\ntwice\n"
+    assert original.stat().st_mtime_ns == timestamp
+    assert set(cache.glob("obj-*.bundle")) == {original}
+
+    query.write_text(
+        QUERY.replace("isDefinition(),", 'hasName("add"), isDefinition(),'),
+        encoding="utf-8",
     )
-    preludes = list((jit_project / "cache").glob("pch-*.pch"))
-    if not uses_prelude:
-        assert not preludes
-        return
-    (prelude,) = preludes
-    before = prelude.stat()
-    assert _output(jit_project, *args) == "add\nsquare\n"
-    assert prelude.stat().st_mtime_ns == before.st_mtime_ns
-    prelude.write_bytes(b"corrupted")
-    assert _output(jit_project, *args) == "add\nsquare\n"
-    assert prelude.stat().st_size > len(b"corrupted")
+    assert _output(jit_project, *args) == "add\n"
+    (updated,) = set(cache.glob("obj-*.bundle")) - {original}
+    updated.write_bytes(b"corrupted")
+    assert _output(jit_project, *args) == "add\n"
+    with ZipFile(updated) as archive:
+        assert archive.read("program.o")
+
+
+def test_jit_run_falls_back_when_cache_is_unavailable(jit_project: Path) -> None:
+    (jit_project / "query.ctk").write_text(QUERY, encoding="utf-8")
+    (jit_project / "cache").touch()
+    assert _output(jit_project, "run", "query.ctk", *_TARGET) == "add\nsquare\n"
 
 
 def test_precompile_observes_changed_extension_headers(jit_project: Path) -> None:

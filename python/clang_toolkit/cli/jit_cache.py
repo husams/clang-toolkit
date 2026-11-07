@@ -1,4 +1,4 @@
-"""Local Clang prelude and relocatable object artifacts for ctk-jit."""
+"""Local relocatable object artifacts for ctk-jit."""
 
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 from zipfile import BadZipFile, ZipFile
-
-_INCREMENTAL = ("-Xclang", "-fincremental-extensions")
 
 
 def _sha(data: bytes) -> str:
@@ -46,7 +44,6 @@ def _identity(path: Path) -> tuple[int, ...]:
 class Toolchain:
     compiler: str
     flags: tuple[str, ...]
-    prelude: str | None
     fingerprint: str
 
     @classmethod
@@ -65,9 +62,7 @@ class Toolchain:
                 }
             )
         )
-        return cls(
-            config["compiler"], tuple(config["flags"]), config["prelude"], fingerprint
-        )
+        return cls(config["compiler"], tuple(config["flags"]), fingerprint)
 
     def clang(self, *args: str, source: bytes = b"") -> bytes:
         result = subprocess.run(
@@ -95,7 +90,7 @@ def _lock(cache: Path, key: str) -> Iterator[None]:
     cache.mkdir(mode=0o700, parents=True, exist_ok=True)
     status = cache.stat()
     if status.st_uid != os.getuid() or status.st_mode & 0o022:
-        raise ValueError(
+        raise PermissionError(
             "ctk-jit cache must be owned by the current user and privately writable"
         )
     with (cache / (key + ".lock")).open("ab") as lock:
@@ -108,44 +103,6 @@ def write_atomic(path: Path, content: bytes) -> None:
         temporary = Path(directory) / "artifact"
         temporary.write_bytes(content)
         temporary.replace(path)
-
-
-def cached_prelude(toolchain: Toolchain, cache: Path) -> Path | None:
-    if toolchain.prelude is None:
-        return None
-    # Preprocessing observes include selection and changes to the prelude inputs.
-    scan = (*_INCREMENTAL, "-E", "-dD", "-x", "c++-header", toolchain.prelude)
-    input_sha = _sha(toolchain.clang(*scan))
-    key = f"pch-{toolchain.fingerprint}-{input_sha}"
-    path = cache / (key + ".pch")
-    checksum = path.with_suffix(".sha256")
-    with _lock(cache, key):
-        try:
-            if checksum.read_text(encoding="ascii") == _file_sha(path):
-                toolchain.clang(
-                    *_INCREMENTAL,
-                    "-include-pch",
-                    str(path),
-                    "-fsyntax-only",
-                    "-x",
-                    "c++",
-                    "-",
-                )
-                return path
-        except (OSError, ValueError):
-            pass  # Missing, corrupted or rejected PCH.
-
-        with TemporaryDirectory(dir=cache) as directory:
-            built = Path(directory) / "prelude.pch"
-            toolchain.clang(
-                *_INCREMENTAL, "-x", "c++-header", toolchain.prelude, "-o", str(built)
-            )
-            if _sha(toolchain.clang(*scan)) != input_sha:
-                raise ValueError("prelude headers changed during compilation")
-            digest = _file_sha(built)
-            built.replace(path)
-            write_atomic(checksum, digest.encode("ascii"))
-    return path
 
 
 def bundle_object(

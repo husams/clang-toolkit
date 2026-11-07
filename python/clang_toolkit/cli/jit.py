@@ -16,7 +16,6 @@ from .jit_cache import (
     Toolchain,
     bundle_object,
     cache_directory,
-    cached_prelude,
     precompile,
     write_atomic,
 )
@@ -209,16 +208,19 @@ def _native_command(args: argparse.Namespace, runner: Path) -> int:
         command.extend(("object", str(args.file), str(args.compdb)))
     else:
         program, quote_dir = _script_input(args.script)
-        command.extend(("source", str(args.file), str(args.compdb), quote_dir))
+        mode = "source"
         if args.script.suffix == ".ctk" and not args.no_cache:
             try:
-                prelude = cached_prelude(
-                    Toolchain.from_runner(runner), cache_directory()
-                )
-            except (OSError, ValueError):
-                prelude = None  # A failed optimization can use source headers.
-            if prelude is not None:
-                command.append(str(prelude))
+                toolchain = Toolchain.from_runner(runner)
+                bundle = precompile(toolchain, program, quote_dir, cache_directory())
+                program = bundle_object(bundle, toolchain)
+                mode = "object"
+            except OSError:
+                # Source JIT is still usable if the compiler or cache is unavailable.
+                pass
+        command.extend((mode, str(args.file), str(args.compdb)))
+        if mode == "source":
+            command.append(quote_dir)
     result = subprocess.run(command, input=program, check=False)
     if result.returncode < 0:
         print(
