@@ -57,11 +57,12 @@ and its included code at precompile time. Precompile again to include edits.
 The original script is optional when running the bundle. Load only trusted
 bundles, just as with native C++ extensions.
 
-`run query.ctk` and `precompile query.ctk` share the object cache. A source run
-checks the toolchain and preprocessed inputs, builds a bundle on a miss, and
-loads the cached object on a hit. Target file edits are picked up when the
-runner builds its analysis AST. Pass `run --no-cache` to use Clang Interpreter
-directly or `precompile --no-cache` to build a bundle from scratch.
+`run query.ctk` and `precompile query.ctk` share the object cache. Warm runs
+validate the script, toolchain, used headers, and include directories before
+loading the object. Parsing and preprocessing happen on a miss or when Clang
+cannot produce a reusable dependency snapshot. Target file edits are picked
+up when the runner builds its analysis AST. Pass `run --no-cache` to use Clang
+Interpreter directly or `precompile --no-cache` to build a bundle from scratch.
 
 The default cache is `~/.cache/ctk-jit` or `$XDG_CACHE_HOME/ctk-jit`.
 Set `CTK_JIT_CACHE_DIR` to use a different private directory.

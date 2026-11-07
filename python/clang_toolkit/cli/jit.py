@@ -10,12 +10,14 @@ import subprocess
 import sys
 
 from lark import Token, Tree
+from lark import __version__ as lark_version
 from lark.exceptions import LarkError
 
 from .jit_cache import (
     Toolchain,
     bundle_object,
     cache_directory,
+    cached_script_bundle,
     precompile,
     write_atomic,
 )
@@ -28,6 +30,20 @@ _PROJECTIONS = {
     "decl_name": "getNameAsString",
     "qualified_name": "getQualifiedNameAsString",
 }
+_CLI_DIRECTORY = Path(__file__).parent
+_PARSER_DIRECTORY = _CLI_DIRECTORY / "runtime/prototype"
+_FRONTEND_FILES = (
+    Path(__file__),
+    _CLI_DIRECTORY / "jit_cache.py",
+    _CLI_DIRECTORY / "jit_dependencies.py",
+    _CLI_DIRECTORY / "grammar.lark",
+    _CLI_DIRECTORY / "matcher_catalog.py",
+    _CLI_DIRECTORY / "_matcher_catalog_generated.py",
+    *(
+        _PARSER_DIRECTORY / name
+        for name in ("grammar.lark", "repl_language.py", "syntax.py", "patterns.py")
+    ),
+)
 _ENTRY = """
 #line 1 "<ctk-jit-entry>"
 extern "C" void ctk_jit_run_v1(ctk::jit::RunContext *ctx) {
@@ -189,10 +205,11 @@ def _runner() -> Path | None:
     return Path(installed) if installed else None
 
 
-def _script_input(path: Path) -> tuple[bytes, str]:
+def _script_input(path: Path, contents: bytes | None = None) -> tuple[bytes, str]:
     try:
         script = path.resolve()
-        source = script.read_text(encoding="utf-8")
+        source = (script.read_bytes() if contents is None else contents).decode("utf-8")
+        source = source.replace("\r\n", "\n").replace("\r", "\n")
         if script.suffix == ".ctk":
             return (lower_script(source, script) + "\n" + _ENTRY).encode("utf-8"), ""
         source = f"#line 1 {_cpp_string(str(script))}\n{source}\n{_ENTRY}"
@@ -201,26 +218,41 @@ def _script_input(path: Path) -> tuple[bytes, str]:
         raise ValueError(f"{path}: {error}") from error
 
 
+def _cached_script(path: Path, toolchain: Toolchain, cache: Path) -> bytes:
+    script = path.resolve()
+    contents = script.read_bytes()
+    return cached_script_bundle(
+        toolchain,
+        cache,
+        script,
+        contents,
+        _FRONTEND_FILES,
+        (sys.version, lark_version),
+        lambda: _script_input(script, contents)[0],
+    )
+
+
 def _native_command(args: argparse.Namespace, runner: Path) -> int:
-    command = [str(runner)]
+    mode = "object"
     if args.bundle is not None:
         program = bundle_object(args.bundle.read_bytes(), Toolchain.from_runner(runner))
-        command.extend(("object", str(args.file), str(args.compdb)))
     else:
-        program, quote_dir = _script_input(args.script)
-        mode = "source"
+        bundle = None
         if args.script.suffix == ".ctk" and not args.no_cache:
             try:
                 toolchain = Toolchain.from_runner(runner)
-                bundle = precompile(toolchain, program, quote_dir, cache_directory())
-                program = bundle_object(bundle, toolchain)
-                mode = "object"
+                bundle = _cached_script(args.script, toolchain, cache_directory())
             except OSError:
                 # Source JIT is still usable if the compiler or cache is unavailable.
                 pass
-        command.extend((mode, str(args.file), str(args.compdb)))
-        if mode == "source":
-            command.append(quote_dir)
+        if bundle is None:
+            mode = "source"
+            program, quote_dir = _script_input(args.script)
+        else:
+            program = bundle_object(bundle, toolchain)
+    command = [str(runner), mode, str(args.file), str(args.compdb)]
+    if mode == "source":
+        command.append(quote_dir)
     result = subprocess.run(command, input=program, check=False)
     if result.returncode < 0:
         print(
@@ -268,9 +300,13 @@ def main(argv: list[str] | None = None) -> int:
         runner = runner.resolve()
         if args.command == "run":
             return _native_command(args, runner)
-        source, quote_dir = _script_input(args.script)
         cache = None if args.no_cache else cache_directory()
-        data = precompile(Toolchain.from_runner(runner), source, quote_dir, cache)
+        toolchain = Toolchain.from_runner(runner)
+        if cache is not None and args.script.suffix == ".ctk":
+            data = _cached_script(args.script, toolchain, cache)
+        else:
+            source, quote_dir = _script_input(args.script)
+            data = precompile(toolchain, source, quote_dir, cache)
         write_atomic(args.output, data)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"ctk-jit: {error}", file=sys.stderr)

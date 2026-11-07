@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -236,6 +237,97 @@ def test_jit_run_falls_back_when_cache_is_unavailable(jit_project: Path) -> None
     (jit_project / "query.ctk").write_text(QUERY, encoding="utf-8")
     (jit_project / "cache").touch()
     assert _output(jit_project, "run", "query.ctk", *_TARGET) == "add\nsquare\n"
+
+
+def test_warm_script_skips_lowering_and_preprocessing_until_inputs_change(
+    jit_project: Path,
+) -> None:
+    (jit_project / "query.ctk").write_text(QUERY, encoding="utf-8")
+    config = json.loads(subprocess.check_output([_RUNNER, "config"], timeout=15))
+    sdk = Path(config["runtime_header"]).read_text(encoding="utf-8")
+    sdk = sdk.replace("#pragma once", '#pragma once\n#include "prefix.hpp"').replace(
+        "llvm::outs() << text", "llvm::outs() << CTK_TEST_PREFIX << text"
+    )
+    high = jit_project / "high" / "ctk" / "jit"
+    low = jit_project / "low" / "ctk" / "jit"
+    high.mkdir(parents=True)
+    low.mkdir(parents=True)
+    (low / "runtime.hpp").write_text(sdk, encoding="utf-8")
+    prefix = low / "prefix.hpp"
+    prefix.write_text('#define CTK_TEST_PREFIX "one "\n', encoding="utf-8")
+    driver_log = jit_project / "driver.jsonl"
+    driver = jit_project / "clang-wrapper"
+    driver.write_text(
+        f"""#!/usr/bin/env python3
+import json
+import os
+import sys
+with open({str(driver_log)!r}, "a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\\n")
+os.execv({config["compiler"]!r}, [{config["compiler"]!r}, *sys.argv[1:]])
+""",
+        encoding="utf-8",
+    )
+    driver.chmod(0o755)
+    config["compiler"] = str(driver)
+    config["flags"][:0] = ["-I", str(high.parents[1]), "-I", str(low.parents[1])]
+    wrapper = jit_project / "runner"
+    wrapper.write_text(
+        f"""#!/usr/bin/env python3
+import os
+import sys
+if sys.argv[1:] == ["config"]:
+    print({json.dumps(config)!r})
+else:
+    os.execv({str(_RUNNER)!r}, [{str(_RUNNER)!r}, *sys.argv[1:]])
+""",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    args = ("run", "query.ctk", *_TARGET, "--runner", str(wrapper))
+    assert _output(jit_project, *args) == "one add\none square\n"
+    driver_log.write_text("", encoding="utf-8")
+    warm = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+from clang_toolkit.cli import jit
+def unexpected_lowering(*args):
+    raise AssertionError("warm run lowered the script")
+jit.lower_script = unexpected_lowering
+raise SystemExit(jit.main())
+""",
+            *args,
+        ],
+        cwd=jit_project,
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+    assert warm.returncode == 0, warm.stderr
+    assert warm.stdout == "one add\none square\n"
+    invocations = [json.loads(line) for line in driver_log.read_text().splitlines()]
+    assert len(invocations) == 1 and "-###" in invocations[0]
+
+    previous = prefix.stat()
+    prefix.write_text('#define CTK_TEST_PREFIX "two "\n', encoding="utf-8")
+    os.utime(prefix, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+    assert _output(jit_project, *args) == "two add\ntwo square\n"
+
+    (high / "runtime.hpp").write_text(sdk, encoding="utf-8")
+    (high / "prefix.hpp").write_text(
+        '#define CTK_TEST_PREFIX "high "\n', encoding="utf-8"
+    )
+    assert _output(jit_project, *args) == "high add\nhigh square\n"
+
+    with driver.open("a", encoding="utf-8") as stream:
+        stream.write("\n# Changed toolchain\n")
+    driver_log.write_text("", encoding="utf-8")
+    assert _output(jit_project, *args) == "high add\nhigh square\n"
+    invocations = [json.loads(line) for line in driver_log.read_text().splitlines()]
+    assert any("-c" in invocation for invocation in invocations)
 
 
 def test_precompile_observes_changed_extension_headers(jit_project: Path) -> None:
