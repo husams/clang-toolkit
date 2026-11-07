@@ -1,7 +1,10 @@
 #pragma once
 
+#include <memory>
+
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Error.h>
+#include <llvm/Support/MemoryBuffer.h>
 
 namespace clang {
 class ASTContext;
@@ -9,6 +12,8 @@ class ASTContext;
 
 namespace ctk::jit {
 
-llvm::Error run_ir(llvm::StringRef source, clang::ASTContext& ast);
+llvm::Error compile_ir(llvm::StringRef source);
+llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext& ast,
+                   bool precompiled);
 
 } // namespace ctk::jit

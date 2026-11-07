@@ -41,10 +41,11 @@ Use `--llvm-ir` to try the direct LLVM IR backend for `.ctk` scripts.
 uv run ctk-jit run query.ctk --file src/example.cpp --compdb build/ --llvm-ir
 ```
 
-This path generates LLVM IR for the query and its row loop. ORC compiles it
-against precompiled helpers that construct the Clang matcher, collect rows,
-and print the selected declaration name. This mode compiles the query on every
-run. The compilation database still supplies the flags for parsing the target.
+This path generates LLVM IR for the query and its row loop and runs it against
+precompiled helpers that construct the Clang matcher, collect rows, and print
+the selected declaration name. Repeated runs reuse a native object keyed by the
+script, front end, and toolchain. Use `--no-cache` to measure cold IR JIT.
+The compilation database still supplies the flags for parsing the target.
 
 To exercise a custom matcher, pass a trusted `.cpp` file to `run`. Include
 `<ctk/jit/runtime.hpp>` and define `void run(ctk::jit::RunContext &ctx)`.
@@ -62,18 +63,27 @@ uv run ctk-jit precompile query.ctk --output query.ctk-bundle
 uv run ctk-jit run --bundle query.ctk-bundle --file src/example.cpp --compdb build/
 ```
 
+For a direct IR bundle, add `--llvm-ir` to the precompile command.
+
+```sh
+uv run ctk-jit precompile query.ctk --llvm-ir --output query.ctk-bundle
+uv run ctk-jit run --bundle query.ctk-bundle --file src/example.cpp --compdb build/
+```
+
+`run --bundle` selects the runtime from the manifest.
+
 Bundles contain a relocatable object and a manifest with the toolchain,
-preprocessed input, and object fingerprints. A bundle freezes the script
+build input, and object fingerprints. A bundle freezes the script
 and its included code at precompile time. Precompile again to include edits.
 The original script is optional when running the bundle. Load only trusted
 bundles, just as with native C++ extensions.
 
-`run query.ctk` and `precompile query.ctk` share the object cache. Warm runs
-validate the script, toolchain, used headers, and include directories before
-loading the object. Parsing and preprocessing happen on a miss or when Clang
-cannot produce a reusable dependency snapshot. Target file edits are picked
-up when the runner builds its analysis AST. Pass `run --no-cache` to use Clang
-Interpreter directly or `precompile --no-cache` to build a bundle from scratch.
+`run query.ctk` and `precompile query.ctk` share an object cache per backend.
+For C++ objects, warm runs validate the script, toolchain, used headers, and
+include directories. Parsing and preprocessing happen on a miss or when
+Clang cannot produce a reusable dependency snapshot. Both backends pick up
+target edits when the runner builds its analysis AST. Pass `run --no-cache`
+for cold JIT or `precompile --no-cache` to build a bundle from scratch.
 
 The default cache is `~/.cache/ctk-jit` or `$XDG_CACHE_HOME/ctk-jit`.
 Set `CTK_JIT_CACHE_DIR` to use a different private directory.

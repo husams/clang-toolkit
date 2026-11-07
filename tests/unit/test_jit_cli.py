@@ -9,6 +9,7 @@ from zipfile import ZipFile
 
 import pytest
 
+from clang_toolkit.cli import jit
 from clang_toolkit.cli.jit import lower_script
 
 
@@ -203,18 +204,28 @@ def test_jit_fails_before_execution_on_invalid_target_flags(jit_project: Path) -
     assert "could not parse target" in result.stderr
 
 
-def test_bundle_matches_source_and_reuses_cached_object(jit_project: Path) -> None:
-    direct = _run_jit(jit_project, QUERY)
+@pytest.mark.parametrize(
+    ("backend", "object_glob"), [((), "obj-*"), (("--llvm-ir",), "ir-obj-*")]
+)
+def test_bundle_matches_source_and_reuses_cached_object(
+    jit_project: Path, backend: tuple[str, ...], object_glob: str
+) -> None:
+    (jit_project / "query.ctk").write_text(QUERY, encoding="utf-8")
+    direct = _cli(jit_project, "run", "query.ctk", *_TARGET, "--no-cache", *backend)
     assert direct.returncode == 0, direct.stderr
     assert direct.stdout == "add\nsquare\n"
-    _output(jit_project, "precompile", "query.ctk", "--output", "query.ctk-bundle")
-    (cached,) = (jit_project / "cache").glob("obj-*.bundle")
+    _output(
+        jit_project, "precompile", "query.ctk", "--output", "query.ctk-bundle", *backend
+    )
+    (cached,) = (jit_project / "cache").glob(object_glob + ".bundle")
     timestamp = cached.stat().st_mtime_ns
 
-    _output(jit_project, "precompile", "query.ctk", "--output", "again.ctk-bundle")
+    _output(
+        jit_project, "precompile", "query.ctk", "--output", "again.ctk-bundle", *backend
+    )
     assert cached.stat().st_mtime_ns == timestamp
     assert (jit_project / "again.ctk-bundle").read_bytes() == cached.read_bytes()
-    assert _output(jit_project, "run", "query.ctk", *_TARGET) == direct.stdout
+    assert _output(jit_project, "run", "query.ctk", *_TARGET, *backend) == direct.stdout
     assert cached.stat().st_mtime_ns == timestamp
 
     (jit_project / "query.ctk").unlink()
@@ -239,13 +250,18 @@ def test_bundle_matches_source_and_reuses_cached_object(jit_project: Path) -> No
         assert diagnostic in result.stderr
 
 
-def test_jit_run_reuses_and_refreshes_cached_bundle(jit_project: Path) -> None:
+@pytest.mark.parametrize(
+    ("backend", "object_glob"), [((), "obj-*"), (("--llvm-ir",), "ir-obj-*")]
+)
+def test_jit_run_reuses_and_refreshes_cached_bundle(
+    jit_project: Path, backend: tuple[str, ...], object_glob: str
+) -> None:
     query = jit_project / "query.ctk"
     query.write_text(QUERY, encoding="utf-8")
-    args = ("run", "query.ctk", *_TARGET)
+    args = ("run", "query.ctk", *_TARGET, *backend)
     cache = jit_project / "cache"
     assert _output(jit_project, *args) == "add\nsquare\n"
-    (original,) = cache.glob("obj-*.bundle")
+    (original,) = cache.glob(object_glob + ".bundle")
     timestamp = original.stat().st_mtime_ns
     assert _output(jit_project, *args) == "add\nsquare\n"
     assert original.stat().st_mtime_ns == timestamp
@@ -254,18 +270,36 @@ def test_jit_run_reuses_and_refreshes_cached_bundle(jit_project: Path) -> None:
         target.write("int twice(int x) { return 2 * x; }\n")
     assert _output(jit_project, *args) == "add\nsquare\ntwice\n"
     assert original.stat().st_mtime_ns == timestamp
-    assert set(cache.glob("obj-*.bundle")) == {original}
+    assert set(cache.glob(object_glob + ".bundle")) == {original}
 
     query.write_text(
         QUERY.replace("isDefinition(),", 'hasName("add"), isDefinition(),'),
         encoding="utf-8",
     )
     assert _output(jit_project, *args) == "add\n"
-    (updated,) = set(cache.glob("obj-*.bundle")) - {original}
+    (updated,) = set(cache.glob(object_glob + ".bundle")) - {original}
     updated.write_bytes(b"corrupted")
     assert _output(jit_project, *args) == "add\n"
     with ZipFile(updated) as archive:
         assert archive.read("program.o")
+
+
+def test_warm_ir_skips_lowering(
+    jit_project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    (jit_project / "query.ctk").write_text(QUERY, encoding="utf-8")
+    args = ["run", "query.ctk", *_TARGET, "--llvm-ir"]
+    assert _output(jit_project, *args) == "add\nsquare\n"
+
+    def unexpected_lowering(source: str) -> str:
+        pytest.fail("warm IR run lowered the script again")
+
+    monkeypatch.chdir(jit_project)
+    monkeypatch.setattr(jit, "lower_ir", unexpected_lowering)
+    assert jit.main(args) == 0
+    assert capfd.readouterr() == ("add\nsquare\n", "")
 
 
 def test_jit_run_falls_back_when_cache_is_unavailable(jit_project: Path) -> None:

@@ -8,9 +8,12 @@
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/ASTMatchers/Dynamic/Registry.h>
 #include <llvm/AsmParser/Parser.h>
+#include <llvm/ExecutionEngine/Orc/CompileUtils.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/TargetParser/Host.h>
 
 namespace ctk::jit {
 namespace {
@@ -111,24 +114,54 @@ llvm::Error failure(const llvm::Twine& message) {
   return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
 }
 
-} // namespace
-
-llvm::Error run_ir(llvm::StringRef source, clang::ASTContext& ast) {
-  auto context = std::make_unique<llvm::LLVMContext>();
+llvm::Expected<std::unique_ptr<llvm::Module>> parse_ir(llvm::StringRef source,
+                                                       llvm::LLVMContext& context,
+                                                       const llvm::Triple& triple,
+                                                       const llvm::DataLayout& layout) {
   llvm::SMDiagnostic diagnostic;
-  auto module = llvm::parseAssemblyString(source, diagnostic, *context);
+  auto module = llvm::parseAssemblyString(source, diagnostic, context);
   if (!module) {
     diagnostic.print("ctk-jit", llvm::errs());
     return failure("could not parse generated LLVM IR");
   }
+  module->setDataLayout(layout);
+  module->setTargetTriple(triple);
+  if (llvm::verifyModule(*module, &llvm::errs())) {
+    return failure("generated LLVM IR failed verification");
+  }
+  return module;
+}
+
+} // namespace
+
+llvm::Error compile_ir(llvm::StringRef source) {
+  // Keep the object compatible with the runner's generic process target.
+  llvm::orc::JITTargetMachineBuilder target{llvm::Triple(llvm::sys::getProcessTriple())};
+  target.setRelocationModel(llvm::Reloc::PIC_);
+  auto machine = target.createTargetMachine();
+  if (!machine) {
+    return machine.takeError();
+  }
+
+  llvm::LLVMContext context;
+  auto module =
+      parse_ir(source, context, (*machine)->getTargetTriple(), (*machine)->createDataLayout());
+  if (!module) {
+    return module.takeError();
+  }
+  auto object = llvm::orc::SimpleCompiler(**machine)(**module);
+  if (!object) {
+    return object.takeError();
+  }
+  llvm::outs() << (*object)->getBuffer();
+  return llvm::Error::success();
+}
+
+llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext& ast,
+                   bool precompiled) {
   auto jit = llvm::orc::LLJITBuilder().create();
   if (!jit) {
     return jit.takeError();
-  }
-  module->setDataLayout((*jit)->getDataLayout());
-  module->setTargetTriple((*jit)->getTargetTriple());
-  if (llvm::verifyModule(*module, &llvm::errs())) {
-    return failure("generated LLVM IR failed verification");
   }
 
   llvm::orc::SymbolMap symbols;
@@ -145,8 +178,20 @@ llvm::Error run_ir(llvm::StringRef source, clang::ASTContext& ast) {
   if (auto error = dylib.define(llvm::orc::absoluteSymbols(std::move(symbols)))) {
     return error;
   }
-  if (auto error = (*jit)->addIRModule({std::move(module), std::move(context)})) {
-    return error;
+  if (precompiled) {
+    if (auto error = (*jit)->addObjectFile(std::move(input))) {
+      return error;
+    }
+  } else {
+    auto context = std::make_unique<llvm::LLVMContext>();
+    auto module =
+        parse_ir(input->getBuffer(), *context, (*jit)->getTargetTriple(), (*jit)->getDataLayout());
+    if (!module) {
+      return module.takeError();
+    }
+    if (auto error = (*jit)->addIRModule({std::move(*module), std::move(context)})) {
+      return error;
+    }
   }
   auto entry = (*jit)->lookup("ctk_jit_run_ir_v1");
   if (!entry) {

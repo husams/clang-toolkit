@@ -163,8 +163,9 @@ llvm::Error run_object(std::unique_ptr<llvm::MemoryBuffer> object,
   return (*jit)->deinitialize(dylib);
 }
 
-llvm::Error run(const char *target_path, const char *database_path,
-                bool ir, const char *source_dir, const char *prelude) {
+llvm::Error run(llvm::StringRef mode, const char *target_path,
+                const char *database_path, const char *source_dir,
+                const char *prelude) {
   if (llvm::InitializeNativeTarget() ||
       llvm::InitializeNativeTargetAsmPrinter())
     return failure("could not initialize LLVM's native target");
@@ -172,6 +173,8 @@ llvm::Error run(const char *target_path, const char *database_path,
   auto input = llvm::MemoryBuffer::getSTDIN();
   if (!input)
     return llvm::errorCodeToError(input.getError());
+  if (mode == "compile-ir")
+    return ctk::jit::compile_ir((*input)->getBuffer());
 
   clang::DiagnosticOptions diagnostic_options;
   clang::TextDiagnosticPrinter diagnostics(llvm::errs(), diagnostic_options);
@@ -179,8 +182,9 @@ llvm::Error run(const char *target_path, const char *database_path,
   if (!ast)
     return ast.takeError();
 
-  if (ir)
-    return ctk::jit::run_ir((*input)->getBuffer(), (*ast)->getASTContext());
+  if (mode == "ir" || mode == "ir-object")
+    return ctk::jit::run_ir(std::move(*input), (*ast)->getASTContext(),
+                            mode == "ir-object");
   ctk::jit::RunContext context((*ast)->getASTContext());
   if (source_dir)
     return run_source((*input)->getBuffer(), source_dir, prelude, context);
@@ -190,21 +194,24 @@ llvm::Error run(const char *target_path, const char *database_path,
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc == 2 && llvm::StringRef(argv[1]) == "config") {
+  const llvm::StringRef mode = argc >= 2 ? argv[1] : "";
+  if (argc == 2 && mode == "config") {
     print_config();
     return 0;
   }
-  const bool source = argc >= 2 && llvm::StringRef(argv[1]) == "source";
-  const bool object = argc >= 2 && llvm::StringRef(argv[1]) == "object";
-  const bool ir = argc >= 2 && llvm::StringRef(argv[1]) == "ir";
-  if (!(source && (argc == 5 || argc == 6)) && !((object || ir) && argc == 4)) {
+  const bool source = mode == "source" && (argc == 5 || argc == 6);
+  const bool query = argc == 4 && (mode == "object" || mode == "ir" || mode == "ir-object");
+  const bool compile = argc == 2 && mode == "compile-ir";
+  if (!source && !query && !compile) {
     llvm::errs()
         << "usage: ctk-jit-runner source FILE COMPDB SCRIPT_DIRECTORY [PCH]\n"
-           "       ctk-jit-runner object|ir FILE COMPDB\n";
+           "       ctk-jit-runner object|ir|ir-object FILE COMPDB\n"
+           "       ctk-jit-runner compile-ir\n";
     return 2;
   }
   try {
-    if (auto error = run(argv[2], argv[3], ir, source ? argv[4] : nullptr,
+    if (auto error = run(mode, compile ? nullptr : argv[2],
+                         compile ? nullptr : argv[3], source ? argv[4] : nullptr,
                          argc == 6 ? argv[5] : nullptr)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
       return 1;

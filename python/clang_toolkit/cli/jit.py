@@ -314,7 +314,9 @@ def _script_input(
         raise ValueError(f"{path}: {error}") from error
 
 
-def _cached_script(path: Path, toolchain: Toolchain, cache: Path) -> bytes:
+def _cached_script(
+    path: Path, toolchain: Toolchain, cache: Path, *, llvm_ir: bool
+) -> bytes:
     script = path.resolve()
     contents = script.read_bytes()
     return cached_script_bundle(
@@ -324,31 +326,32 @@ def _cached_script(path: Path, toolchain: Toolchain, cache: Path) -> bytes:
         contents,
         _FRONTEND_FILES,
         (sys.version, lark_version),
-        lambda: _script_input(script, contents)[0],
+        lambda: _script_input(script, contents, llvm_ir=llvm_ir)[0],
+        llvm_ir=llvm_ir,
     )
 
 
 def _native_command(args: argparse.Namespace, runner: Path) -> int:
-    mode = "object"
     if args.bundle is not None:
-        program = bundle_object(args.bundle.read_bytes(), Toolchain.from_runner(runner))
-    elif args.llvm_ir:
-        mode = "ir"
-        program, _ = _script_input(args.script, llvm_ir=True)
+        mode, program = bundle_object(
+            args.bundle.read_bytes(), Toolchain.from_runner(runner)
+        )
     else:
         bundle = None
         if args.script.suffix == ".ctk" and not args.no_cache:
             try:
                 toolchain = Toolchain.from_runner(runner)
-                bundle = _cached_script(args.script, toolchain, cache_directory())
+                bundle = _cached_script(
+                    args.script, toolchain, cache_directory(), llvm_ir=args.llvm_ir
+                )
             except OSError:
                 # Source JIT is still usable if the compiler or cache is unavailable.
                 pass
         if bundle is None:
-            mode = "source"
-            program, quote_dir = _script_input(args.script)
+            mode = "ir" if args.llvm_ir else "source"
+            program, quote_dir = _script_input(args.script, llvm_ir=args.llvm_ir)
         else:
-            program = bundle_object(bundle, toolchain)
+            mode, program = bundle_object(bundle, toolchain)
     command = [str(runner), mode, str(args.file), str(args.compdb)]
     if mode == "source":
         command.append(quote_dir)
@@ -368,9 +371,6 @@ def main(argv: list[str] | None = None) -> int:
     run = commands.add_parser("run", help="run source or a precompiled bundle")
     run.add_argument("script", type=Path, nargs="?")
     run.add_argument("--bundle", type=Path, help="run a precompiled bundle")
-    run.add_argument(
-        "--llvm-ir", action="store_true", help="JIT a .ctk script directly as LLVM IR"
-    )
     run.add_argument("--file", type=Path, required=True, help="target translation unit")
     run.add_argument(
         "--compdb",
@@ -383,6 +383,9 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--output", "-o", type=Path, required=True)
     for command in (run, build):
         command.add_argument(
+            "--llvm-ir", action="store_true", help="compile a .ctk script via LLVM IR"
+        )
+        command.add_argument(
             "--runner", type=Path, help="override the native runner executable"
         )
         command.add_argument(
@@ -391,11 +394,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "run" and (args.script is None) == (args.bundle is None):
         parser.error("provide either a script or --bundle")
-    if (
-        args.command == "run"
-        and args.llvm_ir
-        and (args.script is None or args.script.suffix != ".ctk")
-    ):
+    if args.llvm_ir and (args.script is None or args.script.suffix != ".ctk"):
         parser.error("--llvm-ir requires a .ctk script")
     if args.script is not None and args.script.suffix not in {".ctk", ".cpp"}:
         parser.error("expected a .ctk script or .cpp extension")
@@ -411,10 +410,10 @@ def main(argv: list[str] | None = None) -> int:
         cache = None if args.no_cache else cache_directory()
         toolchain = Toolchain.from_runner(runner)
         if cache is not None and args.script.suffix == ".ctk":
-            data = _cached_script(args.script, toolchain, cache)
+            data = _cached_script(args.script, toolchain, cache, llvm_ir=args.llvm_ir)
         else:
-            source, quote_dir = _script_input(args.script)
-            data = precompile(toolchain, source, quote_dir, cache)
+            source, quote_dir = _script_input(args.script, llvm_ir=args.llvm_ir)
+            data = precompile(toolchain, source, quote_dir, cache, llvm_ir=args.llvm_ir)
         write_atomic(args.output, data)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"ctk-jit: {error}", file=sys.stderr)
