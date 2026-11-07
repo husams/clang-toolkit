@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+import pytest
+
+from clang_toolkit.cli.jit import lower_script
+
+
+QUERY = """\
+let tree = parse arg.file
+let rows = match functionDecl(isDefinition(), isExpansionInMainFile(), unless(isImplicit())).bind("f") in tree
+foreach row in rows do {
+    print row.f.decl_name
+}
+"""
+
+
+def test_jit_lowers_to_typed_matcher_and_native_projection() -> None:
+    source = QUERY.replace("isDefinition(),", 'hasName("add"), isDefinition(),')
+    source = source.replace("decl_name", "qualified_name")
+    cpp = lower_script(source, Path("query.ctk"))
+    assert (
+        'functionDecl(hasName("add"), isDefinition(), isExpansionInMainFile(), unless(isImplicit())).bind("f")'
+        in cpp
+    )
+    assert 'getNodeAs<clang::FunctionDecl>("f")' in cpp
+    assert "getQualifiedNameAsString()" in cpp
+    assert '#line 2 "query.ctk"' in cpp
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        ("arg.file", '"other.cpp"', "expected parse arg.file"),
+        ("in tree", "in rows", "expected match"),
+        ("in rows do", "in tree do", "expected foreach over rows"),
+        ("row.f.decl_name", "row.root.decl_name", "expected a bound declaration"),
+        ("isDefinition()", "hasBody(compoundStmt())", "unsupported matcher predicate"),
+    ],
+)
+def test_jit_reports_unsupported_script_forms(
+    before: str, after: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        lower_script(QUERY.replace(before, after), Path("query.ctk"))
+
+
+@pytest.fixture
+def jit_project(tmp_path: Path) -> Path:
+    runner = Path(__file__).resolve().parents[2] / "build/jit/ctk-jit-runner"
+    if not runner.is_file():
+        pytest.skip("standalone ctk-jit runner has not been built")
+    (tmp_path / "include").mkdir()
+    (tmp_path / "include" / "helper.hpp").write_text(
+        "inline int from_header() { return 1; }\n", encoding="utf-8"
+    )
+    (tmp_path / "example.cpp").write_text(
+        """\
+#include "helper.hpp"
+#include <stddef.h>
+#if !defined(ENABLE_ADD)
+#error Missing project compile flag
+#endif
+int add(int a, int b) { return a + b; }
+int square(int x) { return x * x; }
+int declared_only(int x);
+""",
+        encoding="utf-8",
+    )
+    command = [
+        "clang++",
+        "-std=c++20",
+        "-Iinclude",
+        "-DENABLE_ADD",
+        "-c",
+        "example.cpp",
+    ]
+    (tmp_path / "compile_commands.json").write_text(
+        json.dumps(
+            [{"directory": str(tmp_path), "arguments": command, "file": "example.cpp"}]
+        ),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def _run_jit(
+    project: Path, script: str, suffix: str = ".ctk"
+) -> subprocess.CompletedProcess[str]:
+    filename = "query" + suffix
+    (project / filename).write_text(script, encoding="utf-8")
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "clang_toolkit.cli.jit",
+            "run",
+            filename,
+            "--file",
+            "example.cpp",
+            "--compdb",
+            ".",
+        ],
+        cwd=project,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+
+def test_jit_runs_ctk_with_project_compile_flags(jit_project: Path) -> None:
+    result = _run_jit(jit_project, QUERY)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "add\nsquare\n"
+    assert result.stderr == ""
+
+
+def test_jit_can_execute_a_custom_native_matcher(jit_project: Path) -> None:
+    (jit_project / "filter.hpp").write_text(
+        """\
+namespace clang::ast_matchers {
+AST_MATCHER(FunctionDecl, hasTwoParameters) { return Node.getNumParams() == 2; }
+}
+""",
+        encoding="utf-8",
+    )
+    result = _run_jit(
+        jit_project,
+        """\
+#include <ctk/jit/runtime.hpp>
+#include "filter.hpp"
+void run(ctk::jit::RunContext &ctx) {
+  using namespace clang::ast_matchers;
+  ctx.match(functionDecl(isDefinition(), hasTwoParameters()).bind("f"),
+            [&](const MatchFinder::MatchResult &row) {
+              ctx.emit_text(row.Nodes.getNodeAs<clang::FunctionDecl>("f")->getNameAsString());
+            });
+}
+""",
+        ".cpp",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "add\n"
+    assert result.stderr == ""
+
+
+def test_jit_fails_before_execution_on_invalid_target_flags(jit_project: Path) -> None:
+    database = jit_project / "compile_commands.json"
+    commands = json.loads(database.read_text(encoding="utf-8"))
+    commands[0]["arguments"].insert(1, "-this-flag-does-not-exist")
+    database.write_text(json.dumps(commands), encoding="utf-8")
+    result = _run_jit(jit_project, QUERY)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "could not parse target" in result.stderr
