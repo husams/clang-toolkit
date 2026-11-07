@@ -84,6 +84,9 @@ Set `CTK_JIT_CACHE_DIR` to use a different private directory.
 `repl` opens the target AST once and keeps named bindings in the native
 runner. `let tree = parse arg.file` binds that AST. A match saves its rows
 for later commands, and `foreach` can print the same rows more than once.
+Bindings can also hold scalar literals such as `true` and records such as
+`{c:1, n:3}`. Use `print g` to display a value binding or `print g.n` to
+display one of its fields.
 
 ```text
 $ uv run ctk-jit repl --file src/example.cpp --compdb build/

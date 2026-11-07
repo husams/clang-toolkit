@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -326,6 +327,59 @@ def lower_ir(source: str) -> str:
     )
 
 
+def _repl_literal(node: Node) -> object:
+    if node.kind == "literal":
+        return node.value
+    if node.kind == "dict":
+        return {
+            entry.value: _repl_literal(entry.children[0]) for entry in node.children
+        }
+    if node.kind == "unary" and node.value == "-":
+        (operand,) = node.children
+        if operand.kind == "literal" and type(operand.value) in (int, float):
+            return -operand.value
+    raise _unsupported(node, "expected a literal value or record of literals")
+
+
+def _repl_print_path(node: Node, constants: _IrConstants) -> str:
+    fields = []
+    while node.kind == "get":
+        fields.append(node.value)
+        (node,) = node.children
+    if node.kind != "ref":
+        raise _unsupported(node, "expected a value binding or record field")
+    operands = [constants.string(node.value)]
+    operands.extend(constants.string(field) for field in reversed(fields))
+    operands.append("null")
+    path = ", ".join(f"ptr {operand}" for operand in operands)
+    return constants.constant(f"[{len(operands)} x ptr] [{path}]")
+
+
+def _repl_binding(statement: Node, constants: _IrConstants) -> tuple[str, str]:
+    value = _only_child(statement, "let", "expected let, print or foreach")
+    name = constants.string(statement.value)
+    if value.kind != "host":
+        encoded = json.dumps(
+            _repl_literal(value), allow_nan=False, separators=(",", ":")
+        )
+        return _ir_call("ctk_jit_repl_bind_value_v1", name, constants.string(encoded))
+
+    call = _host_call(statement)
+    if call.data == "parse_expression":
+        _validate_target(call)
+        return _ir_call("ctk_jit_repl_bind_target_v1", name)
+    if call.data == "match":
+        root, binding, target = _match_target(call)
+        return _ir_call(
+            "ctk_jit_repl_match_v1",
+            constants.constant(constants.argument(root)),
+            constants.string(binding),
+            constants.string(target),
+            name,
+        )
+    raise _unsupported(call, "expected parse, match, or a literal binding value")
+
+
 def lower_repl(source: str) -> str | None:
     """Lower one CTK statement against the runner's session bindings."""
     program = parse(source)
@@ -353,22 +407,13 @@ def lower_repl(source: str) -> str | None:
             ),
         )
 
-    call = _host_call(statement)
-    name = constants.string(statement.value)
-    if call.data == "parse_expression":
-        _validate_target(call)
-        declaration, setup = _ir_call("ctk_jit_repl_bind_target_v1", name)
-    elif call.data == "match":
-        root, binding, target = _match_target(call)
+    if statement.kind == "print":
+        value = _only_child(statement, "print", "expected one value to print")
         declaration, setup = _ir_call(
-            "ctk_jit_repl_match_v1",
-            constants.constant(constants.argument(root)),
-            constants.string(binding),
-            constants.string(target),
-            name,
+            "ctk_jit_repl_print_value_v1", _repl_print_path(value, constants)
         )
     else:
-        raise _unsupported(call, "expected parse or match as the binding value")
+        declaration, setup = _repl_binding(statement, constants)
     return _ir_module(constants, declaration, f"  %status = {setup}\n  ret i32 %status")
 
 

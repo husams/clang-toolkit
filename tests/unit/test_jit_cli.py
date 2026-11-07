@@ -220,6 +220,30 @@ def test_repl_reuses_compiled_commands_with_current_bindings(
     )
 
 
+def test_repl_literal_bindings_and_cached_field_projection(jit_project: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.jit", "repl", *_TARGET],
+        cwd=jit_project,
+        input="""\
+let g  = {c:1, n:3}
+let a = true
+print g
+print a
+print g.n
+let g = {n:7}
+print g.n
+""",
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    record, *values = result.stdout.splitlines()
+    assert json.loads(record) == {"c": 1, "n": 3}
+    assert values == ["true", "3", "7"]
+
+
 @pytest.mark.parametrize(
     ("matcher", "projection", "target_suffix", "expected"),
     [

@@ -41,7 +41,7 @@ struct MatchedRows {
   std::vector<const FunctionDecl*> declarations;
 };
 
-using Bindings = llvm::StringMap<std::variant<clang::ASTContext*, MatchedRows>>;
+using Bindings = llvm::StringMap<std::variant<clang::ASTContext*, MatchedRows, llvm::json::Value>>;
 
 struct IrContext {
   explicit IrContext(clang::ASTContext& ast, Bindings* bindings = nullptr)
@@ -184,6 +184,42 @@ extern "C" void ctk_jit_repl_print_v1(IrContext* context, const FunctionDecl* de
   context->output += '\n';
 }
 
+extern "C" int ctk_jit_repl_bind_value_v1(IrContext* context, const char* name,
+                                          const char* encoded) {
+  auto value = llvm::json::parse(encoded);
+  if (!value) {
+    context->error = llvm::toString(value.takeError());
+    return 1;
+  }
+  context->bindings->insert_or_assign(name, std::move(*value));
+  return 0;
+}
+
+extern "C" int ctk_jit_repl_print_value_v1(IrContext* context, const char* const* path) {
+  const auto entry = context->bindings->find(*path);
+  const auto* value =
+      entry == context->bindings->end() ? nullptr : std::get_if<llvm::json::Value>(&entry->second);
+  if (!value) {
+    context->error = (llvm::Twine("expected a value binding named '") + *path + "'").str();
+    return 1;
+  }
+  for (++path; *path; ++path) {
+    const auto* record = value->getAsObject();
+    if (!record || !(value = record->get(*path))) {
+      context->error = (llvm::Twine("no record field named '") + *path + "'").str();
+      return 1;
+    }
+  }
+  llvm::raw_string_ostream output(context->output);
+  if (auto string = value->getAsString()) {
+    output << *string;
+  } else {
+    output << *value;
+  }
+  output << '\n';
+  return 0;
+}
+
 llvm::Error failure(const llvm::Twine& message) {
   return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
 }
@@ -227,6 +263,8 @@ llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit(bool repl) {
     expose("ctk_jit_repl_match_v1", &ctk_jit_repl_match_v1);
     expose("ctk_jit_repl_select_rows_v1", &ctk_jit_repl_select_rows_v1);
     expose("ctk_jit_repl_print_v1", &ctk_jit_repl_print_v1);
+    expose("ctk_jit_repl_bind_value_v1", &ctk_jit_repl_bind_value_v1);
+    expose("ctk_jit_repl_print_value_v1", &ctk_jit_repl_print_value_v1);
   }
   auto& dylib = (*jit)->getMainJITDylib();
   if (auto error = dylib.define(llvm::orc::absoluteSymbols(std::move(symbols)))) {
