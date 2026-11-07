@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -174,6 +175,49 @@ foreach row in saved do { print row.f.decl_name }
     assert output == "add\nsquare\nadd\nsquare\nadd\n"
     assert "Incorrect type for arg 1" in errors
     assert not (jit_project / "cache").exists()
+
+
+def test_repl_reuses_compiled_commands_with_current_bindings(
+    jit_project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    first = 'let rows = match functionDecl(hasName("add")).bind("f") in tree'
+    second = first.replace('"add"', '"square"')
+    print_rows = "foreach row in rows do {\n    print row.f.decl_name\n}"
+    commands = (
+        "let tree = parse arg.file",
+        print_rows,
+        first,
+        print_rows,
+        second,
+        print_rows,
+        first,
+        print_rows,
+        ":quit",
+    )
+    monkeypatch.setattr(sys, "stdin", StringIO("\n".join(commands) + "\n"))
+    lowered: set[str] = set()
+
+    def lower_once(source: str) -> str | None:
+        assert source not in lowered, f"cached command was parsed again: {source!r}"
+        lowered.add(source)
+        return jit.lower_repl(source)
+
+    assert (
+        jit.run_repl(
+            _RUNNER,
+            jit_project / "example.cpp",
+            jit_project / "compile_commands.json",
+            lower_once,
+        )
+        == 1
+    )
+    output = capsys.readouterr()
+    assert output.out == "add\nsquare\nadd\n"
+    assert (
+        output.err == "ctk-jit: LLVM IR query: expected a match binding named 'rows'\n"
+    )
 
 
 @pytest.mark.parametrize(

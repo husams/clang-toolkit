@@ -10,6 +10,8 @@ import sys
 
 from lark.exceptions import LarkError, UnexpectedEOF, UnexpectedToken
 
+_COMMAND_CACHE_SIZE = 128
+
 
 def run_repl(
     runner: Path,
@@ -20,6 +22,7 @@ def run_repl(
     interactive = sys.stdin.isatty()
     pending = ""
     had_error = False
+    commands: dict[str, int] = {}
     with subprocess.Popen(
         [str(runner), "repl", str(target), str(compdb)],
         stdin=subprocess.PIPE,
@@ -33,7 +36,7 @@ def run_repl(
             ready = process.stdout.readline()
             if not ready:
                 return process.wait() or 1
-            if ready != '{"ready":true}\n':
+            if ready != '{"ready":true,"protocol":2}\n':
                 raise ValueError("unexpected response from native REPL runner")
             while True:
                 prompt = ("... " if pending else "ctk-jit> ") if interactive else ""
@@ -52,28 +55,46 @@ def run_repl(
                 if not pending and not line.strip():
                     continue
                 pending += line + "\n"
-                try:
-                    program = lower(pending)
-                except (LarkError, ValueError, SyntaxError) as error:
-                    if isinstance(error, UnexpectedEOF) or (
-                        isinstance(error, UnexpectedToken)
-                        and error.token.type == "$END"
-                    ):
+                slot = commands.get(pending)
+                evicted = None
+                if slot is None:
+                    # A cached multiline command already established which
+                    # of its line prefixes need another line.
+                    if any(command.startswith(pending) for command in commands):
                         continue
-                    print(f"ctk-jit: {error}", file=sys.stderr)
-                    pending = ""
-                    had_error = True
-                    continue
-                pending = ""
-                if program is None:
-                    continue
+                    try:
+                        program = lower(pending)
+                    except (LarkError, ValueError, SyntaxError) as error:
+                        if isinstance(error, UnexpectedEOF) or (
+                            isinstance(error, UnexpectedToken)
+                            and error.token.type == "$END"
+                        ):
+                            continue
+                        print(f"ctk-jit: {error}", file=sys.stderr)
+                        pending = ""
+                        had_error = True
+                        continue
+                    if program is None:
+                        pending = ""
+                        continue
+                    if len(commands) == _COMMAND_CACHE_SIZE:
+                        evicted = next(iter(commands))
+                    slot = len(commands) if evicted is None else commands[evicted]
+                    request = {"slot": slot, "ir": program}
+                else:
+                    request = {"slot": slot}
 
-                process.stdin.write(json.dumps(program) + "\n")
+                process.stdin.write(json.dumps(request) + "\n")
                 process.stdin.flush()
                 response = process.stdout.readline()
                 if not response:
                     return process.wait() or 1
                 result = json.loads(response)
+                if result["compiled"]:
+                    if evicted is not None:
+                        del commands[evicted]
+                    commands[pending] = slot
+                pending = ""
                 if result["error"]:
                     print(f"ctk-jit: {result['error']}", file=sys.stderr)
                     had_error = True

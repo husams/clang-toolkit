@@ -102,6 +102,11 @@ ctk-jit> :quit
 ```
 
 Submit one statement at a time. The continuation prompt accepts an open
-`foreach` block across lines. A failed command leaves earlier bindings
-available. Use `:quit` or EOF to exit, and start a new session to pick up
-changes to the target. Piped input uses the same syntax.
+`foreach` block across lines. Each session keeps up to 128 compiled commands,
+keyed by exact input text, and evicts the oldest entry when full. Repeating a
+command reuses its compiled code. Matches still traverse the retained AST
+and refresh their result bindings. Printing reads the current saved rows.
+
+A failed command leaves earlier bindings available. Use `:quit` or EOF to exit,
+and start a new session to pick up changes to the target. Piped input uses
+the same syntax.

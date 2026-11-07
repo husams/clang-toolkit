@@ -10,6 +10,7 @@
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/ASTMatchers/Dynamic/Registry.h>
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/StringMap.h>
 #include <llvm/AsmParser/Parser.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
@@ -54,6 +55,14 @@ struct IrContext {
   std::size_t next = 0;
   std::string error;
   std::string output;
+};
+
+using IrEntry = int (*)(IrContext*);
+constexpr auto ir_entry_symbol = "ctk_jit_run_ir_v1";
+
+struct CompiledCommand {
+  IrEntry entry;
+  llvm::orc::ResourceTrackerSP tracker;
 };
 
 dynamic::VariantMatcher construct_matcher(const MatcherArg& arg,
@@ -227,22 +236,32 @@ llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit(bool repl) {
 }
 
 llvm::Error add_ir(llvm::orc::LLJIT& jit, llvm::StringRef source,
-                   llvm::orc::ResourceTrackerSP tracker) {
+                   llvm::orc::ResourceTrackerSP tracker, llvm::StringRef entry_name = {}) {
   auto context = std::make_unique<llvm::LLVMContext>();
   auto module = parse_ir(source, *context, jit.getTargetTriple(), jit.getDataLayout());
   if (!module) {
     return module.takeError();
   }
+  if (!entry_name.empty()) {
+    auto* entry = (*module)->getFunction(ir_entry_symbol);
+    if (!entry || entry->isDeclaration()) {
+      return failure("generated LLVM IR has no entry point");
+    }
+    entry->setName(entry_name);
+  }
   return jit.addIRModule(std::move(tracker), {std::move(*module), std::move(context)});
 }
 
-llvm::Error call_ir_entry(llvm::orc::LLJIT& jit, IrContext& runtime) {
-  auto entry = jit.lookup("ctk_jit_run_ir_v1");
+llvm::Expected<IrEntry> lookup_ir_entry(llvm::orc::LLJIT& jit, llvm::StringRef name) {
+  auto entry = jit.lookup(name);
   if (!entry) {
     return entry.takeError();
   }
+  return entry->toPtr<IrEntry>();
+}
 
-  if (entry->toPtr<int (*)(IrContext*)>()(&runtime) != 0) {
+llvm::Error call_ir_entry(IrEntry entry, IrContext& runtime) {
+  if (entry(&runtime) != 0) {
     return failure(llvm::Twine("LLVM IR query: ") + runtime.error);
   }
   return llvm::Error::success();
@@ -285,8 +304,12 @@ llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext&
   if (loaded) {
     return loaded;
   }
+  auto entry = lookup_ir_entry(**jit, ir_entry_symbol);
+  if (!entry) {
+    return entry.takeError();
+  }
   IrContext runtime(ast);
-  return call_ir_entry(**jit, runtime);
+  return call_ir_entry(*entry, runtime);
 }
 
 llvm::Error repl_ir(clang::ASTContext& ast) {
@@ -295,33 +318,63 @@ llvm::Error repl_ir(clang::ASTContext& ast) {
     return jit.takeError();
   }
   Bindings bindings;
-  llvm::outs() << "{\"ready\":true}\n";
+  llvm::DenseMap<std::int64_t, CompiledCommand> commands;
+  std::uint64_t entry_number = 0;
+  llvm::outs() << "{\"ready\":true,\"protocol\":2}\n";
   llvm::outs().flush();
 
-  // The front end sends one JSON string containing LLVM IR per submission.
+  // Requests identify a cache slot and supply LLVM IR only on a miss.
   std::string line;
   while (std::getline(std::cin, line)) {
     auto request = llvm::json::parse(line);
     if (!request) {
       return request.takeError();
     }
-    auto source = request->getAsString();
-    if (!source) {
-      return failure("expected an LLVM IR string");
+    const auto* command = request->getAsObject();
+    const auto slot = command ? command->getInteger("slot") : std::nullopt;
+    if (!slot || *slot < 0) {
+      return failure("expected a REPL command slot");
     }
 
-    IrContext runtime(ast, &bindings);
-    auto tracker = (*jit)->getMainJITDylib().createResourceTracker();
-    auto result = add_ir(**jit, *source, tracker);
-    if (!result) {
-      result = call_ir_entry(**jit, runtime);
+    auto cached = commands.find(*slot);
+    bool compiled = false;
+    llvm::Error result = llvm::Error::success();
+    if (auto source = command->getString("ir")) {
+      // The previous entry remains usable until the replacement links.
+      const auto name = "ctk_jit_repl_entry_" + std::to_string(entry_number++);
+      auto tracker = (*jit)->getMainJITDylib().createResourceTracker();
+      result = add_ir(**jit, *source, tracker, name);
+      if (!result) {
+        auto entry = lookup_ir_entry(**jit, name);
+        if (!entry) {
+          result = entry.takeError();
+        } else {
+          if (cached != commands.end()) {
+            if (auto cleanup = cached->second.tracker->remove()) {
+              return cleanup;
+            }
+          }
+          cached = commands.insert_or_assign(*slot, CompiledCommand{*entry, tracker}).first;
+          compiled = true;
+        }
+      }
+      if (!compiled) {
+        if (auto cleanup = tracker->remove()) {
+          return llvm::joinErrors(std::move(result), std::move(cleanup));
+        }
+      }
     }
-    // Session bindings own only native data pointing into the retained AST.
-    // Reclaim this submission's code before the next one defines its entry.
-    if (auto cleanup = tracker->remove()) {
-      return llvm::joinErrors(std::move(result), std::move(cleanup));
+
+    // A cached entry runs against the session's current bindings on every call.
+    IrContext runtime(ast, &bindings);
+    if (!result) {
+      if (cached == commands.end()) {
+        return failure("unknown REPL command slot");
+      }
+      result = call_ir_entry(cached->second.entry, runtime);
     }
     llvm::outs() << llvm::json::Value(llvm::json::Object{
+                        {"compiled", compiled},
                         {"output", std::move(runtime.output)},
                         {"error", llvm::toString(std::move(result))},
                     })
