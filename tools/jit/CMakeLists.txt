@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.24)
-include(../../cmake/Platform.cmake)
-project(ctk_jit LANGUAGES C CXX)
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+  include(../../cmake/Platform.cmake)
+  project(ctk_jit LANGUAGES C CXX)
+  # Build the existing native analysis library with the standalone runner.
+  # The frontend, transports, and server executables are separate targets.
+  set(CTK_WITH_CLANG ON)
+  set(CTK_BUILD_NETWORK OFF)
+  set(CTK_BUILD_TESTS OFF)
+  set(CTK_BUILD_SCRIPT ON)
+  set(CTK_BUILD_JIT OFF)
+  set(CTK_BUILD_LOCAL_OPERATIONS ON)
+  add_subdirectory(../.. native EXCLUDE_FROM_ALL)
+endif()
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(Clang REQUIRED CONFIG)
@@ -35,9 +46,18 @@ if(APPLE)
   endif()
 endif()
 
-add_executable(ctk-jit-runner main.cpp ir.cpp values.cpp filters.cpp documents.cpp platform/compiler_channel.cpp
-  ../../server/src/clang/matcher_parser.cpp ../../server/src/clang/scoped_match.cpp)
-target_compile_features(ctk-jit-runner PRIVATE cxx_std_20)
+add_executable(ctk-jit-runner
+  main.cpp
+  ir.cpp
+  analysis.cpp
+  local_operations.cpp
+  semantic.cpp
+  values.cpp
+  filters.cpp
+  documents.cpp
+  typed_snapshot.cpp
+  platform/compiler_channel.cpp)
+target_compile_features(ctk-jit-runner PRIVATE cxx_std_23)
 set_target_properties(ctk-jit-runner PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")
 target_include_directories(ctk-jit-runner SYSTEM PRIVATE ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
@@ -54,4 +74,5 @@ target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_LLVM_INCLUDE="${LLVM_INCLUDE_DIRS}"
   CTK_JIT_RESOURCE_DIR="${CTK_JIT_RESOURCE_DIR}"
   CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}")
-target_link_libraries(ctk-jit-runner PRIVATE clang-cpp LLVM ICU::uc "${CTK_JIT_YAML_LIBRARY}")
+target_link_libraries(ctk-jit-runner PRIVATE
+  ctk_script_commands clang-cpp LLVM ICU::uc "${CTK_JIT_YAML_LIBRARY}")

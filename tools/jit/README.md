@@ -1,7 +1,9 @@
 # Standalone CTK JIT prototype
 
 Build the local runner with LLVM and Clang 21 or newer, plus the ICU and libyaml
-development libraries. Run the CLI from the repository's Python environment.
+development libraries, Protobuf and OpenSSL. Run the CLI from the repository's
+Python environment. The build uses the repository's native Clang libraries
+and turns off the server and its gRPC transport.
 
 ```sh
 cmake -S tools/jit -B build/jit -G Ninja
@@ -40,16 +42,21 @@ keyed by the script, front end, and toolchain. Use `--no-cache` for cold IR JIT.
 The native language covers values, collections, destructuring, arithmetic,
 conditionals, loops, runnables, pipelines, error handlers, and the console's
 built-in pipeline filters. Matchers can use saved arguments and bindings,
-file lists, and retained nodes with `scope self` or `scope subtree`.
+file lists, and retained nodes with `scope self`, `scope subtree`, or
+`scope children`.
 The runner can parse inline C++ and retains the ASTs referenced by saved
-results. It also supports text and CSV reads, ordinary JSON and YAML reads
-and writes, output routing, and definitions-only imports. The existing
+results. It supports text reads, JSON, YAML and CSV reads and writes, output
+routing, and definitions-only imports. The existing
 frontend compiles imported definitions and dynamic `ctk()` commands on demand.
 
-Full console parity is still in progress. CFG, call graph, variable flow,
-cursor navigation, traversal, managed sessions, project indexing, and batches
-require additional implementations. AST field coverage, typed persistence,
-and some console commands also remain incomplete.
+CFG, call graph, variable flow, traversal, `peek`, and `step` use the
+existing native analysis code and the retained AST. File discovery, file
+leases, cursors, and the secondary `script` DSL execute in the runner process.
+Typed `.proto` files support detached scalar, list, record, and enum values.
+
+Full console parity is still in progress. Remaining gaps include managed
+workspace sessions, project indexing, batch orchestration, some graph
+methods, full typed persistence, and console settings and display behavior.
 
 Use `--cpp-jit` to select the C++ backend or `--llvm-ir` to select IR explicitly.
 

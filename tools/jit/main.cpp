@@ -266,10 +266,10 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
   };
   auto* context_ast = ast ? &ast->getASTContext() : nullptr;
   if (mode == "repl")
-    return ctk::jit::repl_ir(context_ast, default_file, load, arguments);
+    return ctk::jit::repl_ir(std::move(ast), default_file, database_path, load, arguments);
   if (mode == "ir" || mode == "ir-object")
-    return ctk::jit::run_ir(std::move(input), context_ast, mode == "ir-object",
-                            default_file, load, arguments);
+    return ctk::jit::run_ir(std::move(input), std::move(ast), mode == "ir-object",
+                            default_file, database_path, load, arguments);
   if (!context_ast)
     return failure("the C++ backend requires a target file");
   ctk::jit::RunContext context(*context_ast);

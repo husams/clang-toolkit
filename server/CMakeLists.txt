@@ -38,7 +38,7 @@ add_library(ctk_core
 )
 set(_version_header "${CMAKE_CURRENT_BINARY_DIR}/generated/ctk/version.hpp")
 add_custom_target(ctk_version_header
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/generate_version.py"
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/generate_version.py"
           "--cpp=${_version_header}"
   BYPRODUCTS "${_version_header}"
   VERBATIM)
@@ -50,7 +50,7 @@ target_link_libraries(ctk_core PUBLIC ctk_cache ctk_storage)
 target_link_libraries(ctk_core PRIVATE Threads::Threads)
 target_link_libraries(ctk_core PUBLIC ctk_analysis_api)
 if(CTK_BUILD_SCRIPT)
-  include("${CMAKE_SOURCE_DIR}/cmake/Antlr.cmake")
+  include("${PROJECT_SOURCE_DIR}/cmake/Antlr.cmake")
   file(GLOB _script_generated CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/script/generated/*.cpp")
   add_library(ctk_script_parser STATIC ${_script_generated} src/script/parser.cpp)
   target_include_directories(ctk_script_parser PRIVATE include)
@@ -61,23 +61,42 @@ if(CTK_BUILD_SCRIPT)
   target_compile_definitions(ctk_core PUBLIC CTK_BUILD_SCRIPT=1)
 endif()
 
+if(CTK_BUILD_NETWORK OR CTK_BUILD_JIT OR CTK_BUILD_LOCAL_OPERATIONS)
+  add_library(ctk_operations
+    src/application/match_controller.cpp
+    src/application/operation_executor.cpp
+    src/application/cursor_registry.cpp
+    src/application/resource_manager.cpp
+    src/application/file_target_validation.cpp
+    src/platform/process_memory.cpp
+    src/platform/durable_file.cpp)
+  target_include_directories(ctk_operations PUBLIC include)
+  target_compile_features(ctk_operations PUBLIC cxx_std_23)
+  target_link_libraries(ctk_operations PUBLIC ctk_match_api
+    PRIVATE OpenSSL::Crypto Threads::Threads)
+  if(CTK_WITH_CLANG)
+    target_compile_definitions(ctk_operations PRIVATE CTK_WITH_CLANG=1)
+    target_link_libraries(ctk_operations PUBLIC ctk_clang)
+  endif()
+endif()
+
+if(TARGET ctk_operations)
+  add_library(ctk_script_commands
+    src/application/script_controller.cpp
+    src/application/native_script_environment.cpp
+    src/application/script_options.cpp)
+  target_link_libraries(ctk_script_commands PUBLIC ctk_core ctk_operations)
+endif()
+
 if(CTK_BUILD_NETWORK)
   find_path(CTK_YAML_INCLUDE_DIR yaml.h REQUIRED)
   find_library(CTK_YAML_LIBRARY yaml REQUIRED)
   target_sources(ctk_core PRIVATE
     src/platform/loopback_address.cpp
-    src/platform/process_memory.cpp
-    src/platform/durable_file.cpp
     src/config/config.cpp
     src/application/analysis_session.cpp
     src/application/query_controller.cpp)
-  target_sources(ctk_core PRIVATE src/application/match_controller.cpp
-    src/application/operation_executor.cpp
-    src/application/cursor_registry.cpp
-    src/application/resource_manager.cpp
-    src/application/file_target_validation.cpp
-    src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/call_graph_controller.cpp
-    src/application/script_controller.cpp src/application/native_script_environment.cpp src/application/script_options.cpp)
+  target_sources(ctk_core PRIVATE src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/call_graph_controller.cpp)
   target_sources(ctk_core PRIVATE src/application/batch_registry.cpp)
   target_include_directories(ctk_core PRIVATE "${CTK_YAML_INCLUDE_DIR}")
   target_link_libraries(ctk_core PRIVATE "${CTK_YAML_LIBRARY}")
@@ -97,8 +116,8 @@ if(CTK_BUILD_NETWORK)
   target_sources(ctk_network PRIVATE src/net/match_service.cpp src/net/match_status.cpp
     src/net/analysis_service.cpp src/net/index_service.cpp)
   target_include_directories(ctk_network PUBLIC include)
-  target_link_libraries(ctk_core PUBLIC ctk_query_api ctk_analysis_api)
-  target_link_libraries(ctk_network PUBLIC ctk_core ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto
+  target_link_libraries(ctk_core PUBLIC ctk_query_api ctk_analysis_api ctk_operations)
+  target_link_libraries(ctk_network PUBLIC ctk_core ctk_script_commands ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto
     PRIVATE ctk::sqlite)
   if(APPLE)
     target_link_libraries(ctk_network PRIVATE "-framework CoreServices")
@@ -110,8 +129,8 @@ if(CTK_WITH_CLANG)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_custom_target(ctk_node_serializer_coverage
     COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_SOURCE_DIR}/scripts/check_node_serializer_coverage.py"
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            "${PROJECT_SOURCE_DIR}/scripts/check_node_serializer_coverage.py"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     VERBATIM)
   add_library(ctk_clang
     src/application/cfg_backend_compat.cpp

@@ -674,8 +674,8 @@ def _native_repl_submission(project: Path, script: str) -> str:
         text=True,
         capture_output=True,
         timeout=60,
-        check=True,
     )
+    assert result.returncode == 0, (result.stdout, result.stderr)
     ready, response = result.stdout.splitlines()
     assert json.loads(ready)["ready"]
     reply = json.loads(response)
@@ -776,6 +776,12 @@ let rows = read "rows.csv"
 save {data:data, rows:rows, words:words} to "result" as json
 load "result.json" into value
 print value | json
+save [{label:"one,two", count:3, ok:true, rate:1.5}, {label:"two", count:4, ok:false, rate:2.5}] to "typed" as csv
+load "typed.csv" into csv_values
+print csv_values | json
+save ["","x"] to "labels" as csv
+load "labels" into labels
+print labels | json
 print value.data.order[0] to "message.txt"
 print value.words[-1] to "message.txt" mode append
 set output to "stream.txt" mode replace
@@ -785,7 +791,7 @@ clear output
 print "done"
 """
     expected = _compiled_console_output(jit_project, script)
-    files = ("result.json", "message.txt", "stream.txt")
+    files = ("result.json", "message.txt", "stream.txt", "typed.csv", "labels.csv")
     outputs = {name: (jit_project / name).read_bytes() for name in files}
     for name in files:
         (jit_project / name).unlink()
@@ -793,23 +799,13 @@ print "done"
     assert {name: (jit_project / name).read_bytes() for name in files} == outputs
 
 
-def test_native_scoped_matching_matches_existing_compiled_console(
-    jit_project: Path,
-) -> None:
+def _native_console_oracle(jit_project: Path, script: str) -> str:
     import grpc
 
     root = Path(__file__).resolve().parents[2]
     server = Path(os.environ.get("CTK_SERVER", root / "build/dev/server/ctk-server"))
     if not server.is_file():
         pytest.skip("existing CTK oracle server has not been built")
-    script = """\
-let tree = parse cpp`int f(int n) {return n+1;} int g() {return f(1);}` using {translation_unit:true}
-let functions = match functionDecl(hasName("g")).bind("f") in tree
-let calls = match callExpr(callee(functionDecl().bind("callee"))) in functions[0].f scope subtree
-print calls[0].callee.qualified_name
-let same = match functionDecl().bind("f") in functions[0].f scope self
-print same[0].f.decl_name
-"""
     with TemporaryDirectory(prefix="ctk-oracle-", dir="/tmp") as directory:
         socket = Path(directory) / "s"
         config = Path(directory) / "server.yaml"
@@ -827,7 +823,7 @@ print same[0].f.decl_name
         try:
             with grpc.insecure_channel(endpoint) as channel:
                 grpc.channel_ready_future(channel).result(timeout=15)
-            expected = _compiled_console_output(jit_project, script, endpoint)
+            return _compiled_console_output(jit_project, script, endpoint)
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -836,8 +832,115 @@ print same[0].f.decl_name
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+
+
+def test_native_scoped_matching_matches_existing_compiled_console(
+    jit_project: Path,
+) -> None:
+    script = """\
+let tree = parse cpp`int f(int n) {return n+1;} int g() {return f(1);}` using {translation_unit:true}
+let functions = match functionDecl(hasName("g")).bind("f") in tree
+let calls = match callExpr(callee(functionDecl().bind("callee"))) in functions[0].f scope subtree
+print calls[0].callee.qualified_name
+let same = match functionDecl().bind("f") in functions[0].f scope self
+print same[0].f.decl_name
+"""
+    expected = _native_console_oracle(jit_project, script)
     assert _native_repl_submission(jit_project, script) == expected
 
+
+def test_native_analysis_matches_existing_compiled_console(jit_project: Path) -> None:
+    script = """\
+let tree = parse cpp`int leaf(int n) {return n+1;}
+int outer(int i) {int n = leaf(i); return n;}` using {translation_unit:true}
+let rows = match functionDecl(hasName("outer")).bind("f") in tree
+let f = rows[0].f
+let vars = match varDecl(hasName("n")).bind("v") in f
+let v = vars[0].v
+let flow = variableflow v in f
+print flow.analysis.variable
+print len(flow.usages)
+let cfgs = cfg in f
+print len(cfgs.graphs)
+print cfgs.graphs[0].function.qualified_name
+let walked = traverse f depth 2
+print len(walked.nodes)
+let graph = callgraph in tree
+print len(graph.nodes)
+let matched = match functionDecl(hasName("outer")) in graph.function("outer")
+print len(matched)
+let body = step children compoundStmt() in f
+let body_rows = match compoundStmt() in body scope self
+print len(body_rows)
+let parent = step parents functionDecl() in body
+print parent.decl_name
+let children = match compoundStmt() in f scope children
+print len(children)
+"""
+    expected = _native_console_oracle(jit_project, script)
+    assert _native_repl_submission(jit_project, script) == expected
+    (jit_project / "analysis.ctk").write_text(script, encoding="utf-8")
+    assert _output(jit_project, "run", "analysis.ctk", "--no-cache") == expected + "\n"
+    _output(jit_project, "precompile", "analysis.ctk", "-o", "analysis.bundle")
+    assert _output(jit_project, "run", "--bundle", "analysis.bundle") == expected + "\n"
+
+
+def test_native_file_leases_and_cursors_match_existing_compiled_console(
+    jit_project: Path,
+) -> None:
+    script = """\
+let inputs = files ["example.cpp"]
+print len(inputs)
+foreach item in inputs do { print item.path == inputs.inputs[0].path }
+let discovered_rows = match functionDecl(hasName("add")) in inputs
+print len(discovered_rows)
+let selected = inputs.inputs[0]
+let opened = file open selected into $source
+print opened.path == selected.path
+let details = file info $source
+print details.lease_id == opened.lease_id
+let rows = match functionDecl(hasName("add")) in source
+print len(rows)
+let refreshed = file refresh $source
+print refreshed.path == opened.path
+let cursor = cursor open "example.cpp" functionDecl(hasName("add")).bind("fn")
+print cursor.result_revision
+print len(cursor.results)
+let next = cursor continue "{cursor.session_id}" "fn" parmVarDecl() row 0 scope subtree revision 1
+print next.result_revision
+print len(next.results)
+let state = resource status
+print state.explicit_file_leases
+let closed = file close all
+print closed.released_leases
+let inventory = file list
+print len(inventory)
+"""
+    expected = _native_console_oracle(jit_project, script)
+    assert _native_repl_submission(jit_project, script) == expected
+
+
+
+def test_native_script_command_matches_existing_compiled_console(jit_project: Path) -> None:
+    script = """\
+let report = script "let n = 7; emit n;"
+print report.emissions[0].value.scalar.integer
+"""
+    expected = _native_console_oracle(jit_project, script)
+    assert _native_repl_submission(jit_project, script) == expected
+
+
+def test_native_typed_snapshot_interoperates_with_existing_console(jit_project: Path) -> None:
+    save = 'save {names:["α", "β"], count:3, enabled:true, nested:[null, 3.5]} to "data" as proto'
+    load = 'load "data" into saved; print saved | json'
+    _compiled_console_output(jit_project, save)
+    reference = (jit_project / "data.proto").read_bytes()
+    assert json.loads(_native_repl_submission(jit_project, load)) == json.loads(
+        _compiled_console_output(jit_project, load)
+    )
+    (jit_project / "data.proto").unlink()
+    _native_repl_submission(jit_project, save)
+    assert (jit_project / "data.proto").read_bytes() == reference
 
 def test_native_runtime_imports_match_console_and_work_in_bundles(
     jit_project: Path,

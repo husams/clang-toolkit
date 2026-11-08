@@ -28,11 +28,19 @@ namespace ctk::jit {
 struct Sequence;
 struct Record;
 struct Runnable;
+struct SemanticValue;
+
+struct SemanticEnum {
+  std::string name;
+  std::int64_t number;
+};
 using AstHandle = std::shared_ptr<clang::ASTContext>;
 
 struct NativeNode {
   AstHandle ast;
   std::shared_ptr<clang::DynTypedNode> node;
+  mutable std::shared_ptr<SemanticValue> semantic;
+  std::shared_ptr<clang::DynTypedNode> parent;
 };
 
 struct BuiltinFunction {
@@ -47,7 +55,7 @@ struct Value {
   using Data = std::variant<std::monostate, bool, std::int64_t, double, std::string,
                             std::shared_ptr<Sequence>, std::shared_ptr<Record>, AstHandle,
                             std::shared_ptr<NativeNode>, MatcherValue, std::shared_ptr<Runnable>,
-                            BuiltinFunction>;
+                            BuiltinFunction, std::shared_ptr<SemanticValue>, SemanticEnum>;
 
   Data data;
 };

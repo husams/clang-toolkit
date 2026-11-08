@@ -24,8 +24,10 @@ from .jit_cache import (
     precompile,
     write_atomic,
 )
+from .jit_analysis import ANALYSIS_COMMANDS, lower_analysis
 from .jit_compiler import compiler_channel
 from .jit_language import LanguageIR
+from .jit_operations import LOCAL_COMMANDS, lower_operation
 from .jit_repl import run_repl
 from .runtime.prototype.repl_language import parse
 from .runtime.prototype.syntax import Node
@@ -44,6 +46,9 @@ _FRONTEND_FILES = (
     _CLI_DIRECTORY / "jit_dependencies.py",
     _CLI_DIRECTORY / "jit_language.py",
     _CLI_DIRECTORY / "jit_compiler.py",
+    _CLI_DIRECTORY / "jit_analysis.py",
+    _CLI_DIRECTORY / "jit_operations.py",
+    _CLI_DIRECTORY / "runtime/graph_options.py",
     _CLI_DIRECTORY / "grammar.lark",
     _CLI_DIRECTORY / "language.py",
     _CLI_DIRECTORY / "runtime/templates.py",
@@ -344,6 +349,10 @@ def lower_ir(source: str, path: Path | None = None) -> str:
 
 def _lower_host(ir: LanguageIR, node: Node) -> str:
     tree, mode = node.value
+    if tree.data in LOCAL_COMMANDS:
+        return lower_operation(ir, tree, mode, _host_value)
+    if tree.data in ANALYSIS_COMMANDS:
+        return lower_analysis(ir, tree, mode, _host_value)
     if tree.data in {"quit", "exit"}:
         return ir.stop()
     if tree.data == "parse_expression":

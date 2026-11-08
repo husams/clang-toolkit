@@ -1,4 +1,5 @@
 #include "filters.hpp"
+#include "semantic.hpp"
 #include "value_access.hpp"
 
 #include <algorithm>
@@ -926,6 +927,8 @@ const Value* call_builtin(Values& runtime, llvm::StringRef name, llvm::ArrayRef<
       size = sequence->items.size();
     } else if (const auto* mapping = object<Record>(value)) {
       size = mapping->keys.size();
+    } else if (const auto native_size = semantic_length(value)) {
+      size = *native_size;
     } else {
       return runtime.fail("len requires a sized value");
     }

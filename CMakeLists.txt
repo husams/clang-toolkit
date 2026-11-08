@@ -14,15 +14,25 @@ option(CTK_BUILD_TESTS "Build C++ unit tests" ON)
 option(CTK_BUILD_APIS "Build the versioned AST protobuf API library" OFF)
 option(CTK_BUILD_NETWORK "Build the native gRPC query transport" ON)
 option(CTK_BUILD_SCRIPT "Build the ANTLR server scripting engine" ON)
+option(CTK_BUILD_JIT "Build the standalone LLVM IR runner" OFF)
 include(cmake/SQLite.cmake)
 # The core scripting interface consumes the contract even when execution is disabled.
 add_subdirectory(api)
 
 add_subdirectory(server)
 
+if(CTK_BUILD_JIT)
+  if(NOT CTK_WITH_CLANG)
+    message(FATAL_ERROR "CTK_BUILD_JIT requires CTK_WITH_CLANG")
+  endif()
+  add_subdirectory(tools/jit)
+endif()
+
 if(CTK_BUILD_TESTS)
   enable_testing()
   add_subdirectory(server/tests)
 endif()
 
-include(cmake/Packaging.cmake)
+if(PROJECT_IS_TOP_LEVEL)
+  include(cmake/Packaging.cmake)
+endif()

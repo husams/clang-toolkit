@@ -32,10 +32,10 @@ using LoadTarget =
 using ScriptArguments = std::vector<std::pair<std::string, std::string>>;
 
 llvm::Error compile_ir(llvm::StringRef source);
-llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext* ast,
-                   bool precompiled, llvm::StringRef file, const LoadTarget& load,
-                   const ScriptArguments& arguments);
-llvm::Error repl_ir(clang::ASTContext* ast, llvm::StringRef file, const LoadTarget& load,
-                    const ScriptArguments& arguments);
+llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, std::unique_ptr<clang::ASTUnit> ast,
+                   bool precompiled, llvm::StringRef file, llvm::StringRef database,
+                   const LoadTarget& load, const ScriptArguments& arguments);
+llvm::Error repl_ir(std::unique_ptr<clang::ASTUnit> ast, llvm::StringRef file, llvm::StringRef database,
+                    const LoadTarget& load, const ScriptArguments& arguments);
 
 } // namespace ctk::jit

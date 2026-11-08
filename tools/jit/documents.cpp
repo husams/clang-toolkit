@@ -1,5 +1,6 @@
 #include "documents.hpp"
 #include "filters.hpp"
+#include "typed_snapshot.hpp"
 #include "value_access.hpp"
 
 #include <cmath>
@@ -75,6 +76,8 @@ std::optional<std::string> format_for_path(const fs::path& path, bool text) {
     return "json";
   if (extension == ".csv")
     return "csv";
+  if (extension == ".proto" && !text)
+    return "proto";
   if (text && (extension == ".txt" || extension == ".text"))
     return "text";
   return std::nullopt;
@@ -227,7 +230,6 @@ std::optional<std::vector<std::vector<std::string>>> parse_csv(Values& runtime,
   std::vector<std::string> row;
   std::string cell;
   bool quoted = false, closed = false;
-  source.consume_front("\xef\xbb\xbf");
   for (std::size_t i = 0; i < source.size(); ++i) {
     const char ch = source[i];
     if (quoted) {
@@ -278,29 +280,175 @@ std::optional<std::vector<std::vector<std::string>>> parse_csv(Values& runtime,
   return rows;
 }
 
-const Value* csv_document(Values& runtime, llvm::StringRef source) {
+enum class Cell { String, Integer, Float, Boolean };
+
+llvm::StringRef cell_name(Cell cell) {
+  switch (cell) {
+  case Cell::String: return "str";
+  case Cell::Integer: return "int";
+  case Cell::Float: return "float";
+  case Cell::Boolean: return "bool";
+  }
+  llvm_unreachable("unknown CSV cell type");
+}
+
+std::optional<Cell> cell_type(const Value& value) {
+  if (as<std::string>(value))
+    return Cell::String;
+  if (as<std::int64_t>(value))
+    return Cell::Integer;
+  if (as<double>(value))
+    return Cell::Float;
+  if (as<bool>(value))
+    return Cell::Boolean;
+  return std::nullopt;
+}
+
+std::optional<Value> csv_value(llvm::StringRef text, Cell cell) {
+  if (cell == Cell::String)
+    return Value{text.str()};
+  if (cell == Cell::Boolean) {
+    if (text == "true" || text == "false")
+      return Value{text == "true"};
+    return std::nullopt;
+  }
+  text = text.trim();
+  if (cell == Cell::Integer) {
+    std::int64_t result;
+    text.consume_front("+");
+    if (!text.getAsInteger(10, result))
+      return Value{result};
+  } else {
+    double result;
+    if (!text.getAsDouble(result))
+      return Value{result};
+  }
+  return std::nullopt;
+}
+
+const Value* csv_document(Values& runtime, llvm::StringRef source, bool loading) {
+  if (!loading)
+    source.consume_front("\xef\xbb\xbf");
   const auto rows = parse_csv(runtime, source);
   if (!rows)
     return nullptr;
   if (rows->empty())
-    return runtime.hold(list());
-  const auto& columns = rows->front();
-  std::set<llvm::StringRef> distinct;
-  for (const auto& column : columns) {
-    if (column.empty() || !distinct.insert(column).second)
+    return loading ? runtime.fail("CSV is missing a header") : runtime.hold(list());
+  std::vector<std::pair<std::string, Cell>> columns;
+  std::set<std::string> distinct;
+  for (llvm::StringRef header : rows->front()) {
+    Cell cell = Cell::String;
+    if (loading) {
+      const auto [name, type] = header.rsplit(':');
+      for (auto candidate : {Cell::String, Cell::Integer, Cell::Float, Cell::Boolean}) {
+        if (type == cell_name(candidate)) {
+          header = name;
+          cell = candidate;
+          break;
+        }
+      }
+    }
+    if (header.empty() || !distinct.insert(header.str()).second)
       return runtime.fail("CSV has duplicate or empty columns");
+    columns.emplace_back(header.str(), cell);
   }
   std::vector<Value> result;
+  const bool single_value = loading && columns.size() == 1 && columns[0].first == "value";
   for (std::size_t index = 1; index < rows->size(); ++index) {
     const auto& values = (*rows)[index];
     if (values.size() != columns.size())
       return runtime.fail("CSV row has the wrong number of columns");
     auto row = std::make_shared<Record>();
-    for (std::size_t col = 0; col < columns.size(); ++col)
-      row->set(columns[col], {values[col]});
-    result.push_back({std::move(row)});
+    for (std::size_t col = 0; col < columns.size(); ++col) {
+      const auto& [name, kind] = columns[col];
+      auto value = csv_value(values[col], kind);
+      if (!value)
+        return runtime.fail(llvm::Twine("invalid CSV ") + cell_name(kind) + " value");
+      if (single_value)
+        result.push_back(std::move(*value));
+      else
+        row->set(name, std::move(*value));
+    }
+    if (!single_value)
+      result.push_back({std::move(row)});
   }
   return runtime.hold(list(std::move(result)));
+}
+
+void csv_row(std::string& output, const std::vector<std::string>& columns) {
+  for (std::size_t index = 0; index < columns.size(); ++index) {
+    if (index)
+      output += ',';
+    const auto& cell = columns[index];
+    const bool quote =
+        cell.find_first_of(",\"\r\n") != std::string::npos || (columns.size() == 1 && cell.empty());
+    if (!quote) {
+      output += cell;
+      continue;
+    }
+    output += '"';
+    for (char character : cell) {
+      if (character == '"')
+        output += '"';
+      output += character;
+    }
+    output += '"';
+  }
+  output += "\r\n";
+}
+
+llvm::Expected<std::string> csv_encode(const Value& value) {
+  auto fail = [](const char* message) {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
+  };
+  const auto* items = object<Sequence>(value);
+  if (!items || items->tuple)
+    return fail("CSV requires a list");
+  if (items->items.empty())
+    return std::string("value:str\r\n");
+  const auto* first = object<Record>(items->items.front());
+  const auto keys = first ? first->keys : std::vector<std::string>{"value"};
+  if (keys.empty())
+    return fail("CSV records must have the same nonempty fields");
+  std::vector<Cell> types;
+  std::vector<std::string> columns;
+  for (const auto& key : keys) {
+    const auto type = cell_type(first ? first->fields.find(key)->second : items->items.front());
+    if (!type)
+      return fail("CSV supports only flat lists of primitive values or records");
+    types.push_back(*type);
+    columns.push_back(key + ":" + cell_name(*type).str());
+  }
+  std::string result;
+  csv_row(result, columns);
+  for (const auto& item : items->items) {
+    const auto* row = first ? object<Record>(item) : nullptr;
+    if (first && (!row || row->keys.size() != keys.size()))
+      return fail("CSV records must have the same nonempty fields");
+    for (std::size_t index = 0; index < keys.size(); ++index) {
+      const auto* selected = &item;
+      if (row) {
+        const auto found = row->fields.find(keys[index]);
+        if (found == row->fields.end())
+          return fail("CSV records must have the same nonempty fields");
+        selected = &found->second;
+      }
+      if (cell_type(*selected) != types[index])
+        return fail("CSV column types must be consistent");
+      if (const auto* text = as<std::string>(*selected))
+        columns[index] = *text;
+      else if (const auto* integer = as<std::int64_t>(*selected))
+        columns[index] = std::to_string(*integer);
+      else if (const auto* number = as<double>(*selected))
+        columns[index] = format_float(*number);
+      else
+        columns[index] = *as<bool>(*selected) ? "true" : "false";
+    }
+    csv_row(result, columns);
+    if (result.size() > max_document_bytes)
+      return fail("CSV exceeds byte limit");
+  }
+  return result;
 }
 
 const Value* read(Values& runtime, const Value& path, const char* explicit_format, bool loading) {
@@ -333,10 +481,14 @@ const Value* read(Values& runtime, const Value& path, const char* explicit_forma
   auto source = (*content)->getBuffer();
   if (source.size() > max_document_bytes)
     return runtime.fail("document exceeds byte limit");
+  if (*format == "proto" && loading) {
+    auto value = decode_snapshot(source);
+    return value ? runtime.hold(std::move(*value)) : runtime.fail(llvm::toString(value.takeError()));
+  }
   if (*format == "json" || *format == "yaml")
     return YamlReader(runtime, *format == "json").read(source);
-  if (*format == "csv" && !loading)
-    return csv_document(runtime, source);
+  if (*format == "csv")
+    return csv_document(runtime, source, loading);
   if (*format != "text" || loading)
     return runtime.fail("unsupported document format");
 
@@ -369,13 +521,18 @@ extern "C" const Value* ctk_jit_document_save_v1(Values* runtime, const Value* p
   const auto format = explicit_format        ? std::optional<std::string>{explicit_format}
                       : file.has_extension() ? inferred
                                              : std::optional<std::string>{"yaml"};
-  if (!format || (*format != "json" && *format != "yaml"))
+  if (!format || (*format != "json" && *format != "yaml" && *format != "proto" && *format != "csv"))
     return runtime->fail("unsupported document format");
   if (file.has_extension()) {
     if (inferred != format)
       return runtime->fail("file extension and requested format disagree");
   } else {
     file.replace_extension("." + *format);
+  }
+  if (*format == "proto" || *format == "csv") {
+    auto bytes = *format == "proto" ? encode_snapshot(*value) : csv_encode(*value);
+    if (!bytes) return runtime->fail(llvm::toString(bytes.takeError()));
+    return write(*runtime, file.string(), *bytes, false) ? value : nullptr;
   }
   const std::array arguments{*value, Value{std::int64_t{2}}};
   const auto* serialized = call_builtin(*runtime, "json", arguments, Record{});

@@ -1,4 +1,5 @@
 #include "values.hpp"
+#include "semantic.hpp"
 #include "documents.hpp"
 #include "filters.hpp"
 #include "value_access.hpp"
@@ -247,6 +248,11 @@ void render(llvm::raw_ostream& out, const Value& value, Render style, unsigned d
     if (keys.size() < mapping->keys.size())
       out << ", \"truncated_items\": " << mapping->keys.size() - keys.size();
     out << '}';
+  } else if (const auto* view = object<SemanticValue>(value)) {
+    out << llvm::StringRef(semantic_json(*view, style == Render::Console)).rtrim("\n");
+  } else if (const auto* flag = as<SemanticEnum>(value)) {
+    if (style == Render::Json) out << llvm::json::Value(flag->name);
+    else out << flag->name;
   } else if (const auto* ast = as<AstHandle>(value)) {
     const auto& sources = (*ast)->getSourceManager();
     const auto file = sources.getFileEntryRefForID(sources.getMainFileID());
@@ -521,6 +527,10 @@ extern "C" const Value* ctk_jit_value_add_v1(Values* runtime, const Value* colle
   return collection;
 }
 
+const Value* hold_semantic(Values& runtime, llvm::Expected<Value> value) {
+  return value ? runtime.hold(std::move(*value)) : runtime.fail(llvm::toString(value.takeError()));
+}
+
 extern "C" const Value* ctk_jit_value_get_v1(Values* runtime, const Value* value, const char* key,
                                              const char* reference) {
   const llvm::StringRef property(key);
@@ -540,10 +550,20 @@ extern "C" const Value* ctk_jit_value_get_v1(Values* runtime, const Value* value
     return runtime->fail(llvm::Twine("no record field named '") + key + "'");
   }
   if (const auto* node = object<NativeNode>(*value)) {
-    if (property == "value" || property == "node")
-      return value;
+    if (property == "value") {
+      auto view = semantic(*node);
+      return view ? runtime->hold({std::move(view)}) : runtime->fail("native node is unavailable");
+    }
     if (auto field = node_property(*node, property))
       return runtime->hold(std::move(*field));
+    if (const auto view = semantic(*node))
+      return hold_semantic(*runtime, semantic_field(*view, property));
+  }
+  if (const auto* view = object<SemanticValue>(*value))
+    return hold_semantic(*runtime, semantic_field(*view, property));
+  if (const auto* flag = as<SemanticEnum>(*value)) {
+    if (property == "name") return runtime->hold({flag->name});
+    if (property == "number") return runtime->hold({flag->number});
   }
   if (const auto size = length(*value)) {
     if (property == "length")
@@ -576,6 +596,11 @@ extern "C" const Value* ctk_jit_value_index_v1(Values* runtime, const Value* val
     if (found != data->fields.end())
       return runtime->hold(found->second);
     return runtime->fail(llvm::Twine("no record field named '") + *name + "'");
+  }
+  if (object<SemanticValue>(*value) || object<NativeNode>(*value)) {
+    const auto* field = as<std::string>(*key);
+    if (!field) return runtime->fail("semantic field requires a string key");
+    return ctk_jit_value_get_v1(runtime, value, field->c_str(), nullptr);
   }
   const auto size = length(*value);
   if (!size)
@@ -699,16 +724,25 @@ extern "C" const Value* ctk_jit_value_predicate_v1(Values* runtime, const char* 
     bool present;
     if (const auto* data = object<Record>(*left)) {
       present = data->fields.contains(*key);
-    } else if (const auto* node = object<NativeNode>(*left)) {
-      present = node_property(*node, *key).has_value();
     } else {
-      return runtime->fail("field presence requires a record or AST node");
+      const auto* view = object<SemanticValue>(*left);
+      const auto* node = object<NativeNode>(*left);
+      const auto pinned = node ? semantic(*node) : nullptr;
+      if (!view) view = pinned.get();
+      if (!view) return runtime->fail("field presence requires a record or AST node");
+      auto result = semantic_method(*view, "hasField", Sequence{{*right}});
+      if (!result) return runtime->fail(llvm::toString(result.takeError()));
+      present = *as<bool>(*result);
     }
     return runtime->hold({op == "has" ? present : !present});
   }
   if (op == "is_kind" || op == "is_not_kind") {
     const auto* node = object<NativeNode>(*left);
     const auto* kind = as<std::string>(*right);
+    if (const auto* view = object<SemanticValue>(*left); view && kind) {
+      const bool equal = semantic_kind(*view, *kind);
+      return runtime->hold({op == "is_kind" ? equal : !equal});
+    }
     if (!node || !kind)
       return runtime->fail("node kind requires a selected AST node");
     const llvm::StringRef expected =
@@ -741,6 +775,8 @@ extern "C" const Value* ctk_jit_value_predicate_v1(Values* runtime, const char* 
 extern "C" const Value* ctk_jit_value_iterate_v1(Values* runtime, const Value* value) {
   if (object<Sequence>(*value))
     return value;
+  if (auto iterable = semantic_iteration(*value))
+    return runtime->hold(std::move(*iterable));
   std::vector<Value> items;
   if (const auto* data = object<Record>(*value)) {
     for (const auto& key : data->keys)
@@ -936,7 +972,7 @@ extern "C" const Value* ctk_jit_value_bindings_v1(Values* runtime) {
       "NoneType",    "bool",          "int",
       "float",       "str",           "list",
       "dict",        "ParsedTree",    "BindingSelection",
-      "MatcherExpr", "RunnableBlock", "function",
+      "MatcherExpr", "RunnableBlock", "function", "MessageView", "EnumValue",
   };
   std::size_t width = 0;
   for (auto name : names)
@@ -948,15 +984,22 @@ extern "C" const Value* ctk_jit_value_bindings_v1(Values* runtime) {
     const auto* sequence = object<Sequence>(value);
     auto type = sequence && sequence->tuple ? llvm::StringRef("tuple")
                                             : llvm::StringRef(types[value.data.index()]);
-    out << "\\n$" << name << std::string(width - name.size() + 2, ' ') << type;
+    out << "\n$" << name << std::string(width - name.size() + 2, ' ') << type;
   }
   return runtime->hold({std::move(result)});
 }
 
 extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* base,
                                                 const char* method, const Value* arguments) {
-  const auto& args = object<Sequence>(*arguments)->items;
+  const auto& parameters = *object<Sequence>(*arguments);
+  const auto& args = parameters.items;
   const llvm::StringRef name(method);
+  if (const auto* view = object<SemanticValue>(*base))
+    return hold_semantic(*runtime, semantic_method(*view, name, parameters));
+  if (const auto* node = object<NativeNode>(*base)) {
+    if (const auto view = semantic(*node))
+      return hold_semantic(*runtime, semantic_method(*view, name, parameters));
+  }
   if (name == "hasField" && args.size() == 1) {
     return ctk_jit_value_predicate_v1(runtime, "has", base, &args[0]);
   }
