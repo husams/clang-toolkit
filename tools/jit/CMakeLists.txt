@@ -51,17 +51,20 @@ add_executable(ctk-jit-runner
   ir.cpp
   analysis.cpp
   local_operations.cpp
+  embedded_services.cpp
   semantic.cpp
   values.cpp
   filters.cpp
   documents.cpp
   typed_snapshot.cpp
+  settings.cpp
   platform/compiler_channel.cpp)
 target_compile_features(ctk-jit-runner PRIVATE cxx_std_23)
 set_target_properties(ctk-jit-runner PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")
 target_include_directories(ctk-jit-runner SYSTEM PRIVATE ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(ctk-jit-runner PRIVATE
+  CTK_JIT_INDEX_WORKER="$<TARGET_FILE:ctk-index-worker>"
   CTK_JIT_COMPILER="${CTK_JIT_CLANG}"
   CTK_JIT_CLANG_LIBRARY="$<TARGET_FILE:clang-cpp>"
   CTK_JIT_LLVM_LIBRARY="$<TARGET_FILE:LLVM>"
@@ -75,4 +78,6 @@ target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_RESOURCE_DIR="${CTK_JIT_RESOURCE_DIR}"
   CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}")
 target_link_libraries(ctk-jit-runner PRIVATE
-  ctk_script_commands clang-cpp LLVM ICU::uc "${CTK_JIT_YAML_LIBRARY}")
+  ctk_script_commands ctk_project_index clang-cpp LLVM ICU::uc "${CTK_JIT_YAML_LIBRARY}")
+
+add_dependencies(ctk-jit-runner ctk-index-worker)

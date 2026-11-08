@@ -200,14 +200,17 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
 
   clang::DiagnosticOptions diagnostic_options;
   clang::TextDiagnosticPrinter diagnostics(llvm::errs(), diagnostic_options);
+  const bool native_ir = mode == "ir" || mode == "ir-object" || mode == "repl";
   std::unique_ptr<clang::ASTUnit> ast;
   std::string default_file;
   if (*target_path) {
-    auto loaded = parse_target(target_path, database_path, diagnostics);
-    if (!loaded)
-      return loaded.takeError();
-    ast = std::move(*loaded);
     default_file = fs::absolute(target_path).lexically_normal().string();
+    if (!native_ir) {
+      auto loaded = parse_target(target_path, database_path, diagnostics);
+      if (!loaded)
+        return loaded.takeError();
+      ast = std::move(*loaded);
+    }
   }
   ctk::jit::ScriptArguments arguments;
   if (script_arguments) {
@@ -266,9 +269,9 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
   };
   auto* context_ast = ast ? &ast->getASTContext() : nullptr;
   if (mode == "repl")
-    return ctk::jit::repl_ir(std::move(ast), default_file, database_path, load, arguments);
+    return ctk::jit::repl_ir(default_file, database_path, load, arguments);
   if (mode == "ir" || mode == "ir-object")
-    return ctk::jit::run_ir(std::move(input), std::move(ast), mode == "ir-object",
+    return ctk::jit::run_ir(std::move(input), mode == "ir-object",
                             default_file, database_path, load, arguments);
   if (!context_ast)
     return failure("the C++ backend requires a target file");

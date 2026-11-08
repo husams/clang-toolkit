@@ -2,6 +2,7 @@
 #include "analysis.hpp"
 #include "local_operations.hpp"
 #include "semantic.hpp"
+#include "settings.hpp"
 #include "documents.hpp"
 #include "matcher_parser.hpp"
 #include "platform/compiler_channel.hpp"
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -51,12 +53,12 @@ struct MatcherArg {
 };
 
 struct Targets {
-  Targets(std::unique_ptr<clang::ASTUnit> ast, llvm::StringRef file, llvm::StringRef database,
-          const LoadTarget& load)
-      : ast(retain_ast(std::move(ast), 1))
-      , file(file)
+  Targets(llvm::StringRef file, llvm::StringRef database, const LoadTarget& load)
+      : file(file)
       , load(load)
-      , local(database) {}
+      , state{.default_database = database.str(), .compilation_database = database.str()}
+      , local(state)
+      , loaded_database(database) {}
 
   AstHandle ast;
   llvm::StringRef file;
@@ -64,8 +66,10 @@ struct Targets {
   llvm::StringMap<AstHandle> files;
   LocalState state;
   LocalOperations local;
+  std::string loaded_database;
+  std::vector<std::string> loaded_arguments;
 
-  std::uint64_t next_generation = 2;
+  std::uint64_t next_generation = 1;
 
   AstHandle own(std::unique_ptr<clang::ASTUnit> unit) {
     return retain_ast(std::move(unit), next_generation++);
@@ -83,6 +87,13 @@ struct Targets {
   }
 
   llvm::Expected<AstHandle> select(llvm::StringRef path) {
+    if (local.scoped()) return local.target_path(path);
+    if (loaded_database != state.compilation_database || loaded_arguments != state.compilation_arguments) {
+      files.clear();
+      ast.reset();
+      loaded_database = state.compilation_database;
+      loaded_arguments = state.compilation_arguments;
+    }
     if (ast && path == file)
       return ast;
     std::error_code error;
@@ -96,6 +107,8 @@ struct Targets {
       return it->second;
     TargetRequest request;
     request.file = key;
+    request.compilation_database = loaded_database;
+    request.arguments = loaded_arguments;
     auto unit = load(request);
     if (!unit)
       return unit.takeError();
@@ -103,6 +116,7 @@ struct Targets {
     if (files.size() == 128)
       files.clear();
     files.try_emplace(key, result);
+    if (key == file) ast = result;
     return result;
   }
 };
@@ -201,15 +215,22 @@ extern "C" int ctk_jit_match_v1(IrContext* context, const MatcherArg* root, cons
 
   CollectRows collect(binding, context->rows);
   MatchFinder finder;
+  if (context->targets.state.spelled_only)
+    bound = bound->withTraversalKind(clang::TK_IgnoreUnlessSpelledInSource);
   if (!finder.addDynamicMatcher(*bound, &collect)) {
     context->error = "could not register the IR query's matcher";
     return 1;
   }
-  if (!context->targets.ast) {
+  if (context->targets.file.empty()) {
     context->error = "match requires a target file";
     return 1;
   }
-  finder.matchAST(*context->targets.ast);
+  auto ast = context->targets.select(context->targets.file);
+  if (!ast) {
+    context->error = llvm::toString(ast.takeError());
+    return 1;
+  }
+  finder.matchAST(**ast);
   context->active_rows = context->rows;
   return 0;
 }
@@ -243,7 +264,10 @@ extern "C" const Value* ctk_jit_parse_cpp_v1(IrContext* context, const Value* co
                                              const Value* options) {
   auto& runtime = context->values;
   TargetRequest request;
+  request.compilation_database = context->targets.state.compilation_database;
+  request.arguments = context->targets.state.compilation_arguments;
   bool translation_unit = false;
+  std::vector<std::string> includes;
   std::string source;
   if (options) {
     if (const auto* path = std::get_if<std::string>(&options->data)) {
@@ -281,6 +305,7 @@ extern "C" const Value* ctk_jit_parse_cpp_v1(IrContext* context, const Value* co
                   header.contains('\0')) {
                 return runtime.fail("invalid snippet include");
               }
+              includes.push_back(*value);
               source += "#include ";
               if ((header.starts_with("<") && header.ends_with(">")) ||
                   (header.starts_with("\"") && header.ends_with("\""))) {
@@ -298,6 +323,11 @@ extern "C" const Value* ctk_jit_parse_cpp_v1(IrContext* context, const Value* co
     } else {
       return runtime.fail("parse cpp using requires a file path or options record");
     }
+  }
+  if (context->targets.local.scoped()) {
+    auto ast = context->targets.local.parse_snippet(
+        request, std::get<std::string>(code->data), includes, translation_unit);
+    return ast ? runtime.hold({*ast}) : runtime.fail(llvm::toString(ast.takeError()));
   }
   if (!translation_unit)
     source += "inline void ctk_snippet() {\n";
@@ -320,6 +350,10 @@ struct MatchTarget {
 bool append_target(IrContext& context, std::vector<MatchTarget>& targets, const Value& value) {
   using namespace value_access;
   if (const auto* ast = as<AstHandle>(value)) {
+    if (!context.targets.local.accepts(*ast)) {
+      context.values.fail("AST is outside the resource scope manifest");
+      return false;
+    }
     targets.push_back({*ast, {}});
   } else if (const auto* path = as<std::string>(value)) {
     auto loaded = context.targets.select(*path);
@@ -329,6 +363,10 @@ bool append_target(IrContext& context, std::vector<MatchTarget>& targets, const 
     }
     targets.push_back({*loaded, {}});
   } else if (const auto* selected = retained_node(value)) {
+    if (!context.targets.local.accepts(selected->ast)) {
+      context.values.fail("AST is outside the resource scope manifest");
+      return false;
+    }
     targets.push_back({selected->ast, selected->node, selected->parent});
   } else if (context.targets.local.is_target(value)) {
     auto loaded = context.targets.local.target(value);
@@ -365,10 +403,19 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
   }
 
   std::vector<MatchTarget> targets;
+  const auto scoped = !target && context->targets.local.scoped()
+      ? std::optional(context->targets.local.scoped_inputs()) : std::nullopt;
+  if (scoped) target = &*scoped;
   if (!target) {
-    if (!context->targets.ast)
-      return runtime.fail("match requires a target");
-    targets.push_back({context->targets.ast, {}});
+    const auto* configured = value_access::object<Sequence>(context->targets.state.default_targets);
+    if (configured && !configured->items.empty()) target = &context->targets.state.default_targets;
+  }
+  if (!target) {
+    if (context->targets.file.empty()) return runtime.fail("match requires a target");
+    auto ast = context->targets.select(context->targets.file);
+    if (!ast) return runtime.fail(llvm::toString(ast.takeError()));
+    targets.push_back({*ast, {}});
+
   } else {
     const auto manifest = semantic_length(*target) ? semantic_iteration(*target) : std::nullopt;
     const auto* items = value_access::object<Sequence>(manifest ? *manifest : *target);
@@ -419,7 +466,7 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
       auto row = std::make_shared<Record>();
       for (const auto& [name, node] : result.Nodes.getMap()) {
         row->set(name, {std::make_shared<NativeNode>(
-                           NativeNode{ast, std::make_shared<clang::DynTypedNode>(node)})});
+                           NativeNode{ast, std::make_shared<clang::DynTypedNode>(node), {}, {}, name})});
       }
       rows->items.push_back({std::move(row)});
     }
@@ -430,7 +477,9 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
 
   CollectRows collect;
   MatchFinder finder;
-  const auto& query = compiled->second;
+  const auto query = context->targets.state.spelled_only
+      ? compiled->second.withTraversalKind(clang::TK_IgnoreUnlessSpelledInSource)
+      : compiled->second;
   if (!finder.addDynamicMatcher(query, &collect)) {
     return runtime.fail("could not register the matcher");
   }
@@ -462,6 +511,15 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
   return runtime.hold({std::move(collect.rows)});
 }
 
+extern "C" const Value* ctk_jit_setting_v1(
+    IrContext* context, const char* name, const Value* value, std::int32_t user, std::int32_t append) {
+  try {
+    return update_setting(context->values, name, value, user, append);
+  } catch (const std::exception& error) {
+    return context->values.fail(error.what());
+  }
+}
+
 extern "C" const Value* ctk_jit_local_operation_v1(
     IrContext* context, const char* command, const Value* arguments, const char* options,
     std::int32_t display) {
@@ -473,15 +531,20 @@ extern "C" const Value* ctk_jit_analyze_v1(IrContext* context, const char* opera
                                               const Value* target, const Value* operand,
                                               const char* options, std::int32_t display) {
   if (!target) {
-    if (!context->targets.ast) return context->values.fail("analysis requires a target");
+    if (!context->targets.ast || !context->targets.local.accepts(context->targets.ast))
+      return context->values.fail("analysis requires a target in the active scope");
     return analyze(context->values, operation, context->targets.ast, nullptr, operand,
                    options, display);
   }
   if (const auto* selected = retained_node(*target)) {
+    if (!context->targets.local.accepts(selected->ast))
+      return context->values.fail("AST is outside the resource scope manifest");
     return analyze(context->values, operation, selected->ast, selected, operand,
                    options, display);
   }
   if (const auto* ast = value_access::as<AstHandle>(*target)) {
+    if (!context->targets.local.accepts(*ast))
+      return context->values.fail("AST is outside the resource scope manifest");
     return analyze(context->values, operation, *ast, nullptr, operand, options, display);
   }
   if (const auto* path = value_access::as<std::string>(*target)) {
@@ -504,6 +567,8 @@ extern "C" const Value* ctk_jit_navigate_v1(IrContext* context, const Value* tar
                                                std::int32_t display) {
   const auto* node = retained_node(*target);
   if (!node) return context->values.fail("navigation requires a retained native binding");
+  if (!context->targets.local.accepts(node->ast))
+    return context->values.fail("AST is outside the resource scope manifest");
   const auto* query = matcher ? value_access::as<MatcherValue>(*matcher) : nullptr;
   if (matcher && !query) return context->values.fail("navigation requires a matcher expression");
   return navigate(context->values, *node, query, axis, maximum,
@@ -556,6 +621,7 @@ llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit() {
   expose("ctk_jit_parse_v1", &ctk_jit_parse_v1);
   expose("ctk_jit_parse_cpp_v1", &ctk_jit_parse_cpp_v1);
   expose("ctk_jit_match_value_v2", &ctk_jit_match_value_v2);
+  expose("ctk_jit_setting_v1", &ctk_jit_setting_v1);
   expose("ctk_jit_local_operation_v1", &ctk_jit_local_operation_v1);
   expose("ctk_jit_analyze_v1", &ctk_jit_analyze_v1);
   expose("ctk_jit_navigate_v1", &ctk_jit_navigate_v1);
@@ -810,9 +876,8 @@ llvm::Error compile_ir(llvm::StringRef source) {
   return llvm::Error::success();
 }
 
-llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, std::unique_ptr<clang::ASTUnit> ast,
-                   bool precompiled, llvm::StringRef file, llvm::StringRef database,
-                   const LoadTarget& load, const ScriptArguments& arguments) {
+llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, bool precompiled, llvm::StringRef file,
+                   llvm::StringRef database, const LoadTarget& load, const ScriptArguments& arguments) {
   auto jit = create_ir_jit();
   if (!jit) {
     return jit.takeError();
@@ -828,25 +893,55 @@ llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, std::unique_ptr<cl
     return entry.takeError();
   }
   RuntimeCompiler compiler(**jit);
-  Targets targets(std::move(ast), file, database, load);
+  std::mutex output_mutex;
+  Targets targets(file, database, load);
+  targets.local.set_events([&](std::string event) {
+    std::lock_guard lock(output_mutex);
+    llvm::outs() << event << '\n';
+    llvm::outs().flush();
+  });
   auto bindings = targets.bindings(arguments);
   MatcherCache matchers;
   IrContext runtime(targets, bindings, matchers, compiler);
+  if (!load_settings(runtime.values)) return failure(runtime.error);
+  if (!file.empty()) {
+    auto target = targets.select(file);
+    if (!target) return target.takeError();
+  }
   auto result = call_ir_entry(*entry, runtime);
-  llvm::outs() << runtime.output;
+  targets.local.finish();
+  {
+    std::lock_guard lock(output_mutex);
+    llvm::outs() << runtime.output;
+  }
   return result;
 }
 
-llvm::Error repl_ir(std::unique_ptr<clang::ASTUnit> ast, llvm::StringRef file, llvm::StringRef database,
+llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
                     const LoadTarget& load, const ScriptArguments& arguments) {
   auto jit = create_ir_jit();
   if (!jit) {
     return jit.takeError();
   }
   RuntimeCompiler compiler(**jit);
-  Targets targets(std::move(ast), file, database, load);
+  std::mutex output_mutex;
+  auto reply = [&](llvm::json::Object response) {
+    std::lock_guard lock(output_mutex);
+    llvm::outs() << llvm::json::Value(std::move(response)) << '\n';
+    llvm::outs().flush();
+  };
+  Targets targets(file, database, load);
+  targets.local.set_events([&](std::string event) { reply(llvm::json::Object{{"event", std::move(event)}}); });
   auto bindings = targets.bindings(arguments);
   MatcherCache matchers;
+  {
+    IrContext runtime(targets, bindings, matchers, compiler);
+    if (!load_settings(runtime.values)) return failure(runtime.error);
+  }
+  if (!file.empty()) {
+    auto target = targets.select(file);
+    if (!target) return target.takeError();
+  }
   llvm::DenseMap<std::int64_t, CompiledCommand> commands;
   std::uint64_t entry_number = 0;
   llvm::outs() << "{\"ready\":true,\"protocol\":3}\n";
@@ -899,15 +994,14 @@ llvm::Error repl_ir(std::unique_ptr<clang::ASTUnit> ast, llvm::StringRef file, l
       runtime.values.code = cached->second.code;
       result = call_ir_entry(cached->second.entry, runtime);
     }
-    llvm::outs() << llvm::json::Value(llvm::json::Object{
-                        {"compiled", compiled},
-                        {"exit", runtime.values.exit_requested},
-                        {"output", std::move(runtime.output)},
-                        {"error", llvm::toString(std::move(result))},
-                    })
-                 << '\n';
-    llvm::outs().flush();
+    reply(llvm::json::Object{
+        {"compiled", compiled},
+        {"exit", runtime.values.exit_requested},
+        {"output", std::move(runtime.output)},
+        {"error", llvm::toString(std::move(result))},
+    });
   }
+  targets.local.finish();
   return llvm::Error::success();
 }
 

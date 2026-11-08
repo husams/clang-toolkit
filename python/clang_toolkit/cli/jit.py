@@ -334,7 +334,7 @@ def lower_ir(source: str, path: Path | None = None) -> str:
     try:
         query = _parse_query(program)
     except ValueError:
-        return _lower_language(program, path=path, display=True)
+        return _lower_language(program, source=source, path=path, display=True)
     constants = _IrConstants()
     matcher = constants.constant(constants.argument(query.matcher))
     binding = constants.string(query.binding)
@@ -347,10 +347,10 @@ def lower_ir(source: str, path: Path | None = None) -> str:
     )
 
 
-def _lower_host(ir: LanguageIR, node: Node) -> str:
+def _lower_host(ir: LanguageIR, node: Node, source: str) -> str:
     tree, mode = node.value
     if tree.data in LOCAL_COMMANDS:
-        return lower_operation(ir, tree, mode, _host_value)
+        return lower_operation(ir, tree, mode, _host_value, source)
     if tree.data in ANALYSIS_COMMANDS:
         return lower_analysis(ir, tree, mode, _host_value)
     if tree.data in {"quit", "exit"}:
@@ -416,12 +416,8 @@ def _lower_host(ir: LanguageIR, node: Node) -> str:
         return rows
     if tree.data in {"read_expression", "load_command", "save_command", "print"}:
         return _lower_document_command(ir, tree)
-    if tree.data == "set_command" and tree.children[-1].data == "output_setting":
-        setting = tree.children[-1]
-        path = setting.children[2]
-        return _lower_output(ir, path, setting.children[-1] == "replace")
-    if tree.data == "clear_command" and tree.children[-1] == "output":
-        return _lower_output(ir, "stdout", False)
+    if tree.data in {"set_command", "clear_command", "add_arg"}:
+        return _lower_setting(ir, tree)
     if tree.data == "inspect":
         return ir.print_value(_host_value(ir, tree.children[1]))
     if tree.data in {"help", "help_shortcut"}:
@@ -516,15 +512,52 @@ def _mutation_reference(tree: Tree) -> Node:
     return result
 
 
-def _lower_output(ir: LanguageIR, path: Tree | Token | str, replace: bool) -> str:
-    if path == "stdout" and replace:
-        raise ValueError("replace mode requires a file destination")
+def _lower_setting(ir: LanguageIR, tree: Tree) -> str:
+    parts = tree.children
+    user = int("user" in parts)
+    append = int(tree.data == "add_arg")
+    value = "null"
+    if tree.data == "clear_command":
+        name = str(parts[-1])
+    elif append:
+        name, value = "extra_args", _host_value(ir, parts[-1])
+    else:
+        setting = parts[-1]
+        kind = str(setting.data)
+        name = {
+            "traversal_setting": "traversal",
+            "args_setting": "extra_args",
+            "compilation_database_setting": "compile_commands",
+            "cache_setting": "cache_dir",
+            "files_setting": "files",
+            "output_setting": "output",
+        }[kind]
+        if name == "traversal":
+            value = ir.literal(str(setting.children[1]))
+        else:
+            item = setting.children[
+                2 if name in {"cache_dir", "files", "output"} else 1
+            ]
+            value = ir.literal("stdout") if item == "stdout" else _host_value(ir, item)
+        if name == "output":
+            replace = setting.children[-1] == "replace"
+            if item == "stdout" and replace:
+                raise ValueError("replace mode requires a file destination")
+            ir.call(
+                "ctk_jit_document_output_v1",
+                "ptr",
+                ("ptr", "%values"),
+                ("ptr", "null" if item == "stdout" else value),
+                ("i32", int(not replace)),
+            )
     return ir.call(
-        "ctk_jit_document_output_v1",
+        "ctk_jit_setting_v1",
         "ptr",
-        ("ptr", "%values"),
-        ("ptr", "null" if path == "stdout" else _host_value(ir, path)),
-        ("i32", int(not replace)),
+        ("ptr", "%context"),
+        ("ptr", ir.string(name)),
+        ("ptr", value),
+        ("i32", user),
+        ("i32", append),
     )
 
 
@@ -585,6 +618,17 @@ def _host_method(
 ) -> str:
     if name == "bind" and len(items) == 1:
         return ir.value("bind_matcher", base, _host_value(ir, items[0]))
+    if name in {"callers", "callees"}:
+        positional = [item for item in items if item != ","]
+        if len(positional) == 2:
+            depth = positional[-1]
+            if isinstance(depth, Tree) and depth.data == "named_method_argument":
+                if depth.children[0] != "depth":
+                    raise ValueError(f"{name} only accepts the named argument depth")
+                depth = depth.children[-1]
+            if isinstance(depth, Node) and depth.kind == "ref" and depth.value == "all":
+                depth = Node("literal", "all")
+            items = [positional[0], depth]
     return ir.value("method", base, ir.string(name), _host_arguments(ir, items))
 
 
@@ -683,11 +727,13 @@ def _host_value(ir: LanguageIR, item: Node | Tree | Token) -> str:
 
 
 def _lower_language(
-    program: Node, *, display: bool = False, path: Path | None = None
+    program: Node, *, source: str, display: bool = False, path: Path | None = None
 ) -> str:
     constants = _IrConstants()
     declarations, body = LanguageIR(
-        constants.string, constants.constant, _lower_host
+        constants.string,
+        constants.constant,
+        lambda ir, node: _lower_host(ir, node, source),
     ).program(program, display=display, path=str(path) if path else None)
     return _ir_module(constants, declarations, body)
 
@@ -711,7 +757,7 @@ def _lower_request(source: str, path: Path | None, library: bool) -> str:
                 raise _unsupported(
                     statement, "libraries accept let definitions and import statements"
                 )
-        return _lower_language(program, path=path)
+        return _lower_language(program, source=source, path=path)
     except (LarkError, ValueError, SyntaxError) as error:
         raise ValueError(f"{path}: {error}" if path else str(error)) from error
 
@@ -719,7 +765,11 @@ def _lower_request(source: str, path: Path | None, library: bool) -> str:
 def lower_repl(source: str) -> str | None:
     """Lower CTK against the runner's retained AST and session bindings."""
     program = parse(source)
-    return _lower_language(program, display=True) if program.children else None
+    return (
+        _lower_language(program, source=source, display=True)
+        if program.children
+        else None
+    )
 
 
 def _runner() -> Path | None:

@@ -4,31 +4,67 @@ from __future__ import annotations
 
 import json
 
-from lark import Tree
+from lark import Token, Tree
 
 from .jit_analysis import LowerValue
 from .jit_language import LanguageIR
+from .runtime.prototype.syntax import Node
 
-LOCAL_COMMANDS = {
-    "files_expression",
-    "file_open",
-    "file_list",
-    "file_info",
-    "file_close",
-    "file_refresh",
-    "resource_status",
-    "cursor_open",
-    "cursor_continue",
-    "cursor_restart",
-    "cursor_close",
-    "session_list",
-    "session_attach",
-    "session_close_retained",
-    "server_status",
-    "cache_status",
-    "cache_prune",
-    "script",
+INDEX_COMMANDS = {
+    "index_list",
+    "index_start",
+    "index_status",
+    "index_rename",
+    "index_pause",
+    "index_resume",
+    "index_cancel",
+    "index_find",
+    "index_lookup",
 }
+SESSION_COMMANDS = {
+    "session_label",
+    "session_start",
+    "session_add",
+    "session_match",
+    "session_pause",
+    "session_resume",
+    "session_close",
+    "background",
+}
+BATCH_COMMANDS = {
+    "durable_batch",
+    "batch_statement",
+    "batch_status",
+    "batch_cancel",
+    "batch_resume",
+    "batch_retry",
+    "batch_promote",
+}
+LOCAL_COMMANDS = (
+    INDEX_COMMANDS
+    | SESSION_COMMANDS
+    | BATCH_COMMANDS
+    | {
+        "files_expression",
+        "file_open",
+        "file_list",
+        "file_info",
+        "file_close",
+        "file_refresh",
+        "resource_status",
+        "cursor_open",
+        "cursor_continue",
+        "cursor_restart",
+        "cursor_close",
+        "session_list",
+        "session_attach",
+        "session_close_retained",
+        "server_status",
+        "cache_status",
+        "cache_prune",
+        "script",
+    }
+)
 
 
 def _cursor_options(kind: str, items: list[Tree]) -> str:
@@ -60,13 +96,100 @@ def _cursor_options(kind: str, items: list[Tree]) -> str:
     return json.dumps(options, separators=(",", ":"))
 
 
-def lower_operation(ir: LanguageIR, tree: Tree, mode: str, lower: LowerValue) -> str:
+def _uint32(raw: str, option: str) -> int:
+    if not raw.isdecimal() or not 0 < int(raw) < (1 << 32):
+        raise ValueError(f"{option} must be a positive uint32 integer")
+    return int(raw)
+
+
+def _batch(
+    ir: LanguageIR, tree: Tree, lower: LowerValue, source: str
+) -> tuple[list[str], str]:
+    durable = tree.data == "durable_batch"
+    parts = tree.children
+    name = str(parts[2 if durable else 1])
+    manifest = parts[4 if durable else 3]
+    options: dict[str, object] = {}
+    memory = request_id = "null"
+    body = None
+    seen = set()
+    for item in parts:
+        if not isinstance(item, Tree) or item.data == "reference":
+            continue
+        option = str(item.data)
+        if option in seen:
+            raise ValueError(f"batch option repeated: {option.removeprefix('batch_')}")
+        seen.add(option)
+        if option in {"batch_size", "batch_count", "batch_jobs"}:
+            label = option.removeprefix("batch_")
+            options[label] = _uint32(str(item.children[1]), label)
+        elif option == "batch_memory":
+            memory = lower(ir, item.children[1])
+        elif option == "batch_request_id":
+            request_id = lower(ir, item.children[1])
+        elif option == "batch_error_mode":
+            options["continue_on_error"] = item.children[-1] == "continue"
+        elif option == "batch_progress":
+            options["progress"] = item.children[-1] == "on"
+        elif option == "statement_block":
+            body = item
+    if body is None:
+        raise ValueError("batch requires a body")
+    operands = [lower(ir, manifest), memory]
+    if durable:
+        options["group_variable"] = name
+        options["body_source"] = source[body.meta.start_pos + 1 : body.meta.end_pos - 1]
+        operands.append(request_id)
+    else:
+        block = body.children[0]
+        if not isinstance(block, Node) or block.kind != "block":
+            raise ValueError("batch requires a compiled CTK block")
+        operands.append(ir.runnable(Node("inline_runnable", ("", (name,)), (block,))))
+    return operands, json.dumps(options, separators=(",", ":"))
+
+
+def lower_operation(
+    ir: LanguageIR, tree: Tree, mode: str, lower: LowerValue, source: str
+) -> str:
     kind = str(tree.data)
     parts = tree.children
     operands = []
+    compiled_operands: list[str] = []
     destination = None
     options = ""
-    if kind == "script":
+    if kind in {"durable_batch", "batch_statement"}:
+        compiled_operands, options = _batch(ir, tree, lower, source)
+    elif kind in BATCH_COMMANDS:
+        operands = parts[2:3]
+    elif kind in INDEX_COMMANDS:
+        operands = [
+            part for part in parts if isinstance(part, Token) and part.type == "STRING"
+        ]
+        if kind == "index_find":
+            from .index_kinds import INDEX_SYMBOL_KINDS
+
+            symbol_kind = next(
+                (
+                    str(part)
+                    for part in parts
+                    if isinstance(part, Token) and part.type == "NAME"
+                ),
+                "",
+            )
+            if symbol_kind and symbol_kind not in INDEX_SYMBOL_KINDS:
+                raise ValueError("kind must be function, class, variable, or alias")
+            options = json.dumps(
+                {
+                    "kind": "KIND_" + (symbol_kind.upper() or "ANY"),
+                    "match_mode": "MATCH_MODE_EXACT"
+                    if "exact" in parts
+                    else "MATCH_MODE_PREFIX",
+                    "unique_symbols": True,
+                }
+            )
+    elif kind in SESSION_COMMANDS:
+        operands = parts[1::2] if kind == "background" else parts[2:3]
+    elif kind == "script":
         operands = parts[1::2]
     elif kind == "files_expression":
         operands = parts[1:2]
@@ -92,8 +215,10 @@ def lower_operation(ir: LanguageIR, tree: Tree, mode: str, lower: LowerValue) ->
         options = _cursor_options(kind, parts[end:])
 
     arguments = ir.collection(0)
-    for item in operands:
-        ir.value("add", arguments, "null", lower(ir, item))
+    for value in [*compiled_operands, *(lower(ir, item) for item in operands)]:
+        if value == "null":
+            value = ir.literal(None)
+        ir.value("add", arguments, "null", value)
     value = ir.call(
         "ctk_jit_local_operation_v1",
         "ptr",

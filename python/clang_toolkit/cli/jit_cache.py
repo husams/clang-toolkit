@@ -85,6 +85,10 @@ class Toolchain:
 def cache_directory() -> Path:
     if path := os.environ.get("CTK_JIT_CACHE_DIR"):
         return Path(path).resolve()
+    from .runtime.config import ConfigStore
+
+    if configured := ConfigStore(Path.cwd()).effective["cache_dir"]:
+        return Path(configured).expanduser().resolve()
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ctk-jit"
 
 

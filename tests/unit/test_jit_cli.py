@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from io import StringIO
 import json
 import os
@@ -7,6 +8,7 @@ from pathlib import Path
 from select import select
 import subprocess
 import sys
+import time
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
@@ -61,6 +63,7 @@ def jit_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     if not _RUNNER.is_file():
         pytest.skip("standalone ctk-jit runner has not been built")
     monkeypatch.setenv("CTK_JIT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("CTK_JIT_STATE_DIR", str(tmp_path / "state"))
     (tmp_path / "include").mkdir()
     (tmp_path / "include" / "helper.hpp").write_text(
         "inline int from_header() { return 1; }\n", encoding="utf-8"
@@ -554,6 +557,7 @@ def test_warm_script_skips_lowering_and_preprocessing_until_inputs_change(
 import json
 import os
 import sys
+import time
 from tempfile import TemporaryDirectory
 with open({str(driver_log)!r}, "a") as log:
     log.write(json.dumps(sys.argv[1:]) + "\\n")
@@ -569,6 +573,7 @@ os.execv({config["compiler"]!r}, [{config["compiler"]!r}, *sys.argv[1:]])
         f"""#!/usr/bin/env python3
 import os
 import sys
+import time
 from tempfile import TemporaryDirectory
 if sys.argv[1:] == ["config"]:
     print({json.dumps(config)!r})
@@ -799,7 +804,8 @@ print "done"
     assert {name: (jit_project / name).read_bytes() for name in files} == outputs
 
 
-def _native_console_oracle(jit_project: Path, script: str) -> str:
+@contextmanager
+def _oracle_endpoint(jit_project: Path):
     import grpc
 
     root = Path(__file__).resolve().parents[2]
@@ -823,7 +829,7 @@ def _native_console_oracle(jit_project: Path, script: str) -> str:
         try:
             with grpc.insecure_channel(endpoint) as channel:
                 grpc.channel_ready_future(channel).result(timeout=15)
-            return _compiled_console_output(jit_project, script, endpoint)
+            yield endpoint
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -832,6 +838,195 @@ def _native_console_oracle(jit_project: Path, script: str) -> str:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+
+
+
+def _native_console_oracle(jit_project: Path, script: str) -> str:
+    with _oracle_endpoint(jit_project) as endpoint:
+        return _compiled_console_output(jit_project, script, endpoint)
+
+
+@contextmanager
+def _embedded_repl(jit_project: Path):
+    with subprocess.Popen(
+        [_RUNNER, "repl", "", "compile_commands.json"],
+        cwd=jit_project,
+        env={**os.environ, "CTK_SERVER": "unix:///tmp/ctk-jit-test-missing.sock"},
+        text=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as process:
+        assert process.stdin is not None and process.stdout is not None
+        assert json.loads(process.stdout.readline())["ready"]
+        slots: dict[str, int] = {}
+
+        def submit(script: str) -> str:
+            if script in slots:
+                request = {"slot": slots[script]}
+            else:
+                slots[script] = len(slots)
+                request = {"slot": slots[script], "ir": jit.lower_repl(script)}
+            process.stdin.write(json.dumps(request) + "\n")
+            process.stdin.flush()
+            assert select([process.stdout], [], [], 60)[0], script
+            response = process.stdout.readline()
+            assert response, process.stderr.read() if process.stderr else ""
+            reply = json.loads(response)
+            assert not reply["error"], reply["error"]
+            return reply["output"].removesuffix("\n")
+
+        try:
+            yield submit
+        finally:
+            process.stdin.close()
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+
+
+def _wait_for(read, expected):
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        actual = read()
+        if actual == expected:
+            return
+        time.sleep(0.1)
+    pytest.fail(f"timed out waiting for {expected!r}, got {actual!r}")
+
+
+def test_embedded_foreground_batch_matches_existing_console(jit_project: Path) -> None:
+    script = """\
+let inputs = files ["example.cpp"]
+let report = batch part in $inputs size 1 jobs 1 progress off do {
+  let rows = match functionDecl(hasName("add")) in part.inputs
+  len(rows)
+}
+print report.status
+print report.completed_groups
+print report.completed_files
+print report.cleanup_acknowledged
+print report.results | json
+let usage = resource status
+print usage.explicit_file_leases
+"""
+    assert _native_repl_submission(jit_project, script) == _native_console_oracle(
+        jit_project, script
+    )
+
+
+def test_embedded_durable_batch_matches_existing_console_and_survives_restart(
+    jit_project: Path,
+) -> None:
+    from clang_toolkit.cli.app import dispatch_result
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+    from clang_toolkit.client import Client
+
+    start = """\
+let inputs = files ["example.cpp"]
+let run = durable batch part in $inputs size 1 jobs 1 request "compare" do {
+  let i = $part.index; $i;
+}
+print run.run_id
+"""
+    with _oracle_endpoint(jit_project) as endpoint:
+        with Client(endpoint) as client:
+            runtime = PrototypeRuntime(client, cwd=jit_project, environment={})
+            try:
+                started = dispatch_result(client, start.removesuffix("print run.run_id\n"), runtime)
+                assert started.success, started.output
+                run_id = runtime.bindings["run"].run_id
+                _wait_for(lambda: client.batch_status(run_id).status, "completed")
+                result = dispatch_result(
+                    client, f'let id = "{run_id}"; let x = batch promote $id; print x | json', runtime
+                )
+                assert result.success, result.output
+                expected = result.output
+            finally:
+                runtime.close()
+    with _embedded_repl(jit_project) as submit:
+        run_id = submit(start)
+        assert submit(start) == run_id
+        _wait_for(lambda: submit("let status = batch status $run; print status.status"), "completed")
+        assert submit("let values = batch promote $status; print values | json") == expected
+    with _embedded_repl(jit_project) as submit:
+        assert submit(f'let id = "{run_id}"; let values = batch promote $id; print values | json') == expected
+
+
+def test_embedded_project_index_matches_existing_console_and_survives_restart(
+    jit_project: Path,
+) -> None:
+    from clang_toolkit._generated.index.v1 import index_service_pb2
+    from clang_toolkit.client import Client
+
+    # A small project avoids spending the test's budget indexing standard headers.
+    (jit_project / "example.cpp").write_text("int add(int a, int b) { return a + b; }\n")
+    search = """\
+let found = index find "add" exact kind function in "Demo"
+print len(found.symbols)
+print found.symbols[0].qualified_name
+print found.symbols[0].line
+"""
+    with _oracle_endpoint(jit_project) as endpoint:
+        with Client(endpoint) as client:
+            client.start_project_index(jit_project, project_name="Demo")
+            _wait_for(lambda: client.project_index_status(jit_project).state,
+                      index_service_pb2.INDEX_STATE_COMPLETE)
+        expected = _compiled_console_output(jit_project, search, endpoint)
+    with _embedded_repl(jit_project) as submit:
+        assert submit('let status = index start "." as "Demo"; print status.project_name') == "Demo"
+        _wait_for(lambda: submit('let state = index status "Demo"; print state.state.name'),
+                  "INDEX_STATE_COMPLETE")
+        assert submit(search) == expected
+        assert submit('let status = index pause "Demo"; print status.state.name') == "INDEX_STATE_PAUSED"
+        assert submit('let status = index resume "Demo"; print status.state.name') == "INDEX_STATE_QUEUED"
+        assert submit('let status = index cancel "Demo"; print status.state.name') == "INDEX_STATE_CANCELLED"
+        assert submit('let status = index rename "Demo" to "Renamed"; print status.project_name') == "Renamed"
+    with _embedded_repl(jit_project) as submit:
+        assert submit(search.replace('"Demo"', '"Renamed"')) == expected
+
+
+def test_embedded_managed_session_matches_existing_console(jit_project: Path) -> None:
+    commands = r"""
+session start "functionDecl(hasName(\"add\")).bind(\"f\")"
+session add "example.cpp"
+session pause
+session resume
+session match
+session close
+"""
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.jit", "repl"],
+        cwd=jit_project,
+        env={**os.environ, "CTK_SERVER": "unix:///tmp/ctk-jit-test-missing.sock"},
+        input=commands,
+        text=True,
+        capture_output=True,
+        timeout=45,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    rows = [json.loads(line.split("] ", 1)[1]) for line in result.stdout.splitlines()
+            if "] {" in line]
+    (jit_project / "session.ctk").write_text(commands, encoding="utf-8")
+    (jit_project / "empty-libraries").mkdir()
+    with _oracle_endpoint(jit_project) as endpoint:
+        existing = subprocess.run(
+            [sys.executable, "-m", "clang_toolkit.cli.app", "--server", endpoint,
+             "--script", "session.ctk", "--lib-dir", str(jit_project / "empty-libraries")],
+            cwd=jit_project,
+            text=True,
+            capture_output=True,
+            timeout=45,
+        )
+        assert existing.returncode == 0, existing.stderr + existing.stdout
+        expected = [json.loads(line.split("] ", 1)[1])
+                    for line in existing.stdout.splitlines() if "] {" in line]
+    assert rows == expected
+    assert [row["f"]["name"] for row in rows] == ["add"]
+    assert "completed: 1 matches" in result.stdout
 
 
 def test_native_scoped_matching_matches_existing_compiled_console(
@@ -929,6 +1124,78 @@ print report.emissions[0].value.scalar.integer
     expected = _native_console_oracle(jit_project, script)
     assert _native_repl_submission(jit_project, script) == expected
 
+
+
+def test_embedded_call_graph_methods_match_existing_console(jit_project: Path) -> None:
+    script = """\
+let tree = parse cpp`int leaf() { return 1; }
+int recursive(int n) { return n ? recursive(n-1) : leaf(); }
+int outer() { return recursive(2); }` using {translation_unit:true}
+let graph = callgraph in tree
+let path = $graph.shortest_path("outer", "leaf")
+print len(path)
+let route = $graph.shortest_route("outer", "leaf")
+print len(route[0].call_sites)
+let groups = $graph.grouped_calls()
+print len(groups)
+let recursion = $graph.recursive_components()
+print len(recursion)
+let outgoing = $graph.callees("outer", 1)
+print len(outgoing.nodes)
+let incoming = $graph.callers("leaf", 1)
+print len(incoming.nodes)
+"""
+    expected = _native_console_oracle(jit_project, script)
+    assert _native_repl_submission(jit_project, script) == expected
+
+
+
+def test_embedded_settings_match_existing_console_and_persist(jit_project: Path) -> None:
+    from clang_toolkit.cli.runtime.config import ConfigStore
+
+    source = jit_project / "example.cpp"
+    source.write_text(
+        source.read_text() + "\n#ifdef LOCAL_FLAG\nint flagged() { return 1; }\n#endif\n"
+    )
+    script = """\
+set compile_commands "compile_commands.json"
+set extra_args ["-DLOCAL_FLAG"]
+set traversal IgnoreUnlessSpelledInSource
+set files to ["example.cpp"]
+let rows = match functionDecl(hasName("flagged"))
+print len(rows)
+add extra_arg "-DOTHER_FLAG"
+"""
+    expected = _native_console_oracle(jit_project, script)
+    settings = jit_project / ".clang_tools.yaml"
+    settings.unlink()
+    assert _native_repl_submission(jit_project, script) == expected == "1"
+    config = ConfigStore(jit_project).effective
+    assert config["extra_args"] == ["-DLOCAL_FLAG", "-DOTHER_FLAG"]
+    assert config["traversal"] == "IgnoreUnlessSpelledInSource"
+    assert config["files"] == ["example.cpp"]
+    # Startup must apply the saved flags before the default target's first parse.
+    source.write_text(
+        source.read_text() + '\n#ifndef LOCAL_FLAG\n#error "missing saved profile"\n#endif\n'
+    )
+    assert _native_repl_submission(jit_project, 'let rows = match functionDecl(hasName("flagged")); print len(rows)') == "1"
+    _native_repl_submission(jit_project, "clear extra_args")
+    assert ConfigStore(jit_project).effective["extra_args"] == []
+
+def test_embedded_semantic_snapshot_cross_runtime(jit_project: Path) -> None:
+    save = """\
+let tree = parse "example.cpp"
+let rows = match functionDecl(hasName("add")).bind("f") in tree
+let selected = rows[0].f
+save selected to "binding" as proto
+"""
+    load = 'load "binding" into saved; print saved.name; print saved.value.location.line'
+    _native_console_oracle(jit_project, save)
+    expected = _compiled_console_output(jit_project, load)
+    assert _native_repl_submission(jit_project, load) == expected
+    (jit_project / "binding.proto").unlink()
+    _native_repl_submission(jit_project, save)
+    assert _compiled_console_output(jit_project, load) == expected
 
 def test_native_typed_snapshot_interoperates_with_existing_console(jit_project: Path) -> None:
     save = 'save {names:["α", "β"], count:3, enabled:true, nested:[null, 3.5]} to "data" as proto'

@@ -52,11 +52,31 @@ frontend compiles imported definitions and dynamic `ctk()` commands on demand.
 CFG, call graph, variable flow, traversal, `peek`, and `step` use the
 existing native analysis code and the retained AST. File discovery, file
 leases, cursors, and the secondary `script` DSL execute in the runner process.
-Typed `.proto` files support detached scalar, list, record, and enum values.
+Typed `.proto` files support detached scalar, list, record, enum, matcher,
+and semantic values, including copied AST bindings and call graph records.
 
-Full console parity is still in progress. Remaining gaps include managed
-workspace sessions, project indexing, batch orchestration, some graph
-methods, full typed persistence, and console settings and display behavior.
+The REPL also embeds the managed query controller, project index controller,
+resource scopes, and durable batch registry. `session start`, `session add`,
+`session match`, `session pause`, `session resume`, and `session close` stream
+query events back to the terminal. The index controller uses the existing
+`ctk-index-worker` built alongside the runner for isolated extraction. Foreground
+batch bodies compile to LLVM IR. Durable batches use the shared native script
+engine and persist their reports for status and promotion after restart.
+
+Indexes and durable batch state default to `~/.local/state/ctk-jit` or
+`$XDG_STATE_HOME/ctk-jit`. Set `CTK_JIT_STATE_DIR` to select a different state
+directory. One runner at a time owns that directory. Closing the runner stops
+its background work. Use `index start` to restart reconciliation of a saved
+index and `batch status` to inspect a saved run.
+
+The runner reads the existing layered console settings and saves updates to
+the user or project settings file. Graph values support local neighborhoods,
+shortest paths and routes, grouped calls, and recursive components.
+
+Remaining differences include console history and workspace UI, `glob` and
+`match ... do` syntax, some command rendering, detached collection snapshot
+formats, and live graph expansion from a retained binding outside the
+current graph.
 
 Use `--cpp-jit` to select the C++ backend or `--llvm-ir` to select IR explicitly.
 

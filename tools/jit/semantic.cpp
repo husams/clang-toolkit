@@ -1,11 +1,16 @@
 #include "semantic.hpp"
+#include "analysis/v1/batch.pb.h"
 #include "analysis/v1/call_graph_response.pb.h"
+#include "match/v1/match_service.pb.h"
 #include "match/v1/resources.pb.h"
 #include "serialization/match_metadata_helpers.hpp"
 #include "serialization/node_serializers.hpp"
 #include "value_access.hpp"
 
+#include <deque>
 #include <limits>
+#include <map>
+#include <set>
 
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
@@ -27,6 +32,8 @@ struct SemanticValue {
   std::vector<const ast::FieldAvailability*> availability;
   std::shared_ptr<const std::vector<std::shared_ptr<NativeNode>>> graph_nodes;
   std::shared_ptr<NativeNode> selected;
+  bool file_handle = false;
+  std::shared_ptr<const std::vector<ast::FieldAvailability>> restored_availability;
 };
 
 namespace {
@@ -58,6 +65,7 @@ SemanticValue child(const SemanticValue& parent, const pb::Message& message, llv
     if (node.has_native_match_index() && node.native_match_index() < result.graph_nodes->size())
       result.selected = (*result.graph_nodes)[node.native_match_index()];
   }
+  result.restored_availability = parent.restored_availability;
   add_availability(result);
   return result;
 }
@@ -260,10 +268,11 @@ llvm::Expected<Value> read(const SemanticValue& owner, const pb::FieldDescriptor
 
 } // namespace
 
-SemanticHandle semantic(std::unique_ptr<pb::Message> message) {
+SemanticHandle semantic(std::unique_ptr<pb::Message> message, bool file_handle) {
   auto* address = message.get();
   auto view = std::make_shared<SemanticValue>(SemanticValue{
       std::move(message), address, std::string(address->GetDescriptor()->full_name()), {}});
+  view->file_handle = file_handle;
   add_availability(*view);
   return view;
 }
@@ -293,6 +302,12 @@ SemanticHandle semantic_graph(std::unique_ptr<pb::Message> message,
 const pb::Message* semantic_message(const Value& value) {
   const auto* view = object<SemanticValue>(value);
   return view ? view->message : nullptr;
+}
+
+bool semantic_has_live_resource(const Value& value) {
+  const auto* view = object<SemanticValue>(value);
+  return view && (view->file_handle || view->graph_nodes ||
+                  view->message->GetDescriptor() == match::SessionInfo::descriptor());
 }
 
 const NativeNode* retained_node(const Value& value) {
@@ -336,7 +351,7 @@ std::optional<Value> semantic_iteration(const Value& value) {
 
 llvm::Expected<Value> semantic_field(const SemanticValue& value, llvm::StringRef name) {
   const auto* descriptor = value.message->GetDescriptor();
-  if (descriptor == match::FileInfo::descriptor()) {
+  if (value.file_handle && descriptor == match::FileInfo::descriptor()) {
     const auto& info = static_cast<const match::FileInfo&>(*value.message);
     if (name == "path")
       return Value{info.input().file_path()};
@@ -364,6 +379,34 @@ llvm::Expected<Value> semantic_field(const SemanticValue& value, llvm::StringRef
       return list(std::move(arguments), true);
     }
   }
+  if (descriptor == ctk::analysis::v1::BatchRun::descriptor()) {
+    const auto& run = static_cast<const ctk::analysis::v1::BatchRun&>(*value.message);
+    if (name == "status")
+      return Value{run.state()};
+    if (name == "results" || name == "result_group_indices") {
+      std::vector<Value> results;
+      for (const auto& group : run.groups()) {
+        if (group.state() != "completed")
+          continue;
+        const ctk::analysis::v1::ScriptValue* final = nullptr;
+        for (const auto& emission : group.result().emissions())
+          if (emission.name() == "__final__")
+            final = &emission.value();
+        if (!final)
+          continue;
+        if (name == "results")
+          results.push_back({std::make_shared<SemanticValue>(child(value, *final, "results"))});
+        else
+          results.push_back({static_cast<std::int64_t>(group.index())});
+      }
+      return list(std::move(results), true);
+    }
+  }
+  if (descriptor == ctk::analysis::v1::ScriptValue::descriptor() && name == "kind") {
+    const auto* field = value.message->GetReflection()->GetOneofFieldDescriptor(
+        *value.message, descriptor->FindOneofByName("value"));
+    return field ? Value{std::string(field->name())} : Value{};
+  }
   if (value.selected && name == "binding")
     return Value{value.selected};
   if (value.graph_nodes && (name == "response" || name == "proto") &&
@@ -387,6 +430,342 @@ llvm::Expected<Value> semantic_field(const SemanticValue& value, llvm::StringRef
   }
   return fail(llvm::Twine("unknown semantic field: ") + name);
 }
+
+namespace {
+
+namespace graph_api = ctk::analysis::v1;
+using NodeIndex = std::uint64_t;
+
+bool unresolved(const graph_api::CallGraphCallSite& site) {
+  if (site.has_callee_node())
+    return false;
+  if (!site.has_facts())
+    return true;
+  const auto& facts = site.facts();
+  if (facts.dispatch() == match::CALL_DISPATCH_INDIRECT)
+    return true;
+  if (facts.dispatch() == match::CALL_DISPATCH_DIRECT ||
+      facts.dispatch() == match::CALL_DISPATCH_VIRTUAL)
+    return false;
+  return facts.static_callee_symbol_identity().empty() && facts.static_callee_name().empty();
+}
+
+class GraphTopology {
+public:
+  explicit GraphTopology(const SemanticValue& value)
+      : source(value), graph(static_cast<const graph_api::CallGraphResponse&>(*value.message)) {
+    for (const auto& node : graph.nodes()) {
+      if (node.is_virtual_root() || node.node_index() == graph.root_node())
+        continue;
+      nodes.emplace(node.node_index(), &node);
+      incoming.try_emplace(node.node_index());
+      outgoing.try_emplace(node.node_index());
+    }
+    for (const auto& edge : graph.edges()) {
+      if (!nodes.contains(edge.caller_node()) || !nodes.contains(edge.callee_node()))
+        continue;
+      edges.push_back(&edge);
+      outgoing[edge.caller_node()].push_back(edge.callee_node());
+      incoming[edge.callee_node()].push_back(edge.caller_node());
+    }
+  }
+
+  llvm::Expected<NodeIndex> select(const Value& target) const {
+    if (const auto* index = as<std::int64_t>(target)) {
+      if (*index >= 0 && nodes.contains(*index))
+        return *index;
+      return fail("call graph has no node at that index");
+    }
+    if (const auto* name = as<std::string>(target)) {
+      auto found = semantic_method(source, "function", Sequence{{target}});
+      if (!found)
+        return found.takeError();
+      return select(*found);
+    }
+    if (const auto* message = semantic_message(target)) {
+      if (message->GetDescriptor() == graph_api::CallGraphNode::descriptor()) {
+        const auto& selected = static_cast<const graph_api::CallGraphNode&>(*message);
+        const auto item = nodes.find(selected.node_index());
+        if (item != nodes.end() &&
+            (item->second == &selected ||
+             item->second->SerializeAsString() == selected.SerializeAsString()))
+          return item->first;
+        return fail("node does not belong to this call graph");
+      }
+    }
+    if (retained_node(target)) {
+      auto selected = semantic_method(source, "function", Sequence{{target}});
+      if (!selected)
+        return selected.takeError();
+      return select(*selected);
+    }
+    return fail("target must be a node index, qualified name or call-graph node");
+  }
+
+  Value node(NodeIndex index) const {
+    return {std::make_shared<SemanticValue>(child(source, *nodes.at(index), "nodes"))};
+  }
+
+  Value site(const graph_api::CallGraphCallSite& value) const {
+    return {std::make_shared<SemanticValue>(child(source, value, "call_sites"))};
+  }
+
+  Value path(NodeIndex start, NodeIndex finish, bool route) const {
+    std::map<NodeIndex, NodeIndex> parents{{start, start}};
+    std::deque<NodeIndex> queue{start};
+    while (!queue.empty() && !parents.contains(finish)) {
+      const auto current = queue.front();
+      queue.pop_front();
+      for (const auto neighbor : outgoing.at(current)) {
+        if (parents.emplace(neighbor, current).second)
+          queue.push_back(neighbor);
+      }
+    }
+    if (!parents.contains(finish))
+      return {};
+    std::vector<NodeIndex> steps;
+    for (auto current = finish;; current = parents.at(current)) {
+      steps.push_back(current);
+      if (current == start)
+        break;
+    }
+    std::reverse(steps.begin(), steps.end());
+    std::vector<Value> result;
+    if (!route) {
+      for (const auto index : steps)
+        result.push_back(node(index));
+    } else {
+      std::map<std::pair<NodeIndex, NodeIndex>, std::vector<Value>> sites;
+      for (const auto& call : graph.call_sites())
+        if (call.has_callee_node())
+          sites[{call.caller_node(), call.callee_node()}].push_back(site(call));
+      for (std::size_t i = 1; i < steps.size(); ++i) {
+        auto item = std::make_shared<Record>();
+        item->set("caller", node(steps[i - 1]));
+        item->set("callee", node(steps[i]));
+        item->set("call_sites", list(std::move(sites[{steps[i - 1], steps[i]}]), true));
+        result.push_back({std::move(item)});
+      }
+    }
+    return list(std::move(result), true);
+  }
+
+  Value grouped() const {
+    using Key = std::pair<NodeIndex, std::optional<NodeIndex>>;
+    std::map<Key, std::vector<const graph_api::CallGraphCallSite*>> groups;
+    for (const auto& call : graph.call_sites()) {
+      if (!nodes.contains(call.caller_node()))
+        continue;
+      const auto callee = call.has_callee_node() && nodes.contains(call.callee_node())
+                              ? std::optional{call.callee_node()}
+                              : std::nullopt;
+      groups[{call.caller_node(), callee}].push_back(&call);
+    }
+    std::vector<Value> result;
+    for (const auto& [key, calls] : groups) {
+      auto item = std::make_shared<Record>();
+      item->set("caller", node(key.first));
+      item->set("callee", key.second ? node(*key.second) : Value{});
+      item->set("call_site_count", {static_cast<std::int64_t>(calls.size())});
+      std::int64_t unknown = 0;
+      std::vector<Value> sites;
+      for (const auto* call : calls) {
+        unknown += unresolved(*call);
+        sites.push_back(site(*call));
+      }
+      item->set("unresolved_count", {unknown});
+      item->set("call_sites", list(std::move(sites), true));
+      result.push_back({std::move(item)});
+    }
+    return list(std::move(result), true);
+  }
+
+  Value recursive() const {
+    std::set<NodeIndex> seen;
+    std::vector<NodeIndex> finished;
+    for (const auto& [start, _] : nodes) {
+      if (!seen.insert(start).second)
+        continue;
+      std::vector<std::pair<NodeIndex, std::size_t>> stack{{start, 0}};
+      while (!stack.empty()) {
+        auto& [current, offset] = stack.back();
+        const auto& neighbors = outgoing.at(current);
+        if (offset == neighbors.size()) {
+          finished.push_back(current);
+          stack.pop_back();
+        } else {
+          const auto next = neighbors[offset++];
+          if (seen.insert(next).second)
+            stack.emplace_back(next, 0);
+        }
+      }
+    }
+    seen.clear();
+    std::vector<std::vector<NodeIndex>> components;
+    for (const auto start : llvm::reverse(finished)) {
+      if (!seen.insert(start).second)
+        continue;
+      std::vector<NodeIndex> component, stack{start};
+      while (!stack.empty()) {
+        const auto current = stack.back();
+        stack.pop_back();
+        component.push_back(current);
+        for (const auto previous : incoming.at(current))
+          if (seen.insert(previous).second)
+            stack.push_back(previous);
+      }
+      if (component.size() > 1 || llvm::is_contained(outgoing.at(start), start)) {
+        llvm::sort(component);
+        components.push_back(std::move(component));
+      }
+    }
+    llvm::sort(components);
+    std::vector<Value> result;
+    for (const auto& component : components) {
+      std::vector<Value> members;
+      for (const auto index : component)
+        members.push_back(node(index));
+      result.push_back(list(std::move(members), true));
+    }
+    return list(std::move(result), true);
+  }
+
+  Value neighborhood(NodeIndex start, std::optional<std::uint64_t> depth, bool reverse) const {
+    std::map<NodeIndex, std::uint64_t> distances{{start, 0}};
+    std::deque<NodeIndex> queue{start};
+    const auto& adjacency = reverse ? incoming : outgoing;
+    while (!queue.empty()) {
+      const auto current = queue.front();
+      queue.pop_front();
+      const auto distance = distances.at(current);
+      if (depth && distance == *depth)
+        continue;
+      for (const auto next : adjacency.at(current))
+        if (distances.emplace(next, distance + 1).second)
+          queue.push_back(next);
+    }
+
+    auto response = std::make_unique<graph_api::CallGraphResponse>(graph);
+    response->clear_nodes();
+    response->clear_edges();
+    response->clear_call_sites();
+    response->clear_availability();
+    bool complete = true, known = true;
+    auto copy = [&](const auto& item, auto* out) {
+      *out = item;
+      if (!item.has_is_complete())
+        known = false;
+      else
+        complete &= item.is_complete();
+      for (const auto& field : item.availability())
+        *response->add_availability() = field;
+    };
+    std::map<NodeIndex, NodeIndex> remap;
+    for (const auto& [index, _] : distances) {
+      auto* out = response->add_nodes();
+      copy(*nodes.at(index), out);
+      out->set_node_index(remap.size());
+      remap.emplace(index, out->node_index());
+    }
+    const auto within = [&](NodeIndex index) {
+      return remap.contains(index) && (!depth || distances.at(index) < *depth);
+    };
+    std::uint64_t boundary_edges = 0, boundary_sites = 0;
+    for (const auto* edge : edges) {
+      const auto caller = edge->caller_node(), callee = edge->callee_node();
+      if (remap.contains(caller) && remap.contains(callee) && within(reverse ? callee : caller)) {
+        auto* out = response->add_edges();
+        copy(*edge, out);
+        out->set_caller_node(remap.at(caller));
+        out->set_callee_node(remap.at(callee));
+      } else if (remap.contains(caller) || remap.contains(callee))
+        ++boundary_edges;
+    }
+    for (const auto& call : graph.call_sites()) {
+      const auto caller = call.caller_node(), callee = call.callee_node();
+      const bool caller_selected = remap.contains(caller);
+      const bool callee_selected = call.has_callee_node() && remap.contains(callee);
+      const bool keep = call.has_callee_node() ? caller_selected && callee_selected &&
+                                                     within(reverse ? callee : caller)
+                                               : !reverse && within(caller);
+      if (keep) {
+        auto* out = response->add_call_sites();
+        copy(call, out);
+        out->set_caller_node(remap.at(caller));
+        if (callee_selected)
+          out->set_callee_node(remap.at(callee));
+      } else if (caller_selected || callee_selected)
+        ++boundary_sites;
+    }
+    response->set_root_node(std::numeric_limits<NodeIndex>::max());
+    response->set_focus_node(remap.at(start));
+    response->set_selection_direction(reverse ? graph_api::CALL_GRAPH_DIRECTION_IN
+                                              : graph_api::CALL_GRAPH_DIRECTION_OUT);
+    if (depth) {
+      response->set_selection_max_depth(*depth);
+      response->clear_selection_unlimited_depth();
+    } else {
+      response->clear_selection_max_depth();
+      response->set_selection_unlimited_depth(true);
+    }
+    response->set_selection_boundary_edges(graph.selection_boundary_edges() + boundary_edges);
+    response->set_selection_boundary_call_sites(graph.selection_boundary_call_sites() +
+                                                boundary_sites);
+    if (known)
+      response->set_is_complete(complete);
+    else
+      response->clear_is_complete();
+    auto result = semantic(std::move(response));
+    result->graph_nodes = source.graph_nodes;
+    return {std::move(result)};
+  }
+
+private:
+  const SemanticValue& source;
+  const graph_api::CallGraphResponse& graph;
+  std::map<NodeIndex, const graph_api::CallGraphNode*> nodes;
+  std::map<NodeIndex, std::vector<NodeIndex>> incoming, outgoing;
+  std::vector<const graph_api::CallGraphEdge*> edges;
+};
+
+llvm::Expected<Value> graph_method(const SemanticValue& view, llvm::StringRef name,
+                                   const Sequence& arguments) {
+  const auto& args = arguments.items;
+  GraphTopology topology(view);
+  if (name == "grouped_calls" || name == "recursive_components" || name == "recursion_components") {
+    if (!args.empty())
+      return fail(llvm::Twine(name) + " takes no arguments");
+    return name == "grouped_calls" ? topology.grouped() : topology.recursive();
+  }
+  if (name == "shortest_path" || name == "shortest_route") {
+    if (args.size() != 2)
+      return fail(llvm::Twine(name) + " requires source and target");
+    auto start = topology.select(args[0]);
+    if (!start)
+      return start.takeError();
+    auto end = topology.select(args[1]);
+    if (!end)
+      return end.takeError();
+    return topology.path(*start, *end, name == "shortest_route");
+  }
+  if (args.empty() || args.size() > 2)
+    return fail(llvm::Twine(name) + " requires a target and optional depth");
+  std::optional<std::uint64_t> depth = 1;
+  if (args.size() == 2) {
+    if (const auto* value = as<std::int64_t>(args[1]); value && *value >= 0 && *value <= 32)
+      depth = *value;
+    else if (const auto* text = as<std::string>(args[1]); text && *text == "all")
+      depth.reset();
+    else
+      return fail("depth must be 0..32 or 'all'");
+  }
+  auto root = topology.select(args[0]);
+  if (!root)
+    return root.takeError();
+  return topology.neighborhood(*root, depth, name == "callers");
+}
+
+} // namespace
 
 llvm::Expected<Value> semantic_method(const SemanticValue& value, llvm::StringRef name,
                                       const Sequence& arguments) {
@@ -426,6 +805,12 @@ llvm::Expected<Value> semantic_method(const SemanticValue& value, llvm::StringRe
       return fail("call graph function was not found");
     return Value{std::make_shared<SemanticValue>(child(value, *found, "nodes"))};
   }
+  if (value.graph_nodes &&
+      value.message->GetDescriptor() == ctk::analysis::v1::CallGraphResponse::descriptor() &&
+      (name == "callers" || name == "callees" || name == "shortest_path" ||
+       name == "shortest_route" || name == "grouped_calls" || name == "recursive_components" ||
+       name == "recursion_components"))
+    return graph_method(value, name, arguments);
   if (name != "fieldOr" && name != "fieldState" && name != "hasField")
     return fail(llvm::Twine("unknown semantic method: ") + name);
   const bool fallback = name == "fieldOr";
@@ -461,6 +846,100 @@ bool semantic_kind(const SemanticValue& value, llvm::StringRef kind) {
                   field->name());
   }
   return llvm::StringRef(owner.message->GetDescriptor()->name()) == kind;
+}
+
+llvm::Expected<llvm::json::Object> semantic_snapshot(const SemanticValue& value) {
+  if (value.file_handle || value.message->GetDescriptor() == match::SessionInfo::descriptor())
+    return fail("native resource handles cannot be saved");
+  const pb::Message* message = value.message;
+  std::unique_ptr<pb::Message> detached;
+  if (message->GetDescriptor() == graph_api::CallGraphResponse::descriptor()) {
+    auto copy = std::make_unique<graph_api::CallGraphResponse>(
+        static_cast<const graph_api::CallGraphResponse&>(*message));
+    copy->clear_retained_nodes();
+    for (auto& node : *copy->mutable_nodes())
+      node.clear_native_match_index();
+    detached = std::move(copy);
+  } else if (message->GetDescriptor() == graph_api::CallGraphNode::descriptor()) {
+    auto copy = std::make_unique<graph_api::CallGraphNode>(
+        static_cast<const graph_api::CallGraphNode&>(*message));
+    copy->clear_native_match_index();
+    detached = std::move(copy);
+  }
+  if (detached)
+    message = detached.get();
+  pb::util::JsonPrintOptions options;
+  options.preserve_proto_field_names = true;
+  std::string json;
+  const auto status = pb::util::MessageToJsonString(*message, &json, options);
+  if (!status.ok())
+    return fail(status.ToString());
+  auto decoded = llvm::json::parse(json);
+  if (!decoded)
+    return decoded.takeError();
+  if (!decoded->getAsObject())
+    return fail("semantic snapshot requires a message object");
+  llvm::json::Array availability;
+  for (const auto* field : value.availability) {
+    availability.push_back(llvm::json::Array{
+        field->field_path(),
+        field->has_state() ? llvm::json::Value(static_cast<int>(field->state())) : nullptr,
+        field->has_reason() ? llvm::json::Value(field->reason()) : nullptr,
+    });
+  }
+  return llvm::json::Object{
+      {"message_type", std::string(message->GetDescriptor()->full_name())},
+      {"message", std::move(*decoded)},
+      {"path", value.path},
+      {"availability", std::move(availability)},
+  };
+}
+
+llvm::Expected<Value> restore_semantic_snapshot(const llvm::json::Object& snapshot) {
+  const auto name = snapshot.getString("message_type");
+  const auto path = snapshot.getString("path");
+  const auto* availability = snapshot.getArray("availability");
+  const auto* json = snapshot.getObject("message");
+  if (!name || !path || !availability || !json)
+    return fail("invalid semantic snapshot metadata");
+  const auto* descriptor = pb::DescriptorPool::generated_pool()->FindMessageTypeByName(name->str());
+  if (!descriptor)
+    return fail("unknown semantic snapshot message type");
+  const auto* prototype = pb::MessageFactory::generated_factory()->GetPrototype(descriptor);
+  if (!prototype)
+    return fail("semantic snapshot message is unavailable");
+  std::unique_ptr<pb::Message> message(prototype->New());
+  std::string wire;
+  llvm::raw_string_ostream output(wire);
+  output << llvm::json::Value(llvm::json::Object(*json));
+  const auto parsed = pb::util::JsonStringToMessage(wire, message.get());
+  if (!parsed.ok())
+    return fail(parsed.ToString());
+  auto entries = std::make_shared<std::vector<ast::FieldAvailability>>();
+  entries->reserve(availability->size());
+  for (const auto& item : *availability) {
+    const auto* fields = item.getAsArray();
+    if (!fields || fields->size() != 3)
+      return fail("invalid semantic field availability");
+    const auto field_path = (*fields)[0].getAsString();
+    if (!field_path)
+      return fail("invalid semantic availability path");
+    auto& entry = entries->emplace_back();
+    entry.set_field_path(field_path->str());
+    if (const auto state = (*fields)[1].getAsInteger())
+      entry.set_state(static_cast<ast::FieldState>(*state));
+    if (const auto reason = (*fields)[2].getAsString())
+      entry.set_reason(reason->str());
+  }
+  auto value = semantic(std::move(message));
+  value->path = path->str();
+  value->restored_availability = entries;
+  value->availability.clear();
+  for (const auto& entry : *entries)
+    value->availability.push_back(&entry);
+  if (const auto field = snapshot.getString("field"))
+    return semantic_field(*value, *field);
+  return Value{std::move(value)};
 }
 
 std::string semantic_json(const SemanticValue& value, bool indented) {

@@ -232,12 +232,14 @@ _HOST_NEWLINE: /\r?\n/
 %override legacy_reference: LEGACY_DOLLAR? LEGACY_NAME (LEGACY_DOT legacy_property_name | LEGACY_DOT legacy_method_call | LEGACY_LSQB legacy_index_expression LEGACY_RSQB)*
 
 %override legacy_batch_statement: LEGACY_BATCH LEGACY_NAME LEGACY_IN legacy_reference legacy_batch_grouping legacy_batch_option* LEGACY_DO proto_block -> compiled_batch_statement
-               | (LEGACY_DURABLE | LEGACY_BACKGROUND) LEGACY_BATCH LEGACY_NAME LEGACY_IN legacy_reference legacy_batch_grouping legacy_durable_batch_option* LEGACY_DO legacy_statement_block -> durable_batch
+               | (LEGACY_DURABLE | LEGACY_BACKGROUND) LEGACY_BATCH LEGACY_NAME LEGACY_IN legacy_reference legacy_batch_grouping legacy_durable_batch_option* LEGACY_DO legacy_durable_block -> durable_batch
                | LEGACY_BATCH LEGACY_STATUS legacy_reference -> batch_status
                | LEGACY_BATCH LEGACY_CANCEL legacy_reference -> batch_cancel
                | LEGACY_BATCH LEGACY_RESUME legacy_reference -> batch_resume
                | LEGACY_BATCH LEGACY_RETRY legacy_reference -> batch_retry
                | LEGACY_BATCH LEGACY_PROMOTE legacy_reference -> batch_promote
+?legacy_durable_statement: legacy_assignment | legacy_statement | legacy_display_expression
+legacy_durable_block: LEGACY_LBRACE LEGACY_BATCH_SEPARATOR* (legacy_durable_statement (LEGACY_SEMICOLON | LEGACY_BATCH_SEPARATOR)+)* legacy_durable_statement? LEGACY_RBRACE -> statement_block
 
 %override legacy_matcher_definition.30: LEGACY_LET LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_parameters] _host_newlines LEGACY_RPAR LEGACY_EQUAL legacy_definition_matcher
 legacy_definition_matcher: LEGACY_DEFINITION_MATCHER_NAME LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -41,6 +42,7 @@ struct NativeNode {
   std::shared_ptr<clang::DynTypedNode> node;
   mutable std::shared_ptr<SemanticValue> semantic;
   std::shared_ptr<clang::DynTypedNode> parent;
+  std::string binding_name;
 };
 
 struct BuiltinFunction {
@@ -49,7 +51,13 @@ struct BuiltinFunction {
 
 struct MatcherValue {
   std::string text;
+  std::string name;
+  std::shared_ptr<const Sequence> arguments;
+  std::optional<std::string> binding;
 };
+
+MatcherValue matcher_value(llvm::StringRef name, const Sequence& arguments,
+                           std::optional<std::string> binding);
 
 struct Value {
   using Data = std::variant<std::monostate, bool, std::int64_t, double, std::string,
@@ -94,6 +102,13 @@ struct Runnable {
 
 struct LocalState {
   std::string output_path;
+  std::string default_database;
+  std::string compilation_database;
+  std::vector<std::string> compilation_arguments;
+  Value default_targets;
+  bool spelled_only = false;
+  std::optional<std::size_t> batch_output_bytes;
+  std::size_t successful_exports = 0;
 };
 
 struct Values {

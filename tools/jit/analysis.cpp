@@ -237,7 +237,7 @@ const Value* callgraph(Values& runtime, const std::shared_ptr<SelectedAst>& engi
       if (found == row.end())
         return runtime.fail("call graph retained node is unavailable");
       nodes.push_back(std::make_shared<NativeNode>(
-          NativeNode{ast, std::make_shared<clang::DynTypedNode>(found->second)}));
+          NativeNode{ast, std::make_shared<clang::DynTypedNode>(found->second), {}, {}, "node"}));
     }
   }
   auto graph = std::make_unique<api::CallGraphResponse>(std::move(result.response));
@@ -346,6 +346,8 @@ const Value* navigate(Values& runtime, const NativeNode& selected, const Matcher
     return runtime.fail("navigation axis must be children or parents");
   match::MatchRequest request;
   request.mutable_binding()->set_bind("selected");
+  if (runtime.state.spelled_only)
+    request.set_traversal_mode(match::MATCH_TRAVERSAL_MODE_IGNORE_UNLESS_SPELLED_IN_SOURCE);
   request.set_navigation_axis(axis == "children" ? match::NAVIGATION_AXIS_CHILDREN
                                                  : match::NAVIGATION_AXIS_PARENTS);
   if (maximum)
@@ -367,7 +369,7 @@ const Value* navigate(Values& runtime, const NativeNode& selected, const Matcher
     auto result = std::make_shared<Record>();
     for (const auto& [name, node] : values) {
       auto value = std::make_shared<NativeNode>(
-          NativeNode{selected.ast, std::make_shared<clang::DynTypedNode>(node)});
+          NativeNode{selected.ast, std::make_shared<clang::DynTypedNode>(node), {}, {}, name});
       if (const auto found = parents.find(name); found != parents.end())
         value->parent = std::make_shared<clang::DynTypedNode>(found->second);
       result->set(name, {std::move(value)});

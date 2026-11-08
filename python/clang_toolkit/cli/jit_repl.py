@@ -6,14 +6,34 @@ from collections.abc import Callable
 from contextlib import ExitStack
 import json
 from pathlib import Path
+from queue import Queue
 import subprocess
 import sys
+from threading import Lock, Thread
+from typing import Any, TextIO
 
 from lark.exceptions import LarkError, UnexpectedEOF, UnexpectedToken
 
 from .jit_compiler import LowerRequest, compiler_channel
 
 _COMMAND_CACHE_SIZE = 128
+
+
+def _read_replies(
+    source: TextIO, replies: Queue[dict[str, Any] | Exception | None], output_lock: Lock
+) -> None:
+    try:
+        for line in source:
+            message = json.loads(line)
+            if "event" in message:
+                with output_lock:
+                    print(message["event"], flush=True)
+            else:
+                replies.put(message)
+    except (OSError, ValueError) as error:
+        replies.put(error)
+    finally:
+        replies.put(None)
 
 
 def run_repl(
@@ -45,12 +65,22 @@ def run_repl(
             )
         )
         assert process.stdin is not None and process.stdout is not None
+        reader = None
         try:
             ready = process.stdout.readline()
             if not ready:
                 return process.wait() or 1
             if ready != '{"ready":true,"protocol":3}\n':
                 raise ValueError("unexpected response from native REPL runner")
+            replies: Queue[dict[str, Any] | Exception | None] = Queue()
+            output_lock = Lock()
+            reader = Thread(
+                target=_read_replies,
+                args=(process.stdout, replies, output_lock),
+                name="ctk-jit-replies",
+                daemon=True,
+            )
+            reader.start()
             while True:
                 prompt = ("... " if pending else "ctk-jit> ") if interactive else ""
                 try:
@@ -103,10 +133,11 @@ def run_repl(
 
                 process.stdin.write(json.dumps(request) + "\n")
                 process.stdin.flush()
-                response = process.stdout.readline()
-                if not response:
+                result = replies.get()
+                if result is None:
                     return process.wait() or 1
-                result = json.loads(response)
+                if isinstance(result, Exception):
+                    raise result
                 if result["compiled"]:
                     if evicted is not None:
                         del commands[evicted]
@@ -115,14 +146,22 @@ def run_repl(
                 if result["error"]:
                     print(f"ctk-jit: {result['error']}", file=sys.stderr)
                     had_error = True
-                sys.stdout.write(result["output"])
-                sys.stdout.flush()
+                with output_lock:
+                    sys.stdout.write(result["output"])
+                    sys.stdout.flush()
                 if result.get("exit"):
                     break
 
             process.stdin.close()
-            return process.wait() or int(had_error and not interactive)
+            status = process.wait()
+            reader.join()
+            return status or int(had_error and not interactive)
         except KeyboardInterrupt:
             if process.poll() is None:
                 process.terminate()
             raise
+        finally:
+            if not process.stdin.closed:
+                process.stdin.close()
+            if reader is not None and reader.is_alive():
+                reader.join(timeout=1)

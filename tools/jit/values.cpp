@@ -689,8 +689,24 @@ extern "C" const Value* ctk_jit_value_tail_v1(Values* runtime, const Value* valu
   return runtime->hold(list(std::vector<Value>(items.begin() + 1, items.end())));
 }
 
+bool contains_live_batch_value(const Value& value, unsigned depth = 0) {
+  if (depth >= 64 || as<AstHandle>(value) || object<NativeNode>(value) ||
+      object<Runnable>(value) || semantic_has_live_resource(value))
+    return true;
+  if (const auto* items = object<Sequence>(value)) {
+    for (const auto& item : items->items)
+      if (contains_live_batch_value(item, depth + 1)) return true;
+  } else if (const auto* record = object<Record>(value)) {
+    for (const auto& [key, item] : record->fields)
+      if (contains_live_batch_value(item, depth + 1)) return true;
+  }
+  return false;
+}
+
 extern "C" const Value* ctk_jit_value_store_v1(Values* runtime, const Value* value,
                                                const Value* key, const Value* item) {
+  if (runtime->state.batch_output_bytes && contains_live_batch_value(*item))
+    return runtime->fail("batch collection updates cannot retain live resources");
   if (auto* sequence = object<Sequence>(*value)) {
     if (sequence->tuple)
       return runtime->fail("tuples are immutable");
@@ -1011,6 +1027,8 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
     }
     if (!sequence->tuple) {
       if (name == "push" && args.size() == 1) {
+        if (runtime->state.batch_output_bytes && contains_live_batch_value(args[0]))
+          return runtime->fail("batch collection updates cannot retain live resources");
         return ctk_jit_value_add_v1(runtime, base, nullptr, &args[0]);
       }
       if (name == "delete" && args.size() == 1) {
@@ -1083,28 +1101,15 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
 
 extern "C" const Value* ctk_jit_value_matcher_v1(Values* runtime, const char* name,
                                                  const Value* arguments, const Value* binding) {
-  std::string text;
-  llvm::raw_string_ostream output(text);
-  output << name << '(';
-  llvm::StringRef separator;
-  for (const auto& arg : object<Sequence>(*arguments)->items) {
+  const auto& args = *object<Sequence>(*arguments);
+  for (const auto& arg : args.items) {
     if ((!scalar(arg) || std::holds_alternative<std::monostate>(arg.data)) &&
-        !as<MatcherValue>(arg)) {
+        !as<MatcherValue>(arg))
       return runtime->fail("matcher arguments require a matcher, number, string or bool");
-    }
-    output << separator;
-    format(output, arg, true);
-    separator = ", ";
   }
-  output << ')';
-  if (binding) {
-    if (!as<std::string>(*binding))
-      return runtime->fail("matcher binding requires a string");
-    output << ".bind(";
-    format(output, *binding, true);
-    output << ')';
-  }
-  return runtime->hold({MatcherValue{std::move(text)}});
+  const auto* key = binding ? as<std::string>(*binding) : nullptr;
+  if (binding && !key) return runtime->fail("matcher binding requires a string");
+  return runtime->hold({matcher_value(name, args, key ? std::optional{*key} : std::nullopt)});
 }
 
 extern "C" const Value* ctk_jit_value_bind_matcher_v1(Values* runtime, const Value* value,
@@ -1113,13 +1118,26 @@ extern "C" const Value* ctk_jit_value_bind_matcher_v1(Values* runtime, const Val
   const auto* name = as<std::string>(*binding);
   if (!matcher || !name)
     return runtime->fail("bind requires a matcher and a string");
-  std::string text = matcher->text;
-  llvm::raw_string_ostream output(text);
-  output << ".bind(" << llvm::json::Value(*name) << ')';
-  return runtime->hold({MatcherValue{std::move(text)}});
+  return runtime->hold({matcher_value(matcher->name, *matcher->arguments, *name)});
 }
 
 } // namespace
+
+MatcherValue matcher_value(llvm::StringRef name, const Sequence& arguments,
+                           std::optional<std::string> binding) {
+  std::string text;
+  llvm::raw_string_ostream output(text);
+  output << name << '(';
+  llvm::StringRef separator;
+  for (const auto& arg : arguments.items) {
+    output << separator;
+    format(output, arg, true);
+    separator = ", ";
+  }
+  output << ')';
+  if (binding) output << ".bind(" << llvm::json::Value(*binding) << ')';
+  return {std::move(text), name.str(), std::make_shared<Sequence>(arguments), std::move(binding)};
+}
 
 extern "C" const Value* ctk_jit_value_render_v1(Values* runtime, const Value* value) {
   std::string text;

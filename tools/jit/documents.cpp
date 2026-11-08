@@ -25,7 +25,8 @@ namespace llvmfs = llvm::sys::fs;
 
 constexpr std::size_t max_document_bytes = 16 * 1024 * 1024;
 
-bool write(Values& runtime, llvm::StringRef path, llvm::StringRef text, bool append) {
+bool write(Values& runtime, llvm::StringRef path, llvm::StringRef text, bool append,
+           unsigned mode = llvmfs::all_read | llvmfs::all_write) {
   if (path.empty() || path.contains('\0')) {
     runtime.fail("output requires a nonempty path");
     return false;
@@ -49,7 +50,7 @@ bool write(Values& runtime, llvm::StringRef path, llvm::StringRef text, bool app
   } else {
     llvm::SmallString<256> temporary;
     int fd = -1;
-    error = llvmfs::createUniqueFile(llvm::Twine(path) + ".%%%%%%", fd, temporary);
+    error = llvmfs::createUniqueFile(llvm::Twine(path) + ".%%%%%%", fd, temporary, llvmfs::OF_None, mode);
     if (!error) {
       llvm::raw_fd_ostream stream(fd, true);
       stream << text;
@@ -532,18 +533,24 @@ extern "C" const Value* ctk_jit_document_save_v1(Values* runtime, const Value* p
   if (*format == "proto" || *format == "csv") {
     auto bytes = *format == "proto" ? encode_snapshot(*value) : csv_encode(*value);
     if (!bytes) return runtime->fail(llvm::toString(bytes.takeError()));
-    return write(*runtime, file.string(), *bytes, false) ? value : nullptr;
+    if (!write(*runtime, file.string(), *bytes, false)) return nullptr;
+    ++runtime->state.successful_exports;
+    return value;
   }
   const std::array arguments{*value, Value{std::int64_t{2}}};
   const auto* serialized = call_builtin(*runtime, "json", arguments, Record{});
   if (!serialized)
     return nullptr;
   // JSON is a YAML 1.2 document and preserves ordering and scalar types.
-  return write(*runtime, file.string(), *as<std::string>(*serialized), false) ? value : nullptr;
+  if (!write(*runtime, file.string(), *as<std::string>(*serialized), false)) return nullptr;
+  ++runtime->state.successful_exports;
+  return value;
 }
 
 extern "C" const Value* ctk_jit_document_output_v1(Values* runtime, const Value* path,
                                                    std::int32_t append) {
+  if (runtime->state.batch_output_bytes)
+    return runtime->fail("output settings cannot be changed inside a foreground batch");
   if (!path) {
     runtime->state.output_path.clear();
     return runtime->hold({});
@@ -571,9 +578,28 @@ extern "C" const Value* ctk_jit_document_print_v1(Values* runtime, const Value* 
 
 } // namespace
 
+const Value* read_settings_file(Values& runtime, llvm::StringRef path) {
+  return read(runtime, Value{path.str()}, "yaml", false);
+}
+
+bool write_settings_file(Values& runtime, llvm::StringRef path, const Value& value) {
+  const std::array arguments{value, Value{std::int64_t{2}}};
+  const auto* encoded = call_builtin(runtime, "json", arguments, Record{});
+  return encoded && write(runtime, path, *as<std::string>(*encoded) + "\n", false,
+                          llvmfs::owner_read | llvmfs::owner_write);
+}
+
 bool emit_text(Values& runtime, llvm::StringRef text) {
   if (runtime.consume_depth)
     return true;
+  if (auto& used = runtime.state.batch_output_bytes; used && !text.empty()) {
+    constexpr std::size_t limit = 1000000;
+    if (text.size() >= limit - *used) {
+      runtime.fail("batch group output exceeds 1000000 bytes");
+      return false;
+    }
+    *used += text.size() + 1;
+  }
   if (runtime.state.output_path.empty()) {
     if (!text.empty()) {
       runtime.output += text;
