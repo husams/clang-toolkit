@@ -1,14 +1,17 @@
 #include "ir.hpp"
+#include "values.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
-#include <variant>
 #include <vector>
 
 #include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <clang/ASTMatchers/Dynamic/Parser.h>
 #include <clang/ASTMatchers/Dynamic/Registry.h>
+#include <clang/Frontend/ASTUnit.h>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/StringMap.h>
@@ -27,6 +30,8 @@ namespace {
 namespace dynamic = clang::ast_matchers::dynamic;
 using clang::FunctionDecl;
 using clang::ast_matchers::MatchFinder;
+using DynamicMatcher = clang::ast_matchers::internal::DynTypedMatcher;
+using MatcherCache = llvm::StringMap<DynamicMatcher>;
 
 // Layout of the generated LLVM IR's %arg on the runner's target.
 struct MatcherArg {
@@ -36,33 +41,91 @@ struct MatcherArg {
   std::uint32_t count;
 };
 
-struct MatchedRows {
-  std::string binding;
-  std::vector<const FunctionDecl*> declarations;
+struct Targets {
+  Targets(clang::ASTContext& ast, llvm::StringRef file, const LoadTarget& load)
+      : ast(&ast, [](clang::ASTContext*) {})
+      , file(file)
+      , load(load) {}
+
+  AstHandle ast;
+  llvm::StringRef file;
+  const LoadTarget& load;
+  llvm::StringMap<AstHandle> files;
+
+  static AstHandle own(std::unique_ptr<clang::ASTUnit> unit) {
+    auto* ast = &unit->getASTContext();
+    return AstHandle(std::shared_ptr<clang::ASTUnit>(std::move(unit)), ast);
+  }
+
+  Bindings bindings() const {
+    auto args = std::make_shared<Record>();
+    args->set("file", {file.str()});
+    Bindings bindings;
+    bindings.try_emplace("arg", Value{std::move(args)});
+    return bindings;
+  }
+
+  llvm::Expected<AstHandle> select(llvm::StringRef path) {
+    if (path == file)
+      return ast;
+    std::error_code error;
+    auto full = std::filesystem::absolute(std::filesystem::path(path.str()), error);
+    if (error)
+      return llvm::errorCodeToError(error);
+    auto key = full.lexically_normal().string();
+    if (key == file)
+      return ast;
+    if (auto it = files.find(key); it != files.end())
+      return it->second;
+    TargetRequest request;
+    request.file = key;
+    auto unit = load(request);
+    if (!unit)
+      return unit.takeError();
+    auto result = own(std::move(*unit));
+    if (files.size() == 128)
+      files.clear();
+    files.try_emplace(key, result);
+    return result;
+  }
 };
 
-using Bindings = llvm::StringMap<std::variant<clang::ASTContext*, MatchedRows, llvm::json::Value>>;
-
 struct IrContext {
-  explicit IrContext(clang::ASTContext& ast, Bindings* bindings = nullptr)
-      : ast(ast)
-      , bindings(bindings) {}
+  explicit IrContext(Targets& targets, Bindings& bindings, MatcherCache& matchers)
+      : ast(*targets.ast)
+      , targets(targets)
+      , values(this, bindings, output, error)
+      , matchers(matchers) {}
 
   clang::ASTContext& ast;
-  Bindings* bindings;
+  Targets& targets;
   std::vector<const FunctionDecl*> rows;
   llvm::ArrayRef<const FunctionDecl*> active_rows;
   std::size_t next = 0;
   std::string error;
   std::string output;
+  Values values;
+  MatcherCache& matchers;
 };
 
 using IrEntry = int (*)(IrContext*);
 constexpr auto ir_entry_symbol = "ctk_jit_run_ir_v1";
 
+struct CommandCode {
+  explicit CommandCode(llvm::orc::ResourceTrackerSP tracker)
+      : tracker(std::move(tracker)) {}
+
+  ~CommandCode() {
+    if (auto error = tracker->remove())
+      llvm::logAllUnhandledErrors(std::move(error), llvm::errs());
+  }
+
+  llvm::orc::ResourceTrackerSP tracker;
+};
+
 struct CompiledCommand {
   IrEntry entry;
-  llvm::orc::ResourceTrackerSP tracker;
+  std::shared_ptr<CommandCode> code;
 };
 
 dynamic::VariantMatcher construct_matcher(const MatcherArg& arg,
@@ -140,84 +203,157 @@ extern "C" void ctk_jit_print_qualified_name_v1(const FunctionDecl* decl) {
   llvm::outs() << decl->getQualifiedNameAsString() << '\n';
 }
 
-extern "C" int ctk_jit_repl_bind_target_v1(IrContext* context, const char* name) {
-  context->bindings->insert_or_assign(name, &context->ast);
-  return 0;
+extern "C" Values* ctk_jit_value_context_v1(IrContext* context) { return &context->values; }
+
+extern "C" const Value* ctk_jit_parse_v1(IrContext* context, const Value* file) {
+  const auto* path = std::get_if<std::string>(&file->data);
+  if (!path || path->empty())
+    return context->values.fail("parse requires a file path");
+  auto ast = context->targets.select(*path);
+  if (!ast)
+    return context->values.fail(llvm::toString(ast.takeError()));
+  return context->values.hold({*ast});
 }
 
-extern "C" int ctk_jit_repl_match_v1(IrContext* context, const MatcherArg* root,
-                                     const char* binding, const char* target, const char* name) {
-  const auto entry = context->bindings->find(target);
-  if (entry == context->bindings->end() ||
-      !std::holds_alternative<clang::ASTContext*>(entry->second)) {
-    context->error = (llvm::Twine("expected a target binding named '") + target + "'").str();
-    return 1;
-  }
-  if (const auto status = ctk_jit_match_v1(context, root, binding)) {
-    return status;
-  }
-  context->active_rows = {};
-  context->bindings->insert_or_assign(name, MatchedRows{binding, std::move(context->rows)});
-  return 0;
-}
-
-extern "C" int ctk_jit_repl_select_rows_v1(IrContext* context, const char* name,
-                                           const char* binding) {
-  const auto entry = context->bindings->find(name);
-  const auto* rows =
-      entry == context->bindings->end() ? nullptr : std::get_if<MatchedRows>(&entry->second);
-  if (!rows) {
-    context->error = (llvm::Twine("expected a match binding named '") + name + "'").str();
-    return 1;
-  }
-  if (rows->binding != binding) {
-    context->error =
-        (llvm::Twine("match binding '") + name + "' has no node named '" + binding + "'").str();
-    return 1;
-  }
-  context->active_rows = rows->declarations;
-  return 0;
-}
-
-extern "C" void ctk_jit_repl_print_v1(IrContext* context, const FunctionDecl* decl, int qualified) {
-  context->output += qualified ? decl->getQualifiedNameAsString() : decl->getNameAsString();
-  context->output += '\n';
-}
-
-extern "C" int ctk_jit_repl_bind_value_v1(IrContext* context, const char* name,
-                                          const char* encoded) {
-  auto value = llvm::json::parse(encoded);
-  if (!value) {
-    context->error = llvm::toString(value.takeError());
-    return 1;
-  }
-  context->bindings->insert_or_assign(name, std::move(*value));
-  return 0;
-}
-
-extern "C" int ctk_jit_repl_print_value_v1(IrContext* context, const char* const* path) {
-  const auto entry = context->bindings->find(*path);
-  const auto* value =
-      entry == context->bindings->end() ? nullptr : std::get_if<llvm::json::Value>(&entry->second);
-  if (!value) {
-    context->error = (llvm::Twine("expected a value binding named '") + *path + "'").str();
-    return 1;
-  }
-  for (++path; *path; ++path) {
-    const auto* record = value->getAsObject();
-    if (!record || !(value = record->get(*path))) {
-      context->error = (llvm::Twine("no record field named '") + *path + "'").str();
-      return 1;
+extern "C" const Value* ctk_jit_parse_cpp_v1(IrContext* context, const Value* code,
+                                             const Value* options) {
+  auto& runtime = context->values;
+  TargetRequest request;
+  bool translation_unit = false;
+  std::string source;
+  if (options) {
+    if (const auto* path = std::get_if<std::string>(&options->data)) {
+      request.file = *path;
+    } else if (const auto* record = std::get_if<std::shared_ptr<Record>>(&options->data)) {
+      for (const auto& [key, option] : (*record)->fields) {
+        if (key == "file" || key == "working_directory" || key == "compilation_database") {
+          const auto* value = std::get_if<std::string>(&option.data);
+          if (!value)
+            return runtime.fail(llvm::Twine(key) + " must be a string");
+          if (key == "file")
+            request.file = *value;
+          else if (key == "working_directory")
+            request.directory = *value;
+          else
+            request.compilation_database = *value;
+        } else if (key == "translation_unit") {
+          const auto* value = std::get_if<bool>(&option.data);
+          if (!value)
+            return runtime.fail("translation_unit must be a bool");
+          translation_unit = *value;
+        } else if (key == "compile_arguments" || key == "includes") {
+          const auto* list = std::get_if<std::shared_ptr<Sequence>>(&option.data);
+          if (!list || (*list)->tuple)
+            return runtime.fail(llvm::Twine(key) + " requires a list");
+          for (const auto& item : (*list)->items) {
+            const auto* value = std::get_if<std::string>(&item.data);
+            if (!value)
+              return runtime.fail(llvm::Twine(key) + " requires a list of strings");
+            if (key == "compile_arguments") {
+              request.arguments.push_back(*value);
+            } else {
+              const llvm::StringRef header(*value);
+              if (header.empty() || header.contains('\n') || header.contains('\r') ||
+                  header.contains('\0')) {
+                return runtime.fail("invalid snippet include");
+              }
+              source += "#include ";
+              if ((header.starts_with("<") && header.ends_with(">")) ||
+                  (header.starts_with("\"") && header.ends_with("\""))) {
+                source += *value;
+              } else {
+                source += "\"" + *value + "\"";
+              }
+              source += '\n';
+            }
+          }
+        } else {
+          return runtime.fail(llvm::Twine("unknown parse cpp option: ") + key);
+        }
+      }
+    } else {
+      return runtime.fail("parse cpp using requires a file path or options record");
     }
   }
-  llvm::raw_string_ostream output(context->output);
-  if (auto string = value->getAsString()) {
-    output << *string;
-  } else {
-    output << *value;
+  if (!translation_unit)
+    source += "inline void ctk_snippet() {\n";
+  source += "#line 1\n" + std::get<std::string>(code->data) + '\n';
+  if (!translation_unit)
+    source += "}\n";
+  request.source = std::move(source);
+  auto unit = context->targets.load(request);
+  if (!unit)
+    return runtime.fail(llvm::toString(unit.takeError()));
+  return runtime.hold({Targets::own(std::move(*unit))});
+}
+
+extern "C" const Value* ctk_jit_match_value_v1(IrContext* context, const Value* expression,
+                                               const Value* target) {
+  auto& runtime = context->values;
+  const auto* value = std::get_if<MatcherValue>(&expression->data);
+  if (!value)
+    return runtime.fail("match requires a matcher expression");
+  auto ast = context->targets.ast;
+  if (target) {
+    if (const auto* selected = std::get_if<AstHandle>(&target->data)) {
+      ast = *selected;
+    } else if (const auto* path = std::get_if<std::string>(&target->data)) {
+      auto loaded = context->targets.select(*path);
+      if (!loaded)
+        return runtime.fail(llvm::toString(loaded.takeError()));
+      ast = *loaded;
+    } else {
+      return runtime.fail("match requires a target AST or file path");
+    }
   }
-  output << '\n';
-  return 0;
+
+  auto compiled = context->matchers.find(value->text);
+  if (compiled == context->matchers.end()) {
+    llvm::StringRef source(value->text);
+    dynamic::Diagnostics diagnostics;
+    auto matcher = dynamic::Parser::parseMatcherExpression(source, &diagnostics);
+    if (!matcher) {
+      return runtime.fail(diagnostics.errors().empty() ? "Clang rejected the matcher"
+                                                       : diagnostics.toString());
+    }
+    if (auto root = matcher->tryBind("root"))
+      matcher = std::move(root);
+    if (context->matchers.size() == 128)
+      context->matchers.clear();
+    compiled = context->matchers.try_emplace(value->text, std::move(*matcher)).first;
+  }
+
+  struct CollectRows final : MatchFinder::MatchCallback {
+    explicit CollectRows(AstHandle ast)
+        : ast(std::move(ast)) {}
+
+    void run(const MatchFinder::MatchResult& result) override {
+      if (rows->items.size() == 10000) {
+        overflow = true;
+        return;
+      }
+      auto row = std::make_shared<Record>();
+      for (const auto& [name, node] : result.Nodes.getMap()) {
+        row->set(name, {std::make_shared<NativeNode>(
+                           NativeNode{ast, std::make_shared<clang::DynTypedNode>(node)})});
+      }
+      rows->items.push_back({std::move(row)});
+    }
+
+    AstHandle ast;
+    std::shared_ptr<Sequence> rows = std::make_shared<Sequence>();
+    bool overflow = false;
+  };
+
+  CollectRows collect(ast);
+  MatchFinder finder;
+  if (!finder.addDynamicMatcher(compiled->second, &collect)) {
+    return runtime.fail("could not register the matcher");
+  }
+  finder.matchAST(*ast);
+  if (collect.overflow)
+    return runtime.fail("match exceeds item limit");
+  return runtime.hold({std::move(collect.rows)});
 }
 
 llvm::Error failure(const llvm::Twine& message) {
@@ -242,7 +378,7 @@ llvm::Expected<std::unique_ptr<llvm::Module>> parse_ir(llvm::StringRef source,
   return module;
 }
 
-llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit(bool repl) {
+llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit() {
   auto jit = llvm::orc::LLJITBuilder().create();
   if (!jit) {
     return jit.takeError();
@@ -258,13 +394,12 @@ llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit(bool repl) {
   expose("ctk_jit_next_row_v1", &ctk_jit_next_row_v1);
   expose("ctk_jit_print_decl_name_v1", &ctk_jit_print_decl_name_v1);
   expose("ctk_jit_print_qualified_name_v1", &ctk_jit_print_qualified_name_v1);
-  if (repl) {
-    expose("ctk_jit_repl_bind_target_v1", &ctk_jit_repl_bind_target_v1);
-    expose("ctk_jit_repl_match_v1", &ctk_jit_repl_match_v1);
-    expose("ctk_jit_repl_select_rows_v1", &ctk_jit_repl_select_rows_v1);
-    expose("ctk_jit_repl_print_v1", &ctk_jit_repl_print_v1);
-    expose("ctk_jit_repl_bind_value_v1", &ctk_jit_repl_bind_value_v1);
-    expose("ctk_jit_repl_print_value_v1", &ctk_jit_repl_print_value_v1);
+  expose("ctk_jit_value_context_v1", &ctk_jit_value_context_v1);
+  expose("ctk_jit_parse_v1", &ctk_jit_parse_v1);
+  expose("ctk_jit_parse_cpp_v1", &ctk_jit_parse_cpp_v1);
+  expose("ctk_jit_match_value_v1", &ctk_jit_match_value_v1);
+  if (auto error = expose_values(**jit)) {
+    return std::move(error);
   }
   auto& dylib = (*jit)->getMainJITDylib();
   if (auto error = dylib.define(llvm::orc::absoluteSymbols(std::move(symbols)))) {
@@ -331,8 +466,8 @@ llvm::Error compile_ir(llvm::StringRef source) {
 }
 
 llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext& ast,
-                   bool precompiled) {
-  auto jit = create_ir_jit(false);
+                   bool precompiled, llvm::StringRef file, const LoadTarget& load) {
+  auto jit = create_ir_jit();
   if (!jit) {
     return jit.takeError();
   }
@@ -346,19 +481,26 @@ llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext&
   if (!entry) {
     return entry.takeError();
   }
-  IrContext runtime(ast);
-  return call_ir_entry(*entry, runtime);
+  Targets targets(ast, file, load);
+  auto bindings = targets.bindings();
+  MatcherCache matchers;
+  IrContext runtime(targets, bindings, matchers);
+  auto result = call_ir_entry(*entry, runtime);
+  llvm::outs() << runtime.output;
+  return result;
 }
 
-llvm::Error repl_ir(clang::ASTContext& ast) {
-  auto jit = create_ir_jit(true);
+llvm::Error repl_ir(clang::ASTContext& ast, llvm::StringRef file, const LoadTarget& load) {
+  auto jit = create_ir_jit();
   if (!jit) {
     return jit.takeError();
   }
-  Bindings bindings;
+  Targets targets(ast, file, load);
+  auto bindings = targets.bindings();
+  MatcherCache matchers;
   llvm::DenseMap<std::int64_t, CompiledCommand> commands;
   std::uint64_t entry_number = 0;
-  llvm::outs() << "{\"ready\":true,\"protocol\":2}\n";
+  llvm::outs() << "{\"ready\":true,\"protocol\":3}\n";
   llvm::outs().flush();
 
   // Requests identify a cache slot and supply LLVM IR only on a miss.
@@ -387,12 +529,8 @@ llvm::Error repl_ir(clang::ASTContext& ast) {
         if (!entry) {
           result = entry.takeError();
         } else {
-          if (cached != commands.end()) {
-            if (auto cleanup = cached->second.tracker->remove()) {
-              return cleanup;
-            }
-          }
-          cached = commands.insert_or_assign(*slot, CompiledCommand{*entry, tracker}).first;
+          auto code = std::make_shared<CommandCode>(tracker);
+          cached = commands.insert_or_assign(*slot, CompiledCommand{*entry, std::move(code)}).first;
           compiled = true;
         }
       }
@@ -404,11 +542,12 @@ llvm::Error repl_ir(clang::ASTContext& ast) {
     }
 
     // A cached entry runs against the session's current bindings on every call.
-    IrContext runtime(ast, &bindings);
+    IrContext runtime(targets, bindings, matchers);
     if (!result) {
       if (cached == commands.end()) {
         return failure("unknown REPL command slot");
       }
+      runtime.values.code = cached->second.code;
       result = call_ir_entry(cached->second.entry, runtime);
     }
     llvm::outs() << llvm::json::Value(llvm::json::Object{

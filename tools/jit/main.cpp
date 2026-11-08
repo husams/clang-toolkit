@@ -41,7 +41,9 @@ llvm::Error failure(const llvm::Twine &message) {
 
 llvm::Expected<std::unique_ptr<clang::ASTUnit>>
 parse_target(const fs::path &target_path, fs::path database_path,
-             clang::DiagnosticConsumer &diagnostics) {
+             clang::DiagnosticConsumer &diagnostics,
+             llvm::ArrayRef<std::string> overrides = {},
+             std::optional<llvm::StringRef> source = std::nullopt) {
   if (fs::is_directory(database_path))
     database_path /= "compile_commands.json";
 
@@ -69,6 +71,13 @@ parse_target(const fs::path &target_path, fs::path database_path,
   }
   tool.appendArgumentsAdjuster(tooling::getInsertArgumentAdjuster(
       defaults, tooling::ArgumentInsertPosition::BEGIN));
+  if (!overrides.empty()) {
+    tool.appendArgumentsAdjuster(tooling::getInsertArgumentAdjuster(
+        tooling::CommandLineArguments(overrides.begin(), overrides.end()),
+        tooling::ArgumentInsertPosition::END));
+  }
+  if (source)
+    tool.mapVirtualFile(file, *source);
   std::vector<std::unique_ptr<clang::ASTUnit>> asts;
   if (tool.buildASTs(asts) != 0 || asts.size() != 1 ||
       diagnostics.getNumErrors() != 0 ||
@@ -186,11 +195,53 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
   if (!ast)
     return ast.takeError();
 
+  const auto default_file =
+      fs::absolute(target_path).lexically_normal().string();
+  const ctk::jit::LoadTarget load = [&](const ctk::jit::TargetRequest &request)
+      -> llvm::Expected<std::unique_ptr<clang::ASTUnit>> {
+    clang::TextDiagnosticPrinter printer(llvm::errs(), diagnostic_options);
+    auto file = fs::path(request.file);
+    if (!file.empty() && !file.is_absolute() && !request.directory.empty())
+      file = fs::path(request.directory) / file;
+    if (!file.empty() || !request.source) {
+      const auto database = request.compilation_database.empty()
+                                ? fs::path(database_path)
+                                : fs::path(request.compilation_database);
+      const auto source = request.source
+                              ? std::optional<llvm::StringRef>(*request.source)
+                              : std::nullopt;
+      auto unit =
+          parse_target(file, database, printer, request.arguments, source);
+      if (!unit)
+        return unit.takeError();
+      (*unit)->getDiagnostics().setClient(new clang::IgnoringDiagConsumer());
+      return unit;
+    }
+
+    std::vector<std::string> args{"-std=c++20", std::string("-resource-dir=") +
+                                                    CTK_JIT_RESOURCE_DIR};
+    if (llvm::StringRef(CTK_JIT_SYSROOT) != "") {
+      args.push_back("-isysroot");
+      args.push_back(CTK_JIT_SYSROOT);
+    }
+    args.insert(args.end(), request.arguments.begin(), request.arguments.end());
+    const auto snippet =
+        fs::absolute(fs::path(request.directory) / ".ctk-snippet.cpp");
+    auto unit = tooling::buildASTFromCodeWithArgs(
+        *request.source, args, snippet.string(), CTK_JIT_COMPILER,
+        std::make_shared<clang::PCHContainerOperations>(),
+        tooling::getClangStripDependencyFileAdjuster(), {}, &printer);
+    if (!unit || printer.getNumErrors() ||
+        unit->getDiagnostics().hasErrorOccurred())
+      return failure("could not parse C++ snippet");
+    unit->getDiagnostics().setClient(new clang::IgnoringDiagConsumer());
+    return unit;
+  };
   if (mode == "repl")
-    return ctk::jit::repl_ir((*ast)->getASTContext());
+    return ctk::jit::repl_ir((*ast)->getASTContext(), default_file, load);
   if (mode == "ir" || mode == "ir-object")
     return ctk::jit::run_ir(std::move(input), (*ast)->getASTContext(),
-                            mode == "ir-object");
+                            mode == "ir-object", default_file, load);
   ctk::jit::RunContext context((*ast)->getASTContext());
   if (source_dir)
     return run_source(input->getBuffer(), source_dir, prelude, context);

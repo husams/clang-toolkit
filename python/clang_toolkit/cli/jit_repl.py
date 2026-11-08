@@ -36,7 +36,7 @@ def run_repl(
             ready = process.stdout.readline()
             if not ready:
                 return process.wait() or 1
-            if ready != '{"ready":true,"protocol":2}\n':
+            if ready != '{"ready":true,"protocol":3}\n':
                 raise ValueError("unexpected response from native REPL runner")
             while True:
                 prompt = ("... " if pending else "ctk-jit> ") if interactive else ""
@@ -50,7 +50,11 @@ def run_repl(
                         )
                         had_error = True
                     break
-                if line.strip() == ":quit":
+                if not pending and line.strip().rstrip(";") in {
+                    ":quit",
+                    "quit",
+                    "exit",
+                }:
                     break
                 if not pending and not line.strip():
                     continue

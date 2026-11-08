@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from lark import Tree
@@ -70,8 +70,8 @@ def _closing_brace(value: str, start: int) -> int:
     )
 
 
-def evaluate_string(raw: str, resolve: Callable[[Tree], Any]) -> str:
-    """Decode a quoted string; only double quotes interpolate references."""
+def string_parts(raw: str) -> Iterator[str | Tree]:
+    """Parse a quoted string into literal fragments and reference expressions."""
     if not raw or raw[0] not in "\"'" or raw[-1] != raw[0]:
         raise TemplateError("invalid string literal")
     source = _mask_escaped_dollars(raw) if raw[0] == '"' else raw
@@ -89,9 +89,10 @@ def evaluate_string(raw: str, resolve: Callable[[Tree], Any]) -> str:
     if not isinstance(value, str):
         raise TemplateError("expected string literal")
     if raw[0] == "'":
-        return value
+        yield value
+        return
 
-    def substitute(expression: str) -> str:
+    def reference(expression: str) -> Tree:
         try:
             tree = reference_parser().parse("$" + expression).children[0]
         except UnexpectedInput as exc:
@@ -99,27 +100,42 @@ def evaluate_string(raw: str, resolve: Callable[[Tree], Any]) -> str:
                 "syntax error at", "interpolation syntax error at", 1
             )
             raise TemplateError(f"invalid interpolation: {detail}") from exc
-        return render(resolve(tree))
+        return tree
 
-    result: list[str] = []
+    literal: list[str] = []
     index = 0
     while index < len(value):
         if value[index] == _ESCAPED_DOLLAR:
-            result.append("$")
+            literal.append("$")
             index += 1
         elif value[index] == "$" and value[index : index + 2] == "${":
             end = _closing_brace(value, index + 2)
-            result.append(substitute(value[index + 2 : end]))
+            if literal:
+                yield "".join(literal)
+                literal.clear()
+            yield reference(value[index + 2 : end])
             index = end + 1
         elif value[index] == "$":
             match = _SHORT_NAME.match(value, index + 1)
             if match is None:
-                result.append("$")
+                literal.append("$")
                 index += 1
             else:
-                result.append(substitute(match.group()))
+                if literal:
+                    yield "".join(literal)
+                    literal.clear()
+                yield reference(match.group())
                 index = match.end()
         else:
-            result.append(value[index])
+            literal.append(value[index])
             index += 1
-    return "".join(result)
+    if literal:
+        yield "".join(literal)
+
+
+def evaluate_string(raw: str, resolve: Callable[[Tree], Any]) -> str:
+    """Decode a quoted string; only double quotes interpolate references."""
+    return "".join(
+        part if isinstance(part, str) else render(resolve(part))
+        for part in string_parts(raw)
+    )

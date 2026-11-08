@@ -215,9 +215,7 @@ def test_repl_reuses_compiled_commands_with_current_bindings(
     )
     output = capsys.readouterr()
     assert output.out == "add\nsquare\nadd\n"
-    assert (
-        output.err == "ctk-jit: LLVM IR query: expected a match binding named 'rows'\n"
-    )
+    assert output.err == "ctk-jit: LLVM IR query: undefined binding 'rows'\n"
 
 
 def test_repl_literal_bindings_and_cached_field_projection(jit_project: Path) -> None:
@@ -231,7 +229,7 @@ print g
 print a
 print g.n
 let g = {n:7}
-print g.n
+g.n
 """,
         text=True,
         capture_output=True,
@@ -242,6 +240,116 @@ print g.n
     record, *values = result.stdout.splitlines()
     assert json.loads(record) == {"c": 1, "n": 3}
     assert values == ["true", "3", "7"]
+
+
+def test_repl_runs_compiled_language_and_native_matchers(jit_project: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.jit", "repl", *_TARGET],
+        cwd=jit_project,
+        input="""\
+let config = {limit:3, enabled:true}; let alias = config
+alias.limit += 1
+let scale(x, n = config.limit) = x * n
+print 3 | scale
+print scale(3, n=2)
+let head:tail = range(config.limit)
+print tail[::-1]
+print true or missing
+let values = foreach value in tail do {
+    if value == 2 then continue
+    value + value.index
+}
+print values
+let count = 0
+while count < 10 do {
+    count += 1
+    if count == 3 then break
+}
+print count
+print (missing on error { 7 })
+let handled = if true then { on error { 17 }; on exit { print "clean" }; missing }
+print handled
+print [1,2,3] | map((x) = x * 2)
+let total = { ([]) = 0; ((x:xs)) = x + total(xs) }
+print total([1,2,3])
+let ast = parse arg.file
+let name = "add"
+let matcher = functionDecl(hasName(name), parameterCountIs(2), hasAnyParameter(parmVarDecl().bind("p"))).bind("fn")
+let rows = match matcher in ast
+foreach row in rows do {
+    print "$" + row.fn.decl_name
+    print row.p is ParmVarDecl
+}
+print "limit is ${config.limit}"
+let named(n) = functionDecl(hasName(n)).bind("f")
+let named_rows = match named("square") in ast
+print named_rows[0].f.decl_name
+let snippet = parse cpp`int sample() { return 9; }` using {translation_unit:true}
+let snippets = match functionDecl(hasName("sample")).bind("f") in snippet
+snippet = ast
+print snippets[0].f.decl_name
+""",
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert result.stdout.splitlines() == [
+        "12",
+        "6",
+        "[3,2,1]",
+        "true",
+        "[1,5]",
+        "3",
+        "7",
+        "clean",
+        "17",
+        "[2,4,6]",
+        "6",
+        "$add",
+        "true",
+        "limit is 4",
+        "square",
+        "sample",
+    ]
+
+
+def test_repl_retains_native_callable_after_cache_slot_is_reused(
+    jit_project: Path,
+) -> None:
+    commands = ["let f(x) = x * 2", "let saved = f"]
+    commands.extend(f"let counter = {index}" for index in range(130))
+    commands.extend(("let f(x) = x + 1", "print saved(21)", "print f(21)"))
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.jit", "repl", *_TARGET],
+        cwd=jit_project,
+        input="\n".join(commands) + "\n",
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert result.stdout == "42\n22\n"
+
+
+def test_general_ir_has_identical_cold_cached_and_bundle_output(
+    jit_project: Path,
+) -> None:
+    filename = "general.ctk"
+    (jit_project / filename).write_text(
+        "let score(x) = x * x\n"
+        "let scores = foreach x in range(4) do { score(x) }\n"
+        "print {scores:scores, good:true}\n",
+        encoding="utf-8",
+    )
+    expected = _output(jit_project, "run", filename, *_TARGET, "--no-cache")
+    assert expected == '{"scores":[0,1,4,9],"good":true}\n'
+    assert _output(jit_project, "run", filename, *_TARGET) == expected
+    assert _output(jit_project, "run", filename, *_TARGET) == expected
+    _output(jit_project, "precompile", filename, "-o", "general.ctkb")
+    assert _output(jit_project, "run", "--bundle", "general.ctkb", *_TARGET) == expected
 
 
 @pytest.mark.parametrize(

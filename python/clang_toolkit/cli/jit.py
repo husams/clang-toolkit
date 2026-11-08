@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import ast
 from dataclasses import dataclass
-import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -23,6 +22,7 @@ from .jit_cache import (
     precompile,
     write_atomic,
 )
+from .jit_language import LanguageIR
 from .jit_repl import run_repl
 from .runtime.prototype.repl_language import parse
 from .runtime.prototype.syntax import Node
@@ -39,7 +39,11 @@ _FRONTEND_FILES = (
     Path(__file__),
     _CLI_DIRECTORY / "jit_cache.py",
     _CLI_DIRECTORY / "jit_dependencies.py",
+    _CLI_DIRECTORY / "jit_language.py",
     _CLI_DIRECTORY / "grammar.lark",
+    _CLI_DIRECTORY / "language.py",
+    _CLI_DIRECTORY / "runtime/templates.py",
+    _CLI_DIRECTORY / "runtime/cpp_snippet.py",
     _CLI_DIRECTORY / "matcher_catalog.py",
     _CLI_DIRECTORY / "_matcher_catalog_generated.py",
     *(
@@ -188,8 +192,7 @@ def _match_target(call: Tree, expected: str | None = None) -> tuple[Matcher, str
     raise _unsupported(call, "expected match ... in the parsed target binding")
 
 
-def _parse_query(source: str) -> Query:
-    program = parse(source)
+def _parse_query(program: Node) -> Query:
     if len(program.children) != 3:
         raise _unsupported(
             program, "expected a parse binding, match binding and foreach"
@@ -218,7 +221,7 @@ def _cpp_matcher(matcher: Matcher) -> str:
 
 def lower_script(source: str, filename: Path) -> str:
     """Lower the pilot's parse, match and print subset to typed Clang calls."""
-    query = _parse_query(source)
+    query = _parse_query(parse(source))
     binding = _cpp_string(query.binding)
     getter = _PROJECTIONS[query.projection]
     return f"""\
@@ -252,8 +255,6 @@ class _IrConstants:
         return symbol
 
     def string(self, value: str) -> str:
-        if "\0" in value:
-            raise ValueError("NUL bytes are unsupported in generated IR strings")
         data = value.encode("utf-8") + b"\0"
         escaped = "".join(f"\\{byte:02X}" for byte in data)
         return self.constant(f'[{len(data)} x i8] c"{escaped}"')
@@ -314,7 +315,11 @@ def _ir_call(name: str, *arguments: str) -> tuple[str, str]:
 
 def lower_ir(source: str) -> str:
     """Emit LLVM assembly for a complete one-shot query."""
-    query = _parse_query(source)
+    program = parse(source)
+    try:
+        query = _parse_query(program)
+    except ValueError:
+        return _lower_language(program)
     constants = _IrConstants()
     matcher = constants.constant(constants.argument(query.matcher))
     binding = constants.string(query.binding)
@@ -327,94 +332,184 @@ def lower_ir(source: str) -> str:
     )
 
 
-def _repl_literal(node: Node) -> object:
-    if node.kind == "literal":
-        return node.value
-    if node.kind == "dict":
-        return {
-            entry.value: _repl_literal(entry.children[0]) for entry in node.children
-        }
-    if node.kind == "unary" and node.value == "-":
-        (operand,) = node.children
-        if operand.kind == "literal" and type(operand.value) in (int, float):
-            return -operand.value
-    raise _unsupported(node, "expected a literal value or record of literals")
-
-
-def _repl_print_path(node: Node, constants: _IrConstants) -> str:
-    fields = []
-    while node.kind == "get":
-        fields.append(node.value)
-        (node,) = node.children
-    if node.kind != "ref":
-        raise _unsupported(node, "expected a value binding or record field")
-    operands = [constants.string(node.value)]
-    operands.extend(constants.string(field) for field in reversed(fields))
-    operands.append("null")
-    path = ", ".join(f"ptr {operand}" for operand in operands)
-    return constants.constant(f"[{len(operands)} x ptr] [{path}]")
-
-
-def _repl_binding(statement: Node, constants: _IrConstants) -> tuple[str, str]:
-    value = _only_child(statement, "let", "expected let, print or foreach")
-    name = constants.string(statement.value)
-    if value.kind != "host":
-        encoded = json.dumps(
-            _repl_literal(value), allow_nan=False, separators=(",", ":")
+def _lower_host(ir: LanguageIR, node: Node) -> str:
+    tree, mode = node.value
+    if tree.data == "parse_expression":
+        return ir.call(
+            "ctk_jit_parse_v1",
+            "ptr",
+            ("ptr", "%context"),
+            ("ptr", _host_value(ir, tree.children[1])),
         )
-        return _ir_call("ctk_jit_repl_bind_value_v1", name, constants.string(encoded))
+    if tree.data == "parse_cpp_expression":
+        from .runtime.cpp_snippet import source_text
 
-    call = _host_call(statement)
-    if call.data == "parse_expression":
-        _validate_target(call)
-        return _ir_call("ctk_jit_repl_bind_target_v1", name)
-    if call.data == "match":
-        root, binding, target = _match_target(call)
-        return _ir_call(
-            "ctk_jit_repl_match_v1",
-            constants.constant(constants.argument(root)),
-            constants.string(binding),
-            constants.string(target),
-            name,
+        code = ir.literal(source_text(str(tree.children[1])))
+        options = (
+            _host_value(ir, tree.children[3]) if len(tree.children) > 3 else "null"
         )
-    raise _unsupported(call, "expected parse, match, or a literal binding value")
+        return ir.call(
+            "ctk_jit_parse_cpp_v1",
+            "ptr",
+            ("ptr", "%context"),
+            ("ptr", code),
+            ("ptr", options),
+        )
+    if tree.data == "matcher_definition":
+        _, name, _, *parameters, _, _, matcher = tree.children
+        names = (
+            tuple(str(item) for item in parameters[0].children if item != ",")
+            if parameters
+            else ()
+        )
+        body = Node("block", children=(Node("host", (matcher, "expression")),))
+        return ir.runnable(
+            Node("runnable", (str(name), names), (body,), node.line, node.column)
+        )
+    if tree.data == "match":
+        match tree.children:
+            case [_, matcher]:
+                target = "null"
+            case [_, matcher, "in", selection]:
+                target = _host_value(ir, selection)
+            case _:
+                raise _unsupported(node, "unsupported standalone match options")
+        rows = ir.call(
+            "ctk_jit_match_value_v1",
+            "ptr",
+            ("ptr", "%context"),
+            ("ptr", _host_value(ir, matcher)),
+            ("ptr", target),
+        )
+        if mode == "statement":
+            ir.native("print", "void", ("ptr", rows))
+        return rows
+    if tree.data == "push_command":
+        _, base, _, value = tree.children
+        return _host_method(ir, _host_value(ir, base), "push", [value])
+    if tree.data == "pop_expression":
+        return _host_method(ir, _host_value(ir, tree.children[1]), "pop", [])
+    if tree.data in {"split_expression", "join_expression", "flatten_expression"}:
+        if tree.data == "flatten_expression":
+            name, items = "flatten", tree.children[2:3]
+        else:
+            name = "split_by" if tree.data == "split_expression" else "join"
+            items = tree.children[1::2]
+        arguments = _host_arguments(ir, items)
+        return ir.value("call", ir.string(name), arguments, ir.collection(2))
+    if tree.data in {"display", "matcher", "reference"}:
+        return _host_value(ir, tree)
+    raise _unsupported(node, f"unsupported standalone CTK command {tree.data!r}")
+
+
+def _host_arguments(ir: LanguageIR, items: list[Node | Tree | Token]) -> str:
+    result = ir.collection(0)
+    for item in items:
+        if item != ",":
+            ir.value("add", result, "null", _host_value(ir, item))
+    return result
+
+
+def _host_method(
+    ir: LanguageIR, base: str, name: str, items: list[Node | Tree | Token]
+) -> str:
+    if name == "bind" and len(items) == 1:
+        return ir.value("bind_matcher", base, _host_value(ir, items[0]))
+    return ir.value("method", base, ir.string(name), _host_arguments(ir, items))
+
+
+def _host_value(ir: LanguageIR, item: Node | Tree | Token) -> str:
+    if isinstance(item, Node):
+        return ir.expression(item)
+    if isinstance(item, Token):
+        if item.type in {"STRING", "FILE_STRING", "NUMBER", "NEGATIVE_NUMBER"}:
+            if item.type == "STRING":
+                from .runtime.templates import string_parts
+
+                parts = [
+                    ir.literal(part)
+                    if isinstance(part, str)
+                    else ir.value("render", _host_value(ir, part))
+                    for part in string_parts(str(item))
+                ]
+                if not parts:
+                    return ir.literal("")
+                result, *rest = parts
+                for value in rest:
+                    result = ir.value("binary", ir.string("+"), result, value)
+                return result
+            return ir.literal(ast.literal_eval(str(item)))
+        raise ValueError(f"unsupported standalone CTK token {item.type!r}")
+    if item.data in {"true", "false"}:
+        return ir.literal(item.data == "true")
+    if item.data == "display":
+        return _host_value(ir, item.children[0])
+    if item.data == "reference":
+        _, name, *access = item.children
+        result = ir.value("lookup", ir.string(str(name)))
+        while access:
+            sep, part, *access = access
+            if sep == "[":
+                result = ir.value("index", result, _host_value(ir, part))
+                access.pop(0)
+            elif isinstance(part, Token):
+                result = ir.value("get", result, ir.string(str(part)), "null")
+            elif part.data == "generic_method_call":
+                name = str(part.children[0].children[0])
+                arguments = next(
+                    (
+                        child.children
+                        for child in part.children
+                        if isinstance(child, Tree) and child.data == "method_arguments"
+                    ),
+                    [],
+                )
+                result = _host_method(ir, result, name, arguments)
+            elif part.data in {"has_field_call", "has_key_call"}:
+                name = "hasField" if part.data == "has_field_call" else "hasKey"
+                result = _host_method(ir, result, name, [part.children[2]])
+            else:
+                raise _unsupported(part, "unsupported standalone CTK reference method")
+        return result
+    if item.data == "dict_value":
+        result = ir.collection(2)
+        for entry in item.children:
+            if not isinstance(entry, Tree) or entry.data != "dict_entry":
+                continue
+            key, _, value = entry.children
+            name = ast.literal_eval(str(key)) if key.type == "STRING" else str(key)
+            ir.value("add", result, ir.literal(name), _host_value(ir, value))
+        return result
+    if item.data == "matcher":
+        args = ir.collection(0)
+        for argument in _matcher_arguments(item):
+            ir.value("add", args, "null", _host_value(ir, argument))
+        binding = next(
+            (
+                _host_value(ir, child.children[2])
+                for child in item.children
+                if isinstance(child, Tree) and child.data == "bind"
+            ),
+            "null",
+        )
+        return ir.value("matcher", ir.string(str(item.children[0])), args, binding)
+    if item.data == "nested_qualified_name":
+        return ir.literal("".join(str(child) for child in item.children))
+    raise _unsupported(item, f"unsupported standalone CTK value {item.data!r}")
+
+
+def _lower_language(program: Node, *, display: bool = False) -> str:
+    constants = _IrConstants()
+    declarations, body = LanguageIR(
+        constants.string, constants.constant, _lower_host
+    ).program(program, display=display)
+    return _ir_module(constants, declarations, body)
 
 
 def lower_repl(source: str) -> str | None:
-    """Lower one CTK statement against the runner's session bindings."""
+    """Lower CTK against the runner's retained AST and session bindings."""
     program = parse(source)
-    if not program.children:
-        return None
-    if len(program.children) != 1:
-        raise _unsupported(program, "submit one statement at a time")
-    (statement,) = program.children
-    constants = _IrConstants()
-    if statement.kind == "foreach":
-        rows, binding, projection = _projection(statement)
-        declaration, setup = _ir_call(
-            "ctk_jit_repl_select_rows_v1",
-            constants.string(rows),
-            constants.string(binding),
-        )
-        qualified = int(projection == "qualified_name")
-        return _ir_module(
-            constants,
-            f"{declaration}\ndeclare ptr @ctk_jit_next_row_v1(ptr)\n"
-            "declare void @ctk_jit_repl_print_v1(ptr, ptr, i32)",
-            _ir_loop(
-                setup,
-                f"call void @ctk_jit_repl_print_v1(ptr %context, ptr %decl, i32 {qualified})",
-            ),
-        )
-
-    if statement.kind == "print":
-        value = _only_child(statement, "print", "expected one value to print")
-        declaration, setup = _ir_call(
-            "ctk_jit_repl_print_value_v1", _repl_print_path(value, constants)
-        )
-    else:
-        declaration, setup = _repl_binding(statement, constants)
-    return _ir_module(constants, declaration, f"  %status = {setup}\n  ret i32 %status")
+    return _lower_language(program, display=True) if program.children else None
 
 
 def _runner() -> Path | None:

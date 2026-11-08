@@ -28,15 +28,21 @@ foreach row in rows do {
 }
 ```
 
-The prototype supports one parse of `arg.file`, one bound `functionDecl` or
-`cxxMethodDecl` match, and one projection of `decl_name` or `qualified_name`
-per row. Supported predicates are `isDefinition`, `isExpansionInMainFile`,
-`isImplicit`, `isConst` (methods), `hasName` with a literal, and `unless`.
-By default, `ctk-jit` lowers `.ctk` queries and their row loops directly to LLVM
-IR. The runner uses precompiled helpers to construct the matcher, collect rows,
-and print the selected declaration name. Repeated runs reuse a native object
+The default backend uses the existing CTK parser and lowers its syntax tree
+directly to LLVM IR. The native runner evaluates values and control flow,
+loads project ASTs with the compilation database, and evaluates matchers
+through Clang's dynamic matcher registry. Repeated runs reuse a native object
 keyed by the script, front end, and toolchain. Use `--no-cache` for cold IR JIT.
-The compilation database still supplies the flags for parsing the target.
+
+The native language covers values, collections, destructuring, arithmetic,
+conditionals, loops, runnables, pipelines, and error handlers. Matchers may
+use saved arguments and nested bindings. The runner can also parse inline
+C++ snippets and retains the ASTs referenced by saved results.
+
+Language parity with the CTK console is still in progress. Imports, batch
+commands, cursor navigation, CFG and call-graph queries, project indexing,
+and server management commands require additional native implementations.
+Only selected collection filters and AST fields are available.
 
 Use `--cpp-jit` to select the C++ backend or `--llvm-ir` to select IR explicitly.
 
@@ -84,9 +90,8 @@ Set `CTK_JIT_CACHE_DIR` to use a different private directory.
 `repl` opens the target AST once and keeps named bindings in the native
 runner. `let tree = parse arg.file` binds that AST. A match saves its rows
 for later commands, and `foreach` can print the same rows more than once.
-Bindings can also hold scalar literals such as `true` and records such as
-`{c:1, n:3}`. Use `print g` to display a value binding or `print g.n` to
-display one of its fields.
+Bindings can hold ordinary CTK values and native runnables. Use `print g`
+to display a value binding or `print g.n` to display one of its fields.
 
 ```text
 $ uv run ctk-jit repl --file src/example.cpp --compdb build/
@@ -104,11 +109,12 @@ square
 ctk-jit> :quit
 ```
 
-Submit one statement at a time. The continuation prompt accepts an open
-`foreach` block across lines. Each session keeps up to 128 compiled commands,
+Submit one statement or a semicolon-separated group. The continuation prompt
+accepts open blocks across lines. Each session keeps up to 128 compiled commands,
 keyed by exact input text, and evicts the oldest entry when full. Repeating a
-command reuses its compiled code. Matches still traverse the retained AST
-and refresh their result bindings. Printing reads the current saved rows.
+command reuses its compiled code. Saved runnables retain their code even when
+the command that defined them leaves the cache. Matches traverse the retained
+AST and refresh their result bindings. Printing reads the current saved rows.
 
 A failed command leaves earlier bindings available. Use `:quit` or EOF to exit,
 and start a new session to pick up changes to the target. Piped input uses
