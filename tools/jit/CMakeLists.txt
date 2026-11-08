@@ -49,14 +49,33 @@ if(APPLE)
   endif()
 endif()
 
-find_package(ftxui 7.0.3 CONFIG QUIET)
-if(NOT TARGET ftxui::component)
-  include(FetchContent)
-  FetchContent_Declare(ctk_ftxui
-    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
-    GIT_TAG f921fad208912747c17d129a8ef75ec7624b6eec)
-  FetchContent_MakeAvailable(ctk_ftxui)
+include(FetchContent)
+FetchContent_Declare(ctk_ftxui
+  GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+  GIT_TAG f921fad208912747c17d129a8ef75ec7624b6eec)
+FetchContent_MakeAvailable(ctk_ftxui)
+
+# FTXUI 7.0.3 maps CR to LF before delivering events. Keep them distinct for
+# the workspace's Enter and Ctrl+J bindings. Adapt the pinned source without
+# modifying a downloaded or locally supplied FTXUI checkout.
+set(ctk_ftxui_input "src/ftxui/component/terminal_input_parser.cpp")
+file(READ "${ctk_ftxui_SOURCE_DIR}/${ctk_ftxui_input}" ctk_ftxui_input_source)
+set(ctk_ftxui_return_mapping [=[{"\r", "\n"},]=])
+string(FIND "${ctk_ftxui_input_source}" "${ctk_ftxui_return_mapping}" ctk_ftxui_return_index)
+if(ctk_ftxui_return_index LESS 0)
+  message(FATAL_ERROR "Recheck the CTK Enter and Ctrl+J adapter for this FTXUI version")
 endif()
+string(REPLACE "${ctk_ftxui_return_mapping}" "" ctk_ftxui_input_source "${ctk_ftxui_input_source}")
+set(ctk_ftxui_input_override "${CMAKE_CURRENT_BINARY_DIR}/ftxui_terminal_input_parser.cpp")
+file(CONFIGURE OUTPUT "${ctk_ftxui_input_override}" CONTENT "${ctk_ftxui_input_source}" @ONLY)
+get_target_property(ctk_ftxui_component_sources component SOURCES)
+list(FIND ctk_ftxui_component_sources "${ctk_ftxui_input}" ctk_ftxui_input_index)
+if(ctk_ftxui_input_index LESS 0)
+  message(FATAL_ERROR "Cannot locate the FTXUI terminal input source")
+endif()
+list(REMOVE_AT ctk_ftxui_component_sources ${ctk_ftxui_input_index})
+list(APPEND ctk_ftxui_component_sources "${ctk_ftxui_input_override}")
+set_property(TARGET component PROPERTY SOURCES "${ctk_ftxui_component_sources}")
 
 add_executable(ctk-jit-runner
   main.cpp

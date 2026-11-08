@@ -1,8 +1,10 @@
 # Standalone CTK JIT prototype
 
 Build the local runner with LLVM and Clang 21 or newer, ICU, libyaml, PCRE2,
-zlib, Protobuf, and OpenSSL development libraries. CMake uses FTXUI 7.0.3 or
-fetches the pinned source. The standalone build uses the repository's native
+zlib, Protobuf, and OpenSSL development libraries. CMake uses the pinned FTXUI
+7.0.3 source to keep Enter and Ctrl+J distinct. For an offline build, set
+`FETCHCONTENT_SOURCE_DIR_CTK_FTXUI` to a checkout of that pin.
+The standalone build uses the repository's native
 Clang libraries with the server and gRPC transport disabled.
 
 ```sh

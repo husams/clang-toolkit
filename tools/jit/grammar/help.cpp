@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include <llvm/ADT/StringMap.h>
 #include <llvm/Support/Base64.h>
 #include <llvm/Support/JSON.h>
 #include <zlib.h>
@@ -63,6 +64,36 @@ std::vector<std::string> native_help_topics(llvm::StringRef prefix) {
       results.push_back(name.str());
   std::ranges::sort(results);
   return results;
+}
+
+bool editor_keyword(llvm::StringRef word) {
+  static const auto keywords = [] {
+    llvm::StringMap<bool> result;
+    llvm::SmallVector<llvm::StringRef> words;
+    llvm::StringRef(editor_keywords).split(words, ' ', -1, false);
+    for (const auto item : words)
+      result.try_emplace(item, true);
+    return result;
+  }();
+  return keywords.contains(word);
+}
+
+llvm::StringRef editor_matcher_kind(llvm::StringRef word) {
+  static const auto kinds = [] {
+    llvm::StringMap<llvm::StringRef> result;
+    for (const auto &[kind, list] :
+         {std::pair<llvm::StringRef, llvm::StringRef>{"node",
+                                                      editor_node_matchers},
+          {"narrowing", editor_narrowing_matchers},
+          {"traversal", editor_traversal_matchers}}) {
+      llvm::SmallVector<llvm::StringRef> words;
+      list.split(words, ' ', -1, false);
+      for (const auto item : words)
+        result.try_emplace(item, kind);
+    }
+    return result;
+  }();
+  return kinds.lookup(word);
 }
 
 } // namespace ctk::jit

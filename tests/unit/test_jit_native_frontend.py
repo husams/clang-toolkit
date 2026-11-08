@@ -194,6 +194,7 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
     import os
     import pty
     from select import select
+    import signal
     import struct
     import termios
     import time
@@ -202,12 +203,17 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
 
     if not _RUNNER.is_file():
         pytest.skip("standalone ctk-jit runner has not been built")
-    (tmp_path / "sample.cpp").write_text("int add(int a, int b) { return a + b; }\n")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "sample.cpp").write_text("int add(int a, int b) { return a + b; }\n")
+    (project / "src").mkdir()
+    (project / "src" / "inside.cpp").write_text("int inside;\n")
+    (project / ".hidden").touch()
     executable = tmp_path / "ctk-jit"
     executable.symlink_to(_RUNNER)
     history = tmp_path / "xdg/clang_tools/history.jsonl"
     master, slave = pty.openpty()
-    width, height = 140, 30
+    width, height = 156, 30
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
     screen = pyte.Screen(width, height)
     stream = pyte.ByteStream(screen)
@@ -217,7 +223,7 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
             stdin=slave,
             stdout=slave,
             stderr=slave,
-            cwd=tmp_path,
+            cwd=project,
             env={
                 "PATH": "/nonexistent",
                 "PYTHONHOME": "/nonexistent",
@@ -230,10 +236,18 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
     finally:
         os.close(slave)
 
-    def read_until(text: str) -> None:
+    def read_until(
+        text: str, *, row: int | None = None, absent: str = "",
+        cursor: tuple[int, int] | None = None,
+    ) -> None:
         deadline = time.monotonic() + 12
         while time.monotonic() < deadline:
-            if text in "\n".join(screen.display):
+            visible = "\n".join(screen.display)
+            found = text in (visible if row is None else screen.display[row])
+            cursor_matches = cursor is None or (
+                not screen.cursor.hidden and (screen.cursor.x, screen.cursor.y) == cursor
+            )
+            if found and (not absent or absent not in visible) and cursor_matches:
                 return
             if select([master], [], [], 0.05)[0]:
                 try:
@@ -254,6 +268,73 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
 
     try:
         read_until("Ready")
+        read_until("Command help · F4")
+        read_until("Script · 1 line · Ctrl+J run", cursor=(7, height - 2))
+        editor_row = next(
+            i for i, line in enumerate(screen.display) if line.startswith(" Script ·")
+        )
+        assert "CTK console | Actions [F2]" in screen.display[0]
+        assert screen.display[1].startswith("CTK console")
+        assert editor_row == height - 3
+        assert screen.display[editor_row + 1].startswith("   1 │ ")
+        assert "Input 1:1 | Follow" in screen.display[-1]
+
+        send("\x1bOP")  # F1 writes shortcuts into results.
+        read_until("Workspace shortcuts")
+        send("\x1bOQ")  # F2 opens Actions at the left edge.
+        read_until("Actions · scroll or use arrows")
+        assert screen.display[1].index("Actions ·") < 4
+        send("\r")  # The first action opens local files.
+        read_until("Local files [×]")
+        assert any("Local files" in row[:30] and "Command help" in row[100:]
+                   for row in screen.display)
+        assert not any(".hidden" in row for row in screen.display)
+        read_until("▸ src")
+        send("\r\x1b[B\r")  # Expand a folder, select a file, and prepare parse.
+        read_until('│ parse "')
+        read_until('inside.cpp"')
+        send("\x03\x1bOR")  # Clear the prepared draft, then close the file pane.
+        read_until("Draft cleared")
+        send("\x1bOS")  # F4 closes the default help pane.
+        send("\x1bOS")  # F4 reopens it with keyboard focus.
+        read_until("Command help · F4")
+        send("\x1b[17~")  # F6 from the right pane returns to the editor.
+
+        long_draft = "\n".join(f"# draft line {i}" for i in range(1, 21))
+        send("\x1b[200~" + long_draft + "\x1b[201~")
+        read_until("20 │ # draft line 20")
+        assert not any(line.startswith("   1 │ # draft line 1") for line in screen.display)
+        send("\x1b[A" * 19)
+        read_until("   1 │ # draft line 1")
+        send("\x03")
+        send("# " + "x" * 145)
+        read_until("     │ x")
+        assert any(row.startswith("     │ x") for row in screen.display)
+        send("\x03")
+
+        send("let pair = [\r")
+        read_until("3 │ ]")
+        send("7\n")  # Ctrl+J runs even before the closing bracket.
+        read_until("2 │     7")
+        send("print 'ctrl-j-run'\x01")  # Ctrl+A moves to the start of the draft.
+        read_until("1 │ print 'ctrl-j-run'", row=-2, cursor=(7, height - 2))
+        send("\n")
+        read_until("\nctrl-j-run")
+
+        send("let undo = (\x1f")  # Ctrl+_ removes the pair in one step.
+        read_until("1 │ let undo = ", row=-2, absent="let undo = ()")
+        send("\x03")
+
+        send("let modified = 1\x1b[13;2u")
+        read_until("Script · 2 lines")
+        send("print modified\x1b[27;3;13~")
+        read_until("Script · 3 lines")
+        send("\x1b[13;5u")
+        read_until("Script · 4 lines")
+        send("\x1b\r")
+        read_until("Script · 5 lines")
+        send("\x03")
+
         send("match functionDe\t")
         read_until("Completions")
         read_until("functionDecl(")
@@ -261,32 +342,73 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         read_until("match functionDecl()")
         send("\x03")
         draft = "let data = {c:1,n:3,outer:{items:[{nested_field:17}]}}\nprint data.c + data.n"
-        send("\x1b[200~" + draft + "\x1b[201~\r")
+        send("\x1b[200~" + draft + "\x1b[201~")
+        read_until("2 │ print data.c + data.n")
+        assert any(line.startswith("   1 │ let data") for line in screen.display)
+        send("\r")
         read_until("let data = {c:1,n:3,outer:")
+        read_until("Script · 1 line · Ctrl+J run")
         send("\x1b[18~")
         read_until("$data = record (3)")
         send("\x1b[19~")
+        read_until("Open files · file list [0]")
+        send("\r")
         read_until("No open files")
         send("\x1b[20~")
         read_until("residentMemoryBytes")
+        send("z")  # Unbound panel keys must not edit the draft.
         send("\x1b[17~")  # F6 moves from the side pane to the editor.
+        read_until("1 │ ", row=-2, cursor=(7, height - 2))
         send("print data.\t")
         read_until("Completions")
         send("\r\r")
-        read_until("ctk-jit> print data.c")
+        read_until("1 │ print data.c")
         send("print $data.outer.items[0].nested_fild + 1")
         send("\x1b[D" * len("ld + 1") + "\t")
         read_until("Completions")
         read_until("nested_field")
         send("\r\x1b[F\r")
-        read_until("ctk-jit> print $data.outer.items[0].nested_field + 1")
+        read_until("1 │ print $data.outer.items[0].nested_field + 1")
         match = 'match functionDecl(hasName("add")).bind("f") in "sample.cpp"'
         send(match + "\r")
         read_until("▸ match")
         send("\x1b[17~\r")
         read_until("sample.cpp:1")
-        send("\r")
+        assert any(row.startswith("  sample.cpp:1") for row in screen.display)
+        send("\x1b[B\r")
+        read_until("Selected match")
         read_until("int add(int a, int b)")
+        read_until("Match · 1:1")
+        send("\t")
+        send("\x1b")
+        read_until("CTK console | Actions [F2]")
+        send("\x12")
+        read_until("Search results:")
+        send("ctrl-j-run\r")
+        read_until("Transcript match")
+        send("\x1b[1;5F")
+        read_until(" | Follow")
+
+        send("\x1b[20~")  # Close runtime details before resizing.
+        read_until("Session open |", absent="Local runtime · F9")
+        narrow_width = 64
+        fcntl.ioctl(
+            master, termios.TIOCSWINSZ, struct.pack("HHHH", height, narrow_width, 0, 0)
+        )
+        screen.resize(lines=height, columns=narrow_width)
+        os.kill(process.pid, signal.SIGWINCH)
+        send("\x1bOR")
+        read_until("Local files [×]")
+        read_until("   1 │ ", row=-2)
+        send("\x1bOS")
+        read_until("Command help · F4")
+        send("\x1b")
+        read_until("Local files [×]", absent="Command help · F4")
+        # Use the explicit file toggle to exercise the overlay without depending
+        # on the terminal's timeout for a second standalone Escape.
+        send("\x1bOR")
+        send("print 'narrow-ok'\r")
+        read_until("\nnarrow-ok")
         send("\x1b[21~")
         deadline = time.monotonic() + 15
         while process.poll() is None and time.monotonic() < deadline:
@@ -299,7 +421,15 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
                     break
         assert process.wait(timeout=2) == 0
         commands = [json.loads(line)["command"] for line in history.read_text().splitlines()]
-        assert commands == [draft, "print data.c", "print $data.outer.items[0].nested_field + 1", match]
+        assert commands == [
+            "let pair = [\n    7\n]",
+            "print 'ctrl-j-run'",
+            draft,
+            "print data.c",
+            "print $data.outer.items[0].nested_field + 1",
+            match,
+            "print 'narrow-ok'",
+        ]
     finally:
         if process.poll() is None:
             process.kill()
