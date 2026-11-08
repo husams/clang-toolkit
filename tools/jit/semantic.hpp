@@ -31,6 +31,7 @@ const NativeNode* retained_node(const Value& value);
 std::optional<std::size_t> semantic_length(const Value& value);
 std::optional<Value> semantic_iteration(const Value& value);
 llvm::Expected<Value> semantic_field(const SemanticValue& value, llvm::StringRef name);
+llvm::json::Array semantic_completion_fields(const SemanticValue& value, bool presence = false);
 llvm::Expected<Value> semantic_method(const SemanticValue& value, llvm::StringRef name,
                                       const Sequence& arguments, Values* runtime = nullptr);
 bool semantic_kind(const SemanticValue& value, llvm::StringRef kind);

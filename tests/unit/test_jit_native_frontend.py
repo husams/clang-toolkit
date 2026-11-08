@@ -107,6 +107,87 @@ def test_native_submission_retains_bindings_and_compiled_code(tmp_path: Path) ->
     assert status["value"]["type"] == "ctk.match.v1.ServerStatusResponse"
 
 
+def test_native_nested_fields_match_python_workspace(tmp_path: Path) -> None:
+    from unittest.mock import Mock
+
+    from clang_toolkit.cli.jit_workspace import projected
+    from clang_toolkit.cli.runtime import Runtime
+    from clang_toolkit.client import Client
+
+    if not _RUNNER.is_file():
+        pytest.skip("standalone ctk-jit runner has not been built")
+    (tmp_path / "sample.cpp").write_text("int add(int a, int b) { return a + b; }\n")
+    references = (
+        '$model["odd.key"].groups[1].details',
+        "$model['odd.key'].groups[$last].details.flags",
+        "$roots[0]",
+        "$roots[0].f",
+        "$roots[0].f.value.node",
+        "$roots[0].f.value.node.function_decl.function.declarator.value.named",
+        "$roots[0].f.value.node.function_decl.function.declarator.value.named.name",
+    )
+    presence = "$roots[0].f.value.node"
+    unreadable = "$roots[0].f.value.node.function_decl.function.parameters[0]"
+    requests = [
+        {
+            "slot": 0,
+            "source": (
+                "let model = {'odd.key': {groups: [{name:'old'}, "
+                "{details:{name:'new', flags:[true]}}]}}; let last = 1; "
+                'let roots = match functionDecl(hasName("add")).bind("f") in arg.file'
+            ),
+        },
+        {"inspect": "outline", "expanded": ["$roots"]},
+        *({"inspect": "complete_fields", "reference": ref} for ref in references),
+        {"inspect": "complete_fields", "reference": presence, "presence": True},
+        {"inspect": "complete_fields", "reference": unreadable},
+        {"inspect": "complete_fields", "reference": "$model['odd.key'].groups.pop()"},
+        {"inspect": "complete_fields", "reference": "$model['odd.key'].groups[5]"},
+        {"slot": 1, "source": "print len(model['odd.key'].groups)"},
+    ]
+    result = subprocess.run(
+        [_RUNNER, "repl", "sample.cpp", ""],
+        cwd=tmp_path,
+        input="".join(json.dumps(request) + "\n" for request in requests),
+        env={
+            "PATH": "/nonexistent",
+            "PYTHONHOME": "/nonexistent",
+            "CTK_SERVER": "unix:///nonexistent/ctk.sock",
+            "CTK_JIT_STATE_DIR": str(tmp_path / "state"),
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    ready, command, outline, *results = [json.loads(line) for line in result.stdout.splitlines()]
+    assert ready["ready"] and command["compiled"] and not command["error"]
+    client = Mock(spec=Client)
+    runtime = Runtime(client, cwd=tmp_path, environment={})
+    runtime.bindings.update(
+        model={"odd.key": {"groups": [{"name": "old"}, {"details": {"name": "new", "flags": [True]}}]}},
+        last=1,
+        roots=[projected(row) for row in outline["value"]["roots"]["data"]],
+    )
+    try:
+        for reference, reply in zip(references, results[:len(references)], strict=True):
+            expected = {
+                (item.name, item.kind == "method")
+                for item in runtime.completion_suggestions(reference)
+            }
+            assert expected, reference
+            assert {(item["name"], item["method"]) for item in reply["value"]} == expected, reference
+        assert {item["name"] for item in results[-5]["value"]} == set(
+            runtime.completion_presence_fields(presence)
+        )
+        assert not runtime.completion_suggestions(unreadable)
+        assert all(reply["value"] == [] for reply in results[-4:-1])
+        assert results[-1]["output"] == "2\n"
+        assert client.mock_calls == []
+    finally:
+        runtime.close()
+
+
 def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
     import errno
     import fcntl
@@ -179,11 +260,11 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         send("\r")
         read_until("match functionDecl()")
         send("\x03")
-        draft = "let data = {c:1,n:3}\nprint data.c + data.n"
+        draft = "let data = {c:1,n:3,outer:{items:[{nested_field:17}]}}\nprint data.c + data.n"
         send("\x1b[200~" + draft + "\x1b[201~\r")
-        read_until("let data = {c:1,n:3}")
+        read_until("let data = {c:1,n:3,outer:")
         send("\x1b[18~")
-        read_until("$data = record (2)")
+        read_until("$data = record (3)")
         send("\x1b[19~")
         read_until("No open files")
         send("\x1b[20~")
@@ -193,6 +274,12 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         read_until("Completions")
         send("\r\r")
         read_until("ctk-jit> print data.c")
+        send("print $data.outer.items[0].nested_fild + 1")
+        send("\x1b[D" * len("ld + 1") + "\t")
+        read_until("Completions")
+        read_until("nested_field")
+        send("\r\x1b[F\r")
+        read_until("ctk-jit> print $data.outer.items[0].nested_field + 1")
         match = 'match functionDecl(hasName("add")).bind("f") in "sample.cpp"'
         send(match + "\r")
         read_until("▸ match")
@@ -212,7 +299,7 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
                     break
         assert process.wait(timeout=2) == 0
         commands = [json.loads(line)["command"] for line in history.read_text().splitlines()]
-        assert commands == [draft, "print data.c", match]
+        assert commands == [draft, "print data.c", "print $data.outer.items[0].nested_field + 1", match]
     finally:
         if process.poll() is None:
             process.kill()

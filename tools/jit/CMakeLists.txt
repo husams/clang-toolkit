@@ -73,6 +73,7 @@ add_executable(ctk-jit-runner
   documents.cpp
   typed_snapshot.cpp
   workspace.cpp
+  completion.cpp
   native_workspace.cpp
   native_history.cpp
   settings.cpp

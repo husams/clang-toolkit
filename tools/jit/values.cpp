@@ -904,6 +904,14 @@ extern "C" const Value* ctk_jit_value_runnable_v2(Values* runtime, const char* n
 
 } // namespace
 
+const Value* Values::property(const Value& value, const char* name) {
+  return ctk_jit_value_get_v1(this, &value, name, nullptr);
+}
+
+const Value* Values::index(const Value& value, const Value& key) {
+  return ctk_jit_value_index_v1(this, &value, &key);
+}
+
 extern "C" const Value* ctk_jit_value_invoke_v1(Values* runtime, const Value* value,
                                                 const Value* arguments, const Value* keywords) {
   if (const auto* builtin = as<BuiltinFunction>(*value)) {

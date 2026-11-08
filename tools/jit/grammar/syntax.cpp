@@ -452,6 +452,110 @@ private:
 
 } // namespace
 
+namespace {
+
+unsigned from_hex(char digit) {
+  if (digit >= '0' && digit <= '9')
+    return digit - '0';
+  if (digit >= 'a' && digit <= 'f')
+    return digit - 'a' + 10;
+  if (digit >= 'A' && digit <= 'F')
+    return digit - 'A' + 10;
+  throw std::runtime_error("invalid hexadecimal escape");
+}
+
+void append_utf8(std::string &result, std::uint32_t code) {
+  if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff))
+    throw std::runtime_error("invalid Unicode escape");
+  if (code < 0x80) {
+    result.push_back(static_cast<char>(code));
+    return;
+  }
+  const auto width = code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  std::array<char, 4> bytes{};
+  for (int i = width - 1; i > 0; --i) {
+    bytes[i] = static_cast<char>(0x80 | (code & 0x3f));
+    code >>= 6;
+  }
+  bytes[0] = static_cast<char>((0xf00 >> width) | code);
+  result.append(bytes.data(), width);
+}
+
+} // namespace
+
+std::string decode_ctk_string(std::string_view input) {
+  if (input.size() < 2 || (input.front() != '\'' && input.front() != '"') ||
+      input.back() != input.front())
+    throw std::runtime_error("expected a quoted CTK string");
+  input.remove_prefix(1);
+  input.remove_suffix(1);
+  std::string result;
+  for (std::size_t i = 0; i < input.size(); ++i) {
+    const auto ch = input[i];
+    if (ch != '\\') {
+      result.push_back(ch);
+      continue;
+    }
+    if (++i == input.size())
+      throw std::runtime_error("incomplete string escape");
+    switch (const auto escape = input[i]) {
+    case '\'':
+    case '"':
+    case '\\':
+      result.push_back(escape);
+      break;
+    case 'a':
+      result.push_back('\a');
+      break;
+    case 'b':
+      result.push_back('\b');
+      break;
+    case 'f':
+      result.push_back('\f');
+      break;
+    case 'n':
+      result.push_back('\n');
+      break;
+    case 'r':
+      result.push_back('\r');
+      break;
+    case 't':
+      result.push_back('\t');
+      break;
+    case 'v':
+      result.push_back('\v');
+      break;
+    case '\n':
+      break;
+    case 'x':
+    case 'u':
+    case 'U': {
+      const auto width = escape == 'x' ? 2U : escape == 'u' ? 4U : 8U;
+      if (input.size() - i - 1 < width)
+        throw std::runtime_error("incomplete hexadecimal escape");
+      std::uint32_t code = 0;
+      for (unsigned digit = 0; digit < width; ++digit)
+        code = (code << 4) | from_hex(input[++i]);
+      append_utf8(result, code);
+      break;
+    }
+    default:
+      if (escape >= '0' && escape <= '7') {
+        unsigned code = escape - '0';
+        for (unsigned digit = 1; digit < 3 && i + 1 < input.size() &&
+                                 input[i + 1] >= '0' && input[i + 1] <= '7';
+             ++digit)
+          code = (code << 3) | (input[++i] - '0');
+        append_utf8(result, code);
+      } else {
+        result.push_back('\\');
+        result.push_back(escape);
+      }
+    }
+  }
+  return result;
+}
+
 llvm::Expected<Syntax> parse_ctk(llvm::StringRef source) {
   if (!llvm::json::isUTF8(source))
     return llvm::createStringError(llvm::inconvertibleErrorCode(),

@@ -461,6 +461,47 @@ std::optional<Value> semantic_iteration(const Value& value) {
   return list(std::move(items));
 }
 
+llvm::json::Array semantic_completion_fields(const SemanticValue& value, bool presence) {
+  llvm::json::Array fields;
+  llvm::StringSet<> seen;
+  const auto add = [&](llvm::StringRef name, llvm::StringRef detail, bool method = false) {
+    fields.push_back(llvm::json::Object{{"name", name.str()}, {"detail", detail.str()}, {"method", method}});
+  };
+  for (auto owner = std::optional<SemanticValue>(value); owner; owner = next_owner(*owner)) {
+    const auto* descriptor = owner->message->GetDescriptor();
+    for (int index = 0; index < descriptor->field_count(); ++index) {
+      const auto* field = descriptor->field(index);
+      if (!seen.insert(field->name()).second)
+        continue;
+      if (presence) {
+        if (field->has_presence())
+          add(field->name(), "field presence");
+        continue;
+      }
+      const auto* oneof = field->real_containing_oneof();
+      if (oneof && owner->message->GetReflection()->GetOneofFieldDescriptor(*owner->message, oneof) != field)
+        continue;
+      if (status(*owner, *field) == "UNREQUESTED")
+        continue;
+      const bool active = oneof && oneof->field_count() > 1;
+      std::string detail = active ? "active field" : "field";
+      if (const auto* type = field->message_type())
+        detail = active ? "active payload · " + std::string(type->name()) + " · continue with ." :
+                          "field · " + std::string(type->name());
+      else if (const auto* type = field->enum_type())
+        detail += " · " + std::string(type->name());
+      add(field->name(), detail);
+    }
+  }
+  if (presence)
+    return fields;
+  if (!seen.contains("keys"))
+    add("keys", "property");
+  for (const auto* method : {"fieldOr", "fieldState", "hasField"})
+    add(method, "method · checks field presence or reports availability", true);
+  return fields;
+}
+
 llvm::Expected<Value> semantic_field(const SemanticValue& value, llvm::StringRef name) {
   const auto* descriptor = value.message->GetDescriptor();
   if (value.streamed_name) {

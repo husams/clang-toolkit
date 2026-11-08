@@ -3,7 +3,6 @@
 #include "syntax.hpp"
 
 #include <algorithm>
-#include <array>
 #include <charconv>
 #include <cstdint>
 #include <initializer_list>
@@ -60,106 +59,6 @@ const Syntax &unbox(const Syntax &node) {
       return unbox(*children.front());
   }
   return node;
-}
-
-unsigned from_hex(char digit) {
-  if (digit >= '0' && digit <= '9')
-    return digit - '0';
-  if (digit >= 'a' && digit <= 'f')
-    return digit - 'a' + 10;
-  if (digit >= 'A' && digit <= 'F')
-    return digit - 'A' + 10;
-  throw std::runtime_error("invalid hexadecimal escape");
-}
-
-void append_utf8(std::string &result, std::uint32_t code) {
-  if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff))
-    throw std::runtime_error("invalid Unicode escape");
-  if (code < 0x80) {
-    result.push_back(static_cast<char>(code));
-    return;
-  }
-  const auto width = code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
-  std::array<char, 4> bytes{};
-  for (int i = width - 1; i > 0; --i) {
-    bytes[i] = static_cast<char>(0x80 | (code & 0x3f));
-    code >>= 6;
-  }
-  bytes[0] = static_cast<char>((0xf00 >> width) | code);
-  result.append(bytes.data(), width);
-}
-
-std::string decode_string(Kind input) {
-  if (input.size() < 2 || (input.front() != '\'' && input.front() != '"') ||
-      input.back() != input.front())
-    throw std::runtime_error("expected a quoted CTK string");
-  input.remove_prefix(1);
-  input.remove_suffix(1);
-  std::string result;
-  for (std::size_t i = 0; i < input.size(); ++i) {
-    const auto ch = input[i];
-    if (ch != '\\') {
-      result.push_back(ch);
-      continue;
-    }
-    if (++i == input.size())
-      throw std::runtime_error("incomplete string escape");
-    switch (const auto escape = input[i]) {
-    case '\'':
-    case '"':
-    case '\\':
-      result.push_back(escape);
-      break;
-    case 'a':
-      result.push_back('\a');
-      break;
-    case 'b':
-      result.push_back('\b');
-      break;
-    case 'f':
-      result.push_back('\f');
-      break;
-    case 'n':
-      result.push_back('\n');
-      break;
-    case 'r':
-      result.push_back('\r');
-      break;
-    case 't':
-      result.push_back('\t');
-      break;
-    case 'v':
-      result.push_back('\v');
-      break;
-    case '\n':
-      break;
-    case 'x':
-    case 'u':
-    case 'U': {
-      const auto width = escape == 'x' ? 2U : escape == 'u' ? 4U : 8U;
-      if (input.size() - i - 1 < width)
-        throw std::runtime_error("incomplete hexadecimal escape");
-      std::uint32_t code = 0;
-      for (unsigned digit = 0; digit < width; ++digit)
-        code = (code << 4) | from_hex(input[++i]);
-      append_utf8(result, code);
-      break;
-    }
-    default:
-      if (escape >= '0' && escape <= '7') {
-        unsigned code = escape - '0';
-        for (unsigned digit = 1; digit < 3 && i + 1 < input.size() &&
-                                 input[i + 1] >= '0' && input[i + 1] <= '7';
-             ++digit)
-          code = (code << 3) | (input[++i] - '0');
-        append_utf8(result, code);
-      } else {
-        result.push_back('\\');
-        result.push_back(escape);
-      }
-    }
-  }
-  return result;
 }
 
 class Lowering {
@@ -861,8 +760,9 @@ private:
     for (const auto *item : children) {
       if (dict) {
         const auto &key = item->children[0];
-        const auto text = key.name.ends_with("STRING") ? decode_string(key.text)
-                                                       : std::string(key.text);
+        const auto text = key.name.ends_with("STRING")
+                              ? decode_ctk_string(key.text)
+                              : std::string(key.text);
         value("add", {result, literal(4, text), expression(item->children[1])});
       } else {
         value("add", {result, null(), expression(*item)});
@@ -1444,7 +1344,7 @@ private:
         add(options, "direction",
             "CALL_GRAPH_DIRECTION_" + llvm::StringRef(text).upper());
       } else if (name == "call_graph_node_filter") {
-        auto matcher = decode_string(text);
+        auto matcher = decode_ctk_string(text);
         if (llvm::StringRef(matcher).trim().empty())
           fail(field, "node_filter must be non-empty matcher text");
         add(options, "node_filter", std::move(matcher));
@@ -1481,7 +1381,7 @@ private:
           continue;
         const auto &key = entry.children.front();
         const auto label = key.name.ends_with("STRING")
-                               ? decode_string(key.text)
+                               ? decode_ctk_string(key.text)
                                : std::string(key.text);
         value("add",
               {result, literal(4, label), expression(entry.children.back())});
@@ -1895,7 +1795,7 @@ private:
   IrValue *string_literal(const Syntax &node) {
     const auto raw = llvm::StringRef(node.text);
     if (raw.front() == '\'')
-      return literal(4, decode_string(node.text));
+      return literal(4, decode_ctk_string(node.text));
     constexpr auto escaped = "\xee\x80\x80";
     std::string masked;
     for (std::size_t index = 0; index < raw.size(); ++index) {
@@ -1909,7 +1809,7 @@ private:
       }
       masked += raw[index];
     }
-    const auto decoded = decode_string(masked);
+    const auto decoded = decode_ctk_string(masked);
     const llvm::StringRef content(decoded);
     const bool braces =
         !raw.contains('$') && raw.find_first_of("{}") != llvm::StringRef::npos;
@@ -1983,7 +1883,7 @@ private:
     const auto children = terms(node);
     if (!node.text.empty()) {
       if (node.name == "PROTO_PREDICATE_STRING")
-        return literal(4, decode_string(node.text));
+        return literal(4, decode_ctk_string(node.text));
       if (node.name.ends_with("STRING"))
         return string_literal(node);
       if (node.name.ends_with("NUMBER") || node.name == "PROTO_INT" ||

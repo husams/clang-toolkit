@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -18,5 +19,7 @@ struct Syntax {
 };
 
 llvm::Expected<Syntax> parse_ctk(llvm::StringRef source);
+/// Decode escapes in a quoted string. Interpolation is handled by the caller.
+std::string decode_ctk_string(std::string_view literal);
 
 } // namespace ctk::jit

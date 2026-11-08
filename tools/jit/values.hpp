@@ -155,6 +155,8 @@ struct Values {
   const Value* hold(Value value);
   const Value* fail(const llvm::Twine& message);
   Value* lookup(llvm::StringRef name);
+  const Value* property(const Value& value, const char* name);
+  const Value* index(const Value& value, const Value& key);
   Bindings& local();
   void push();
   void pop();

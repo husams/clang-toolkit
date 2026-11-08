@@ -1,4 +1,5 @@
 #include "native_workspace.hpp"
+#include "completion.hpp"
 #include "grammar/help.hpp"
 #include "platform/repl_cancellation.hpp"
 
@@ -20,6 +21,7 @@
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
 #include <google/protobuf/util/json_util.h>
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/StringMap.h>
 #include <llvm/ADT/StringSet.h>
 #include <llvm/Support/Base64.h>
@@ -456,7 +458,7 @@ private:
         continue;
       }
       if (purpose == Reply::Completion) {
-        finish_completion(reply.getObject("value"));
+        finish_completion(reply.get("value"));
       } else if (side_kind == purpose) {
         show_panel(purpose, reply.get("value"));
       }
@@ -880,49 +882,112 @@ private:
     std::string draft;
     int cursor;
     std::string prefix;
-    std::string binding;
+    std::string suffix;
+    std::optional<std::string> reference;
+    char quote = 0;
+    bool quote_open = false;
   };
 
-  void finish_completion(const json::Object *bindings) {
+  void finish_completion(const json::Value *result) {
     auto query = std::exchange(completion_query, {});
     if (!query || query->draft != draft || query->cursor != editor_cursor ||
         focus != Focus::Editor)
       return;
-    std::vector<std::string> candidates;
-    if (bindings && !query->binding.empty()) {
-      if (const auto *field = bindings->getObject(query->binding)) {
-        if (const auto *items = field->getArray("data")) {
-          for (const auto &entry : *items) {
-            const auto *pair = entry.getAsArray();
-            if (pair && pair->size() == 2)
-              if (const auto name = pair->front().getAsString())
-                candidates.push_back(name->str());
+
+    std::vector<Row> rows;
+    if (query->reference) {
+      if (const auto *fields = result ? result->getAsArray() : nullptr) {
+        for (const auto &entry : *fields) {
+          const auto *field = entry.getAsObject();
+          if (!field)
+            continue;
+          auto name = field->getString("name").value_or("");
+          if (!name.starts_with(query->prefix) ||
+              !name.ends_with(query->suffix))
+            continue;
+          if (query->quote) {
+            auto insertion = name.str();
+            if (!query->quote_open)
+              insertion.insert(insertion.begin(), query->quote);
+            if (editor_cursor == draft.size() ||
+                draft[editor_cursor] != query->quote)
+              insertion += query->quote;
+            rows.push_back({name.str() + "  field presence", {}, {}});
+            rows.back().completion = std::move(insertion);
+            continue;
           }
-        } else if (field->getString("type")) {
-          const auto message = decode_message(*field);
-          if (const auto *properties = message.getAsObject())
-            for (const auto &[name, unused] : *properties)
-              candidates.push_back(name.str());
+          auto insertion = name.drop_back(query->suffix.size()).str();
+          auto display = name.str();
+          if (field->getBoolean("method").value_or(false) &&
+              query->suffix.empty() &&
+              !llvm::StringRef(draft)
+                   .drop_front(editor_cursor)
+                   .ltrim()
+                   .starts_with("(")) {
+            insertion += '(';
+            display += '(';
+          }
+          rows.push_back(
+              {display + "  " + field->getString("detail").value_or("").str(),
+               {},
+               {}});
+          rows.back().completion = std::move(insertion);
         }
       }
     } else {
-      candidates = native_help_topics(query->prefix);
-      if (bindings)
+      auto candidates = native_help_topics(query->prefix);
+      if (const auto *bindings = result ? result->getAsObject() : nullptr)
         for (const auto &[name, unused] : *bindings)
           candidates.push_back(name.str());
-    }
-    std::ranges::sort(candidates);
-    candidates.erase(std::unique(candidates.begin(), candidates.end()),
-                     candidates.end());
-    std::vector<Row> rows;
-    for (auto &candidate : candidates) {
-      if (candidate.size() <= 64 && rows.size() < 30 &&
-          llvm::StringRef(candidate).starts_with_insensitive(query->prefix)) {
-        rows.push_back({candidate, {}, {}});
-        rows.back().completion = std::move(candidate);
+      for (auto &candidate : candidates) {
+        if (candidate.size() <= 64 &&
+            llvm::StringRef(candidate).starts_with_insensitive(query->prefix)) {
+          rows.push_back({candidate, {}, {}});
+          rows.back().completion = std::move(candidate);
+        }
       }
     }
+    std::ranges::sort(rows, {}, &Row::text);
+    llvm::StringSet<> seen;
+    std::erase_if(rows, [&](const Row &row) {
+      return !seen.insert(row.completion).second;
+    });
+    if (!query->reference && rows.size() > 30)
+      rows.resize(30);
     open_completion(std::move(rows));
+  }
+
+  bool complete_presence() {
+    const auto before_cursor = llvm::StringRef(draft).take_front(editor_cursor);
+    const auto method = before_cursor.rfind("hasField");
+    if (method == llvm::StringRef::npos)
+      return false;
+    const auto reference = field_receiver(before_cursor.take_front(method));
+    if (!reference)
+      return false;
+    auto argument = before_cursor.drop_front(method + 8).ltrim();
+    if (!argument.consume_front("("))
+      return false;
+    argument = argument.ltrim();
+    const bool quoted = argument.starts_with('"') || argument.starts_with('\'');
+    const auto quote = quoted ? argument.front() : '"';
+    if (quoted)
+      argument = argument.drop_front();
+    if ((!quoted && !argument.empty()) ||
+        !llvm::all_of(argument, name_character))
+      return false;
+
+    completion_end = static_cast<std::size_t>(editor_cursor);
+    completion_begin = completion_end - argument.size();
+    if (ready && !busy) {
+      completion_query = CompletionQuery{
+          draft, editor_cursor, argument.str(), {}, reference->str(),
+          quote, quoted};
+      request(Reply::Completion, json::Object{{"inspect", "complete_fields"},
+                                              {"reference", reference->str()},
+                                              {"presence", true}});
+    }
+    return true;
   }
 
   void complete() {
@@ -930,40 +995,41 @@ private:
       side.move(1);
       return;
     }
-    if (completion_query)
+    if (completion_query || complete_presence())
       return;
     completion_end = static_cast<std::size_t>(editor_cursor);
     completion_begin = completion_end;
     while (completion_begin > 0 && name_character(draft[completion_begin - 1]))
       --completion_begin;
-    const auto prefix =
-        llvm::StringRef(draft).slice(completion_begin, completion_end);
-    auto matches = matcher_completions(prefix);
-    if (!matches.empty()) {
-      open_completion(std::move(matches));
-      return;
+    const auto text = llvm::StringRef(draft);
+    const auto prefix = text.slice(completion_begin, completion_end);
+    const auto before_word = text.take_front(completion_begin);
+    const auto reference = field_receiver(before_word);
+    if (!reference) {
+      auto matches = matcher_completions(prefix);
+      if (!matches.empty()) {
+        open_completion(std::move(matches));
+        return;
+      }
+      if (prefix.empty() || before_word.rtrim().ends_with("."))
+        return;
     }
-    std::string binding;
-    if (completion_begin && draft[completion_begin - 1] == '.') {
-      auto end = completion_begin - 1;
-      auto begin = end;
-      while (begin > 0 && name_character(draft[begin - 1]))
-        --begin;
-      binding = draft.substr(begin, end - begin);
-    }
-    if (prefix.empty() && binding.empty())
-      return;
-    completion_query =
-        CompletionQuery{draft, editor_cursor, prefix.str(), std::move(binding)};
+    auto suffix_end = completion_end;
+    while (suffix_end < draft.size() && name_character(draft[suffix_end]))
+      ++suffix_end;
+    completion_query = CompletionQuery{
+        draft, editor_cursor, prefix.str(),
+        text.slice(completion_end, suffix_end).str(),
+        reference ? std::optional(reference->str()) : std::nullopt};
     if (!ready || busy) {
       finish_completion(nullptr);
       return;
     }
-    json::Array branches;
-    if (!completion_query->binding.empty())
-      branches.emplace_back("$" + completion_query->binding);
-    request(Reply::Completion, json::Object{{"inspect", "outline"},
-                                            {"expanded", std::move(branches)}});
+    if (reference)
+      request(Reply::Completion, json::Object{{"inspect", "complete_fields"},
+                                              {"reference", reference->str()}});
+    else
+      request(Reply::Completion, json::Object{{"inspect", "outline"}});
   }
 
   void accept_completion() {

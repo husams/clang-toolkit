@@ -1,5 +1,6 @@
 #include "ir.hpp"
 #include "grammar/lower.hpp"
+#include "completion.hpp"
 #include "native_history.hpp"
 #include "file_values.hpp"
 #include "filters.hpp"
@@ -1159,6 +1160,11 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
       if (const auto inspect = command->getString("inspect")) {
         if (*inspect == "outline") {
           reply(llvm::json::Object{{"value", workspace.outline(*command)}});
+        } else if (*inspect == "complete_fields") {
+          IrContext runtime(targets, bindings, matchers, compiler);
+          const auto reference = command->getString("reference").value_or("");
+          const auto presence = command->getBoolean("presence").value_or(false);
+          reply(llvm::json::Object{{"value", complete_fields(runtime.values, reference, presence)}});
         } else if (*inspect == "resources" || *inspect == "status") {
           auto value = targets.local.workspace_state(*inspect);
           if (*inspect == "resources") {
