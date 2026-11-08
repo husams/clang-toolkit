@@ -63,8 +63,8 @@ parameters: NAME (COMMA NAME)*
         | HELP help_topic?               -> help
         | HELP_SHORT_TOPIC QUESTION      -> help_shortcut
         | TRAVERSE path_target_expression traverse_option* graph_option* -> traverse
-        | PEEK NAME [root_expression] IN reference navigation_option* -> peek
-        | STEP NAME [root_expression] [AT NUMBER] IN reference navigation_option* -> step
+        | PEEK NAVIGATION_AXIS [root_expression] IN reference navigation_option* -> peek
+        | STEP NAVIGATION_AXIS [root_expression] [AT NUMBER] IN reference navigation_option* -> step
         | SCRIPT target_expression (IN path_target_expression)? -> script
         | CURSOR OPEN FILE_STRING root_expression cursor_option* -> cursor_open
         | CURSOR CONTINUE STRING STRING root_expression cursor_option* -> cursor_continue
@@ -118,6 +118,9 @@ traverse_option: DEPTH NUMBER -> traverse_depth
                | IMPLICIT (TRUE | FALSE) -> traverse_implicit
                | INSTANTIATIONS (TRUE | FALSE) -> traverse_instantiations
 
+// Require the entire axis token in the composed Earley grammar. The runtime
+// still validates unknown axis names.
+NAVIGATION_AXIS: /[a-zA-Z_][a-zA-Z_0-9]*(?=\s)/
 navigation_option: NODES NUMBER -> navigation_nodes
 
 ?setting: TRAVERSAL NAME                 -> traversal_setting

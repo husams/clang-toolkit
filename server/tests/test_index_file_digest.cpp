@@ -1,5 +1,5 @@
-#include "../src/net/file_digest_cache.hpp"
-#include "../src/net/include_inventory_cache.hpp"
+#include "../src/application/file_digest_cache.hpp"
+#include "../src/application/include_inventory_cache.hpp"
 #include "../src/platform/index_filesystem.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 
@@ -19,8 +19,8 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-using ctk::net::index_detail::FileDigestCache;
-using ctk::net::index_detail::IncludeInventoryCache;
+using ctk::application::index_detail::FileDigestCache;
+using ctk::application::index_detail::IncludeInventoryCache;
 using ctk::platform::TemporaryDirectory;
 
 namespace {

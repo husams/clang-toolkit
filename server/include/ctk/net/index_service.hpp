@@ -1,14 +1,12 @@
 #pragma once
 
+#include "ctk/application/project_index.hpp"
 #include "index/v1/index_service.grpc.pb.h"
 #include <cstddef>
 #include <filesystem>
 #include <functional>
-#include <memory>
 
 namespace ctk::net {
-
-class BackgroundSymbolIndexer;
 
 class IndexServiceAdapter final : public ctk::index::v1::IndexService::Service {
 public:
@@ -52,7 +50,7 @@ public:
                             ctk::index::v1::FindSymbolsResponse *) override;
 
 private:
-  std::shared_ptr<BackgroundSymbolIndexer> indexer_;
+  application::ProjectIndexController indexer_;
 };
 
 } // namespace ctk::net

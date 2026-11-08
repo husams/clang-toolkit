@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 ctk = "clang_toolkit.cli.app:prototype_main"
+ctk-jit = "clang_toolkit.cli.jit:main"
 
 [dependency-groups]
 dev = [

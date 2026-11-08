@@ -151,6 +151,10 @@ def _combined_grammar() -> str:
     # Raw C++ must win over the prototype's natural-call identifier tokens in
     # the lossless editor lexer. Otherwise `cpp` is consumed as a name and its
     # backtick/body leak into host delimiter and completion handling.
+    legacy_source = legacy_source.replace(
+        "[LEGACY_DO legacy_statement_block] -> match",
+        "[LEGACY_DO legacy_callback_block] -> match",
+    )
     legacy_source = legacy_source.replace("LEGACY_CPP_SOURCE.12:", "LEGACY_CPP_SOURCE.40:")
     legacy_source = legacy_source.replace("LEGACY_OPEN_CPP_SOURCE.11:", "LEGACY_OPEN_CPP_SOURCE.39:")
     # Prefix commands use whitespace before their operands. Keep adjacent
@@ -232,12 +236,15 @@ _HOST_NEWLINE: /\r?\n/
 %override legacy_reference: LEGACY_DOLLAR? LEGACY_NAME (LEGACY_DOT legacy_property_name | LEGACY_DOT legacy_method_call | LEGACY_LSQB legacy_index_expression LEGACY_RSQB)*
 
 %override legacy_batch_statement: LEGACY_BATCH LEGACY_NAME LEGACY_IN legacy_reference legacy_batch_grouping legacy_batch_option* LEGACY_DO proto_block -> compiled_batch_statement
-               | (LEGACY_DURABLE | LEGACY_BACKGROUND) LEGACY_BATCH LEGACY_NAME LEGACY_IN legacy_reference legacy_batch_grouping legacy_durable_batch_option* LEGACY_DO legacy_statement_block -> durable_batch
+               | (LEGACY_DURABLE | LEGACY_BACKGROUND) LEGACY_BATCH LEGACY_NAME LEGACY_IN legacy_reference legacy_batch_grouping legacy_durable_batch_option* LEGACY_DO legacy_callback_block -> durable_batch
                | LEGACY_BATCH LEGACY_STATUS legacy_reference -> batch_status
                | LEGACY_BATCH LEGACY_CANCEL legacy_reference -> batch_cancel
                | LEGACY_BATCH LEGACY_RESUME legacy_reference -> batch_resume
                | LEGACY_BATCH LEGACY_RETRY legacy_reference -> batch_retry
                | LEGACY_BATCH LEGACY_PROMOTE legacy_reference -> batch_promote
+?legacy_callback_statement: legacy_assignment | legacy_statement | legacy_display_expression
+                          | LEGACY_PRINT legacy_value_expression -> print
+legacy_callback_block: LEGACY_LBRACE LEGACY_BATCH_SEPARATOR* (legacy_callback_statement (LEGACY_SEMICOLON | LEGACY_BATCH_SEPARATOR)+)* legacy_callback_statement? LEGACY_RBRACE -> statement_block
 
 %override legacy_matcher_definition.30: LEGACY_LET LEGACY_NAME LEGACY_LPAR _host_newlines [legacy_parameters] _host_newlines LEGACY_RPAR LEGACY_EQUAL legacy_definition_matcher
 legacy_definition_matcher: LEGACY_DEFINITION_MATCHER_NAME LEGACY_LPAR _host_newlines [legacy_arguments] _host_newlines LEGACY_RPAR legacy_bind? -> matcher

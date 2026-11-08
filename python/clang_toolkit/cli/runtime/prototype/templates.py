@@ -46,16 +46,14 @@ def _end(value: str, start: int) -> int:
     raise ValueError("unclosed interpolation placeholder: expected `}`")
 
 
-def compile_template(raw: str, *, library: bool = False) -> Template | None:
+def template_parts(
+    raw: str, parse_expression: Callable[[str], Node]
+) -> tuple[str | Node, ...] | None:
     # Preserve older libraries while new scripts use bare brace expressions.
     if not raw.startswith('"') or "$" in raw or not any(c in raw for c in "{}"):
         return None
-    from .compiler import compile_program
-    from .repl_language import parse
-
     value = ast.literal_eval(raw)
-    parts = []
-    expressions = []
+    parts: list[str | Node] = []
     literal = []
     index = 0
     while index < len(value):
@@ -68,20 +66,12 @@ def compile_template(raw: str, *, library: bool = False) -> Template | None:
             expression = value[index + 1:end].strip()
             if not expression:
                 raise ValueError("empty interpolation expression")
-            if library:
-                from .library_cache import parse_library
-                program = parse_library(expression, namespace="templates")
-            else:
-                program = parse(expression)
+            program = parse_expression(expression)
             if len(program.children) != 1 or program.children[0].kind in {
                 "let", "destructure", "assign", "runnable", "print"} or (
                     program.children[0].kind == "host" and program.children[0].value[1] == "statement"):
                 raise ValueError("interpolation requires one value expression")
-            executable = compile_program(
-                program, cache_key=expression if library else None, cache_namespace="templates",
-            )
-            parts.extend(("".join(literal), executable))
-            expressions.append(program)
+            parts.extend(("".join(literal), program))
             literal = []
             index = end + 1
         elif char == "}":
@@ -90,4 +80,34 @@ def compile_template(raw: str, *, library: bool = False) -> Template | None:
             literal.append(char)
             index += 1
     parts.append("".join(literal))
-    return Template(tuple(parts), tuple(expressions))
+    return tuple(parts)
+
+
+def compile_template(raw: str, *, library: bool = False) -> Template | None:
+    from .compiler import compile_program
+    from .repl_language import parse
+
+    sources: dict[int, str] = {}
+
+    def parse_expression(expression: str) -> Node:
+        if library:
+            from .library_cache import parse_library
+
+            program = parse_library(expression, namespace="templates")
+            sources[id(program)] = expression
+            return program
+        return parse(expression)
+
+    parts = template_parts(raw, parse_expression)
+    if parts is None:
+        return None
+    expressions = tuple(part for part in parts if isinstance(part, Node))
+    compiled = tuple(
+        part
+        if isinstance(part, str)
+        else compile_program(
+            part, cache_key=sources.get(id(part)), cache_namespace="templates"
+        )
+        for part in parts
+    )
+    return Template(compiled, expressions)

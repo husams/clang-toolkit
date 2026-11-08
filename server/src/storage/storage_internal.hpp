@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ctk/storage/store.hpp"
+#include "ctk/storage/root_lock.hpp"
 
 #include <sqlite3.h>
 
@@ -80,17 +81,6 @@ void validate_path(std::string_view path);
 void validate_snapshot_draft(const SnapshotDraft &snapshot,
                              std::uint64_t maximum_artifact_size);
 void validate_stored_closure(const SnapshotDescriptor &snapshot);
-
-class RootLock final {
-public:
-  explicit RootLock(const std::filesystem::path &root);
-  ~RootLock();
-  RootLock(const RootLock &) = delete;
-  RootLock &operator=(const RootLock &) = delete;
-
-private:
-  int descriptor_ = -1;
-};
 
 class BlobStore final {
 public:
@@ -180,7 +170,7 @@ struct Store::Impl : std::enable_shared_from_this<Store::Impl> {
   SnapshotDescriptor load_descriptor_locked(SnapshotId id) const;
 
   StoreOptions options;
-  detail::RootLock root_lock;
+  RootLock root_lock;
   detail::Database database;
   detail::MetadataRepository metadata;
   std::unique_ptr<detail::BlobStore> blobs;
