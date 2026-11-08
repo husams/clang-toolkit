@@ -15,6 +15,8 @@ class ASTContext;
 class DynTypedNode;
 } // namespace clang
 
+namespace google::protobuf { class Message; }
+
 namespace llvm {
 class Error;
 class Twine;
@@ -44,6 +46,7 @@ struct NativeNode {
   mutable std::shared_ptr<SemanticValue> semantic;
   std::shared_ptr<clang::DynTypedNode> parent;
   std::string binding_name;
+  std::int64_t row_index = 0;
 };
 
 struct BuiltinFunction {
@@ -130,6 +133,16 @@ struct MatchOutput {
   std::uint64_t column = 1;
 };
 
+class Workspace;
+
+struct Preview {
+  std::size_t offset;
+  std::int64_t id;
+  std::string kind;
+  std::string key;
+  std::string markdown;
+};
+
 struct Values {
   Values(void* context, Bindings& globals, LocalState& state, std::string& output,
          std::string& error)
@@ -147,6 +160,8 @@ struct Values {
   void pop();
   bool tick();
   bool accepts_ast(const AstHandle& ast) const;
+  std::optional<std::string> present(llvm::StringRef kind, const Value& value);
+  std::optional<std::string> present(llvm::StringRef kind, const google::protobuf::Message& message);
 
   void* context;
   Bindings& globals;
@@ -162,6 +177,8 @@ struct Values {
   std::size_t emissions = 0;
   const Value* last_printed = nullptr;
   const Value* result = nullptr;
+  Workspace* workspace = nullptr;
+  std::vector<Preview> previews;
   std::string source_path;
   std::size_t call_depth = 0;
   std::size_t frame_depth = 0;

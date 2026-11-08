@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from contextlib import ExitStack
-from dataclasses import dataclass
 import json
 from pathlib import Path
 from queue import Queue
+import signal
 import subprocess
 import sys
 from threading import Lock, Thread
@@ -26,13 +26,6 @@ _COMMAND_CACHE_SIZE = 128
 _EXIT_COMMANDS = {":quit", "quit", "exit"}
 
 
-@dataclass
-class _Outcome:
-    output: str | None
-    success: bool = True
-    markdown: str | None = None
-
-
 class _RunnerClosed(OSError):
     pass
 
@@ -41,12 +34,16 @@ def _read_replies(
     source: TextIO,
     replies: Queue[dict[str, Any] | Exception | None],
     emit: Callable[[str], None],
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
     try:
         for line in source:
             message = json.loads(line)
             if "event" in message:
                 emit(message["event"])
+            elif "progress" in message or "durable" in message:
+                if progress is not None:
+                    progress(message)
             else:
                 replies.put(message)
     except (OSError, ValueError) as error:
@@ -137,6 +134,16 @@ def run_repl(
             replies: Queue[dict[str, Any] | Exception | None] = Queue()
             output_lock = Lock()
 
+            def exchange(request: dict[str, Any]) -> dict[str, Any]:
+                process.stdin.write(json.dumps(request) + "\n")
+                process.stdin.flush()
+                result = replies.get()
+                if result is None:
+                    raise _RunnerClosed("native REPL runner closed")
+                if isinstance(result, Exception):
+                    raise result
+                return result
+
             def submit(source: str) -> dict[str, Any] | None:
                 slot = commands.get(source)
                 evicted = None
@@ -152,13 +159,9 @@ def run_repl(
                 else:
                     request = {"slot": slot}
                 record(source)
-                process.stdin.write(json.dumps(request) + "\n")
-                process.stdin.flush()
-                result = replies.get()
-                if result is None:
-                    raise _RunnerClosed("native REPL runner closed")
-                if isinstance(result, Exception):
-                    raise result
+                if workspace:
+                    request["workspace"] = True
+                result = exchange(request)
                 if result["compiled"]:
                     if evicted is not None:
                         del commands[evicted]
@@ -170,35 +173,65 @@ def run_repl(
                     print(event, flush=True)
 
             console = None
+            progress_callback = None
             if workspace:
+                from .jit_workspace import (
+                    NativeWorkspace,
+                    Outcome,
+                    command_outcome,
+                    batch_progress,
+                )
                 from .workspace import WorkspaceConsole
                 from .workspace_source_data import source_snapshot
 
                 assert prompt_session is not None
+                lock = asyncio.Lock()
+                native = NativeWorkspace(exchange, lock)
 
-                async def execute(source: str) -> _Outcome:
+                async def execute(source: str) -> Outcome:
                     if source.strip().rstrip(";") in _EXIT_COMMANDS:
                         record(source)
-                        return _Outcome(None)
+                        return Outcome(None)
                     try:
-                        result = await asyncio.to_thread(submit, source + "\n")
+                        async with lock:
+                            result = await asyncio.to_thread(submit, source + "\n")
                     except (LarkError, ValueError, SyntaxError):
                         record(source)
                         raise
-                    if result is None:
-                        return _Outcome("")
-                    return _Outcome(
-                        result["error"]
-                        or (None if result.get("exit") else result["output"]),
-                        not result["error"],
+                    return (
+                        command_outcome(result) if result is not None else Outcome("")
                     )
 
                 async def read_source(target):
                     return await asyncio.to_thread(source_snapshot, target, Path.cwd())
 
+                async def read_resources():
+                    return await native.resources(frozenset(console.resources.expanded))
+
+                async def cancel_batch(run_id):
+                    return await native.batch(run_id, cancel=True)
+
+                async def cancel():
+                    process.send_signal(signal.SIGUSR1)
+                    return "Cancellation requested."
+
                 console = WorkspaceConsole(
-                    prompt_session, Path.cwd(), execute, source_reader=read_source
+                    prompt_session,
+                    Path.cwd(),
+                    execute,
+                    source_reader=read_source,
+                    outline=native.outline,
+                    resources=read_resources,
+                    result_outline=native.result,
+                    server_status=native.status,
+                    status_title="Local runtime",
+                    batch_status=native.batch,
+                    batch_cancel=cancel_batch,
+                    cancel=cancel,
                 )
+
+                def progress_callback(message: dict[str, Any]) -> None:
+                    console.show_batch_progress(batch_progress(message))
 
             reader = Thread(
                 target=_read_replies,
@@ -206,6 +239,7 @@ def run_repl(
                     process.stdout,
                     replies,
                     console.write_output if console else emit_event,
+                    progress_callback,
                 ),
                 name="ctk-jit-replies",
                 daemon=True,

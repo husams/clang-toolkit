@@ -442,18 +442,20 @@ def _lower_host(ir: LanguageIR, node: Node, source: str) -> str:
             ("ptr", ir.string(scope)),
         )
         if mode == "statement":
-            ir.print_value(rows)
+            from .app import _match_result_key
+
+            ir.value("print_match", rows, ir.string(_match_result_key(tree, source) or ""))
         return rows
     if tree.data in {"read_expression", "load_command", "save_command", "print"}:
         return _lower_document_command(ir, tree)
     if tree.data in {"set_command", "clear_command", "add_arg"}:
         return _lower_setting(ir, tree)
     if tree.data == "inspect":
-        return ir.print_value(_host_value(ir, tree.children[1]))
+        return ir.value("inspect", _host_value(ir, tree.children[1]))
     if tree.data in {"help", "help_shortcut"}:
-        from .runtime.prototype.help import render_help
+        from .runtime.prototype.help import render_help, render_help_markdown
 
-        return ir.print_value(ir.literal(render_help(tree)))
+        return ir.value("help", ir.literal(render_help(tree)), ir.string(render_help_markdown(tree)))
     if tree.data in {"binding_rename", "binding_drop", "bindings_list"}:
         if tree.data == "bindings_list":
             return ir.print_value(ir.value("bindings"))

@@ -13,6 +13,8 @@
 #include "ir.hpp"
 #include "semantic.hpp"
 #include "value_access.hpp"
+#include "workspace.hpp"
+#include "platform/repl_cancellation.hpp"
 
 #include <filesystem>
 #include <set>
@@ -44,7 +46,11 @@ template <typename Message> const Message* message(const Value& value) {
   return static_cast<const Message*>(proto);
 }
 
-bool emit(Values& runtime, const google::protobuf::Message& value) {
+bool emit(Values& runtime, const google::protobuf::Message& value, llvm::StringRef kind) {
+  if (runtime.consume_depth)
+    return true;
+  if (auto text = runtime.present(kind, value))
+    return emit_text(runtime, *text);
   google::protobuf::util::JsonPrintOptions options;
   options.add_whitespace = true;
   options.preserve_proto_field_names = true;
@@ -57,8 +63,9 @@ bool emit(Values& runtime, const google::protobuf::Message& value) {
   return emit_text(runtime, llvm::StringRef(output).rtrim("\n"));
 }
 
-template <typename Message> const Value* result(Values& runtime, Message value, bool display) {
-  if (display && !emit(runtime, value))
+template <typename Message>
+const Value* result(Values& runtime, Message value, bool display, llvm::StringRef kind) {
+  if (display && !emit(runtime, value, kind))
     return nullptr;
   return runtime.hold({semantic(std::make_unique<Message>(std::move(value)))});
 }
@@ -338,11 +345,24 @@ const Value* LocalOperations::foreground_batch(Values& runtime, const Sequence& 
   const auto run_id = new_batch_id().substr(0, 12);
   bool cleanup = true;
   const auto groups = !total ? 0 : size ? (total + *size - 1) / *size : *count;
-  if (display && progress &&
+  auto* workspace = runtime.state.output_path.empty() ? runtime.workspace : nullptr;
+  auto show_progress = [&](llvm::StringRef state) {
+    if (workspace && progress)
+      workspace->progress(llvm::json::Object{
+          {"run_id", run_id}, {"total", total}, {"done", completed_files + failed_files},
+          {"succeeded", completed_files}, {"failed", failed_files}, {"state", state},
+          {"skipped", unattempted_files + (state == "running" ? 0 : total - attempted)}});
+  };
+  show_progress("running");
+  if (display && progress && !workspace &&
       !emit_text(runtime, "batch " + run_id + " started: " + std::to_string(total) +
                               " inputs, jobs " + std::to_string(jobs)))
     return nullptr;
   for (std::int64_t group = 0, offset = 0; group < groups; ++group) {
+    if (workspace && repl_cancelled()) {
+      show_progress("cancelled");
+      return runtime.fail("batch cancelled");
+    }
     const auto length =
         size ? std::min(*size, total - offset) : total / *count + (group < total % *count);
     request.clear_inputs();
@@ -421,8 +441,14 @@ const Value* LocalOperations::foreground_batch(Values& runtime, const Sequence& 
     } else {
       failed_files += length;
     }
-    if (runtime.fatal || runtime.exit_requested)
+    if (runtime.fatal || runtime.exit_requested || (workspace && repl_cancelled())) {
+      const bool cancelled = workspace && repl_cancelled();
+      show_progress(cancelled || runtime.exit_requested ? "cancelled" : "failed");
+      if (cancelled)
+        runtime.fail("batch cancelled");
       return nullptr;
+    }
+    show_progress("running");
     if (!cleanup) {
       unconfirmed.push_back({group + 1});
       if (detail.empty())
@@ -482,11 +508,34 @@ const Value* LocalOperations::foreground_batch(Values& runtime, const Sequence& 
   report->set("group_errors_sample", list(std::move(errors)));
   report->set("results", list(std::move(results)));
   report->set("result_group_indices", list(std::move(indices)));
-  if (display && progress &&
-      !emit_text(runtime, "batch " + std::to_string(completed) + "/" + std::to_string(groups) +
-                              " groups complete"))
-    return nullptr;
-  return runtime.hold({std::move(report)});
+  show_progress(failed ? "failed" : "completed");
+  Value value{std::move(report)};
+  if (display && !(workspace && workspace->capture(runtime, "batch_statement", value))) {
+    if (auto text = runtime.present("batch_statement", value)) {
+      if (!emit_text(runtime, *text))
+        return nullptr;
+    } else if (progress && !emit_text(runtime, "batch " + std::to_string(completed) + "/" +
+                                             std::to_string(groups) + " groups complete")) {
+      return nullptr;
+    }
+  }
+  return runtime.hold(std::move(value));
+}
+
+api::ServerStatusResponse LocalOperations::status() {
+  auto value = controller().server_status();
+  index::v1::ListProjectIndexesResponse indexes;
+  if (embedded_ && embedded_->index_status(indexes))
+    *value.mutable_project_indexes() = std::move(indexes);
+  return value;
+}
+
+llvm::json::Value LocalOperations::workspace_state(llvm::StringRef kind) {
+  if (kind == "status")
+    return preview_message(status());
+  auto& local = controller();
+  return llvm::json::Object{{"files", preview_message(local.list_files(owner))},
+                            {"sessions", preview_message(local.list_sessions(owner))}};
 }
 
 const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
@@ -533,7 +582,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     auto reply = embedded().scripts().run(request, active, owner);
     if (reply.code != MatchCode::Ok)
       return runtime.fail(reply.message);
-    return result(runtime, std::move(reply.response), display);
+    return result(runtime, std::move(reply.response), display, command);
   }
   if (command == "files_expression") {
     text = file_path(first);
@@ -556,7 +605,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     auto files = local.discover_files(request, active, code, detail);
     if (code != MatchCode::Ok)
       return runtime.fail(detail);
-    return result(runtime, std::move(files), display);
+    return result(runtime, std::move(files), display, command);
   }
   if (command == "file_open" || command == "file_refresh") {
     api::FileInfo handle;
@@ -599,24 +648,27 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
       return runtime.fail("file info requires a file handle");
     if (local.describe_file(owner, request, info) != MatchCode::Ok)
       return runtime.fail("file lease unavailable");
-    return result(runtime, std::move(info), display);
+    return result(runtime, std::move(info), display, command);
   }
   if (command == "file_list") {
     if (!args.empty()) {
       const auto* files = message<api::DiscoverFilesResponse>(first);
       if (!files)
         return runtime.fail("file list discovered in requires a FileSet");
-      if (display && !emit(runtime, *files))
+      if (display && !(runtime.workspace && runtime.workspace->capture(runtime, command, first)) &&
+          !emit(runtime, *files, command))
         return nullptr;
       return runtime.hold(first);
     }
     auto files = local.list_files(owner);
-    if (display && !emit(runtime, files))
-      return nullptr;
     std::vector<Value> entries;
     for (const auto& file : files.files())
       entries.push_back({semantic(std::make_unique<api::FileInfo>(file))});
-    return runtime.hold(list(std::move(entries), true));
+    auto value = list(std::move(entries), true);
+    if (display && !(runtime.workspace && runtime.workspace->capture(runtime, command, value)) &&
+        !emit(runtime, files, command))
+      return nullptr;
+    return runtime.hold(std::move(value));
   }
   if (command == "file_close") {
     api::CloseFileResponse closed;
@@ -631,21 +683,22 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     }
     if (code != MatchCode::Ok && code != MatchCode::NotFound)
       return runtime.fail("could not release file lease");
-    return result(runtime, std::move(closed), display);
+    return result(runtime, std::move(closed), display, command);
   }
   if (command == "resource_status")
-    return result(runtime, local.resource_status(), display);
-  if (command == "session_list")
-    return result(runtime, local.list_sessions(owner), display);
-  if (command == "server_status") {
-    auto status = local.server_status();
-    index::v1::ListProjectIndexesResponse indexes;
-    if (embedded_ && embedded_->index_status(indexes))
-      *status.mutable_project_indexes() = std::move(indexes);
-    return result(runtime, std::move(status), display);
+    return result(runtime, local.resource_status(), display, command);
+  if (command == "session_list") {
+    auto sessions = local.list_sessions(owner);
+    auto value = Value{semantic(std::make_unique<api::ListSessionsResponse>(sessions))};
+    if (display && !(runtime.workspace && runtime.workspace->capture(runtime, command, value)) &&
+        !emit(runtime, sessions, command))
+      return nullptr;
+    return runtime.hold(std::move(value));
   }
+  if (command == "server_status")
+    return result(runtime, status(), display, command);
   if (command == "cache_status") {
-    return result(runtime, local.server_status().cache(), display);
+    return result(runtime, local.server_status().cache(), display, command);
   }
   if (command == "cache_prune") {
     api::PruneCachesRequest request;
@@ -655,7 +708,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     auto reply = local.prune_caches(request, response);
     if (reply.code != MatchCode::Ok)
       return runtime.fail(reply.message);
-    return result(runtime, std::move(response), display);
+    return result(runtime, std::move(response), display, command);
   }
 
   if (scope_)
@@ -670,7 +723,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     auto reply = local.attach_session(owner, *id, info);
     if (reply.code != MatchCode::Ok)
       return runtime.fail(reply.message);
-    return result(runtime, std::move(info), false);
+    return result(runtime, std::move(info), false, command);
   }
   if (command == "cursor_close" || command == "session_close_retained") {
     auto reply = local.close(owner, *id);
@@ -714,7 +767,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
   auto reply = local.match(owner, request, active);
   if (reply.code != MatchCode::Ok)
     return runtime.fail(reply.message);
-  return result(runtime, std::move(reply.response), display);
+  return result(runtime, std::move(reply.response), display, command);
 }
 
 } // namespace ctk::jit

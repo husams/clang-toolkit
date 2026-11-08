@@ -95,9 +95,12 @@ at `$XDG_STATE_HOME/clang_tools/history.jsonl`, or
 `~/.local/state/clang_tools/history.jsonl` by default. Use `ctk-jit repl
 --ui workspace` for the full-screen editor, transcript, and source viewer.
 
-Some command previews differ from the existing console. The native workspace
-currently displays command output as text and has no live binding, resource,
-or server status panels.
+The workspace shows the native session's bindings (F7), file leases and
+retained cursors (F8), and local runtime status (F9). Expand match and
+collection previews to page through results or open source locations. Batch
+progress and cancellation use the local runner, and help uses the shared
+console's Markdown presentation. Panels read native state between commands.
+Batch progress updates while a command runs.
 
 Use `--cpp-jit` to select the C++ backend or `--llvm-ir` to select IR explicitly.
 

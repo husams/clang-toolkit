@@ -1,4 +1,6 @@
 #include "values.hpp"
+#include "workspace.hpp"
+#include "platform/repl_cancellation.hpp"
 #include "file_values.hpp"
 #include "semantic.hpp"
 #include "documents.hpp"
@@ -47,6 +49,11 @@ void Values::push() { scopes.emplace_back(); }
 void Values::pop() { scopes.pop_back(); }
 
 bool Values::tick() {
+  if (workspace && repl_cancelled()) {
+    fatal = true;
+    fail("operation cancelled");
+    return false;
+  }
   if (++steps > 1000000) {
     fatal = true;
     fail("execution step limit exceeded");
@@ -1036,6 +1043,12 @@ extern "C" const Value* ctk_jit_value_change_binding_v1(Values* runtime, const c
 }
 
 extern "C" const Value* ctk_jit_value_bindings_v1(Values* runtime) {
+  if (runtime->workspace && !runtime->consume_depth && runtime->state.output_path.empty()) {
+    auto record = std::make_shared<Record>();
+    record->fields = runtime->globals;
+    if (runtime->workspace->capture(*runtime, "bindings_list", Value{std::move(record)}))
+      return runtime->hold({std::string{}});
+  }
   std::vector<llvm::StringRef> names;
   for (const auto& [name, value] : runtime->globals)
     names.push_back(name);
@@ -1197,6 +1210,14 @@ MatcherValue matcher_value(llvm::StringRef name, const Sequence& arguments,
 }
 
 extern "C" const Value* ctk_jit_value_render_v1(Values* runtime, const Value* value) {
+  const auto* seq = object<Sequence>(*value);
+  const auto* record = object<Record>(*value);
+  if (object<SemanticValue>(*value) || object<NativeNode>(*value) ||
+      (seq && (seq->match_snapshot || seq->semantic_collection)) ||
+      (record && (record->match_row || record->semantic_collection))) {
+    if (auto text = runtime->present("render", *value))
+      return runtime->hold({std::move(*text)});
+  }
   std::string text;
   llvm::raw_string_ostream output(text);
   render(output, *value, Render::Console);
@@ -1219,11 +1240,43 @@ extern "C" void ctk_jit_value_consume_end_v1(Values* runtime) { --runtime->consu
 extern "C" const Value* ctk_jit_value_print_v2(Values* runtime, const Value* value) {
   if (runtime->consume_depth)
     return value;
+  if (runtime->workspace && runtime->workspace->capture(*runtime, "print", *value)) {
+    runtime->last_printed = value;
+    return value;
+  }
   const auto* rendered = ctk_jit_value_render_v1(runtime, value);
   if (!rendered || !emit_text(*runtime, *as<std::string>(*rendered)))
     return nullptr;
   runtime->last_printed = value;
   return value;
+}
+
+extern "C" const Value* ctk_jit_value_print_match_v1(Values* runtime, const Value* value,
+                                                     const char* key) {
+  if (runtime->workspace && runtime->workspace->capture(*runtime, "match", *value, key)) {
+    runtime->last_printed = value;
+    return value;
+  }
+  return ctk_jit_value_print_v2(runtime, value);
+}
+
+extern "C" const Value* ctk_jit_value_help_v1(Values* runtime, const Value* value,
+                                              const char* markdown) {
+  if (runtime->workspace && !runtime->consume_depth && !runtime->match_output &&
+      runtime->state.output_path.empty()) {
+    runtime->previews.push_back({runtime->output.size(), -1, "help", {}, markdown});
+    ++runtime->emissions;
+    runtime->last_printed = value;
+    return value;
+  }
+  return ctk_jit_value_print_v2(runtime, value);
+}
+
+extern "C" const Value* ctk_jit_value_inspect_v1(Values* runtime, const Value* value) {
+  auto text = runtime->present("inspect", *value);
+  const auto* preview = text ? runtime->hold({std::move(*text)})
+                             : ctk_jit_value_render_v1(runtime, value);
+  return preview && emit_text(*runtime, *as<std::string>(*preview)) ? preview : nullptr;
 }
 
 extern "C" std::int64_t ctk_jit_value_output_size_v1(Values* runtime) {
@@ -1303,6 +1356,9 @@ llvm::Error expose_values(llvm::orc::LLJIT& jit) {
   EXPOSE(ctk_jit_value_bind_matcher_v1);
   EXPOSE(ctk_jit_value_render_v1);
   EXPOSE(ctk_jit_value_print_v2);
+  EXPOSE(ctk_jit_value_inspect_v1);
+  EXPOSE(ctk_jit_value_help_v1);
+  EXPOSE(ctk_jit_value_print_match_v1);
   EXPOSE(ctk_jit_value_consume_begin_v1);
   EXPOSE(ctk_jit_value_consume_end_v1);
   EXPOSE(ctk_jit_value_output_size_v1);

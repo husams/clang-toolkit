@@ -6,6 +6,8 @@
 #include "ctk/clang/tooling.hpp"
 #include "ctk/clang/traversal_backend.hpp"
 #include "documents.hpp"
+#include "filters.hpp"
+#include "workspace.hpp"
 #include "native_navigation.hpp"
 #include "native_snapshot_owner.hpp"
 #include "semantic.hpp"
@@ -88,6 +90,8 @@ bool parse_options(Values& runtime, Request& request, llvm::StringRef options) {
 }
 
 bool emit_message(Values& runtime, const pb::Message& message) {
+  if (auto text = runtime.present("graph", message))
+    return emit_text(runtime, *text);
   pb::util::JsonPrintOptions options;
   options.add_whitespace = true;
   options.preserve_proto_field_names = true;
@@ -120,14 +124,10 @@ const Value* traverse(Values& runtime, const std::shared_ptr<SelectedAst>& engin
     return nullptr;
   set_target(request, selected);
   auto backend = clang_layer::make_traversal_backend(engine);
-  clang_layer::ITraversalBackend::NodeSink sink;
-  if (display) {
-    sink = [&](const api::TraversalNode& node, std::string&) {
-      return emit_message(runtime, node) ? MatchCode::Ok : MatchCode::Internal;
-    };
-  }
-  auto result = backend->traverse_stream(request, state, [&] { return runtime.tick(); }, {}, sink);
-  return ok(runtime, result) ? view(runtime, std::move(result.response)) : nullptr;
+  auto result = backend->traverse_stream(request, state, [&] { return runtime.tick(); }, {}, {});
+  if (!ok(runtime, result) || (display && !emit_message(runtime, result.response)))
+    return nullptr;
+  return view(runtime, std::move(result.response));
 }
 
 const Value* cfg(Values& runtime, const std::shared_ptr<SelectedAst>& engine,
@@ -396,7 +396,8 @@ const Value* navigate(Values& runtime, const NativeNode& selected, const Matcher
       result->source_match_index = wire.source_match_index();
     for (const auto& [name, node] : values) {
       auto value = std::make_shared<NativeNode>(
-          NativeNode{selected.ast, std::make_shared<clang::DynTypedNode>(node), {}, {}, name});
+          NativeNode{selected.ast, std::make_shared<clang::DynTypedNode>(node), {}, {}, name,
+                     static_cast<std::int64_t>(ordinal)});
       if (const auto found = parents.find(name); found != parents.end())
         value->parent = std::make_shared<clang::DynTypedNode>(found->second);
       result->set(name, {std::move(value)});
@@ -414,15 +415,20 @@ const Value* navigate(Values& runtime, const NativeNode& selected, const Matcher
     const auto target = selected->fields.find("target");
     if (target == selected->fields.end())
       return runtime.fail("navigation target is unavailable");
+    if (display && !runtime.consume_depth &&
+        !(runtime.workspace && runtime.workspace->capture(runtime, "print", target->second))) {
+      const auto* text = ctk_jit_value_render_v1(&runtime, &target->second);
+      if (!text || !emit_text(runtime, *as<std::string>(*text)))
+        return nullptr;
+    }
     return runtime.hold(target->second);
   }
 
   std::vector<Value> rows;
-  for (std::size_t ordinal = 0; ordinal < native->rows.size(); ++ordinal) {
-    if (display && !runtime.consume_depth && !emit_message(runtime, result.rows[ordinal]))
-      return nullptr;
+  for (std::size_t ordinal = 0; ordinal < native->rows.size(); ++ordinal)
     rows.push_back({row(ordinal)});
-  }
+  if (display && !emit_text(runtime, std::to_string(rows.size()) + " neighbours"))
+    return nullptr;
   return runtime.hold(list(std::move(rows)));
 }
 

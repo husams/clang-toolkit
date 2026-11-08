@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <llvm/ADT/StringRef.h>
@@ -15,6 +16,8 @@ public:
   CompilerChannel();
   llvm::Expected<std::string> lower(llvm::StringRef source, llvm::StringRef path, bool library);
 
+  bool available() const { return static_cast<bool>(input); }
+  std::optional<std::string> render(llvm::StringRef kind, llvm::json::Value value);
   llvm::Error history(llvm::StringRef action, const std::string* value);
 
 private:

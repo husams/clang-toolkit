@@ -8,9 +8,11 @@
 #include "documents.hpp"
 #include "matcher_parser.hpp"
 #include "platform/compiler_channel.hpp"
+#include "platform/repl_cancellation.hpp"
 #include "scoped_match.hpp"
 #include "value_access.hpp"
 #include "values.hpp"
+#include "workspace.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -499,13 +501,15 @@ const Value* match_rows(IrContext* context, const Value* expression, const Value
       row->source_file = source_file;
       for (const auto& [name, node] : result.Nodes.getMap()) {
         row->set(name, {std::make_shared<NativeNode>(
-                           NativeNode{ast, std::make_shared<clang::DynTypedNode>(node), {}, {}, name})});
+                           NativeNode{ast, std::make_shared<clang::DynTypedNode>(node), {}, {}, name, ordinal})});
       }
+      ++ordinal;
       rows->items.push_back({std::move(row)});
     }
     AstHandle ast;
     std::optional<std::string> source_file;
     std::size_t count = 0;
+    std::int64_t ordinal = 0;
     std::shared_ptr<Sequence> rows = std::make_shared<Sequence>();
     bool overflow = false;
   };
@@ -520,6 +524,7 @@ const Value* match_rows(IrContext* context, const Value* expression, const Value
   }
   for (const auto& selected : targets) {
     collect.ast = selected.ast;
+    collect.ordinal = 0;
     collect.source_file = native_source_file(selected.ast);
     if (!selected.root) {
       finder.matchAST(*selected.ast);
@@ -814,6 +819,12 @@ public:
     return command;
   }
 
+  bool has_frontend() const { return channel.available(); }
+
+  std::optional<std::string> present(llvm::StringRef kind, llvm::json::Value value) {
+    return channel.render(kind, std::move(value));
+  }
+
   llvm::Error history(llvm::StringRef action, const std::string* value) {
     return channel.history(action, value);
   }
@@ -983,6 +994,21 @@ llvm::Error call_ir_entry(IrEntry entry, IrContext& runtime) {
 
 } // namespace
 
+std::optional<std::string> Values::present(llvm::StringRef kind, const Value& value) {
+  auto& compiler = static_cast<IrContext*>(context)->compiler;
+  if (!compiler.has_frontend())
+    return std::nullopt;
+  return compiler.present(kind, preview_value(value));
+}
+
+std::optional<std::string> Values::present(llvm::StringRef kind,
+                                           const google::protobuf::Message& message) {
+  auto& compiler = static_cast<IrContext*>(context)->compiler;
+  if (!compiler.has_frontend())
+    return std::nullopt;
+  return compiler.present(kind, preview_message(message));
+}
+
 bool Values::accepts_ast(const AstHandle& ast) const {
   return static_cast<const IrContext*>(context)->targets.local.accepts(ast);
 }
@@ -1067,6 +1093,7 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
   Targets targets(file, database, load);
   targets.local.set_events([&](std::string event) { reply(llvm::json::Object{{"event", std::move(event)}}); });
   auto bindings = targets.bindings(arguments);
+  Workspace workspace(bindings, reply);
   MatcherCache matchers;
   {
     IrContext runtime(targets, bindings, matchers, compiler);
@@ -1078,6 +1105,7 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
   }
   llvm::DenseMap<std::int64_t, CompiledCommand> commands;
   std::uint64_t entry_number = 0;
+  install_repl_cancellation();
   llvm::outs() << "{\"ready\":true,\"protocol\":3}\n";
   llvm::outs().flush();
 
@@ -1089,11 +1117,38 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
       return request.takeError();
     }
     const auto* command = request->getAsObject();
+    if (command) {
+      if (const auto inspect = command->getString("inspect")) {
+        if (*inspect == "outline") {
+          reply(llvm::json::Object{{"value", workspace.outline(*command)}});
+        } else if (*inspect == "resources" || *inspect == "status") {
+          auto value = targets.local.workspace_state(*inspect);
+          if (*inspect == "resources") {
+            std::size_t number = 1;
+            while (bindings.contains("attached" + std::to_string(number)))
+              ++number;
+            (*value.getAsObject())["attach_name"] = "attached" + std::to_string(number);
+          }
+          reply(llvm::json::Object{{"value", std::move(value)}});
+        } else if (*inspect == "batch_status" || *inspect == "batch_cancel") {
+          IrContext runtime(targets, bindings, matchers, compiler);
+          const auto id = command->getString("run_id").value_or("");
+          const auto* value = targets.local.execute(
+              runtime.values, *inspect, Sequence{{Value{id.str()}}}, "", false);
+          reply(llvm::json::Object{{"value", value ? preview_value(*value) : nullptr},
+                                  {"error", std::move(runtime.error)}});
+        } else {
+          reply(llvm::json::Object{{"error", "unknown workspace request"}});
+        }
+        continue;
+      }
+    }
     const auto slot = command ? command->getInteger("slot") : std::nullopt;
     if (!slot || *slot < 0) {
       return failure("expected a REPL command slot");
     }
 
+    clear_repl_cancellation();
     auto cached = commands.find(*slot);
     bool compiled = false;
     llvm::Error result = llvm::Error::success();
@@ -1121,6 +1176,8 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
 
     // A cached entry runs against the session's current bindings on every call.
     IrContext runtime(targets, bindings, matchers, compiler);
+    if (command->getBoolean("workspace").value_or(false))
+      runtime.values.workspace = &workspace;
     if (!result) {
       if (cached == commands.end()) {
         return failure("unknown REPL command slot");
@@ -1128,8 +1185,16 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
       runtime.values.code = cached->second.code;
       result = call_ir_entry(cached->second.entry, runtime);
     }
+    clear_repl_cancellation();
+    llvm::json::Array previews;
+    for (auto& item : runtime.values.previews)
+      previews.push_back(llvm::json::Object{{"offset", static_cast<std::int64_t>(item.offset)},
+                                            {"id", item.id}, {"kind", std::move(item.kind)},
+                                            {"key", std::move(item.key)},
+                                            {"markdown", std::move(item.markdown)}});
     reply(llvm::json::Object{
         {"compiled", compiled},
+        {"previews", std::move(previews)},
         {"exit", runtime.values.exit_requested},
         {"output", std::move(runtime.output)},
         {"error", llvm::toString(std::move(result))},

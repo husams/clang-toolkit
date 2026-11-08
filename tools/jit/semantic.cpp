@@ -991,6 +991,18 @@ bool semantic_kind(const SemanticValue& value, llvm::StringRef kind) {
   return llvm::StringRef(owner.message->GetDescriptor()->name()) == kind;
 }
 
+llvm::json::Object semantic_preview_metadata(const SemanticValue& value) {
+  llvm::json::Array availability;
+  for (const auto* field : value.availability) {
+    availability.push_back(llvm::json::Array{
+        field->field_path(),
+        field->has_state() ? llvm::json::Value(static_cast<int>(field->state())) : nullptr,
+        field->has_reason() ? llvm::json::Value(field->reason()) : nullptr,
+    });
+  }
+  return llvm::json::Object{{"path", value.path}, {"availability", std::move(availability)}};
+}
+
 llvm::Expected<llvm::json::Object> semantic_snapshot(const SemanticValue& value, llvm::StringRef only_field) {
   if (value.file_handle || value.message->GetDescriptor() == match::SessionInfo::descriptor())
     return fail("native resource handles cannot be saved");
@@ -1031,20 +1043,9 @@ llvm::Expected<llvm::json::Object> semantic_snapshot(const SemanticValue& value,
     return decoded.takeError();
   if (!decoded->getAsObject())
     return fail("semantic snapshot requires a message object");
-  llvm::json::Array availability;
-  for (const auto* field : value.availability) {
-    availability.push_back(llvm::json::Array{
-        field->field_path(),
-        field->has_state() ? llvm::json::Value(static_cast<int>(field->state())) : nullptr,
-        field->has_reason() ? llvm::json::Value(field->reason()) : nullptr,
-    });
-  }
-  llvm::json::Object result{
-      {"message_type", std::string(message->GetDescriptor()->full_name())},
-      {"message", std::move(*decoded)},
-      {"path", value.path},
-      {"availability", std::move(availability)},
-  };
+  auto result = semantic_preview_metadata(value);
+  result["message_type"] = std::string(message->GetDescriptor()->full_name());
+  result["message"] = std::move(*decoded);
   if (!only_field.empty())
     result["field"] = only_field;
   return result;

@@ -34,6 +34,7 @@ llvm::Expected<Value> semantic_field(const SemanticValue& value, llvm::StringRef
 llvm::Expected<Value> semantic_method(const SemanticValue& value, llvm::StringRef name,
                                       const Sequence& arguments, Values* runtime = nullptr);
 bool semantic_kind(const SemanticValue& value, llvm::StringRef kind);
+llvm::json::Object semantic_preview_metadata(const SemanticValue& value);
 llvm::Expected<llvm::json::Object> semantic_snapshot(const SemanticValue& value,
                                                      llvm::StringRef only_field = {});
 llvm::Expected<Value> restore_semantic_snapshot(const llvm::json::Object& snapshot);

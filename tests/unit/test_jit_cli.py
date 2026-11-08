@@ -1395,3 +1395,103 @@ print rows[0].source_file
     actual = load_snapshot(jit_project / "matches.proto").rows[0]
     assert actual["source_file"] == row["source_file"]
     assert actual["bindings"]["f"]["symbol_identity"] == row["bindings"]["f"]["symbol_identity"]
+
+def test_standalone_workspace_reads_live_panels_and_frozen_previews(jit_project: Path) -> None:
+    import asyncio
+
+    from clang_toolkit.cli.jit_workspace import NativeWorkspace, command_outcome
+    from clang_toolkit.cli.workspace_state import outline_snapshot
+
+    env = {**os.environ, "CTK_SERVER": "unix:///tmp/ctk-jit-test-missing.sock"}
+    with subprocess.Popen(
+        [_RUNNER, "repl", "", "compile_commands.json"], cwd=jit_project,
+        env=env, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    ) as process:
+        assert process.stdin and process.stdout
+        assert json.loads(process.stdout.readline())["ready"]
+
+        progress = []
+
+        def exchange(request):
+            process.stdin.write(json.dumps(request) + "\n")
+            process.stdin.flush()
+            assert select([process.stdout], [], [], 30)[0], request
+            while line := process.stdout.readline():
+                reply = json.loads(line)
+                if "progress" in reply:
+                    progress.append(reply["progress"])
+                    continue
+                assert not reply.get("error"), reply
+                return reply
+            pytest.fail("native workspace closed before replying")
+
+        def submit(slot, source):
+            return exchange({"slot": slot, "ir": jit.lower_repl(source), "workspace": True})
+
+        async def verify():
+            workspace = NativeWorkspace(exchange, asyncio.Lock())
+            reply = submit(0, 'let values = range(60); print "α"; print values; print "end"')
+            parts = command_outcome(reply).parts
+            assert [part.output for part in parts] == ["α", "", "end"]
+            kind, result = parts[1].outline_value
+            expanded = frozenset({"$List"})
+            entries = await workspace.result(kind, result, expanded, {"$List": 1})
+            assert entries == outline_snapshot({"List": list(range(60))}, expanded, {"$List": 1})
+            submit(1, "set values[50] = 100")
+            assert await workspace.result(kind, result, expanded, {"$List": 1}) == entries
+            live = await workspace.outline(frozenset({"$values"}), {"$values": 1})
+            assert any(item.label == "[50] = 100" for item in live)
+
+            match = submit(2, 'match functionDecl(hasName("add")).bind("f") in "example.cpp"')
+            kind, result = command_outcome(match).parts[0].outline_value
+            matches = await workspace.result(kind, result, frozenset({"$Matches", "$Matches[0]"}), {})
+            link = next(row.source for row in matches if row.source and row.label.startswith("f "))
+            assert (Path(link.path).name, link.line) == ("example.cpp", 6)
+
+            submit(3, 'file open "example.cpp" into $file')
+            inventory = await workspace.resources(frozenset({":files", ":sessions"}))
+            opened = next(item for item in inventory if item.label.startswith("example.cpp"))
+            assert opened.commands[0][1].startswith('file close "')
+            status = await workspace.status()
+            assert status.cache.memory_available
+            submit(4, opened.commands[0][1])
+            empty = await workspace.resources(frozenset({":files"}))
+            assert any(item.label == "No open files" for item in empty)
+
+            submit(5, 'let cursor = cursor open "example.cpp" functionDecl(hasName("add")).bind("f")')
+            retained = await workspace.resources(frozenset({":sessions"}))
+            session = next(item for item in retained if item.identity.startswith("session:"))
+            submit(6, session.commands[0][1])
+            assert any(row.identity == "$attached1" for row in await workspace.outline(frozenset(), {}))
+            submit(7, session.commands[1][1])
+
+            batch = submit(8, 'let inputs = files ["example.cpp"]; batch part in $inputs size 1 do { len(part.inputs) }')
+            assert progress[0]["state"] == "running" and progress[-1]["state"] == "completed"
+            assert command_outcome(batch).parts[-1].outline_value[0] == "batch_statement"
+            help_result = command_outcome(submit(9, "help loops")).parts[0]
+            assert help_result.markdown.startswith("# Console loops")
+
+        try:
+            asyncio.run(verify())
+        finally:
+            process.stdin.close()
+            process.wait(timeout=20)
+        assert process.returncode == 0
+
+
+def test_native_command_previews_match_existing_console(jit_project: Path) -> None:
+    source = """\
+session list
+let fileset = files ["example.cpp"]
+file list discovered in $fileset
+script "let n = 7; emit n;"
+let rows = match functionDecl(anyOf(hasName("add"), hasName("square"))).bind("f") in "example.cpp"
+inspect rows[1].f
+let inspection = inspect {a:1}
+print len(inspection)
+match functionDecl(hasName("add")).bind("f") in "example.cpp"
+"""
+    expected = _native_console_oracle(jit_project, source)
+    assert _run_jit(jit_project, source).stdout == expected + "\n"
+    _output(jit_project, "precompile", "query.ctk", "-o", "previews.bundle")
+    assert _output(jit_project, "run", "--bundle", "previews.bundle", *_TARGET) == expected + "\n"

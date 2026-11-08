@@ -1,4 +1,5 @@
 #include "embedded_services.hpp"
+#include "workspace.hpp"
 #include "file_values.hpp"
 
 #include "ctk/application/batch_registry.hpp"
@@ -425,6 +426,8 @@ const Value* batch_command(Values& runtime, app::BatchRegistry& registry, llvm::
         return runtime.fail(detail);
     }
   }
+  if (runtime.workspace && runtime.state.output_path.empty())
+    runtime.workspace->durable(run);
   auto text = display ? batch_summary(run) : std::string{};
   return show(runtime, std::move(run), display, std::move(text));
 }

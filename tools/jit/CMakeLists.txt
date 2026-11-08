@@ -57,9 +57,11 @@ add_executable(ctk-jit-runner
   filters.cpp
   documents.cpp
   typed_snapshot.cpp
+  workspace.cpp
   settings.cpp
   platform/compiler_channel.cpp
-  platform/file_values.cpp)
+  platform/file_values.cpp
+  platform/repl_cancellation.cpp)
 target_compile_features(ctk-jit-runner PRIVATE cxx_std_23)
 set_target_properties(ctk-jit-runner PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")

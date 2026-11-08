@@ -34,7 +34,19 @@ def compiler_channel(
                     for line in stream:
                         try:
                             request = json.loads(line)
-                            if "history" in request:
+                            if "render" in request:
+                                from .jit_previews import render_preview
+
+                                try:
+                                    response = {
+                                        "text": render_preview(
+                                            request["render"], request["value"]
+                                        )
+                                    }
+                                except Exception as error:
+                                    # A presentation failure must leave the native runner free to use its renderer.
+                                    response = {"error": str(error)}
+                            elif "history" in request:
                                 action = request["history"]
                                 if history is not None:
                                     history(action, request["value"])

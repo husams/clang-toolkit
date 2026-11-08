@@ -24,6 +24,16 @@ llvm::Expected<std::string> CompilerChannel::lower(llvm::StringRef source, llvm:
   return request(llvm::json::Object{{"source", source}, {"path", path}, {"library", library}}, "ir");
 }
 
+std::optional<std::string> CompilerChannel::render(llvm::StringRef kind, llvm::json::Value value) {
+  if (!input)
+    return std::nullopt;
+  auto result = request(llvm::json::Object{{"render", kind}, {"value", std::move(value)}}, "text");
+  if (result)
+    return std::move(*result);
+  llvm::consumeError(result.takeError());
+  return std::nullopt;
+}
+
 llvm::Error CompilerChannel::history(llvm::StringRef action, const std::string* value) {
   if (!input && action == "label")
     return llvm::Error::success();
