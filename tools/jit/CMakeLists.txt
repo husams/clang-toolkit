@@ -24,8 +24,11 @@ if(APPLE AND NOT DEFINED ICU_ROOT)
   endforeach()
 endif()
 find_package(ICU REQUIRED COMPONENTS uc data)
+find_package(ZLIB REQUIRED)
 find_path(CTK_JIT_YAML_INCLUDE_DIR yaml.h REQUIRED)
 find_library(CTK_JIT_YAML_LIBRARY yaml REQUIRED)
+find_path(CTK_JIT_PCRE2_INCLUDE_DIR pcre2.h REQUIRED)
+find_library(CTK_JIT_PCRE2_LIBRARY pcre2-8 REQUIRED)
 if(LLVM_PACKAGE_VERSION VERSION_LESS 21 OR NOT TARGET clang-cpp OR NOT TARGET LLVM)
   message(FATAL_ERROR "ctk-jit requires LLVM 21 or newer with shared Clang and LLVM libraries")
 endif()
@@ -46,8 +49,20 @@ if(APPLE)
   endif()
 endif()
 
+find_package(ftxui 7.0.3 CONFIG QUIET)
+if(NOT TARGET ftxui::component)
+  include(FetchContent)
+  FetchContent_Declare(ctk_ftxui
+    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+    GIT_TAG f921fad208912747c17d129a8ef75ec7624b6eec)
+  FetchContent_MakeAvailable(ctk_ftxui)
+endif()
+
 add_executable(ctk-jit-runner
   main.cpp
+  grammar/syntax.cpp
+  grammar/lower.cpp
+  grammar/help.cpp
   ir.cpp
   analysis.cpp
   local_operations.cpp
@@ -58,15 +73,20 @@ add_executable(ctk-jit-runner
   documents.cpp
   typed_snapshot.cpp
   workspace.cpp
+  native_workspace.cpp
+  native_history.cpp
   settings.cpp
   platform/compiler_channel.cpp
   platform/file_values.cpp
+  platform/launch.cpp
   platform/repl_cancellation.cpp)
 target_compile_features(ctk-jit-runner PRIVATE cxx_std_23)
 set_target_properties(ctk-jit-runner PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")
-target_include_directories(ctk-jit-runner SYSTEM PRIVATE ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
+target_include_directories(ctk-jit-runner SYSTEM PRIVATE
+  ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS} "${CTK_JIT_PCRE2_INCLUDE_DIR}")
 target_compile_definitions(ctk-jit-runner PRIVATE
+  CTK_JIT_LEGACY_CLI="${CMAKE_CURRENT_SOURCE_DIR}/../../.venv/bin/ctk-jit"
   CTK_JIT_INDEX_WORKER="$<TARGET_FILE:ctk-index-worker>"
   CTK_JIT_COMPILER="${CTK_JIT_CLANG}"
   CTK_JIT_CLANG_LIBRARY="$<TARGET_FILE:clang-cpp>"
@@ -81,6 +101,7 @@ target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_RESOURCE_DIR="${CTK_JIT_RESOURCE_DIR}"
   CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}")
 target_link_libraries(ctk-jit-runner PRIVATE
-  ctk_script_commands ctk_project_index clang-cpp LLVM ICU::uc "${CTK_JIT_YAML_LIBRARY}")
+  ctk_script_commands ctk_project_index clang-cpp LLVM ICU::uc ZLIB::ZLIB ftxui::component
+  "${CTK_JIT_YAML_LIBRARY}" "${CTK_JIT_PCRE2_LIBRARY}")
 
 add_dependencies(ctk-jit-runner ctk-index-worker)

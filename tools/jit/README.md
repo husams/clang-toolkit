@@ -1,9 +1,9 @@
 # Standalone CTK JIT prototype
 
-Build the local runner with LLVM and Clang 21 or newer, plus the ICU and libyaml
-development libraries, Protobuf and OpenSSL. Run the CLI from the repository's
-Python environment. The build uses the repository's native Clang libraries
-and turns off the server and its gRPC transport.
+Build the local runner with LLVM and Clang 21 or newer, ICU, libyaml, PCRE2,
+zlib, Protobuf, and OpenSSL development libraries. CMake uses FTXUI 7.0.3 or
+fetches the pinned source. The standalone build uses the repository's native
+Clang libraries with the server and gRPC transport disabled.
 
 ```sh
 cmake -S tools/jit -B build/jit -G Ninja
@@ -18,6 +18,21 @@ On macOS, use the matching Homebrew Clang when generating an entry with
 `clang++ -MJ` so the entry uses flags understood by the runner.
 The CLI accepts a database directory or the JSON file itself. Use `--runner`
 for a native runner built outside `build/jit`.
+
+Use the native runner as the installed `ctk-jit` workspace entry point.
+
+```sh
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$PWD/build/jit/ctk-jit-runner" "$HOME/.local/bin/ctk-jit"
+ctk-jit repl --ui --file src/example.cpp --compdb build/
+```
+
+The launcher enters FTXUI for `repl --ui` and `repl --ui workspace`. Those modes
+parse fresh CTK source and generate LLVM IR inside the native process. The
+repository's Python environment provides `run`, `precompile`, and
+`repl --ui prompt`. Regenerate the bundled grammar and help from their shared
+sources with `uv run python tools/jit/grammar/generate.py`.
+
 LLVM scripts can omit `--file` and `--compdb` when they supply their own input
 or operate on ordinary values. Use `--arg name=value` to supply a script value
 as `arg.name`.
@@ -46,8 +61,8 @@ file lists, and retained nodes with `scope self`, `scope subtree`, or
 `scope children`.
 The runner can parse inline C++ and retains the ASTs referenced by saved
 results. It supports text reads, JSON, YAML and CSV reads and writes, output
-routing, and definitions-only imports. The existing
-frontend compiles imported definitions and dynamic `ctk()` commands on demand.
+routing, and definitions-only imports. In the native workspace, the LLVM IR
+frontend also compiles imported definitions and dynamic `ctk()` commands on demand.
 
 CFG, call graph, variable flow, traversal, `peek`, and `step` use the
 existing native analysis code and the retained AST. File discovery, file

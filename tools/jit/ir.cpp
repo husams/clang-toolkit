@@ -1,4 +1,6 @@
 #include "ir.hpp"
+#include "grammar/lower.hpp"
+#include "native_history.hpp"
 #include "file_values.hpp"
 #include "filters.hpp"
 #include "analysis.hpp"
@@ -788,8 +790,8 @@ llvm::Expected<IrEntry> lookup_ir_entry(llvm::orc::LLJIT& jit, llvm::StringRef n
 
 class RuntimeCompiler {
 public:
-  explicit RuntimeCompiler(llvm::orc::LLJIT& jit)
-      : jit(jit) {}
+  explicit RuntimeCompiler(llvm::orc::LLJIT& jit, NativeHistory* native_history = nullptr)
+      : jit(jit), channel(native_history == nullptr), native_history(native_history) {}
 
   llvm::Expected<CompiledCommand> compile(llvm::StringRef source, llvm::StringRef path,
                                           bool library) {
@@ -801,7 +803,8 @@ public:
     if (cached != cache.end() && cached->second.source == source)
       return cached->second.command;
 
-    auto lowered = channel.lower(source, path, library);
+    auto lowered = channel.available() ? channel.lower(source, path, library) :
+                                        lower_ctk(source, false, path, library);
     if (!lowered)
       return lowered.takeError();
     const auto symbol = "ctk_jit_runtime_entry_" + std::to_string(next++);
@@ -826,7 +829,7 @@ public:
   }
 
   llvm::Error history(llvm::StringRef action, const std::string* value) {
-    return channel.history(action, value);
+    return native_history ? native_history->action(action, value) : channel.history(action, value);
   }
 
   std::vector<std::string> import_stack;
@@ -839,6 +842,7 @@ private:
 
   llvm::orc::LLJIT& jit;
   CompilerChannel channel;
+  NativeHistory* native_history;
   llvm::StringMap<Cached> libraries;
   llvm::StringMap<Cached> expressions;
   std::uint64_t next = 0;
@@ -1078,17 +1082,25 @@ llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, bool precompiled, 
 }
 
 llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
-                    const LoadTarget& load, const ScriptArguments& arguments) {
+                    const LoadTarget& load, const ScriptArguments& arguments,
+                    const ReplIO* io) {
   auto jit = create_ir_jit();
   if (!jit) {
     return jit.takeError();
   }
-  RuntimeCompiler compiler(**jit);
+  std::optional<NativeHistory> history;
+  if (io)
+    history.emplace();
+  RuntimeCompiler compiler(**jit, history ? &*history : nullptr);
   std::mutex output_mutex;
   auto reply = [&](llvm::json::Object response) {
     std::lock_guard lock(output_mutex);
-    llvm::outs() << llvm::json::Value(std::move(response)) << '\n';
-    llvm::outs().flush();
+    if (io) {
+      io->send(std::move(response));
+    } else {
+      llvm::outs() << llvm::json::Value(std::move(response)) << '\n';
+      llvm::outs().flush();
+    }
   };
   Targets targets(file, database, load);
   targets.local.set_events([&](std::string event) { reply(llvm::json::Object{{"event", std::move(event)}}); });
@@ -1106,17 +1118,43 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
   llvm::DenseMap<std::int64_t, CompiledCommand> commands;
   std::uint64_t entry_number = 0;
   install_repl_cancellation();
-  llvm::outs() << "{\"ready\":true,\"protocol\":3}\n";
-  llvm::outs().flush();
+  llvm::json::Object ready{{"ready", true}, {"protocol", 3}};
+  if (history) {
+    auto commands = history->read();
+    if (commands)
+      ready["history"] = std::move(*commands);
+    else
+      ready["history_error"] = llvm::toString(commands.takeError());
+  }
+  if (io) {
+    reply(std::move(ready));
+  } else {
+    llvm::outs() << "{\"ready\":true,\"protocol\":3}\n";
+    llvm::outs().flush();
+  }
 
-  // Requests identify a cache slot and supply LLVM IR only on a miss.
-  std::string line;
-  while (std::getline(std::cin, line)) {
+  auto receive = [&]() -> llvm::Expected<std::optional<llvm::json::Object>> {
+    if (io)
+      return io->receive();
+    std::string line;
+    if (!std::getline(std::cin, line))
+      return std::nullopt;
     auto request = llvm::json::parse(line);
-    if (!request) {
+    if (!request)
       return request.takeError();
-    }
-    const auto* command = request->getAsObject();
+    if (auto* object = request->getAsObject())
+      return std::move(*object);
+    return failure("expected a REPL command object");
+  };
+
+  // Requests identify a cache slot and supply code only on a miss.
+  for (;;) {
+    auto request = receive();
+    if (!request)
+      return request.takeError();
+    if (!*request)
+      break;
+    const auto* command = &**request;
     if (command) {
       if (const auto inspect = command->getString("inspect")) {
         if (*inspect == "outline") {
@@ -1143,7 +1181,13 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
         continue;
       }
     }
-    const auto slot = command ? command->getInteger("slot") : std::nullopt;
+    if (history) {
+      if (auto source = command->getString("history")) {
+        if (auto error = history->append(*source))
+          reply(llvm::json::Object{{"history_error", llvm::toString(std::move(error))}});
+      }
+    }
+    const auto slot = command->getInteger("slot");
     if (!slot || *slot < 0) {
       return failure("expected a REPL command slot");
     }
@@ -1152,11 +1196,26 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
     auto cached = commands.find(*slot);
     bool compiled = false;
     llvm::Error result = llvm::Error::success();
-    if (auto source = command->getString("ir")) {
+    auto ir = command->getString("ir");
+    std::string native_ir;
+    if (auto source = command->getString("source")) {
+      if (ir) {
+        result = failure("provide CTK source or LLVM IR");
+      } else {
+        auto lowered = lower_ctk(*source);
+        if (!lowered) {
+          result = lowered.takeError();
+        } else {
+          native_ir = std::move(*lowered);
+          ir = native_ir;
+        }
+      }
+    }
+    if (ir && !result) {
       // The previous entry remains usable until the replacement links.
       const auto name = "ctk_jit_repl_entry_" + std::to_string(entry_number++);
       auto tracker = (*jit)->getMainJITDylib().createResourceTracker();
-      result = add_ir(**jit, *source, tracker, name);
+      result = add_ir(**jit, *ir, tracker, name);
       if (!result) {
         auto entry = lookup_ir_entry(**jit, name);
         if (!entry) {
@@ -1196,6 +1255,7 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
         {"compiled", compiled},
         {"previews", std::move(previews)},
         {"exit", runtime.values.exit_requested},
+        {"history_cleared", history && history->take_cleared()},
         {"output", std::move(runtime.output)},
         {"error", llvm::toString(std::move(result))},
     });

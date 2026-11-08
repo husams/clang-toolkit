@@ -13,7 +13,7 @@ namespace ctk::jit {
 
 class CompilerChannel {
 public:
-  CompilerChannel();
+  explicit CompilerChannel(bool enabled = true);
   llvm::Expected<std::string> lower(llvm::StringRef source, llvm::StringRef path, bool library);
 
   bool available() const { return static_cast<bool>(input); }

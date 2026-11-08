@@ -6,7 +6,9 @@
 
 namespace ctk::jit {
 
-CompilerChannel::CompilerChannel() {
+CompilerChannel::CompilerChannel(bool enabled) {
+  if (!enabled)
+    return;
   if (const auto* value = std::getenv("CTK_JIT_COMPILER_FD")) {
     unsigned descriptor;
     if (!llvm::StringRef(value).getAsInteger(10, descriptor) && descriptor >= 3) {

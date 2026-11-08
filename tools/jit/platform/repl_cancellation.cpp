@@ -10,13 +10,17 @@ std::atomic<bool> cancelled{false};
 static_assert(decltype(cancelled)::is_always_lock_free);
 
 void cancel(int) {
-  cancelled.store(true, std::memory_order_relaxed);
+  request_repl_cancellation();
 }
 
 } // namespace
 
 void install_repl_cancellation() {
   std::signal(SIGUSR1, cancel);
+}
+
+void request_repl_cancellation() {
+  cancelled.store(true, std::memory_order_relaxed);
 }
 
 void clear_repl_cancellation() {

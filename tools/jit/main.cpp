@@ -25,7 +25,11 @@
 #include <llvm/TargetParser/Triple.h>
 
 #include "ctk/jit/runtime.hpp"
+#include "grammar/lower.hpp"
+#include "grammar/syntax.hpp"
 #include "ir.hpp"
+#include "native_workspace.hpp"
+#include "platform/launch.hpp"
 
 namespace {
 
@@ -203,7 +207,7 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
     return failure("could not initialize LLVM's native target");
 
   std::unique_ptr<llvm::MemoryBuffer> input;
-  if (mode != "repl") {
+  if (mode != "repl" && mode != "workspace") {
     auto buffer = llvm::MemoryBuffer::getSTDIN();
     if (!buffer)
       return llvm::errorCodeToError(buffer.getError());
@@ -214,7 +218,7 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
 
   clang::DiagnosticOptions diagnostic_options;
   clang::TextDiagnosticPrinter diagnostics(llvm::errs(), diagnostic_options);
-  const bool native_ir = mode == "ir" || mode == "ir-object" || mode == "repl";
+  const bool native_ir = mode == "ir" || mode == "ir-object" || mode == "repl" || mode == "workspace";
   std::unique_ptr<clang::ASTUnit> ast;
   std::string default_file;
   if (*target_path) {
@@ -243,7 +247,11 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
   }
   const ctk::jit::LoadTarget load = [&](const ctk::jit::TargetRequest &request)
       -> llvm::Expected<std::unique_ptr<clang::ASTUnit>> {
-    clang::TextDiagnosticPrinter printer(llvm::errs(), diagnostic_options);
+    std::string workspace_diagnostics;
+    llvm::raw_string_ostream buffered(workspace_diagnostics);
+    const bool workspace = mode == "workspace";
+    auto& diagnostic_output = workspace ? static_cast<llvm::raw_ostream&>(buffered) : llvm::errs();
+    clang::TextDiagnosticPrinter printer(diagnostic_output, diagnostic_options);
     auto file = fs::path(request.file);
     if (!file.empty() && !file.is_absolute() && !request.directory.empty())
       file = fs::path(request.directory) / file;
@@ -256,8 +264,12 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
                               : std::nullopt;
       auto unit =
           parse_target(file, database, printer, request.arguments, source);
-      if (!unit)
-        return unit.takeError();
+      if (!unit) {
+        auto error = unit.takeError();
+        if (!workspace_diagnostics.empty())
+          return failure(llvm::toString(std::move(error)) + "\n" + workspace_diagnostics);
+        return error;
+      }
       (*unit)->getDiagnostics().setClient(new clang::IgnoringDiagConsumer());
       return unit;
     }
@@ -276,12 +288,17 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
         std::make_shared<clang::PCHContainerOperations>(),
         tooling::getClangStripDependencyFileAdjuster(), {}, &printer);
     if (!unit || printer.getNumErrors() ||
-        unit->getDiagnostics().hasErrorOccurred())
+        unit->getDiagnostics().hasErrorOccurred()) {
+      if (!workspace_diagnostics.empty())
+        return failure("could not parse C++ snippet\n" + workspace_diagnostics);
       return failure("could not parse C++ snippet");
+    }
     unit->getDiagnostics().setClient(new clang::IgnoringDiagConsumer());
     return unit;
   };
   auto* context_ast = ast ? &ast->getASTContext() : nullptr;
+  if (mode == "workspace")
+    return ctk::jit::run_native_workspace(default_file, database_path, load, arguments);
   if (mode == "repl")
     return ctk::jit::repl_ir(default_file, database_path, load, arguments);
   if (mode == "ir" || mode == "ir-object")
@@ -297,21 +314,148 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
 
 } // namespace
 
+static bool selects_workspace(int argc, char** argv) {
+  if (argc < 3 || llvm::StringRef(argv[1]) != "repl")
+    return false;
+  bool workspace = false;
+  for (int index = 2; index < argc; ++index) {
+    const llvm::StringRef argument(argv[index]);
+    const auto [flag, inline_value] = argument.split('=');
+    const bool assigned = argument.contains('=');
+    if (flag == "--ui" || flag == "--u") {
+      auto value = assigned ? inline_value : llvm::StringRef("workspace");
+      if (!assigned && index + 1 < argc && argv[index + 1][0] != '-')
+        value = argv[++index];
+      workspace = value == "workspace";
+    } else if (!assigned &&
+               (flag == "--file" || flag == "--compdb" || flag == "--arg" || flag == "--runner")) {
+      ++index;
+    }
+  }
+  return workspace;
+}
+
+static llvm::Error native_workspace_cli(int argc, char** argv) {
+  std::string file;
+  std::string database;
+  std::string runner;
+  llvm::json::Object arguments;
+  bool workspace = false;
+  for (int index = 2; index < argc; ++index) {
+    const llvm::StringRef argument(argv[index]);
+    const auto [flag, inline_value] = argument.split('=');
+    const bool assigned = argument.contains('=');
+    if (flag == "--help" || flag == "-h") {
+      llvm::outs() << "usage: ctk-jit repl --ui [workspace] [--file FILE] [--compdb COMPDB]"
+                      " [--arg NAME=VALUE] [--runner RUNNER]\n";
+      return llvm::Error::success();
+    }
+    if (flag == "--ui" || flag == "--u") {
+      llvm::StringRef mode = assigned ? inline_value : "workspace";
+      if (!assigned && index + 1 < argc && argv[index + 1][0] != '-')
+        mode = argv[++index];
+      if (mode != "workspace")
+        return failure("the native workspace entry point requires --ui workspace");
+      workspace = true;
+      continue;
+    }
+    if (flag != "--file" && flag != "--compdb" && flag != "--arg" && flag != "--runner")
+      return failure(llvm::Twine("unknown workspace option ") + flag);
+    llvm::StringRef value = inline_value;
+    if (!assigned) {
+      if (index + 1 == argc)
+        return failure(llvm::Twine("missing value for ") + flag);
+      value = argv[++index];
+    }
+    if (flag == "--file")
+      file = value.str();
+    else if (flag == "--compdb")
+      database = value.str();
+    else if (flag == "--runner")
+      runner = value.str();
+    else {
+      const auto [name, item] = value.split('=');
+      if (name.empty() || !value.contains('='))
+        return failure("--arg expects NAME=VALUE");
+      arguments[name] = item;
+    }
+  }
+  if (!workspace)
+    return failure("the native workspace entry point requires --ui");
+  auto encoded = llvm::formatv("{0}", llvm::json::Value(std::move(arguments))).str();
+  if (!runner.empty()) {
+    std::string mode = "workspace";
+    char* native[] = {runner.data(), mode.data(), file.data(), database.data(), encoded.data(), nullptr};
+    return ctk::jit::launch_cli(runner, native);
+  }
+  return run("workspace", file.c_str(), database.c_str(), nullptr, nullptr, encoded.c_str());
+}
+
+static llvm::json::Array syntax_json(const ctk::jit::Syntax& tree) {
+  llvm::json::Array value;
+  value.emplace_back(tree.name);
+  if (!tree.text.empty())
+    value.emplace_back(tree.text);
+  for (const auto& child : tree.children)
+    value.push_back(syntax_json(child));
+  return value;
+}
+
 int main(int argc, char **argv) {
   const llvm::StringRef mode = argc >= 2 ? argv[1] : "";
+  if (fs::path(argv[0]).filename() == "ctk-jit" && !selects_workspace(argc, argv)) {
+    auto error = ctk::jit::launch_cli(CTK_JIT_LEGACY_CLI, argv);
+    llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
+    return 1;
+  }
+  if (argc == 2 && (mode == "parse-ctk" || mode == "lower-ctk")) {
+    auto input = llvm::MemoryBuffer::getSTDIN();
+    if (!input) {
+      llvm::errs() << "ctk-jit: " << input.getError().message() << '\n';
+      return 1;
+    }
+    if (mode == "lower-ctk") {
+      auto ir = ctk::jit::lower_ctk((*input)->getBuffer());
+      if (!ir) {
+        llvm::logAllUnhandledErrors(ir.takeError(), llvm::errs(), "ctk-jit: ");
+        return 1;
+      }
+      llvm::outs() << *ir;
+      return 0;
+    }
+    auto tree = ctk::jit::parse_ctk((*input)->getBuffer());
+    if (!tree) {
+      llvm::logAllUnhandledErrors(tree.takeError(), llvm::errs(), "ctk-jit: ");
+      return 1;
+    }
+    llvm::outs() << llvm::json::Value(syntax_json(*tree)) << '\n';
+    return 0;
+  }
+  if (mode == "repl" && argc > 2 && argv[2][0] == '-') {
+    try {
+      if (auto error = native_workspace_cli(argc, argv)) {
+        llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
+        return 1;
+      }
+      return 0;
+    } catch (const std::exception& error) {
+      llvm::errs() << "ctk-jit: " << error.what() << '\n';
+      return 1;
+    }
+  }
   if (argc == 2 && mode == "config") {
     print_config();
     return 0;
   }
   const bool source = mode == "source" && (argc == 5 || argc == 6);
   const bool ir = (argc == 4 || argc == 5) &&
-                  (mode == "ir" || mode == "ir-object" || mode == "repl");
+                  (mode == "ir" || mode == "ir-object" || mode == "repl" || mode == "workspace");
   const bool query = (argc == 4 && mode == "object") || ir;
   const bool compile = argc == 2 && mode == "compile-ir";
   if (!source && !query && !compile) {
     llvm::errs()
         << "usage: ctk-jit-runner source FILE COMPDB SCRIPT_DIRECTORY [PCH]\n"
-           "       ctk-jit-runner object|ir|ir-object|repl FILE COMPDB\n"
+           "       ctk-jit-runner object|ir|ir-object|repl|workspace FILE COMPDB\n"
            "       ctk-jit-runner compile-ir\n";
     return 2;
   }

@@ -691,12 +691,10 @@ def _compiled_console_output(
 
 
 def _native_repl_submission(project: Path, script: str) -> str:
-    program = jit.lower_repl(script)
-    assert program is not None
     result = subprocess.run(
         [_RUNNER, "repl", "example.cpp", "compile_commands.json"],
         cwd=project,
-        input=json.dumps({"slot": 0, "ir": program}) + "\n",
+        input=json.dumps({"slot": 0, "source": script}) + "\n",
         text=True,
         capture_output=True,
         timeout=60,
@@ -887,7 +885,7 @@ def _embedded_repl(jit_project: Path):
                 request = {"slot": slots[script]}
             else:
                 slots[script] = len(slots)
-                request = {"slot": slots[script], "ir": jit.lower_repl(script)}
+                request = {"slot": slots[script], "source": script}
             process.stdin.write(json.dumps(request) + "\n")
             process.stdin.flush()
             assert select([process.stdout], [], [], 60)[0], script
@@ -1446,7 +1444,7 @@ def test_standalone_workspace_reads_live_panels_and_frozen_previews(jit_project:
             pytest.fail("native workspace closed before replying")
 
         def submit(slot, source):
-            return exchange({"slot": slot, "ir": jit.lower_repl(source), "workspace": True})
+            return exchange({"slot": slot, "source": source, "workspace": True})
 
         async def verify():
             workspace = NativeWorkspace(exchange, asyncio.Lock())
