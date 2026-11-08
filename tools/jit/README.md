@@ -1,7 +1,7 @@
 # Standalone CTK JIT prototype
 
-Build the local runner with LLVM and Clang 21 or newer, including their shared
-development libraries. Then run the CLI from the repository's Python environment.
+Build the local runner with LLVM and Clang 21 or newer, plus the ICU and libyaml
+development libraries. Run the CLI from the repository's Python environment.
 
 ```sh
 cmake -S tools/jit -B build/jit -G Ninja
@@ -16,6 +16,9 @@ On macOS, use the matching Homebrew Clang when generating an entry with
 `clang++ -MJ` so the entry uses flags understood by the runner.
 The CLI accepts a database directory or the JSON file itself. Use `--runner`
 for a native runner built outside `build/jit`.
+LLVM scripts can omit `--file` and `--compdb` when they supply their own input
+or operate on ordinary values. Use `--arg name=value` to supply a script value
+as `arg.name`.
 
 Save this as `query.ctk` to print each explicit function definition in the
 target source file.
@@ -35,14 +38,18 @@ through Clang's dynamic matcher registry. Repeated runs reuse a native object
 keyed by the script, front end, and toolchain. Use `--no-cache` for cold IR JIT.
 
 The native language covers values, collections, destructuring, arithmetic,
-conditionals, loops, runnables, pipelines, and error handlers. Matchers may
-use saved arguments and nested bindings. The runner can also parse inline
-C++ snippets and retains the ASTs referenced by saved results.
+conditionals, loops, runnables, pipelines, error handlers, and the console's
+built-in pipeline filters. Matchers can use saved arguments and bindings,
+file lists, and retained nodes with `scope self` or `scope subtree`.
+The runner can parse inline C++ and retains the ASTs referenced by saved
+results. It also supports text and CSV reads, ordinary JSON and YAML reads
+and writes, output routing, and definitions-only imports. The existing
+frontend compiles imported definitions and dynamic `ctk()` commands on demand.
 
-Language parity with the CTK console is still in progress. Imports, batch
-commands, cursor navigation, CFG and call-graph queries, project indexing,
-and server management commands require additional native implementations.
-Only selected collection filters and AST fields are available.
+Full console parity is still in progress. CFG, call graph, variable flow,
+cursor navigation, traversal, managed sessions, project indexing, and batches
+require additional implementations. AST field coverage, typed persistence,
+and some console commands also remain incomplete.
 
 Use `--cpp-jit` to select the C++ backend or `--llvm-ir` to select IR explicitly.
 
@@ -70,10 +77,10 @@ Add `--cpp-jit` to precompile a C++ bundle.
 `run --bundle` selects the backend from the manifest.
 
 Bundles contain a relocatable object and a manifest with the toolchain,
-build input, and object fingerprints. A bundle freezes the script
-and its included code at precompile time. Precompile again to include edits.
-The original script is optional when running the bundle. Load only trusted
-bundles, just as with native C++ extensions.
+build input, and object fingerprints. A bundle freezes the script and any
+C++ includes at precompile time. CTK `import` reads the library at execution
+time, including when a bundle runs. The original script is optional when
+running the bundle. Load only trusted bundles and native C++ extensions.
 
 `run query.ctk` and `precompile query.ctk` share an object cache per backend.
 For C++ objects, warm runs validate the script, toolchain, used headers, and

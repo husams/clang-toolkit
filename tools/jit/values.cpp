@@ -1,19 +1,25 @@
 #include "values.hpp"
+#include "documents.hpp"
+#include "filters.hpp"
+#include "value_access.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <utility>
 
+#include <clang/AST/ASTContext.h>
 #include <clang/AST/ASTTypeTraits.h>
 #include <clang/AST/DeclCXX.h>
 #include <clang/AST/Stmt.h>
+#include <clang/Basic/SourceManager.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/MathExtras.h>
 
 namespace ctk::jit {
+using namespace value_access;
 
 const Value* Values::hold(Value value) { return &temporaries.emplace_back(std::move(value)); }
 
@@ -49,21 +55,6 @@ bool Values::tick() {
 
 namespace {
 
-constexpr std::size_t max_items = 10000;
-
-template <typename T> const T* as(const Value& value) { return std::get_if<T>(&value.data); }
-
-template <typename T> T* object(const Value& value) {
-  const auto* handle = as<std::shared_ptr<T>>(value);
-  return handle ? handle->get() : nullptr;
-}
-
-Value list(std::vector<Value> items = {}, bool tuple = false) {
-  return {std::make_shared<Sequence>(Sequence{std::move(items), tuple})};
-}
-
-Value record() { return {std::make_shared<Record>()}; }
-
 template <typename T> Value related(const NativeNode& original, const T& node) {
   return {std::make_shared<NativeNode>(NativeNode{
       original.ast, std::make_shared<clang::DynTypedNode>(clang::DynTypedNode::create(node))})};
@@ -71,8 +62,13 @@ template <typename T> Value related(const NativeNode& original, const T& node) {
 
 std::optional<Value> node_property(const NativeNode& native, llvm::StringRef key) {
   const auto& node = *native.node;
-  if (key == "kind")
+  if (key == "kind" || key == "clang_kind")
     return Value{node.getNodeKind().asStringRef().str()};
+  if (key == "source_file") {
+    const auto& sources = native.ast->getSourceManager();
+    const auto file = sources.getFileEntryRefForID(sources.getMainFileID());
+    return file ? std::optional<Value>{Value{file->getName().str()}} : std::nullopt;
+  }
   if (const auto* decl = node.get<clang::NamedDecl>()) {
     if (key == "decl_name" || key == "name")
       return Value{decl->getNameAsString()};
@@ -152,8 +148,111 @@ void format(llvm::raw_ostream& out, const Value& value, bool quote) {
     out << matcher->text;
   } else if (const auto* runnable = object<Runnable>(value)) {
     out << runnable->name;
+  } else if (const auto* builtin = as<BuiltinFunction>(value)) {
+    out << builtin->name;
   } else {
     out << "null";
+  }
+}
+
+enum class Render { Console, Json, Tuple };
+
+void quote_tuple(llvm::raw_ostream& out, llvm::StringRef string) {
+  const auto quote = string.contains('\'') && !string.contains('"') ? '"' : '\'';
+  out << quote;
+  for (const unsigned char ch : string) {
+    if (ch == quote || ch == '\\')
+      out << '\\' << ch;
+    else if (ch == '\n')
+      out << "\\n";
+    else if (ch == '\r')
+      out << "\\r";
+    else if (ch == '\t')
+      out << "\\t";
+    else if (ch < 0x20 || ch == 0x7f) {
+      const char hex[] = "0123456789abcdef";
+      out << "\\x" << hex[ch >> 4] << hex[ch & 0xf];
+    } else
+      out << ch;
+  }
+  out << quote;
+}
+
+void render(llvm::raw_ostream& out, const Value& value, Render style, unsigned depth = 0) {
+  if (depth >= 16) {
+    out << (style == Render::Json ? R"({"…": "maximum depth reached"})" : "… <truncated>");
+    return;
+  }
+  if (const auto* text = as<std::string>(value)) {
+    if (style == Render::Tuple)
+      quote_tuple(out, *text);
+    else if (style == Render::Json)
+      out << llvm::json::Value(*text);
+    else
+      out << *text;
+  } else if (const auto* number = as<double>(value)) {
+    out << format_float(*number);
+  } else if (const auto* flag = as<bool>(value)) {
+    if (style == Render::Tuple)
+      out << (*flag ? "True" : "False");
+    else
+      out << (*flag ? "true" : "false");
+  } else if (std::holds_alternative<std::monostate>(value.data)) {
+    out << (style == Render::Json ? "null" : "None");
+  } else if (const auto* sequence = object<Sequence>(value)) {
+    const bool tuple = sequence->tuple;
+    if (tuple && style == Render::Json) {
+      out << R"({"type": "tuple"})";
+      return;
+    }
+    const bool lines = !tuple && style == Render::Console;
+    if (!lines)
+      out << (tuple ? '(' : '[');
+    const auto size = style == Render::Json ? std::min<std::size_t>(20, sequence->items.size())
+                                            : sequence->items.size();
+    for (std::size_t index = 0; index < size; ++index) {
+      if (index)
+        out << (lines ? "\n" : ", ");
+      render(out, sequence->items[index], tuple ? Render::Tuple : style, depth + 1);
+      if (out.tell() > 20000 && lines)
+        break;
+    }
+    if (tuple && size == 1)
+      out << ',';
+    if (style == Render::Json && size < sequence->items.size())
+      out << ", {\"truncated_items\": " << sequence->items.size() - size << '}';
+    if (!lines)
+      out << (tuple ? ')' : ']');
+  } else if (const auto* mapping = object<Record>(value)) {
+    auto keys = mapping->keys;
+    if (style != Render::Tuple) {
+      if (keys.size() > 20)
+        keys.resize(20);
+      llvm::sort(keys);
+    }
+    out << '{';
+    bool first = true;
+    for (const auto& key : keys) {
+      if (!first)
+        out << ", ";
+      first = false;
+      if (style == Render::Tuple)
+        quote_tuple(out, key);
+      else
+        out << llvm::json::Value(key);
+      out << ": ";
+      render(out, mapping->fields.find(key)->second,
+             style == Render::Tuple ? Render::Tuple : Render::Json, depth + 1);
+    }
+    if (keys.size() < mapping->keys.size())
+      out << ", \"truncated_items\": " << mapping->keys.size() - keys.size();
+    out << '}';
+  } else if (const auto* ast = as<AstHandle>(value)) {
+    const auto& sources = (*ast)->getSourceManager();
+    const auto file = sources.getFileEntryRefForID(sources.getMainFileID());
+    out << "parsed " << (file ? file->getName() : llvm::StringRef("<input>"));
+  } else {
+    format(out, value, false);
   }
 }
 
@@ -342,6 +441,8 @@ extern "C" const Value* ctk_jit_value_literal_v1(Values* runtime, const char* te
 extern "C" const Value* ctk_jit_value_lookup_v1(Values* runtime, const char* name) {
   if (const auto* value = runtime->lookup(name))
     return runtime->hold(*value);
+  if (is_builtin(name))
+    return runtime->hold({BuiltinFunction{name}});
   return runtime->fail(llvm::Twine("undefined binding '") + name + "'");
 }
 
@@ -439,6 +540,8 @@ extern "C" const Value* ctk_jit_value_get_v1(Values* runtime, const Value* value
     return runtime->fail(llvm::Twine("no record field named '") + key + "'");
   }
   if (const auto* node = object<NativeNode>(*value)) {
+    if (property == "value" || property == "node")
+      return value;
     if (auto field = node_property(*node, property))
       return runtime->hold(std::move(*field));
   }
@@ -695,14 +798,21 @@ extern "C" void ctk_jit_value_restore_error_v1(Values* runtime, const Value* err
   runtime->error = *as<std::string>(*error);
 }
 
-extern "C" const Value* ctk_jit_value_runnable_v1(Values* runtime, const char* name,
-                                                  RunnableEntry entry) {
-  return runtime->hold(
-      {std::make_shared<Runnable>(Runnable{name, entry, runtime->scopes, runtime->code})});
+extern "C" const Value* ctk_jit_value_runnable_v2(Values* runtime, const char* name,
+                                                  RunnableEntry entry, std::uint64_t minimum,
+                                                  std::uint64_t maximum) {
+  return runtime->hold({std::make_shared<Runnable>(Runnable{
+      name, entry, minimum, maximum, runtime->source_path, runtime->scopes, runtime->code})});
 }
+
+} // namespace
 
 extern "C" const Value* ctk_jit_value_invoke_v1(Values* runtime, const Value* value,
                                                 const Value* arguments, const Value* keywords) {
+  if (const auto* builtin = as<BuiltinFunction>(*value)) {
+    return call_builtin(*runtime, builtin->name, object<Sequence>(*arguments)->items,
+                        *object<Record>(*keywords));
+  }
   const auto* runnable = object<Runnable>(*value);
   if (!runnable)
     return runtime->fail("value is not callable");
@@ -710,6 +820,7 @@ extern "C" const Value* ctk_jit_value_invoke_v1(Values* runtime, const Value* va
     return runtime->fail("runnable call depth exceeds 64");
   auto previous_scopes = std::move(runtime->scopes);
   auto previous_code = std::exchange(runtime->code, runnable->code);
+  auto previous_source = std::exchange(runtime->source_path, runnable->source_path);
   runtime->scopes = runnable->captured;
   runtime->push();
   if (!runnable->name.empty())
@@ -721,8 +832,11 @@ extern "C" const Value* ctk_jit_value_invoke_v1(Values* runtime, const Value* va
   runtime->frame_depth = previous_depth;
   runtime->scopes = std::move(previous_scopes);
   runtime->code = std::move(previous_code);
+  runtime->source_path = std::move(previous_source);
   return result;
 }
+
+namespace {
 
 extern "C" std::int32_t ctk_jit_value_check_arguments_v1(Values* runtime, const Value* arguments,
                                                          const Value* keywords,
@@ -776,201 +890,67 @@ extern "C" const Value* ctk_jit_value_argument_v1(Values* runtime, const Value* 
   return nullptr;
 }
 
-const Value* range(Values* runtime, const std::vector<Value>& args) {
-  if (args.empty() || args.size() > 3 ||
-      llvm::any_of(args, [](const Value& value) { return !as<std::int64_t>(value); })) {
-    return runtime->fail("range accepts one to three integer arguments");
-  }
-  auto start = args.size() == 1 ? 0 : *as<std::int64_t>(args[0]);
-  const auto stop = *as<std::int64_t>(args[args.size() == 1 ? 0 : 1]);
-  const auto step = args.size() == 3 ? *as<std::int64_t>(args[2]) : 1;
-  if (step == 0)
-    return runtime->fail("range step must not be zero");
-  std::vector<Value> items;
-  while (step > 0 ? start < stop : start > stop) {
-    if (items.size() == max_items)
-      return runtime->fail("range exceeds item limit");
-    items.push_back({start});
-    if (llvm::AddOverflow(start, step, start))
-      break;
-  }
-  return runtime->hold(list(std::move(items)));
+extern "C" void ctk_jit_value_exit_v1(Values* runtime) { runtime->exit_requested = true; }
+
+extern "C" void ctk_jit_value_set_source_v1(Values* runtime, const char* path) {
+  runtime->source_path = path;
 }
 
-const Value* collection_filter(Values* runtime, llvm::StringRef name,
-                               const std::vector<Value>& args) {
-  if (args.empty())
-    return runtime->fail("collection filter requires a value");
-  if (name == "keys" || name == "values" || name == "entries") {
-    const auto* data = object<Record>(args[0]);
-    if (!data || args.size() != 1)
-      return runtime->fail("mapping filter requires one record");
-    std::vector<Value> result;
-    for (const auto& key : data->keys) {
-      const auto& value = data->fields.find(key)->second;
-      if (name == "keys")
-        result.push_back({key});
-      else if (name == "values")
-        result.push_back(value);
-      else {
-        auto entry = std::make_shared<Record>();
-        entry->set("key", {key});
-        entry->set("value", value);
-        result.push_back({std::move(entry)});
-      }
-    }
-    return runtime->hold(list(std::move(result)));
-  }
-  const auto* sequence = object<Sequence>(args[0]);
-  if (!sequence)
-    return runtime->fail("collection filter requires a list or tuple");
-  const auto& items = sequence->items;
-  if (name == "map" || name == "filter") {
-    if (args.size() != 2 || !object<Runnable>(args[1])) {
-      return runtime->fail("map and filter require a runnable callback");
-    }
-    const auto empty_keywords = record();
-    std::vector<Value> result;
-    for (std::size_t index = 0; index < items.size(); ++index) {
-      if (!runtime->tick())
-        return nullptr;
-      if (index >= max_items)
-        return runtime->fail("callback filter exceeds item limit");
-      const auto item = items[index];
-      const auto argument = list({item});
-      const auto* value = ctk_jit_value_invoke_v1(runtime, &args[1], &argument, &empty_keywords);
-      if (!value)
-        return nullptr;
-      if (name == "map") {
-        result.push_back(*value);
-      } else if (const auto* flag = as<bool>(*value)) {
-        if (*flag)
-          result.push_back(item);
-      } else {
-        return runtime->fail("filter callback must return bool");
-      }
-    }
-    return runtime->hold(list(std::move(result)));
-  }
-  if (name == "take" || name == "drop" || name == "first" || name == "last") {
-    const bool endpoint = name == "first" || name == "last";
-    if (endpoint && args.size() == 1) {
-      return runtime->hold(items.empty()     ? Value{}
-                           : name == "first" ? items.front()
-                                             : items.back());
-    }
-    const auto* count = args.size() == 2 ? as<std::int64_t>(args[1]) : nullptr;
-    if (!count || *count < 0)
-      return runtime->fail("collection count must be nonnegative");
-    const auto size = std::min<std::uint64_t>(*count, items.size());
-    auto first = items.begin();
-    auto last = items.end();
-    if (name == "drop")
-      first += size;
-    else if (name == "last")
-      first = last - size;
-    else
-      last = first + size;
-    return runtime->hold(list(std::vector<Value>(first, last)));
-  }
-  if (name == "join") {
-    const auto* separator = args.size() == 2 ? as<std::string>(args[1]) : nullptr;
-    if (args.size() > 2 || (args.size() == 2 && !separator)) {
-      return runtime->fail("join separator must be a string");
-    }
-    std::string result;
-    for (std::size_t index = 0; index < items.size(); ++index) {
-      const auto* part = as<std::string>(items[index]);
-      if (!part)
-        return runtime->fail("join requires string items");
-      if (index && separator)
-        result += *separator;
-      result += *part;
-    }
-    return runtime->hold({std::move(result)});
-  }
-  if (args.size() != 1)
-    return runtime->fail("collection filter requires one argument");
-  if (name == "flatten") {
-    std::vector<Value> result;
-    for (const auto& item : items) {
-      const auto* nested = object<Sequence>(item);
-      if (!nested)
-        return runtime->fail("flatten requires nested collections");
-      if (nested->items.size() > max_items - result.size()) {
-        return runtime->fail("flatten exceeds item limit");
-      }
-      result.insert(result.end(), nested->items.begin(), nested->items.end());
-    }
-    return runtime->hold(list(std::move(result)));
-  }
-  if (name == "reverse") {
-    return runtime->hold(list(std::vector<Value>(items.rbegin(), items.rend())));
-  }
-  return runtime->hold(list(items, name == "to_tuple"));
-}
-
-const Value* string_filter(Values* runtime, llvm::StringRef name, const std::vector<Value>& args) {
-  const auto* value = args.empty() ? nullptr : as<std::string>(args[0]);
-  const auto* argument = args.size() == 2 ? as<std::string>(args[1]) : nullptr;
-  if (!value || !argument)
-    return runtime->fail("string filter requires two strings");
-  const llvm::StringRef text(*value);
-  if (name == "starts_with")
-    return runtime->hold({text.starts_with(*argument)});
-  if (name == "ends_with")
-    return runtime->hold({text.ends_with(*argument)});
-  if (name == "contains")
-    return runtime->hold({text.contains(*argument)});
-  if (name == "strip_prefix") {
-    return runtime->hold(
-        {text.starts_with(*argument) ? text.drop_front(argument->size()).str() : *value});
-  }
-  if (name == "strip_suffix") {
-    return runtime->hold(
-        {text.ends_with(*argument) ? text.drop_back(argument->size()).str() : *value});
-  }
-  if (argument->empty())
-    return runtime->fail("split separator must be nonempty");
-  llvm::SmallVector<llvm::StringRef> parts;
-  text.split(parts, *argument, max_items);
-  if (parts.size() > max_items)
-    return runtime->fail("split exceeds item limit");
-  std::vector<Value> result;
-  for (auto part : parts)
-    result.push_back({part.str()});
-  return runtime->hold(list(std::move(result)));
+extern "C" void ctk_jit_value_set_result_v1(Values* runtime, const Value* result) {
+  runtime->result = result;
 }
 
 extern "C" const Value* ctk_jit_value_call_v1(Values* runtime, const char* name,
                                               const Value* arguments, const Value* keywords) {
-  const auto& args = object<Sequence>(*arguments)->items;
   if (const auto* callee = runtime->lookup(name)) {
     return ctk_jit_value_invoke_v1(runtime, runtime->hold(*callee), arguments, keywords);
   }
-  if (!object<Record>(*keywords)->keys.empty()) {
-    return runtime->fail("built-in does not accept keyword arguments");
+  return call_builtin(*runtime, name, object<Sequence>(*arguments)->items,
+                      *object<Record>(*keywords));
+}
+
+extern "C" const Value* ctk_jit_value_change_binding_v1(Values* runtime, const char* old_name,
+                                                        const char* new_name) {
+  auto& globals = runtime->globals;
+  const auto old = globals.find(old_name);
+  if (old == globals.end())
+    return runtime->fail(llvm::Twine("undefined binding '") + old_name + "'");
+  if (new_name && old->getKey() != new_name) {
+    if (globals.contains(new_name))
+      return runtime->fail(llvm::Twine("binding already exists: ") + new_name);
+    auto value = std::move(old->second);
+    globals.erase(old);
+    globals.try_emplace(new_name, std::move(value));
+  } else if (!new_name) {
+    globals.erase(old);
   }
-  const llvm::StringRef function(name);
-  if (function == "len" || function == "length") {
-    const auto size = args.size() == 1 ? length(args.front()) : std::nullopt;
-    if (size && *size <= max_items)
-      return runtime->hold({static_cast<std::int64_t>(*size)});
-    return runtime->fail("len requires a sized value within the item limit");
+  return runtime->hold({});
+}
+
+extern "C" const Value* ctk_jit_value_bindings_v1(Values* runtime) {
+  std::vector<llvm::StringRef> names;
+  for (const auto& [name, value] : runtime->globals)
+    names.push_back(name);
+  llvm::sort(names);
+  constexpr llvm::StringLiteral types[] = {
+      "NoneType",    "bool",          "int",
+      "float",       "str",           "list",
+      "dict",        "ParsedTree",    "BindingSelection",
+      "MatcherExpr", "RunnableBlock", "function",
+  };
+  std::size_t width = 0;
+  for (auto name : names)
+    width = std::max(width, name.size());
+  std::string result = "Bindings";
+  llvm::raw_string_ostream out(result);
+  for (auto name : names) {
+    const auto& value = runtime->globals.find(name)->second;
+    const auto* sequence = object<Sequence>(value);
+    auto type = sequence && sequence->tuple ? llvm::StringRef("tuple")
+                                            : llvm::StringRef(types[value.data.index()]);
+    out << "\\n$" << name << std::string(width - name.size() + 2, ' ') << type;
   }
-  if (function == "range")
-    return range(runtime, args);
-  if (function == "map" || function == "filter" || function == "take" || function == "drop" ||
-      function == "first" || function == "last" || function == "keys" || function == "values" ||
-      function == "entries" || function == "flatten" || function == "reverse" ||
-      function == "to_list" || function == "to_tuple" || function == "join") {
-    return collection_filter(runtime, function, args);
-  }
-  if (function == "split_by" || function == "starts_with" || function == "ends_with" ||
-      function == "contains" || function == "strip_prefix" || function == "strip_suffix") {
-    return string_filter(runtime, function, args);
-  }
-  return runtime->fail(llvm::Twine("undefined callable '") + name + "'");
+  return runtime->hold({std::move(result)});
 }
 
 extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* base,
@@ -989,6 +969,13 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
     if (!sequence->tuple) {
       if (name == "push" && args.size() == 1) {
         return ctk_jit_value_add_v1(runtime, base, nullptr, &args[0]);
+      }
+      if (name == "delete" && args.size() == 1) {
+        const auto* index = as<std::int64_t>(args[0]);
+        if (!index || *index < 0 || static_cast<std::uint64_t>(*index) >= sequence->items.size())
+          return runtime->fail("list deletion index out of range");
+        sequence->items.erase(sequence->items.begin() + *index);
+        return base;
       }
       if (name == "pop" && args.size() <= 1) {
         const Value last{std::int64_t{-1}};
@@ -1012,7 +999,7 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
         for (std::size_t index = 0; index < sequence->items.size(); ++index) {
           if (index)
             output << *separator;
-          format(output, sequence->items[index], false);
+          render(output, sequence->items[index], Render::Console);
         }
         return runtime->hold({std::move(result)});
       }
@@ -1089,28 +1076,50 @@ extern "C" const Value* ctk_jit_value_bind_matcher_v1(Values* runtime, const Val
   return runtime->hold({MatcherValue{std::move(text)}});
 }
 
+} // namespace
+
 extern "C" const Value* ctk_jit_value_render_v1(Values* runtime, const Value* value) {
   std::string text;
   llvm::raw_string_ostream output(text);
-  format(output, *value, false);
+  render(output, *value, Render::Console);
+  if (text.size() > 20000) {
+    std::size_t limit = 19980;
+    while ((static_cast<unsigned char>(text[limit]) & 0xc0) == 0x80)
+      --limit;
+    text.resize(limit);
+    text += "… <truncated>";
+  }
   return runtime->hold({std::move(text)});
 }
 
-extern "C" void ctk_jit_value_print_v1(Values* runtime, const Value* value) {
-  llvm::raw_string_ostream output(runtime->output);
-  format(output, *value, false);
-  output << '\n';
+namespace {
+
+extern "C" void ctk_jit_value_consume_begin_v1(Values* runtime) { ++runtime->consume_depth; }
+
+extern "C" void ctk_jit_value_consume_end_v1(Values* runtime) { --runtime->consume_depth; }
+
+extern "C" const Value* ctk_jit_value_print_v2(Values* runtime, const Value* value) {
+  if (runtime->consume_depth)
+    return value;
+  const auto* rendered = ctk_jit_value_render_v1(runtime, value);
+  if (!rendered || !emit_text(*runtime, *as<std::string>(*rendered)))
+    return nullptr;
+  runtime->last_printed = value;
+  return value;
 }
 
 extern "C" std::int64_t ctk_jit_value_output_size_v1(Values* runtime) {
-  return static_cast<std::int64_t>(runtime->output.size());
+  return static_cast<std::int64_t>(runtime->emissions);
 }
 
-extern "C" void ctk_jit_value_display_v1(Values* runtime, const Value* value, std::int64_t offset) {
+extern "C" const Value* ctk_jit_value_display_v2(Values* runtime, const Value* value,
+                                                 std::int64_t offset, std::int32_t loop) {
+  const bool emitted = offset != ctk_jit_value_output_size_v1(runtime);
   if (!std::holds_alternative<std::monostate>(value->data) &&
-      offset == ctk_jit_value_output_size_v1(runtime)) {
-    ctk_jit_value_print_v1(runtime, value);
+      !(emitted && (loop || runtime->last_printed == value))) {
+    return ctk_jit_value_print_v2(runtime, value);
   }
+  return value;
 }
 
 } // namespace
@@ -1153,8 +1162,13 @@ llvm::Error expose_values(llvm::orc::LLJIT& jit) {
   EXPOSE(ctk_jit_value_pop_v1);
   EXPOSE(ctk_jit_value_tick_v1);
   EXPOSE(ctk_jit_value_call_v1);
+  EXPOSE(ctk_jit_value_set_source_v1);
+  EXPOSE(ctk_jit_value_exit_v1);
+  EXPOSE(ctk_jit_value_set_result_v1);
   EXPOSE(ctk_jit_value_method_v1);
-  EXPOSE(ctk_jit_value_runnable_v1);
+  EXPOSE(ctk_jit_value_bindings_v1);
+  EXPOSE(ctk_jit_value_change_binding_v1);
+  EXPOSE(ctk_jit_value_runnable_v2);
   EXPOSE(ctk_jit_value_unwind_v1);
   EXPOSE(ctk_jit_value_clear_error_v1);
   EXPOSE(ctk_jit_value_fail_v1);
@@ -1167,9 +1181,11 @@ llvm::Error expose_values(llvm::orc::LLJIT& jit) {
   EXPOSE(ctk_jit_value_matcher_v1);
   EXPOSE(ctk_jit_value_bind_matcher_v1);
   EXPOSE(ctk_jit_value_render_v1);
-  EXPOSE(ctk_jit_value_print_v1);
+  EXPOSE(ctk_jit_value_print_v2);
+  EXPOSE(ctk_jit_value_consume_begin_v1);
+  EXPOSE(ctk_jit_value_consume_end_v1);
   EXPOSE(ctk_jit_value_output_size_v1);
-  EXPOSE(ctk_jit_value_display_v1);
+  EXPOSE(ctk_jit_value_display_v2);
 #undef EXPOSE
   return jit.getMainJITDylib().define(llvm::orc::absoluteSymbols(std::move(symbols)));
 }

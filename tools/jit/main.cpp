@@ -44,17 +44,25 @@ parse_target(const fs::path &target_path, fs::path database_path,
              clang::DiagnosticConsumer &diagnostics,
              llvm::ArrayRef<std::string> overrides = {},
              std::optional<llvm::StringRef> source = std::nullopt) {
-  if (fs::is_directory(database_path))
-    database_path /= "compile_commands.json";
-
-  std::string message;
-  auto database = tooling::JSONCompilationDatabase::loadFromFile(
-      database_path.string(), message,
-      tooling::JSONCommandLineSyntax::AutoDetect);
-  if (!database)
-    return failure(llvm::Twine("compilation database: ") + message);
-
   const auto file = fs::absolute(target_path).lexically_normal().string();
+  std::string message;
+  std::unique_ptr<tooling::CompilationDatabase> database;
+  if (database_path.empty()) {
+    database = tooling::CompilationDatabase::autoDetectFromSource(file, message);
+    if (!database) {
+      database = std::make_unique<tooling::FixedCompilationDatabase>(
+          fs::path(file).parent_path().string(),
+          std::vector<std::string>{fs::path(file).extension() == ".c" ? "-std=c17" : "-std=c++20"});
+    }
+  } else {
+    if (fs::is_directory(database_path))
+      database_path /= "compile_commands.json";
+    database = tooling::JSONCompilationDatabase::loadFromFile(
+        database_path.string(), message, tooling::JSONCommandLineSyntax::AutoDetect);
+    if (!database)
+      return failure(llvm::Twine("compilation database: ") + message);
+  }
+
   const auto commands = database->getCompileCommands(file);
   if (commands.empty())
     return failure(llvm::Twine("no compile command for ") + file);
@@ -120,7 +128,8 @@ void print_config() {
              {"prelude", use_prelude ? llvm::json::Value(CTK_JIT_PRELUDE)
                                      : llvm::json::Value(nullptr)},
              {"libraries",
-              llvm::json::Array{CTK_JIT_CLANG_LIBRARY, CTK_JIT_LLVM_LIBRARY}},
+              llvm::json::Array{CTK_JIT_CLANG_LIBRARY, CTK_JIT_LLVM_LIBRARY,
+                                CTK_JIT_ICU_LIBRARY, CTK_JIT_ICU_DATA, CTK_JIT_YAML_LIBRARY}},
              {"runtime_header", CTK_JIT_SDK_INCLUDE "/ctk/jit/runtime.hpp"},
          })
       << '\n';
@@ -174,7 +183,7 @@ llvm::Error run_object(std::unique_ptr<llvm::MemoryBuffer> object,
 
 llvm::Error run(llvm::StringRef mode, const char *target_path,
                 const char *database_path, const char *source_dir,
-                const char *prelude) {
+                const char *prelude, const char *script_arguments) {
   if (llvm::InitializeNativeTarget() ||
       llvm::InitializeNativeTargetAsmPrinter())
     return failure("could not initialize LLVM's native target");
@@ -191,12 +200,30 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
 
   clang::DiagnosticOptions diagnostic_options;
   clang::TextDiagnosticPrinter diagnostics(llvm::errs(), diagnostic_options);
-  auto ast = parse_target(target_path, database_path, diagnostics);
-  if (!ast)
-    return ast.takeError();
-
-  const auto default_file =
-      fs::absolute(target_path).lexically_normal().string();
+  std::unique_ptr<clang::ASTUnit> ast;
+  std::string default_file;
+  if (*target_path) {
+    auto loaded = parse_target(target_path, database_path, diagnostics);
+    if (!loaded)
+      return loaded.takeError();
+    ast = std::move(*loaded);
+    default_file = fs::absolute(target_path).lexically_normal().string();
+  }
+  ctk::jit::ScriptArguments arguments;
+  if (script_arguments) {
+    auto decoded = llvm::json::parse(script_arguments);
+    if (!decoded)
+      return decoded.takeError();
+    const auto* object = decoded->getAsObject();
+    if (!object)
+      return failure("script arguments must be a JSON object");
+    for (const auto& [name, value] : *object) {
+      const auto text = value.getAsString();
+      if (!text)
+        return failure("script arguments must be strings");
+      arguments.emplace_back(name.str(), text->str());
+    }
+  }
   const ctk::jit::LoadTarget load = [&](const ctk::jit::TargetRequest &request)
       -> llvm::Expected<std::unique_ptr<clang::ASTUnit>> {
     clang::TextDiagnosticPrinter printer(llvm::errs(), diagnostic_options);
@@ -237,12 +264,15 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
     unit->getDiagnostics().setClient(new clang::IgnoringDiagConsumer());
     return unit;
   };
+  auto* context_ast = ast ? &ast->getASTContext() : nullptr;
   if (mode == "repl")
-    return ctk::jit::repl_ir((*ast)->getASTContext(), default_file, load);
+    return ctk::jit::repl_ir(context_ast, default_file, load, arguments);
   if (mode == "ir" || mode == "ir-object")
-    return ctk::jit::run_ir(std::move(input), (*ast)->getASTContext(),
-                            mode == "ir-object", default_file, load);
-  ctk::jit::RunContext context((*ast)->getASTContext());
+    return ctk::jit::run_ir(std::move(input), context_ast, mode == "ir-object",
+                            default_file, load, arguments);
+  if (!context_ast)
+    return failure("the C++ backend requires a target file");
+  ctk::jit::RunContext context(*context_ast);
   if (source_dir)
     return run_source(input->getBuffer(), source_dir, prelude, context);
   return run_object(std::move(input), context);
@@ -257,8 +287,9 @@ int main(int argc, char **argv) {
     return 0;
   }
   const bool source = mode == "source" && (argc == 5 || argc == 6);
-  const bool query = argc == 4 && (mode == "object" || mode == "ir" ||
-                                  mode == "ir-object" || mode == "repl");
+  const bool ir = (argc == 4 || argc == 5) &&
+                  (mode == "ir" || mode == "ir-object" || mode == "repl");
+  const bool query = (argc == 4 && mode == "object") || ir;
   const bool compile = argc == 2 && mode == "compile-ir";
   if (!source && !query && !compile) {
     llvm::errs()
@@ -270,7 +301,8 @@ int main(int argc, char **argv) {
   try {
     if (auto error = run(mode, compile ? nullptr : argv[2],
                          compile ? nullptr : argv[3], source ? argv[4] : nullptr,
-                         argc == 6 ? argv[5] : nullptr)) {
+                         source && argc == 6 ? argv[5] : nullptr,
+                         ir && argc == 5 ? argv[4] : nullptr)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
       return 1;
     }

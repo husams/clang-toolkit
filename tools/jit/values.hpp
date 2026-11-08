@@ -35,6 +35,10 @@ struct NativeNode {
   std::shared_ptr<clang::DynTypedNode> node;
 };
 
+struct BuiltinFunction {
+  std::string name;
+};
+
 struct MatcherValue {
   std::string text;
 };
@@ -42,7 +46,8 @@ struct MatcherValue {
 struct Value {
   using Data = std::variant<std::monostate, bool, std::int64_t, double, std::string,
                             std::shared_ptr<Sequence>, std::shared_ptr<Record>, AstHandle,
-                            std::shared_ptr<NativeNode>, MatcherValue, std::shared_ptr<Runnable>>;
+                            std::shared_ptr<NativeNode>, MatcherValue, std::shared_ptr<Runnable>,
+                            BuiltinFunction>;
 
   Data data;
 };
@@ -72,14 +77,23 @@ using RunnableEntry = const Value* (*)(void*, Values*, const Value*, const Value
 struct Runnable {
   std::string name;
   RunnableEntry entry;
+  std::size_t minimum;
+  std::size_t maximum;
+  std::string source_path;
   std::vector<Scope> captured;
   std::shared_ptr<void> code;
 };
 
+struct LocalState {
+  std::string output_path;
+};
+
 struct Values {
-  Values(void* context, Bindings& globals, std::string& output, std::string& error)
+  Values(void* context, Bindings& globals, LocalState& state, std::string& output,
+         std::string& error)
       : context(context)
       , globals(globals)
+      , state(state)
       , output(output)
       , error(error) {}
 
@@ -93,15 +107,22 @@ struct Values {
 
   void* context;
   Bindings& globals;
+  LocalState& state;
   std::string& output;
   std::string& error;
   std::deque<Value> temporaries;
   std::vector<Scope> scopes;
   std::shared_ptr<void> code;
   std::size_t steps = 0;
+  std::size_t consume_depth = 0;
+  std::size_t emissions = 0;
+  const Value* last_printed = nullptr;
+  const Value* result = nullptr;
+  std::string source_path;
   std::size_t call_depth = 0;
   std::size_t frame_depth = 0;
   bool fatal = false;
+  bool exit_requested = false;
 };
 
 llvm::Error expose_values(llvm::orc::LLJIT& jit);

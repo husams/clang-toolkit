@@ -29,7 +29,8 @@ class LanguageIR:
         self.functions: list[str] = []
         self.serial = 0
         self.scope_depth = 0
-        self.loops: list[tuple[str, str, int, int]] = []
+        self.loops: list[tuple[str, str, int, int, int]] = []
+        self.consume_depth = 0
         self.cleanups: list[tuple[Node, int, str]] = []
 
     def fresh(self, prefix: str) -> str:
@@ -107,6 +108,24 @@ class LanguageIR:
             ("ptr", self.string(encoded)),
             ("i64", len(encoded.encode())),
             ("i32", type_id),
+        )
+
+    def stop(self) -> str:
+        cleanups, failure = self.cleanups, self.failure
+        for index in range(len(cleanups) - 1, -1, -1):
+            cleanup, _depth, enclosing = cleanups[index]
+            self.cleanups = cleanups[:index]
+            self.failure = enclosing
+            self.expression(cleanup)
+        self.cleanups, self.failure = cleanups, failure
+        self.native("exit", "void")
+        self.emit("ret i32 0")
+        self.label(self.fresh("after.exit"))
+        return self.literal(None)
+
+    def print_value(self, value: str) -> str:
+        return self.call(
+            "ctk_jit_value_print_v2", "ptr", ("ptr", "%values"), ("ptr", value)
         )
 
     def collection(self, kind: int) -> str:
@@ -201,7 +220,14 @@ class LanguageIR:
             offset = self.native("output_size", "i64") if visible else None
             result = self.expression(item, collect=collect and index == len(items) - 1)
             if offset is not None:
-                self.native("display", "void", ("ptr", result), ("i64", offset))
+                self.call(
+                    "ctk_jit_value_display_v2",
+                    "ptr",
+                    ("ptr", "%values"),
+                    ("ptr", result),
+                    ("i64", offset),
+                    ("i32", int(item.kind == "foreach")),
+                )
         if handler is None:
             return result
         first = self.block
@@ -261,13 +287,30 @@ class LanguageIR:
         )
         return result
 
+    def consumed(self, node: Node) -> str:
+        enclosing = self.failure
+        failed, done = self.fresh("consume.failed"), self.fresh("consume.done")
+        self.failure = failed
+        self.native("consume_begin", "void")
+        self.consume_depth += 1
+        value = self.expression(node)
+        self.consume_depth -= 1
+        self.failure = enclosing
+        self.native("consume_end", "void")
+        self.branch(done)
+        self.label(failed)
+        self.native("consume_end", "void")
+        self.branch(enclosing)
+        self.label(done)
+        return value
+
     def assign(self, node: Node) -> str:
         target, expression = node.children
         op = node.value
         if target.kind == "ref":
             name = self.string(target.value)
             old = self.value("lookup", name) if op != "=" else None
-            value = self.expression(expression)
+            value = self.consumed(expression)
             if old is not None:
                 value = self.value("binary", self.string(op[:-1]), old, value)
             return self.value("assign", name, value)
@@ -280,7 +323,7 @@ class LanguageIR:
             else self.expression(target.children[1])
         )
         old = self.value("index", base, key) if op != "=" else None
-        value = self.expression(expression)
+        value = self.consumed(expression)
         if old is not None:
             value = self.value("binary", self.string(op[:-1]), old, value)
         return self.value("store", base, key, value)
@@ -355,7 +398,9 @@ class LanguageIR:
         self.label(iteration)
         self.check(self.native("tick", "i32"))
         item = self.native("at", "ptr", ("ptr", items), ("i64", index))
-        self.loops.append((done, step, self.scope_depth, len(self.cleanups)))
+        self.loops.append(
+            (done, step, self.scope_depth, len(self.cleanups), self.consume_depth)
+        )
         self.push()
         if isinstance(node.value, str) and node.value != "_":
             self.define(node.value, item, index)
@@ -388,7 +433,9 @@ class LanguageIR:
         self.emit(f"br i1 {test}, label %{yes}, label %{no}")
         self.label(iteration)
         self.check(self.native("tick", "i32"))
-        self.loops.append((done, check, self.scope_depth, len(self.cleanups)))
+        self.loops.append(
+            (done, check, self.scope_depth, len(self.cleanups), self.consume_depth)
+        )
         self.push()
         value = self.expression(body, collect=collect)
         self.pop()
@@ -427,6 +474,14 @@ class LanguageIR:
                 self.value("add", arguments, "null", self.expression(parameter))
         if callee is not None:
             return self.value("invoke", callee, arguments, keywords)
+        if node.value == "ctk":
+            return self.call(
+                "ctk_jit_eval_v1",
+                "ptr",
+                ("ptr", "%context"),
+                ("ptr", arguments),
+                ("ptr", keywords),
+            )
         return self.value("call", self.string(node.value), arguments, keywords)
 
     def parameters(self, node: Node, *, positional_only: bool) -> None:
@@ -524,7 +579,17 @@ class LanguageIR:
             f"define internal ptr @{symbol}(ptr %context, ptr %values, ptr %arguments, ptr %keywords) {{\n"
             f"entry:\n{body}\n}}"
         )
-        value = self.value("runnable", self.string(name), f"@{symbol}")
+        signature = node.children[0] if node.kind == "clause_runnable" else node
+        arity = len(signature.value[1])
+        value = self.call(
+            "ctk_jit_value_runnable_v2",
+            "ptr",
+            ("ptr", "%values"),
+            ("ptr", self.string(name)),
+            ("ptr", f"@{symbol}"),
+            ("i64", arity - len(signature.children[1:])),
+            ("i64", arity),
+        )
         if node.kind == "runnable":
             self.define(name, value)
         return value
@@ -612,19 +677,18 @@ class LanguageIR:
                 )
             raise unsupported(node, f"unsupported native predicate {op!r}")
         if kind == "let":
-            value = self.expression(children[0])
+            value = self.consumed(children[0])
             self.define(op, value)
             return value
         if kind == "destructure":
-            value = self.expression(children[0])
+            value = self.consumed(children[0])
             self.pattern(op, value)
             return value
         if kind == "assign":
             return self.assign(node)
         if kind == "print":
             value = self.expression(children[0])
-            self.native("print", "void", ("ptr", value))
-            return value
+            return self.print_value(value)
         if kind == "conditional":
             return self.conditional(node)
         if kind == "block":
@@ -637,7 +701,7 @@ class LanguageIR:
         if kind in {"while", "repeat"}:
             return self.condition_loop(node, collect)
         if kind == "flow":
-            done, advance, depth, cleanup_count = self.loops[-1]
+            done, advance, depth, cleanup_count, consume_depth = self.loops[-1]
             cleanups, original_depth, original_failure = (
                 self.cleanups,
                 self.scope_depth,
@@ -650,6 +714,8 @@ class LanguageIR:
                 self.native("unwind", "void", ("i64", cleanup_depth))
                 self.expression(cleanup)
             self.native("unwind", "void", ("i64", depth))
+            for _ in range(consume_depth, self.consume_depth):
+                self.native("consume_end", "void")
             self.cleanups, self.scope_depth, self.failure = (
                 cleanups,
                 original_depth,
@@ -670,16 +736,21 @@ class LanguageIR:
         if kind == "recovery":
             return self.recovery(node)
         if kind == "consume":
-            return self.expression(children[0])
+            return self.consumed(children[0])
         if kind == "host":
             return self.host(self, node)
         raise unsupported(node, f"unsupported native CTK construct {kind!r}")
 
-    def program(self, program: Node, *, display: bool) -> tuple[str, str]:
+    def program(
+        self, program: Node, *, display: bool, path: str | None
+    ) -> tuple[str, str]:
         name = "ctk_jit_value_context_v1"
         self.declarations[name] = f"declare ptr @{name}(ptr)"
         self.emit(f"%values = call ptr @{name}(ptr %context)")
-        self.statements(program.children, collect=False, display=display)
+        if path is not None:
+            self.native("set_source", "void", ("ptr", self.string(path)))
+        result = self.statements(program.children, collect=False, display=display)
+        self.native("set_result", "void", ("ptr", result))
         self.emit("ret i32 0")
         self.label("error")
         self.emit("ret i32 1")

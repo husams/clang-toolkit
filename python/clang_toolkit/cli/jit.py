@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
@@ -22,6 +24,7 @@ from .jit_cache import (
     precompile,
     write_atomic,
 )
+from .jit_compiler import compiler_channel
 from .jit_language import LanguageIR
 from .jit_repl import run_repl
 from .runtime.prototype.repl_language import parse
@@ -40,6 +43,7 @@ _FRONTEND_FILES = (
     _CLI_DIRECTORY / "jit_cache.py",
     _CLI_DIRECTORY / "jit_dependencies.py",
     _CLI_DIRECTORY / "jit_language.py",
+    _CLI_DIRECTORY / "jit_compiler.py",
     _CLI_DIRECTORY / "grammar.lark",
     _CLI_DIRECTORY / "language.py",
     _CLI_DIRECTORY / "runtime/templates.py",
@@ -48,7 +52,13 @@ _FRONTEND_FILES = (
     _CLI_DIRECTORY / "_matcher_catalog_generated.py",
     *(
         _PARSER_DIRECTORY / name
-        for name in ("grammar.lark", "repl_language.py", "syntax.py", "patterns.py")
+        for name in (
+            "grammar.lark",
+            "repl_language.py",
+            "syntax.py",
+            "patterns.py",
+            "templates.py",
+        )
     ),
 )
 _ENTRY = """
@@ -313,13 +323,13 @@ def _ir_call(name: str, *arguments: str) -> tuple[str, str]:
     return f"declare i32 @{name}({types})", f"call i32 @{name}({operands})"
 
 
-def lower_ir(source: str) -> str:
+def lower_ir(source: str, path: Path | None = None) -> str:
     """Emit LLVM assembly for a complete one-shot query."""
     program = parse(source)
     try:
         query = _parse_query(program)
     except ValueError:
-        return _lower_language(program)
+        return _lower_language(program, path=path, display=True)
     constants = _IrConstants()
     matcher = constants.constant(constants.argument(query.matcher))
     binding = constants.string(query.binding)
@@ -334,6 +344,8 @@ def lower_ir(source: str) -> str:
 
 def _lower_host(ir: LanguageIR, node: Node) -> str:
     tree, mode = node.value
+    if tree.data in {"quit", "exit"}:
+        return ir.stop()
     if tree.data == "parse_expression":
         return ir.call(
             "ctk_jit_parse_v1",
@@ -367,23 +379,82 @@ def _lower_host(ir: LanguageIR, node: Node) -> str:
             Node("runnable", (str(name), names), (body,), node.line, node.column)
         )
     if tree.data == "match":
-        match tree.children:
-            case [_, matcher]:
-                target = "null"
-            case [_, matcher, "in", selection]:
-                target = _host_value(ir, selection)
-            case _:
-                raise _unsupported(node, "unsupported standalone match options")
+        _, matcher, *options = tree.children
+        target = "null"
+        if options and options[0] == "in":
+            target = _host_value(ir, options[1])
+            options = options[2:]
+        scope = "subtree"
+        if (
+            options
+            and isinstance(options[0], Tree)
+            and options[0].data == "match_scope"
+        ):
+            scope = str(options[0].children[-1])
+            options = options[1:]
+        if options:
+            raise _unsupported(node, "unsupported standalone match options")
         rows = ir.call(
-            "ctk_jit_match_value_v1",
+            "ctk_jit_match_value_v2",
             "ptr",
             ("ptr", "%context"),
             ("ptr", _host_value(ir, matcher)),
             ("ptr", target),
+            ("ptr", ir.string(scope)),
         )
         if mode == "statement":
-            ir.native("print", "void", ("ptr", rows))
+            ir.print_value(rows)
         return rows
+    if tree.data in {"read_expression", "load_command", "save_command", "print"}:
+        return _lower_document_command(ir, tree)
+    if tree.data == "set_command" and tree.children[-1].data == "output_setting":
+        setting = tree.children[-1]
+        path = setting.children[2]
+        return _lower_output(ir, path, setting.children[-1] == "replace")
+    if tree.data == "clear_command" and tree.children[-1] == "output":
+        return _lower_output(ir, "stdout", False)
+    if tree.data == "inspect":
+        return ir.print_value(_host_value(ir, tree.children[1]))
+    if tree.data in {"help", "help_shortcut"}:
+        from .runtime.prototype.help import render_help
+
+        return ir.print_value(ir.literal(render_help(tree)))
+    if tree.data in {"binding_rename", "binding_drop", "bindings_list"}:
+        if tree.data == "bindings_list":
+            return ir.print_value(ir.value("bindings"))
+        old = ir.string(_reference_name(tree.children[2]))
+        new = (
+            ir.string(_reference_name(tree.children[-1]))
+            if tree.data == "binding_rename"
+            else "null"
+        )
+        return ir.value("change_binding", old, new)
+    if tree.data in {"set_item_command", "delete_command"}:
+        target = tree.children[1]
+        if isinstance(target, Tree):
+            target = _mutation_reference(target)
+        if target.kind not in {"index", "get"}:
+            raise _unsupported(target, "collection mutation requires a field or index")
+        base = ir.expression(target.children[0])
+        key = (
+            ir.literal(target.value)
+            if target.kind == "get"
+            else ir.expression(target.children[1])
+        )
+        if tree.data == "delete_command":
+            arguments = ir.collection(0)
+            ir.value("add", arguments, "null", key)
+            return ir.value("method", base, ir.string("delete"), arguments)
+        value = _host_value(ir, tree.children[-1])
+        ir.value("store", base, key, value)
+        return base
+    if tree.data == "import_command":
+        return ir.call(
+            "ctk_jit_import_v1",
+            "ptr",
+            ("ptr", "%context"),
+            ("ptr", _host_value(ir, tree.children[1])),
+        )
     if tree.data == "push_command":
         _, base, _, value = tree.children
         return _host_method(ir, _host_value(ir, base), "push", [value])
@@ -402,6 +473,96 @@ def _lower_host(ir: LanguageIR, node: Node) -> str:
     raise _unsupported(node, f"unsupported standalone CTK command {tree.data!r}")
 
 
+def _reference_name(tree: Tree) -> str:
+    if (
+        not isinstance(tree, Tree)
+        or tree.data != "reference"
+        or len(tree.children) != 2
+    ):
+        raise _unsupported(tree, "expected a simple binding name")
+    return str(tree.children[1])
+
+
+def _mutation_reference(tree: Tree) -> Node:
+    parts = tree.children
+    if parts[0] == "$":
+        parts = parts[1:]
+    result = Node("ref", str(parts[0]), line=tree.meta.line, column=tree.meta.column)
+    index = 1
+    while index < len(parts):
+        field = parts[index + 1]
+        if parts[index] == ".":
+            result = Node("get", str(field), (result,), result.line, result.column)
+            index += 2
+        else:
+            if isinstance(field, Token):
+                field = Node(
+                    "literal",
+                    ast.literal_eval(str(field)),
+                    line=result.line,
+                    column=result.column,
+                )
+            result = Node("index", None, (result, field), result.line, result.column)
+            index += 3
+    return result
+
+
+def _lower_output(ir: LanguageIR, path: Tree | Token | str, replace: bool) -> str:
+    if path == "stdout" and replace:
+        raise ValueError("replace mode requires a file destination")
+    return ir.call(
+        "ctk_jit_document_output_v1",
+        "ptr",
+        ("ptr", "%values"),
+        ("ptr", "null" if path == "stdout" else _host_value(ir, path)),
+        ("i32", int(not replace)),
+    )
+
+
+def _lower_document_command(ir: LanguageIR, tree: Tree) -> str:
+    parts = tree.children
+    if tree.data in {"read_expression", "load_command"}:
+        path = _host_value(ir, parts[1])
+        loading = tree.data == "load_command"
+        format_name = (
+            ir.string(str(parts[3])) if not loading and len(parts) > 3 else "null"
+        )
+        value = ir.call(
+            "ctk_jit_document_read_v1",
+            "ptr",
+            ("ptr", "%values"),
+            ("ptr", path),
+            ("ptr", format_name),
+            ("i32", int(loading)),
+        )
+        if loading and len(parts) > 3:
+            ir.define(_reference_name(parts[3]), value)
+        return value
+
+    value = _host_value(ir, parts[1])
+    if len(parts) < 4:
+        return ir.print_value(value)
+    path = _host_value(ir, parts[3])
+    if tree.data == "save_command":
+        format_name = ir.string(str(parts[-1])) if len(parts) > 5 else "null"
+        return ir.call(
+            "ctk_jit_document_save_v1",
+            "ptr",
+            ("ptr", "%values"),
+            ("ptr", path),
+            ("ptr", value),
+            ("ptr", format_name),
+        )
+    return ir.call(
+        "ctk_jit_document_print_v1",
+        "ptr",
+        ("ptr", "%values"),
+        ("ptr", value),
+        ("ptr", path),
+        ("i32", int(parts[-1] == "append")),
+    )
+
+
 def _host_arguments(ir: LanguageIR, items: list[Node | Tree | Token]) -> str:
     result = ir.collection(0)
     for item in items:
@@ -418,26 +579,36 @@ def _host_method(
     return ir.value("method", base, ir.string(name), _host_arguments(ir, items))
 
 
+def _lower_string(ir: LanguageIR, raw: str) -> str:
+    from .runtime.prototype.templates import template_parts
+    from .runtime.templates import string_parts
+
+    parts = template_parts(raw, parse)
+    if parts is None:
+        parts = string_parts(raw)
+    values = []
+    for part in parts:
+        if isinstance(part, str):
+            values.append(ir.literal(part))
+        elif isinstance(part, Node):
+            values.append(ir.value("render", ir.expression(part.children[0])))
+        else:
+            values.append(ir.value("render", _host_value(ir, part)))
+    if not values:
+        return ir.literal("")
+    result, *rest = values
+    for value in rest:
+        result = ir.value("binary", ir.string("+"), result, value)
+    return result
+
+
 def _host_value(ir: LanguageIR, item: Node | Tree | Token) -> str:
     if isinstance(item, Node):
         return ir.expression(item)
     if isinstance(item, Token):
-        if item.type in {"STRING", "FILE_STRING", "NUMBER", "NEGATIVE_NUMBER"}:
-            if item.type == "STRING":
-                from .runtime.templates import string_parts
-
-                parts = [
-                    ir.literal(part)
-                    if isinstance(part, str)
-                    else ir.value("render", _host_value(ir, part))
-                    for part in string_parts(str(item))
-                ]
-                if not parts:
-                    return ir.literal("")
-                result, *rest = parts
-                for value in rest:
-                    result = ir.value("binary", ir.string("+"), result, value)
-                return result
+        if item.type in {"STRING", "FILE_STRING", "DIRECTORY_STRING", "PATH_STRING"}:
+            return _lower_string(ir, str(item))
+        if item.type in {"NUMBER", "NEGATIVE_NUMBER"}:
             return ir.literal(ast.literal_eval(str(item)))
         raise ValueError(f"unsupported standalone CTK token {item.type!r}")
     if item.data in {"true", "false"}:
@@ -471,6 +642,10 @@ def _host_value(ir: LanguageIR, item: Node | Tree | Token) -> str:
             else:
                 raise _unsupported(part, "unsupported standalone CTK reference method")
         return result
+    if item.data == "list_value":
+        return _host_arguments(
+            ir, [child for child in item.children if child != "[" and child != "]"]
+        )
     if item.data == "dict_value":
         result = ir.collection(2)
         for entry in item.children:
@@ -498,12 +673,38 @@ def _host_value(ir: LanguageIR, item: Node | Tree | Token) -> str:
     raise _unsupported(item, f"unsupported standalone CTK value {item.data!r}")
 
 
-def _lower_language(program: Node, *, display: bool = False) -> str:
+def _lower_language(
+    program: Node, *, display: bool = False, path: Path | None = None
+) -> str:
     constants = _IrConstants()
     declarations, body = LanguageIR(
         constants.string, constants.constant, _lower_host
-    ).program(program, display=display)
+    ).program(program, display=display, path=str(path) if path else None)
     return _ir_module(constants, declarations, body)
+
+
+def _lower_request(source: str, path: Path | None, library: bool) -> str:
+    try:
+        if not library:
+            from .language import parser
+
+            parser().parse(source)
+        program = parse(source)
+        if library:
+            for statement in program.children:
+                if statement.kind in {"let", "destructure", "runnable"}:
+                    continue
+                if statement.kind == "host" and statement.value[0].data in {
+                    "matcher_definition",
+                    "import_command",
+                }:
+                    continue
+                raise _unsupported(
+                    statement, "libraries accept let definitions and import statements"
+                )
+        return _lower_language(program, path=path)
+    except (LarkError, ValueError, SyntaxError) as error:
+        raise ValueError(f"{path}: {error}" if path else str(error)) from error
 
 
 def lower_repl(source: str) -> str | None:
@@ -529,7 +730,7 @@ def _script_input(
         source = source.replace("\r\n", "\n").replace("\r", "\n")
         if script.suffix == ".ctk":
             if llvm_ir:
-                return lower_ir(source).encode("utf-8"), ""
+                return lower_ir(source, script).encode("utf-8"), ""
             return (lower_script(source, script) + "\n" + _ENTRY).encode("utf-8"), ""
         source = f"#line 1 {_cpp_string(str(script))}\n{source}\n{_ENTRY}"
         return source.encode("utf-8"), str(script.parent)
@@ -575,10 +776,17 @@ def _native_command(args: argparse.Namespace, runner: Path) -> int:
             program, quote_dir = _script_input(args.script, llvm_ir=args.llvm_ir)
         else:
             mode, program = bundle_object(bundle, toolchain)
-    command = [str(runner), mode, str(args.file), str(args.compdb)]
+    command = [str(runner), mode, str(args.file or ""), str(args.compdb or "")]
     if mode == "source":
         command.append(quote_dir)
-    result = subprocess.run(command, input=program, check=False)
+    if args.arguments:
+        if mode not in {"ir", "ir-object"}:
+            raise ValueError("--arg is available for the LLVM IR backend")
+        command.append(json.dumps(args.arguments))
+    with compiler_channel(
+        _lower_request if mode in {"ir", "ir-object"} else None
+    ) as options:
+        result = subprocess.run(command, input=program, check=False, **options)
     if result.returncode < 0:
         print(
             f"ctk-jit: native runner terminated by signal {-result.returncode}",
@@ -597,14 +805,14 @@ def main(argv: list[str] | None = None) -> int:
     repl = commands.add_parser("repl", help="start a standalone LLVM IR session")
     for command in (run, repl):
         command.add_argument(
-            "--file", type=Path, required=True, help="target translation unit"
+            "--file", type=Path, help="default target translation unit"
         )
         command.add_argument(
             "--compdb",
             type=Path,
-            required=True,
             help="compilation database or its directory",
         )
+        command.add_argument("--arg", action="append", default=[], metavar="NAME=VALUE")
     build = commands.add_parser("precompile", help="compile source to a local bundle")
     build.add_argument("script", type=Path)
     build.add_argument("--output", "-o", type=Path, required=True)
@@ -630,6 +838,20 @@ def main(argv: list[str] | None = None) -> int:
             "--runner", type=Path, help="override the native runner executable"
         )
     args = parser.parse_args(argv)
+    args.arguments = {}
+    for argument in getattr(args, "arg", ()):
+        name, separator, value = argument.partition("=")
+        if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", name):
+            parser.error("--arg expects NAME=VALUE")
+        if name in args.arguments:
+            parser.error(f"duplicate script argument {name!r}")
+        args.arguments[name] = value
+    if (
+        args.command in {"run", "repl"}
+        and args.file is None
+        and "file" in args.arguments
+    ):
+        args.file = Path(args.arguments["file"])
     if args.command != "repl":
         if args.command == "run" and (args.script is None) == (args.bundle is None):
             parser.error("provide either a script or --bundle")
@@ -652,7 +874,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         runner = runner.resolve()
         if args.command == "repl":
-            return run_repl(runner, args.file, args.compdb, lower_repl)
+            return run_repl(
+                runner,
+                args.file,
+                args.compdb,
+                lower_repl,
+                args.arguments,
+                _lower_request,
+            )
         if args.command == "run":
             return _native_command(args, runner)
         cache = None if args.no_cache else cache_directory()

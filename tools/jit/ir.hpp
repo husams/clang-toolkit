@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <llvm/ADT/StringRef.h>
@@ -28,9 +29,13 @@ struct TargetRequest {
 using LoadTarget =
     std::function<llvm::Expected<std::unique_ptr<clang::ASTUnit>>(const TargetRequest&)>;
 
+using ScriptArguments = std::vector<std::pair<std::string, std::string>>;
+
 llvm::Error compile_ir(llvm::StringRef source);
-llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext& ast,
-                   bool precompiled, llvm::StringRef file, const LoadTarget& load);
-llvm::Error repl_ir(clang::ASTContext& ast, llvm::StringRef file, const LoadTarget& load);
+llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext* ast,
+                   bool precompiled, llvm::StringRef file, const LoadTarget& load,
+                   const ScriptArguments& arguments);
+llvm::Error repl_ir(clang::ASTContext* ast, llvm::StringRef file, const LoadTarget& load,
+                    const ScriptArguments& arguments);
 
 } // namespace ctk::jit

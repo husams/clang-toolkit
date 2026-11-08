@@ -1,4 +1,9 @@
 #include "ir.hpp"
+#include "documents.hpp"
+#include "matcher_parser.hpp"
+#include "platform/compiler_channel.hpp"
+#include "scoped_match.hpp"
+#include "value_access.hpp"
 #include "values.hpp"
 
 #include <cstdint>
@@ -14,6 +19,7 @@
 #include <clang/Frontend/ASTUnit.h>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/StringMap.h>
 #include <llvm/AsmParser/Parser.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
@@ -42,8 +48,8 @@ struct MatcherArg {
 };
 
 struct Targets {
-  Targets(clang::ASTContext& ast, llvm::StringRef file, const LoadTarget& load)
-      : ast(&ast, [](clang::ASTContext*) {})
+  Targets(clang::ASTContext* ast, llvm::StringRef file, const LoadTarget& load)
+      : ast(ast, [](clang::ASTContext*) {})
       , file(file)
       , load(load) {}
 
@@ -51,29 +57,33 @@ struct Targets {
   llvm::StringRef file;
   const LoadTarget& load;
   llvm::StringMap<AstHandle> files;
+  LocalState state;
 
   static AstHandle own(std::unique_ptr<clang::ASTUnit> unit) {
     auto* ast = &unit->getASTContext();
     return AstHandle(std::shared_ptr<clang::ASTUnit>(std::move(unit)), ast);
   }
 
-  Bindings bindings() const {
+  Bindings bindings(const ScriptArguments& arguments) const {
     auto args = std::make_shared<Record>();
-    args->set("file", {file.str()});
+    for (const auto& [key, value] : arguments)
+      args->set(key, {value});
+    if (!file.empty() && !args->fields.contains("file"))
+      args->set("file", {file.str()});
     Bindings bindings;
     bindings.try_emplace("arg", Value{std::move(args)});
     return bindings;
   }
 
   llvm::Expected<AstHandle> select(llvm::StringRef path) {
-    if (path == file)
+    if (ast && path == file)
       return ast;
     std::error_code error;
     auto full = std::filesystem::absolute(std::filesystem::path(path.str()), error);
     if (error)
       return llvm::errorCodeToError(error);
     auto key = full.lexically_normal().string();
-    if (key == file)
+    if (ast && key == file)
       return ast;
     if (auto it = files.find(key); it != files.end())
       return it->second;
@@ -90,14 +100,16 @@ struct Targets {
   }
 };
 
-struct IrContext {
-  explicit IrContext(Targets& targets, Bindings& bindings, MatcherCache& matchers)
-      : ast(*targets.ast)
-      , targets(targets)
-      , values(this, bindings, output, error)
-      , matchers(matchers) {}
+class RuntimeCompiler;
 
-  clang::ASTContext& ast;
+struct IrContext {
+  explicit IrContext(Targets& targets, Bindings& bindings, MatcherCache& matchers,
+                     RuntimeCompiler& compiler)
+      : targets(targets)
+      , values(this, bindings, targets.state, output, error)
+      , matchers(matchers)
+      , compiler(compiler) {}
+
   Targets& targets;
   std::vector<const FunctionDecl*> rows;
   llvm::ArrayRef<const FunctionDecl*> active_rows;
@@ -106,6 +118,7 @@ struct IrContext {
   std::string output;
   Values values;
   MatcherCache& matchers;
+  RuntimeCompiler& compiler;
 };
 
 using IrEntry = int (*)(IrContext*);
@@ -185,7 +198,11 @@ extern "C" int ctk_jit_match_v1(IrContext* context, const MatcherArg* root, cons
     context->error = "could not register the IR query's matcher";
     return 1;
   }
-  finder.matchAST(context->ast);
+  if (!context->targets.ast) {
+    context->error = "match requires a target file";
+    return 1;
+  }
+  finder.matchAST(*context->targets.ast);
   context->active_rows = context->rows;
   return 0;
 }
@@ -287,35 +304,70 @@ extern "C" const Value* ctk_jit_parse_cpp_v1(IrContext* context, const Value* co
   return runtime.hold({Targets::own(std::move(*unit))});
 }
 
-extern "C" const Value* ctk_jit_match_value_v1(IrContext* context, const Value* expression,
-                                               const Value* target) {
+struct MatchTarget {
+  AstHandle ast;
+  std::shared_ptr<clang::DynTypedNode> root;
+};
+
+bool append_target(IrContext& context, std::vector<MatchTarget>& targets, const Value& value) {
+  using namespace value_access;
+  if (const auto* ast = as<AstHandle>(value)) {
+    targets.push_back({*ast, {}});
+  } else if (const auto* path = as<std::string>(value)) {
+    auto loaded = context.targets.select(*path);
+    if (!loaded) {
+      context.values.fail(llvm::toString(loaded.takeError()));
+      return false;
+    }
+    targets.push_back({*loaded, {}});
+  } else if (const auto* selected = object<NativeNode>(value)) {
+    targets.push_back({selected->ast, selected->node});
+  } else if (const auto* row = object<Record>(value)) {
+    auto root = row->fields.find("root");
+    if (root != row->fields.end() && object<NativeNode>(root->second)) {
+      return append_target(context, targets, root->second);
+    }
+    context.values.fail("match row has no root binding");
+    return false;
+  } else {
+    context.values.fail("match requires a target AST, file path, or retained node");
+    return false;
+  }
+  return true;
+}
+
+extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* expression,
+                                               const Value* target, const char* scope) {
   auto& runtime = context->values;
   const auto* value = std::get_if<MatcherValue>(&expression->data);
   if (!value)
     return runtime.fail("match requires a matcher expression");
-  auto ast = context->targets.ast;
-  if (target) {
-    if (const auto* selected = std::get_if<AstHandle>(&target->data)) {
-      ast = *selected;
-    } else if (const auto* path = std::get_if<std::string>(&target->data)) {
-      auto loaded = context->targets.select(*path);
-      if (!loaded)
-        return runtime.fail(llvm::toString(loaded.takeError()));
-      ast = *loaded;
-    } else {
-      return runtime.fail("match requires a target AST or file path");
-    }
+  const llvm::StringRef scope_name(scope);
+  const bool self = scope_name == "self" || scope_name == "root_only";
+  if (!self && scope_name != "subtree") {
+    return runtime.fail("match scope requires self, root_only or subtree");
+  }
+
+  std::vector<MatchTarget> targets;
+  if (!target) {
+    if (!context->targets.ast)
+      return runtime.fail("match requires a target");
+    targets.push_back({context->targets.ast, {}});
+  } else if (const auto* list = value_access::object<Sequence>(*target)) {
+    for (const auto& item : list->items)
+      if (!append_target(*context, targets, item))
+        return nullptr;
+  } else if (!append_target(*context, targets, *target)) {
+    return nullptr;
   }
 
   auto compiled = context->matchers.find(value->text);
   if (compiled == context->matchers.end()) {
     llvm::StringRef source(value->text);
     dynamic::Diagnostics diagnostics;
-    auto matcher = dynamic::Parser::parseMatcherExpression(source, &diagnostics);
-    if (!matcher) {
-      return runtime.fail(diagnostics.errors().empty() ? "Clang rejected the matcher"
-                                                       : diagnostics.toString());
-    }
+    auto matcher = clang_layer::parse_matcher_expression(source, diagnostics);
+    if (!matcher)
+      return runtime.fail(diagnostics.toString());
     if (auto root = matcher->tryBind("root"))
       matcher = std::move(root);
     if (context->matchers.size() == 128)
@@ -324,11 +376,8 @@ extern "C" const Value* ctk_jit_match_value_v1(IrContext* context, const Value* 
   }
 
   struct CollectRows final : MatchFinder::MatchCallback {
-    explicit CollectRows(AstHandle ast)
-        : ast(std::move(ast)) {}
-
     void run(const MatchFinder::MatchResult& result) override {
-      if (rows->items.size() == 10000) {
+      if (rows->items.size() == value_access::max_items) {
         overflow = true;
         return;
       }
@@ -339,20 +388,42 @@ extern "C" const Value* ctk_jit_match_value_v1(IrContext* context, const Value* 
       }
       rows->items.push_back({std::move(row)});
     }
-
     AstHandle ast;
     std::shared_ptr<Sequence> rows = std::make_shared<Sequence>();
     bool overflow = false;
   };
 
-  CollectRows collect(ast);
+  CollectRows collect;
   MatchFinder finder;
-  if (!finder.addDynamicMatcher(compiled->second, &collect)) {
+  const auto& query = compiled->second;
+  if (!finder.addDynamicMatcher(query, &collect)) {
     return runtime.fail("could not register the matcher");
   }
-  finder.matchAST(*ast);
-  if (collect.overflow)
-    return runtime.fail("match exceeds item limit");
+  for (const auto& selected : targets) {
+    collect.ast = selected.ast;
+    if (!selected.root) {
+      finder.matchAST(*selected.ast);
+    } else if (self) {
+      finder.match(*selected.root, *selected.ast);
+    } else {
+      if (!(selected.root->get<clang::Decl>() || selected.root->get<clang::Stmt>()) ||
+          !(query.canConvertTo<clang::Decl>() || query.canConvertTo<clang::Stmt>())) {
+        return runtime.fail("subtree requires a Decl/Stmt root and matcher");
+      }
+      if (clang_layer::requires_translation_unit_match_metadata(value->text)) {
+        MatchFinder descendants;
+        descendants.addDynamicMatcher(clang_layer::scoped_matcher(*selected.root, query), &collect);
+        descendants.matchAST(*selected.ast);
+      } else {
+        clang_layer::match_subtree(*selected.root, finder, *selected.ast,
+                                   [&] { return !collect.overflow && runtime.tick(); });
+      }
+    }
+    if (collect.overflow)
+      return runtime.fail("match exceeds item limit");
+    if (runtime.fatal)
+      return nullptr;
+  }
   return runtime.hold({std::move(collect.rows)});
 }
 
@@ -378,6 +449,10 @@ llvm::Expected<std::unique_ptr<llvm::Module>> parse_ir(llvm::StringRef source,
   return module;
 }
 
+extern "C" const Value* ctk_jit_import_v1(IrContext* context, const Value* path);
+extern "C" const Value* ctk_jit_eval_v1(IrContext* context, const Value* arguments,
+                                        const Value* keywords);
+
 llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit() {
   auto jit = llvm::orc::LLJITBuilder().create();
   if (!jit) {
@@ -397,9 +472,14 @@ llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit() {
   expose("ctk_jit_value_context_v1", &ctk_jit_value_context_v1);
   expose("ctk_jit_parse_v1", &ctk_jit_parse_v1);
   expose("ctk_jit_parse_cpp_v1", &ctk_jit_parse_cpp_v1);
-  expose("ctk_jit_match_value_v1", &ctk_jit_match_value_v1);
+  expose("ctk_jit_match_value_v2", &ctk_jit_match_value_v2);
+  expose("ctk_jit_import_v1", &ctk_jit_import_v1);
+  expose("ctk_jit_eval_v1", &ctk_jit_eval_v1);
   if (auto error = expose_values(**jit)) {
     return std::move(error);
+  }
+  if (auto error = expose_documents(**jit)) {
+    return error;
   }
   auto& dylib = (*jit)->getMainJITDylib();
   if (auto error = dylib.define(llvm::orc::absoluteSymbols(std::move(symbols)))) {
@@ -431,6 +511,185 @@ llvm::Expected<IrEntry> lookup_ir_entry(llvm::orc::LLJIT& jit, llvm::StringRef n
     return entry.takeError();
   }
   return entry->toPtr<IrEntry>();
+}
+
+class RuntimeCompiler {
+public:
+  explicit RuntimeCompiler(llvm::orc::LLJIT& jit)
+      : jit(jit) {}
+
+  llvm::Expected<CompiledCommand> compile(llvm::StringRef source, llvm::StringRef path,
+                                          bool library) {
+    // Library contents are checked on every import. Existing function
+    // bindings keep their previous machine code alive across library edits.
+    const auto key = library ? path.str() : source.str();
+    auto& cache = library ? libraries : expressions;
+    const auto cached = cache.find(key);
+    if (cached != cache.end() && cached->second.source == source)
+      return cached->second.command;
+
+    auto lowered = channel.lower(source, path, library);
+    if (!lowered)
+      return lowered.takeError();
+    const auto symbol = "ctk_jit_runtime_entry_" + std::to_string(next++);
+    auto tracker = jit.getMainJITDylib().createResourceTracker();
+    auto code = std::make_shared<CommandCode>(tracker);
+    if (auto error = add_ir(jit, *lowered, tracker, symbol))
+      return error;
+    auto entry = lookup_ir_entry(jit, symbol);
+    if (!entry)
+      return entry.takeError();
+    CompiledCommand command{*entry, std::move(code)};
+    if (cache.size() == 64)
+      cache.clear();
+    cache.insert_or_assign(key, Cached{source.str(), command});
+    return command;
+  }
+
+  std::vector<std::string> import_stack;
+
+private:
+  struct Cached {
+    std::string source;
+    CompiledCommand command;
+  };
+
+  llvm::orc::LLJIT& jit;
+  CompilerChannel channel;
+  llvm::StringMap<Cached> libraries;
+  llvm::StringMap<Cached> expressions;
+  std::uint64_t next = 0;
+};
+
+class LibrarySnapshot {
+public:
+  explicit LibrarySnapshot(Bindings& bindings)
+      : bindings(bindings)
+      , previous(bindings) {
+    using namespace value_access;
+    std::vector<Value> work;
+    for (const auto& [name, value] : bindings)
+      work.push_back(value);
+    llvm::SmallPtrSet<const void*, 16> visited;
+    while (!work.empty()) {
+      auto value = std::move(work.back());
+      work.pop_back();
+      if (const auto* sequence = as<std::shared_ptr<Sequence>>(value)) {
+        if (!visited.insert(sequence->get()).second)
+          continue;
+        work.insert(work.end(), (*sequence)->items.begin(), (*sequence)->items.end());
+        sequences.emplace_back(*sequence, **sequence);
+      } else if (const auto* record = as<std::shared_ptr<Record>>(value)) {
+        if (!visited.insert(record->get()).second)
+          continue;
+        for (const auto& [name, item] : (*record)->fields)
+          work.push_back(item);
+        records.emplace_back(*record, **record);
+      } else if (const auto* runnable = object<Runnable>(value)) {
+        if (!visited.insert(runnable).second)
+          continue;
+        for (const auto& scope : runnable->captured)
+          for (const auto& [name, item] : scope.bindings)
+            work.push_back(item);
+      }
+    }
+  }
+
+  void restore() {
+    for (auto& [target, saved] : sequences)
+      *target = std::move(saved);
+    for (auto& [target, saved] : records)
+      *target = std::move(saved);
+    bindings = std::move(previous);
+  }
+
+private:
+  Bindings& bindings;
+  Bindings previous;
+  std::vector<std::pair<std::shared_ptr<Sequence>, Sequence>> sequences;
+  std::vector<std::pair<std::shared_ptr<Record>, Record>> records;
+};
+
+const Value* execute_compiled(IrContext& context, const CompiledCommand& command) {
+  auto& runtime = context.values;
+  auto code = std::exchange(runtime.code, command.code);
+  auto saved_path = runtime.source_path;
+  const auto* previous_result = std::exchange(runtime.result, nullptr);
+  const auto status = command.entry(&context);
+  const auto* result = std::exchange(runtime.result, previous_result);
+  runtime.code = std::move(code);
+  runtime.source_path = std::move(saved_path);
+  return status ? nullptr : result ? result : runtime.hold({});
+}
+
+extern "C" const Value* ctk_jit_import_v1(IrContext* context, const Value* path) {
+  auto& runtime = context->values;
+  const auto* filename = value_access::as<std::string>(*path);
+  if (!filename || filename->empty() || filename->find('\0') != std::string::npos)
+    return runtime.fail("import requires a nonempty file path");
+  namespace fs = std::filesystem;
+  const auto source = fs::path(runtime.source_path);
+  const auto selected = source.empty() ? fs::path(*filename) : source.parent_path() / *filename;
+  std::error_code error;
+  const auto file = fs::canonical(selected, error).string();
+  if (error)
+    return runtime.fail(llvm::Twine("cannot read library ") + selected.string() + ": " +
+                        error.message());
+
+  auto& stack = context->compiler.import_stack;
+  if (file == runtime.source_path || llvm::is_contained(stack, file))
+    return runtime.fail(llvm::Twine("import cycle: ") + file);
+  if (stack.size() >= 64)
+    return runtime.fail("library import depth exceeds 64");
+
+  auto contents = llvm::MemoryBuffer::getFile(file);
+  if (!contents)
+    return runtime.fail(llvm::Twine("cannot read library ") + file + ": " +
+                        contents.getError().message());
+  const auto text = (*contents)->getBuffer();
+  if (text.size() > 1024 * 1024)
+    return runtime.fail("library exceeds byte limit");
+  auto compiled = context->compiler.compile(text, file, true);
+  if (!compiled)
+    return runtime.fail(llvm::toString(compiled.takeError()));
+
+  LibrarySnapshot snapshot(runtime.globals);
+  auto scopes = std::move(runtime.scopes);
+  const auto frame = std::exchange(runtime.frame_depth, 0);
+  stack.push_back(file);
+  const auto* result = execute_compiled(*context, *compiled);
+  stack.pop_back();
+  runtime.scopes = std::move(scopes);
+  runtime.frame_depth = frame;
+  if (!result) {
+    snapshot.restore();
+    return runtime.fail(llvm::Twine(file) + ": " + runtime.error);
+  }
+  return runtime.hold({});
+}
+
+extern "C" const Value* ctk_jit_eval_v1(IrContext* context, const Value* arguments,
+                                        const Value* keywords) {
+  using namespace value_access;
+  auto& runtime = context->values;
+  const auto& positional = object<Sequence>(*arguments)->items;
+  const auto* source = positional.size() == 1 ? as<std::string>(positional[0]) : nullptr;
+  if (!source || !object<Record>(*keywords)->keys.empty())
+    return runtime.fail("ctk expects one command string");
+  if (source->size() > 1024 * 1024)
+    return runtime.fail("CTK command exceeds byte limit");
+  if (runtime.call_depth >= 64)
+    return runtime.fail("CTK call depth exceeds 64");
+  auto command = context->compiler.compile(*source, "", false);
+  if (!command)
+    return runtime.fail(llvm::toString(command.takeError()));
+  const auto previous_frame = std::exchange(runtime.frame_depth, runtime.scopes.size());
+  ++runtime.call_depth;
+  const auto* result = execute_compiled(*context, *command);
+  --runtime.call_depth;
+  runtime.scopes.resize(runtime.frame_depth);
+  runtime.frame_depth = previous_frame;
+  return result;
 }
 
 llvm::Error call_ir_entry(IrEntry entry, IrContext& runtime) {
@@ -465,8 +724,9 @@ llvm::Error compile_ir(llvm::StringRef source) {
   return llvm::Error::success();
 }
 
-llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext& ast,
-                   bool precompiled, llvm::StringRef file, const LoadTarget& load) {
+llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext* ast,
+                   bool precompiled, llvm::StringRef file, const LoadTarget& load,
+                   const ScriptArguments& arguments) {
   auto jit = create_ir_jit();
   if (!jit) {
     return jit.takeError();
@@ -481,22 +741,25 @@ llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, clang::ASTContext&
   if (!entry) {
     return entry.takeError();
   }
+  RuntimeCompiler compiler(**jit);
   Targets targets(ast, file, load);
-  auto bindings = targets.bindings();
+  auto bindings = targets.bindings(arguments);
   MatcherCache matchers;
-  IrContext runtime(targets, bindings, matchers);
+  IrContext runtime(targets, bindings, matchers, compiler);
   auto result = call_ir_entry(*entry, runtime);
   llvm::outs() << runtime.output;
   return result;
 }
 
-llvm::Error repl_ir(clang::ASTContext& ast, llvm::StringRef file, const LoadTarget& load) {
+llvm::Error repl_ir(clang::ASTContext* ast, llvm::StringRef file, const LoadTarget& load,
+                    const ScriptArguments& arguments) {
   auto jit = create_ir_jit();
   if (!jit) {
     return jit.takeError();
   }
+  RuntimeCompiler compiler(**jit);
   Targets targets(ast, file, load);
-  auto bindings = targets.bindings();
+  auto bindings = targets.bindings(arguments);
   MatcherCache matchers;
   llvm::DenseMap<std::int64_t, CompiledCommand> commands;
   std::uint64_t entry_number = 0;
@@ -542,7 +805,7 @@ llvm::Error repl_ir(clang::ASTContext& ast, llvm::StringRef file, const LoadTarg
     }
 
     // A cached entry runs against the session's current bindings on every call.
-    IrContext runtime(targets, bindings, matchers);
+    IrContext runtime(targets, bindings, matchers, compiler);
     if (!result) {
       if (cached == commands.end()) {
         return failure("unknown REPL command slot");
@@ -552,6 +815,7 @@ llvm::Error repl_ir(clang::ASTContext& ast, llvm::StringRef file, const LoadTarg
     }
     llvm::outs() << llvm::json::Value(llvm::json::Object{
                         {"compiled", compiled},
+                        {"exit", runtime.values.exit_requested},
                         {"output", std::move(runtime.output)},
                         {"error", llvm::toString(std::move(result))},
                     })

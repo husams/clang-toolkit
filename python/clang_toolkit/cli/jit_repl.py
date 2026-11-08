@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import ExitStack
 import json
 from pathlib import Path
 import subprocess
@@ -10,27 +11,39 @@ import sys
 
 from lark.exceptions import LarkError, UnexpectedEOF, UnexpectedToken
 
+from .jit_compiler import LowerRequest, compiler_channel
+
 _COMMAND_CACHE_SIZE = 128
 
 
 def run_repl(
     runner: Path,
-    target: Path,
-    compdb: Path,
+    target: Path | None,
+    compdb: Path | None,
     lower: Callable[[str], str | None],
+    arguments: dict[str, str] | None = None,
+    lower_request: LowerRequest | None = None,
 ) -> int:
     interactive = sys.stdin.isatty()
     pending = ""
     had_error = False
     commands: dict[str, int] = {}
-    with subprocess.Popen(
-        [str(runner), "repl", str(target), str(compdb)],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        start_new_session=True,
-    ) as process:
+    command = [str(runner), "repl", str(target or ""), str(compdb or "")]
+    if arguments:
+        command.append(json.dumps(arguments))
+    with ExitStack() as stack:
+        options = stack.enter_context(compiler_channel(lower_request))
+        process = stack.enter_context(
+            subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                start_new_session=True,
+                **options,
+            )
+        )
         assert process.stdin is not None and process.stdout is not None
         try:
             ready = process.stdout.readline()
@@ -104,6 +117,8 @@ def run_repl(
                     had_error = True
                 sys.stdout.write(result["output"])
                 sys.stdout.flush()
+                if result.get("exit"):
+                    break
 
             process.stdin.close()
             return process.wait() or int(had_error and not interactive)

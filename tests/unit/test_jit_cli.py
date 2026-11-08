@@ -7,6 +7,7 @@ from pathlib import Path
 from select import select
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
 import pytest
@@ -253,13 +254,13 @@ let scale(x, n = config.limit) = x * n
 print 3 | scale
 print scale(3, n=2)
 let head:tail = range(config.limit)
-print tail[::-1]
+print tail[::-1] | json
 print true or missing
 let values = foreach value in tail do {
     if value == 2 then continue
     value + value.index
 }
-print values
+print values | json
 let count = 0
 while count < 10 do {
     count += 1
@@ -269,7 +270,7 @@ print count
 print (missing on error { 7 })
 let handled = if true then { on error { 17 }; on exit { print "clean" }; missing }
 print handled
-print [1,2,3] | map((x) = x * 2)
+print [1,2,3] | map((x) = x * 2) | json
 let total = { ([]) = 0; ((x:xs)) = x + total(xs) }
 print total([1,2,3])
 let ast = parse arg.file
@@ -303,7 +304,6 @@ print snippets[0].f.decl_name
         "[1,5]",
         "3",
         "7",
-        "clean",
         "17",
         "[2,4,6]",
         "6",
@@ -341,7 +341,7 @@ def test_general_ir_has_identical_cold_cached_and_bundle_output(
     (jit_project / filename).write_text(
         "let score(x) = x * x\n"
         "let scores = foreach x in range(4) do { score(x) }\n"
-        "print {scores:scores, good:true}\n",
+        "print {scores:scores, good:true} | json\n",
         encoding="utf-8",
     )
     expected = _output(jit_project, "run", filename, *_TARGET, "--no-cache")
@@ -554,6 +554,7 @@ def test_warm_script_skips_lowering_and_preprocessing_until_inputs_change(
 import json
 import os
 import sys
+from tempfile import TemporaryDirectory
 with open({str(driver_log)!r}, "a") as log:
     log.write(json.dumps(sys.argv[1:]) + "\\n")
 os.execv({config["compiler"]!r}, [{config["compiler"]!r}, *sys.argv[1:]])
@@ -568,6 +569,7 @@ os.execv({config["compiler"]!r}, [{config["compiler"]!r}, *sys.argv[1:]])
         f"""#!/usr/bin/env python3
 import os
 import sys
+from tempfile import TemporaryDirectory
 if sys.argv[1:] == ["config"]:
     print({json.dumps(config)!r})
 else:
@@ -642,3 +644,243 @@ def test_precompile_observes_changed_extension_headers(jit_project: Path) -> Non
         _output(jit_project, "run", "--bundle", "after.ctk-bundle", *_TARGET)
         == "after\n"
     )
+
+
+def _compiled_console_output(
+    project: Path, script: str, endpoint: str | None = None
+) -> str:
+    from clang_toolkit.cli.app import dispatch_result
+    from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
+    from clang_toolkit.client import Client
+
+    client = Client(endpoint) if endpoint else Client()
+    runtime = PrototypeRuntime(client, cwd=project, environment={})
+    try:
+        result = dispatch_result(client, script, runtime)
+        assert result.success, result.output
+        return result.output
+    finally:
+        runtime.close()
+        client.close()
+
+
+def _native_repl_submission(project: Path, script: str) -> str:
+    program = jit.lower_repl(script)
+    assert program is not None
+    result = subprocess.run(
+        [_RUNNER, "repl", "example.cpp", "compile_commands.json"],
+        cwd=project,
+        input=json.dumps({"slot": 0, "ir": program}) + "\n",
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=True,
+    )
+    ready, response = result.stdout.splitlines()
+    assert json.loads(ready)["ready"]
+    reply = json.loads(response)
+    assert reply["compiled"], (reply["error"], result.stderr)
+    assert not reply["error"], reply["error"]
+    assert not result.stderr, result.stderr
+    return reply["output"].removesuffix("\n")
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        """\
+let nums = range(6)
+let count = len
+print count(nums)
+print nums | take(n=3) | drop(1) | json
+print nums | first
+print nums | last(n=2) | reverse | json
+print [] | last | json
+print [[0, 1], (2, 3)] | flatten | to_tuple | to_list | json
+""",
+        """\
+print zip([1,2,3], ["a","b"], strict=false) | map((n,s) = "{n}{s}") | json
+print zip_longest([1,2], ["a"], fill="?") | json
+print ["x","y"] | enumerate(start=7) | json
+print [2,3,4] | map((n) = n*n) | filter((n) = n > 5) | json
+""",
+        """\
+let r = {z:2, a:3}
+print r | keys | json
+print r | values | json
+print r | entries | json
+print r | pick("a", "z") | json
+print r | length
+print [3,1,2,1.0,true,1,false] | unique | json
+print [3,1,2,5] | unique_by((n) = n % 2) | json
+print [4.5,1,4,2] | sort(reverse=true) | json
+print [{n:3},{n:1}] | sort_by((v) = v.n) | json
+""",
+        """\
+print "straße" | upper
+print "ΣΕΛΗΝΗ" | lower
+print "Straße" | casefold
+print "HTTPServer status" | camel_case
+print "HTTPServer status" | pascal_case
+print "HTTPServer status" | snake_case
+print "HTTPServer status" | kebab_case
+print "  value  " | trim
+print "  value  " | trim_start
+print "  value  " | trim_end
+print "aaa" | replace("a", "z", count=2)
+print "prefix-title.cpp" | strip_prefix("prefix-") | strip_suffix(".cpp")
+print "a.cpp" | starts_with("a")
+print "a.cpp" | ends_with(".cpp")
+print "a.cpp" | contains(".c")
+print "a/b/c" | split_by("/") | join(separator=".")
+""",
+        """\
+print {z:[1.0,1e-5,1e20], a:"é"} | json(indent=2)
+print [1,2] | pretty
+print [{n:2,label:"wide"},{n:10,label:"x"}] | table(["n","label"])
+print (true,null,"a")
+print [1,2,3]
+print {z:1, a:2}
+print "{{literal}} {3 + 4}"
+""",
+        """\
+let vals = foreach x in [1,2] do {print x; x * 2}
+print vals | json
+if true then { print 2; 3 }
+if true then { print 4 }
+let f() = { print 5; 6 }
+f()
+""",
+    ],
+)
+def test_native_language_matches_existing_compiled_console(
+    jit_project: Path, script: str
+) -> None:
+    assert _native_repl_submission(jit_project, script) == _compiled_console_output(
+        jit_project, script
+    )
+
+
+def test_native_document_commands_match_existing_compiled_console(
+    jit_project: Path,
+) -> None:
+    (jit_project / "lines.txt").write_text("alpha\nbeta\n", encoding="utf-8")
+    (jit_project / "values.yaml").write_text(
+        "order:\n- 3\n- 1\nok: true\n", encoding="utf-8"
+    )
+    (jit_project / "rows.csv").write_text('name,qty\n"one,two",3\n', encoding="utf-8")
+    script = """\
+let words = read "lines.txt"
+let data = read "values.yaml"
+let rows = read "rows.csv"
+save {data:data, rows:rows, words:words} to "result" as json
+load "result.json" into value
+print value | json
+print value.data.order[0] to "message.txt"
+print value.words[-1] to "message.txt" mode append
+set output to "stream.txt" mode replace
+print "first"
+print "second"
+clear output
+print "done"
+"""
+    expected = _compiled_console_output(jit_project, script)
+    files = ("result.json", "message.txt", "stream.txt")
+    outputs = {name: (jit_project / name).read_bytes() for name in files}
+    for name in files:
+        (jit_project / name).unlink()
+    assert _native_repl_submission(jit_project, script) == expected
+    assert {name: (jit_project / name).read_bytes() for name in files} == outputs
+
+
+def test_native_scoped_matching_matches_existing_compiled_console(
+    jit_project: Path,
+) -> None:
+    import grpc
+
+    root = Path(__file__).resolve().parents[2]
+    server = Path(os.environ.get("CTK_SERVER", root / "build/dev/server/ctk-server"))
+    if not server.is_file():
+        pytest.skip("existing CTK oracle server has not been built")
+    script = """\
+let tree = parse cpp`int f(int n) {return n+1;} int g() {return f(1);}` using {translation_unit:true}
+let functions = match functionDecl(hasName("g")).bind("f") in tree
+let calls = match callExpr(callee(functionDecl().bind("callee"))) in functions[0].f scope subtree
+print calls[0].callee.qualified_name
+let same = match functionDecl().bind("f") in functions[0].f scope self
+print same[0].f.decl_name
+"""
+    with TemporaryDirectory(prefix="ctk-oracle-", dir="/tmp") as directory:
+        socket = Path(directory) / "s"
+        config = Path(directory) / "server.yaml"
+        config.write_text(
+            f"network:\n  transport: unix\n  unix:\n    socket_path: {socket}\n"
+        )
+        process = subprocess.Popen(
+            [server, "-c", config],
+            cwd=jit_project,
+            env={**os.environ, "CTK_STORAGE_ROOT": str(Path(directory) / "storage")},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        endpoint = f"unix://{socket}"
+        try:
+            with grpc.insecure_channel(endpoint) as channel:
+                grpc.channel_ready_future(channel).result(timeout=15)
+            expected = _compiled_console_output(jit_project, script, endpoint)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+    assert _native_repl_submission(jit_project, script) == expected
+
+
+def test_native_runtime_imports_match_console_and_work_in_bundles(
+    jit_project: Path,
+) -> None:
+    library = jit_project / "library"
+    library.mkdir()
+    (library / "base.ctk").write_text("let base(n) = n * 3\n")
+    (library / "main.ctk").write_text('import "base.ctk"\nlet triple(n) = base(n)\n')
+    # A failing import must undo definitions and in-place changes made earlier
+    # in the library while preserving aliases held by the importing script.
+    (library / "broken.ctk").write_text(
+        "let added = push list, 99\nlet broken = 1 / 0\n"
+    )
+    script = """\
+import "library/main.ctk"
+let list = [4]
+let alias = list
+if true then { on error { print "recovered" }; import "library/broken.ctk" }
+print alias | json
+print added is defined
+print triple(7)
+print ctk("6")
+print "done"; quit; print "unreachable"
+"""
+    (jit_project / "offline.ctk").write_text(script, encoding="utf-8")
+    expected = _compiled_console_output(jit_project, script)
+    assert (
+        _output(jit_project, "run", "offline.ctk", "--no-cache").removesuffix("\n")
+        == expected
+    )
+    _output(jit_project, "precompile", "offline.ctk", "-o", "offline.bundle")
+    assert (
+        _output(jit_project, "run", "--bundle", "offline.bundle").removesuffix("\n")
+        == expected
+    )
+    (library / "base.ctk").write_text("let base(n) = n * 4\n")
+    assert _output(jit_project, "run", "--bundle", "offline.bundle").removesuffix(
+        "\n"
+    ) == expected.replace("21", "28")
+
+
+def test_native_script_accepts_named_arguments_without_a_translation_unit(
+    jit_project: Path,
+) -> None:
+    (jit_project / "args.ctk").write_text('print "hello {arg.name}"\n')
+    assert _output(jit_project, "run", "args.ctk", "--arg", "name=CTK") == "hello CTK\n"
