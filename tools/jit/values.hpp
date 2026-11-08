@@ -30,6 +30,7 @@ struct Sequence;
 struct Record;
 struct Runnable;
 struct SemanticValue;
+struct FileEntry;
 
 struct SemanticEnum {
   std::string name;
@@ -63,20 +64,31 @@ struct Value {
   using Data = std::variant<std::monostate, bool, std::int64_t, double, std::string,
                             std::shared_ptr<Sequence>, std::shared_ptr<Record>, AstHandle,
                             std::shared_ptr<NativeNode>, MatcherValue, std::shared_ptr<Runnable>,
-                            BuiltinFunction, std::shared_ptr<SemanticValue>, SemanticEnum>;
+                            BuiltinFunction, std::shared_ptr<SemanticValue>, SemanticEnum, std::shared_ptr<FileEntry>>;
 
   Data data;
+};
+
+struct SemanticCollection {
+  std::shared_ptr<SemanticValue> owner;
+  std::string field;
 };
 
 struct Sequence {
   std::vector<Value> items;
   bool tuple = false;
+  bool match_snapshot = false;
+  std::optional<SemanticCollection> semantic_collection;
 };
 
 struct Record {
   // CTK records iterate in insertion order.
   std::vector<std::string> keys;
   llvm::StringMap<Value> fields;
+  std::optional<SemanticCollection> semantic_collection;
+  bool match_row = false;
+  std::optional<std::string> source_file;
+  std::optional<std::int64_t> source_match_index;
   void set(llvm::StringRef key, Value value);
 };
 
@@ -111,6 +123,13 @@ struct LocalState {
   std::size_t successful_exports = 0;
 };
 
+struct MatchOutput {
+  std::string text;
+  bool route_to_file;
+  std::uint64_t line = 1;
+  std::uint64_t column = 1;
+};
+
 struct Values {
   Values(void* context, Bindings& globals, LocalState& state, std::string& output,
          std::string& error)
@@ -127,6 +146,7 @@ struct Values {
   void push();
   void pop();
   bool tick();
+  bool accepts_ast(const AstHandle& ast) const;
 
   void* context;
   Bindings& globals;
@@ -138,6 +158,7 @@ struct Values {
   std::shared_ptr<void> code;
   std::size_t steps = 0;
   std::size_t consume_depth = 0;
+  MatchOutput* match_output = nullptr;
   std::size_t emissions = 0;
   const Value* last_printed = nullptr;
   const Value* result = nullptr;

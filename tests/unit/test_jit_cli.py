@@ -64,6 +64,7 @@ def jit_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         pytest.skip("standalone ctk-jit runner has not been built")
     monkeypatch.setenv("CTK_JIT_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("CTK_JIT_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
     (tmp_path / "include").mkdir()
     (tmp_path / "include" / "helper.hpp").write_text(
         "inline int from_header() { return 1; }\n", encoding="utf-8"
@@ -1254,3 +1255,143 @@ def test_native_script_accepts_named_arguments_without_a_translation_unit(
 ) -> None:
     (jit_project / "args.ctk").write_text('print "hello {arg.name}"\n')
     assert _output(jit_project, "run", "args.ctk", "--arg", "name=CTK") == "hello CTK\n"
+
+
+def test_glob_files_and_match_blocks_match_existing_console(jit_project: Path) -> None:
+    (jit_project / "include" / ".hidden.hpp").write_text("// hidden\n", encoding="utf-8")
+    os.utime(jit_project / "example.cpp", (1700000000, 1700000000))
+    script = """\
+let sources = glob("*.cpp")
+let file = sources[0]
+print file.path
+print file.absolute
+print file.basename
+print file.dirname
+print file.parts | json
+print file.size
+print file.modified
+print len(glob("**/*.hpp"))
+let directories = glob("include/")
+print directories[0].basename
+let exact = match functionDecl(hasName("add"), isExpansionInFileMatching($file)) in $sources
+print len(exact)
+let f = "outer"
+let captured = match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in $sources do {
+  let name = $f.value.node.qualified_name;
+  print $name;
+}
+print captured
+print f
+match functionDecl(hasName("add")) in "*.cpp" do {
+  print $root.name;
+  print $root.decl_name;
+  match parmVarDecl(hasName("b")).bind("p") in $root.source_file do {
+    print $p.value.node.qualified_name;
+  }
+}
+"""
+    expected = _native_console_oracle(jit_project, script)
+    assert expected.endswith("add\nsquare\nouter\nroot\nadd\nb")
+    assert _native_repl_submission(jit_project, script) == expected
+    assert _run_jit(jit_project, script).stdout == expected + "\n"
+    _output(jit_project, "precompile", "query.ctk", "-o", "query.bundle")
+    assert _output(jit_project, "run", "--bundle", "query.bundle", *_TARGET) == expected + "\n"
+
+
+def test_repl_history_round_trips_with_existing_store(jit_project: Path) -> None:
+    from clang_toolkit.cli.runtime.history import HistoryStore
+
+    source = (
+        'session label "native"\n'
+        'let items = [\n  1, 2\n]\n'
+        'print len(items)\n'
+        'print len(items)\n'
+        'history save "before.jsonl"\n'
+        'history clear\n'
+        'print "after"\n'
+        'quit\n'
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "clang_toolkit.cli.jit", "repl"],
+        cwd=jit_project,
+        input=source,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert (result.returncode, result.stderr, result.stdout) == (0, "", "2\n2\nafter\n")
+    store = HistoryStore()
+    assert store.read_commands() == ['print "after"', "quit"]
+    assert store.path.stat().st_mode & 0o777 == 0o600
+    exported = HistoryStore(jit_project / "before.jsonl")
+    assert exported.read_commands() == [
+        'session label "native"',
+        "let items = [\n  1, 2\n]",
+        "print len(items)",
+        "print len(items)",
+        'history save "before.jsonl"',
+    ]
+    entries = [json.loads(line) for line in exported.path.read_text().splitlines()]
+    assert entries[0]["label"] is None
+    assert {entry["label"] for entry in entries[1:]} == {"native"}
+    assert len({entry["session_id"] for entry in entries}) == 1
+
+
+def test_embedded_graph_expands_outside_current_graph(jit_project: Path) -> None:
+    source = jit_project / "example.cpp"
+    source.write_text(
+        source.read_text()
+        + "\nint another() { return square(2); }\nint caller() { return another(); }\n",
+        encoding="utf-8",
+    )
+    script = """\
+let tree = parse "example.cpp"
+let roots = match functionDecl(hasName("add")).bind("f") in tree
+let graph = callgraph in $roots[0].f depth 0 main-file true
+let rows = match functionDecl(hasName("another")).bind("f") in tree
+let outgoing = $graph.callees($rows[0].f, 1)
+let incoming = $graph.callers($rows[0].f, 1)
+print len(graph.nodes)
+print len(outgoing.nodes)
+print len(incoming.nodes)
+let square_node = $outgoing.function("square")
+let caller_node = $incoming.function("caller")
+print square_node.function.qualified_name
+print caller_node.function.qualified_name
+"""
+    expected = _native_console_oracle(jit_project, script)
+    assert _native_repl_submission(jit_project, script) == expected
+
+
+def test_embedded_collection_snapshots_cross_runtime(jit_project: Path) -> None:
+    save = """\
+let tree = parse "example.cpp"
+let rows = match functionDecl(hasName("add")).bind("f") in tree
+let params = rows[0].f.value.supported_scopes
+save params to "params" as proto
+save rows to "matches" as proto
+"""
+    load = """\
+load "params" into params
+print len(params)
+"""
+    read_rows = """\
+load "matches" into rows
+let function = rows[0].bindings.f.node.function_decl.function
+print function.declarator.value.named.qualified_name
+print rows[0].source_file
+"""
+    from clang_toolkit.cli.runtime.persistence import load as load_snapshot
+
+    _native_console_oracle(jit_project, save)
+    expected = _compiled_console_output(jit_project, load)
+    row = load_snapshot(jit_project / "matches.proto").rows[0]
+    assert _native_repl_submission(jit_project, load) == expected
+    assert _native_repl_submission(jit_project, read_rows) == f"add\n{row['source_file']}"
+    (jit_project / "matches.proto").unlink()
+    (jit_project / "params.proto").unlink()
+    _native_repl_submission(jit_project, save)
+    assert _compiled_console_output(jit_project, load) == expected
+    actual = load_snapshot(jit_project / "matches.proto").rows[0]
+    assert actual["source_file"] == row["source_file"]
+    assert actual["bindings"]["f"]["symbol_identity"] == row["bindings"]["f"]["symbol_identity"]

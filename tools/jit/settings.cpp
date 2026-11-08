@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "file_values.hpp"
 
 #include "documents.hpp"
 #include "value_access.hpp"
@@ -170,6 +171,17 @@ const Value* update_setting(Values& runtime, llvm::StringRef name, const Value* 
     auto arguments = object<Sequence>(current.fields.find("extra_args")->second)->items;
     arguments.push_back(*value);
     layer.set(name, list(std::move(arguments)));
+  } else if (value && name == "files") {
+    const auto* entries = object<Sequence>(*value);
+    if (!entries || entries->tuple) return runtime.fail("files setting requires a list of files");
+    std::vector<Value> paths;
+    for (const auto& item : entries->items) {
+      if (const auto* entry = object<FileEntry>(item); entry && !entry->directory)
+        paths.push_back({entry->path});
+      else if (as<std::string>(item)) paths.push_back(item);
+      else return runtime.fail("files setting requires file paths");
+    }
+    layer.set(name, list(std::move(paths)));
   } else if (value) {
     layer.set(name, *value);
   } else {

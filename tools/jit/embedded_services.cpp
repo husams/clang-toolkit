@@ -1,4 +1,5 @@
 #include "embedded_services.hpp"
+#include "file_values.hpp"
 
 #include "ctk/application/batch_registry.hpp"
 #include "ctk/application/match_controller.hpp"
@@ -513,7 +514,7 @@ app::FileInput query_input(const Value& value, const LocalState& settings) {
             profile.working_directory(),
             profile.compilation_database()};
   }
-  if (const auto* path = as<std::string>(value))
+  if (const auto* path = file_path(value))
     return {*path, settings.compilation_arguments, fs::current_path().string(),
             settings.compilation_database};
   throw std::invalid_argument("background query requires a path or file list");

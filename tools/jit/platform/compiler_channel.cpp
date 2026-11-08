@@ -18,22 +18,33 @@ CompilerChannel::CompilerChannel() {
 
 llvm::Expected<std::string> CompilerChannel::lower(llvm::StringRef source, llvm::StringRef path,
                                                    bool library) {
+  if (!input)
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "dynamic CTK compilation requires the ctk-jit frontend");
+  return request(llvm::json::Object{{"source", source}, {"path", path}, {"library", library}}, "ir");
+}
+
+llvm::Error CompilerChannel::history(llvm::StringRef action, const std::string* value) {
+  if (!input && action == "label")
+    return llvm::Error::success();
+  if (!input)
+    return llvm::createStringError(llvm::inconvertibleErrorCode(), "history is not enabled");
+  auto reply = request(llvm::json::Object{{"history", action}, {"value", value ? llvm::json::Value(*value)
+                                                          : llvm::json::Value(nullptr)}}, "status");
+  return reply ? llvm::Error::success() : reply.takeError();
+}
+
+llvm::Expected<std::string> CompilerChannel::request(llvm::json::Object body,
+                                                     llvm::StringRef result) {
   auto error = [](const llvm::Twine& message) {
     return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
   };
-  if (!input)
-    return error("dynamic CTK compilation requires the ctk-jit frontend");
   llvm::raw_fd_ostream output(fd, false);
-  output << llvm::json::Value(llvm::json::Object{
-                {"source", source},
-                {"path", path},
-                {"library", library},
-            })
-         << '\n';
+  output << llvm::json::Value(std::move(body)) << '\n';
   output.flush();
   if (output.has_error()) {
     output.clear_error();
-    return error("could not request CTK compilation");
+    return error("could not write to the CTK frontend");
   }
 
   char* line = nullptr;
@@ -47,12 +58,12 @@ llvm::Expected<std::string> CompilerChannel::lower(llvm::StringRef source, llvm:
     return reply.takeError();
   const auto* object = reply->getAsObject();
   if (object) {
-    if (const auto ir = object->getString("ir"))
-      return ir->str();
+    if (const auto value = object->getString(result))
+      return value->str();
     if (const auto diagnostic = object->getString("error"))
       return error(*diagnostic);
   }
-  return error("invalid CTK compilation response");
+  return error("invalid CTK frontend response");
 }
 
 } // namespace ctk::jit

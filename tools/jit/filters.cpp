@@ -1,4 +1,5 @@
 #include "filters.hpp"
+#include "file_values.hpp"
 #include "semantic.hpp"
 #include "value_access.hpp"
 
@@ -702,6 +703,8 @@ public:
       , pretty(pretty) {}
 
   bool write(const Value& value, unsigned level = 0) {
+    if (const auto* entry = object<FileEntry>(value))
+      return write(file_record(*entry), level);
     if (const auto* text = as<std::string>(value))
       return quote(*text);
     if (const auto* flag = as<bool>(value))

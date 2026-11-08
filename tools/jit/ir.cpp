@@ -1,4 +1,6 @@
 #include "ir.hpp"
+#include "file_values.hpp"
+#include "filters.hpp"
 #include "analysis.hpp"
 #include "local_operations.hpp"
 #include "semantic.hpp"
@@ -23,6 +25,7 @@
 #include <clang/ASTMatchers/Dynamic/Registry.h>
 #include <clang/Frontend/ASTUnit.h>
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/STLFunctionalExtras.h>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/StringMap.h>
@@ -251,7 +254,7 @@ extern "C" void ctk_jit_print_qualified_name_v1(const FunctionDecl* decl) {
 extern "C" Values* ctk_jit_value_context_v1(IrContext* context) { return &context->values; }
 
 extern "C" const Value* ctk_jit_parse_v1(IrContext* context, const Value* file) {
-  const auto* path = std::get_if<std::string>(&file->data);
+  const auto* path = file_path(*file);
   if (!path || path->empty())
     return context->values.fail("parse requires a file path");
   auto ast = context->targets.select(*path);
@@ -270,7 +273,7 @@ extern "C" const Value* ctk_jit_parse_cpp_v1(IrContext* context, const Value* co
   std::vector<std::string> includes;
   std::string source;
   if (options) {
-    if (const auto* path = std::get_if<std::string>(&options->data)) {
+    if (const auto* path = file_path(*options)) {
       request.file = *path;
     } else if (const auto* record = std::get_if<std::shared_ptr<Record>>(&options->data)) {
       for (const auto& [key, option] : (*record)->fields) {
@@ -355,13 +358,16 @@ bool append_target(IrContext& context, std::vector<MatchTarget>& targets, const 
       return false;
     }
     targets.push_back({*ast, {}});
-  } else if (const auto* path = as<std::string>(value)) {
+  } else if (const auto* path = file_path(value)) {
     auto loaded = context.targets.select(*path);
     if (!loaded) {
       context.values.fail(llvm::toString(loaded.takeError()));
       return false;
     }
     targets.push_back({*loaded, {}});
+  } else if (object<FileEntry>(value)) {
+    context.values.fail("match files cannot include directories or other values");
+    return false;
   } else if (const auto* selected = retained_node(value)) {
     if (!context.targets.local.accepts(selected->ast)) {
       context.values.fail("AST is outside the resource scope manifest");
@@ -375,6 +381,9 @@ bool append_target(IrContext& context, std::vector<MatchTarget>& targets, const 
       return false;
     }
     targets.push_back({*loaded, {}});
+  } else if (is_streamed_binding(value)) {
+    context.values.fail("streamed bindings are semantic snapshots; native continuation requires a completed match result");
+    return false;
   } else if (const auto* row = object<Record>(value)) {
     auto root = row->fields.find("root");
     if (root != row->fields.end() && object<NativeNode>(root->second)) {
@@ -389,8 +398,8 @@ bool append_target(IrContext& context, std::vector<MatchTarget>& targets, const 
   return true;
 }
 
-extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* expression,
-                                               const Value* target, const char* scope) {
+const Value* match_rows(IrContext* context, const Value* expression, const Value* target,
+                        const char* scope, llvm::function_ref<bool(const Sequence&)> consume = {}) {
   auto& runtime = context->values;
   const auto* value = std::get_if<MatcherValue>(&expression->data);
   if (!value)
@@ -403,6 +412,19 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
   }
 
   std::vector<MatchTarget> targets;
+  std::optional<Value> expanded;
+  if (target) {
+    if (const auto* path = file_path(*target, true)) {
+      auto files = match_paths(*path);
+      if (!files) return runtime.fail(llvm::toString(files.takeError()));
+      if (*files) {
+        std::vector<Value> values;
+        for (auto& file : **files) values.push_back({std::move(file)});
+        expanded = value_access::list(std::move(values));
+        target = &*expanded;
+      }
+    }
+  }
   const auto scoped = !target && context->targets.local.scoped()
       ? std::optional(context->targets.local.scoped_inputs()) : std::nullopt;
   if (scoped) target = &*scoped;
@@ -430,17 +452,25 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
 
   if (children) {
     std::vector<Value> rows;
+    std::size_t count = 0;
     for (const auto& selected : targets) {
       if (!selected.root) return runtime.fail("children scope requires a retained node");
       NativeNode node{selected.ast, selected.root, {}, selected.parent};
       const auto* result = navigate(runtime, node, value, "children", 0, {}, false, false, false);
       if (!result) return nullptr;
-      const auto& items = value_access::object<Sequence>(*result)->items;
-      if (items.size() > value_access::max_items - rows.size())
-        return runtime.fail("match exceeds item limit");
-      rows.insert(rows.end(), items.begin(), items.end());
+      const auto& found = *value_access::object<Sequence>(*result);
+      if (found.items.size() > value_access::max_items - count)
+        return runtime.fail(consume ? "match do exceeds 10000 rows" : "match exceeds item limit");
+      count += found.items.size();
+      if (consume) {
+        if (!consume(found)) return nullptr;
+      } else {
+        rows.insert(rows.end(), found.items.begin(), found.items.end());
+      }
     }
-    return runtime.hold(value_access::list(std::move(rows)));
+    auto result = value_access::list(std::move(rows));
+    value_access::object<Sequence>(result)->match_snapshot = true;
+    return runtime.hold(std::move(result));
   }
 
   auto compiled = context->matchers.find(value->text);
@@ -459,11 +489,14 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
 
   struct CollectRows final : MatchFinder::MatchCallback {
     void run(const MatchFinder::MatchResult& result) override {
-      if (rows->items.size() == value_access::max_items) {
+      if (count == value_access::max_items) {
         overflow = true;
         return;
       }
+      ++count;
       auto row = std::make_shared<Record>();
+      row->match_row = true;
+      row->source_file = source_file;
       for (const auto& [name, node] : result.Nodes.getMap()) {
         row->set(name, {std::make_shared<NativeNode>(
                            NativeNode{ast, std::make_shared<clang::DynTypedNode>(node), {}, {}, name})});
@@ -471,6 +504,8 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
       rows->items.push_back({std::move(row)});
     }
     AstHandle ast;
+    std::optional<std::string> source_file;
+    std::size_t count = 0;
     std::shared_ptr<Sequence> rows = std::make_shared<Sequence>();
     bool overflow = false;
   };
@@ -485,6 +520,7 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
   }
   for (const auto& selected : targets) {
     collect.ast = selected.ast;
+    collect.source_file = native_source_file(selected.ast);
     if (!selected.root) {
       finder.matchAST(*selected.ast);
     } else if (self) {
@@ -504,11 +540,86 @@ extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* 
       }
     }
     if (collect.overflow)
-      return runtime.fail("match exceeds item limit");
+      return runtime.fail(consume ? "match do exceeds 10000 rows" : "match exceeds item limit");
     if (runtime.fatal)
       return nullptr;
+    // Execute after Clang has finished this traversal. A body may run another
+    // matcher against the same retained AST.
+    if (consume) {
+      if (!consume(*collect.rows)) return nullptr;
+      collect.rows->items.clear();
+    }
   }
+  collect.rows->match_snapshot = true;
   return runtime.hold({std::move(collect.rows)});
+}
+
+extern "C" const Value* ctk_jit_match_value_v2(IrContext* context, const Value* expression,
+                                               const Value* target, const char* scope) {
+  return match_rows(context, expression, target, scope);
+}
+
+extern "C" const Value* ctk_jit_match_block_v1(IrContext* context, const Value* expression,
+                                               const Value* target, const char* scope,
+                                               const Value* body, std::int32_t statement) {
+  using namespace value_access;
+  auto& runtime = context->values;
+  const auto* parent = runtime.match_output;
+  MatchOutput capture{{}, statement && runtime.consume_depth == 0 &&
+                             (!parent || parent->route_to_file)};
+  auto* previous_output = std::exchange(runtime.match_output, &capture);
+  const auto previous_consume = std::exchange(runtime.consume_depth, 0);
+  const auto* previous_printed = runtime.last_printed;
+  const Value keywords{std::make_shared<Record>()};
+  std::size_t index = 0;
+  const auto* matched = match_rows(context, expression, target, scope, [&](const Sequence& rows) {
+    for (const auto& row : rows.items) {
+      if (!runtime.tick()) return false;
+      const auto& fields = *object<Record>(row);
+      auto bindings = std::make_shared<Record>();
+      for (const auto& name : fields.keys) {
+        const auto* node = object<NativeNode>(fields.fields.at(name));
+        if (node) {
+          auto copied = streamed_binding(*node, fields.source_file);
+          if (!copied) {
+            runtime.fail("could not serialize a match binding");
+            return false;
+          }
+          bindings->set(name, {std::move(copied)});
+        }
+      }
+      const auto mark = runtime.temporaries.size();
+      const Value arguments{std::move(bindings)};
+      const auto* result = ctk_jit_value_invoke_v1(&runtime, body, &arguments, &keywords);
+      runtime.last_printed = previous_printed;
+      runtime.temporaries.resize(mark);
+      if (runtime.exit_requested) return false;
+      if (!result) {
+        const auto error = runtime.error;
+        runtime.fail(llvm::Twine("match row ") + llvm::Twine(index) + ": " + error +
+                     " (line " + llvm::Twine(capture.line) + ", column " +
+                     llvm::Twine(capture.column) + ")");
+        return false;
+      }
+      ++index;
+    }
+    return true;
+  });
+  runtime.match_output = previous_output;
+  runtime.consume_depth = previous_consume;
+  runtime.last_printed = previous_printed;
+  if (!matched && !runtime.exit_requested)
+    return nullptr;
+  if (!statement)
+    return runtime.hold({std::move(capture.text)});
+  // File-routed prints were already written at their original position.
+  if (!capture.text.empty()) {
+    auto destination = std::exchange(runtime.state.output_path, {});
+    const auto emitted = emit_text(runtime, capture.text);
+    runtime.state.output_path = std::move(destination);
+    if (!emitted) return nullptr;
+  }
+  return runtime.hold({});
 }
 
 extern "C" const Value* ctk_jit_setting_v1(
@@ -547,7 +658,7 @@ extern "C" const Value* ctk_jit_analyze_v1(IrContext* context, const char* opera
       return context->values.fail("AST is outside the resource scope manifest");
     return analyze(context->values, operation, *ast, nullptr, operand, options, display);
   }
-  if (const auto* path = value_access::as<std::string>(*target)) {
+  if (const auto* path = file_path(*target)) {
     auto ast = context->targets.select(*path);
     if (!ast) return context->values.fail(llvm::toString(ast.takeError()));
     return analyze(context->values, operation, *ast, nullptr, operand, options, display);
@@ -597,6 +708,8 @@ llvm::Expected<std::unique_ptr<llvm::Module>> parse_ir(llvm::StringRef source,
   return module;
 }
 
+extern "C" const Value* ctk_jit_history_v1(IrContext* context, const char* action,
+                                          const Value* value);
 extern "C" const Value* ctk_jit_import_v1(IrContext* context, const Value* path);
 extern "C" const Value* ctk_jit_eval_v1(IrContext* context, const Value* arguments,
                                         const Value* keywords);
@@ -618,14 +731,17 @@ llvm::Expected<std::unique_ptr<llvm::orc::LLJIT>> create_ir_jit() {
   expose("ctk_jit_print_decl_name_v1", &ctk_jit_print_decl_name_v1);
   expose("ctk_jit_print_qualified_name_v1", &ctk_jit_print_qualified_name_v1);
   expose("ctk_jit_value_context_v1", &ctk_jit_value_context_v1);
+  expose("ctk_jit_glob_v1", &ctk_jit_glob_v1);
   expose("ctk_jit_parse_v1", &ctk_jit_parse_v1);
   expose("ctk_jit_parse_cpp_v1", &ctk_jit_parse_cpp_v1);
   expose("ctk_jit_match_value_v2", &ctk_jit_match_value_v2);
+  expose("ctk_jit_match_block_v1", &ctk_jit_match_block_v1);
   expose("ctk_jit_setting_v1", &ctk_jit_setting_v1);
   expose("ctk_jit_local_operation_v1", &ctk_jit_local_operation_v1);
   expose("ctk_jit_analyze_v1", &ctk_jit_analyze_v1);
   expose("ctk_jit_navigate_v1", &ctk_jit_navigate_v1);
   expose("ctk_jit_import_v1", &ctk_jit_import_v1);
+  expose("ctk_jit_history_v1", &ctk_jit_history_v1);
   expose("ctk_jit_eval_v1", &ctk_jit_eval_v1);
   if (auto error = expose_values(**jit)) {
     return std::move(error);
@@ -698,6 +814,10 @@ public:
     return command;
   }
 
+  llvm::Error history(llvm::StringRef action, const std::string* value) {
+    return channel.history(action, value);
+  }
+
   std::vector<std::string> import_stack;
 
 private:
@@ -712,6 +832,16 @@ private:
   llvm::StringMap<Cached> expressions;
   std::uint64_t next = 0;
 };
+
+extern "C" const Value* ctk_jit_history_v1(IrContext* context, const char* action,
+                                          const Value* value) {
+  const auto* text = value ? value_access::as<std::string>(*value) : nullptr;
+  if (value && !text)
+    return context->values.fail("history requires a string");
+  if (auto error = context->compiler.history(action, text))
+    return context->values.fail(llvm::toString(std::move(error)));
+  return context->values.hold({});
+}
 
 class LibrarySnapshot {
 public:
@@ -852,6 +982,10 @@ llvm::Error call_ir_entry(IrEntry entry, IrContext& runtime) {
 }
 
 } // namespace
+
+bool Values::accepts_ast(const AstHandle& ast) const {
+  return static_cast<const IrContext*>(context)->targets.local.accepts(ast);
+}
 
 llvm::Error compile_ir(llvm::StringRef source) {
   // Keep the object compatible with the runner's generic process target.

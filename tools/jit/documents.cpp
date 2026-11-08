@@ -1,4 +1,5 @@
 #include "documents.hpp"
+#include "file_values.hpp"
 #include "filters.hpp"
 #include "typed_snapshot.hpp"
 #include "value_access.hpp"
@@ -453,7 +454,7 @@ llvm::Expected<std::string> csv_encode(const Value& value) {
 }
 
 const Value* read(Values& runtime, const Value& path, const char* explicit_format, bool loading) {
-  const auto* filename = as<std::string>(path);
+  const auto* filename = file_path(path, true);
   if (!filename || filename->empty() || filename->find('\0') != std::string::npos)
     return runtime.fail("read requires a nonempty file path");
   fs::path file(*filename);
@@ -514,7 +515,7 @@ extern "C" const Value* ctk_jit_document_read_v1(Values* runtime, const Value* p
 
 extern "C" const Value* ctk_jit_document_save_v1(Values* runtime, const Value* path,
                                                  const Value* value, const char* explicit_format) {
-  const auto* filename = as<std::string>(*path);
+  const auto* filename = file_path(*path, true);
   if (!filename || filename->empty() || filename->find('\0') != std::string::npos)
     return runtime->fail("save requires a nonempty file path");
   fs::path file(*filename);
@@ -555,7 +556,7 @@ extern "C" const Value* ctk_jit_document_output_v1(Values* runtime, const Value*
     runtime->state.output_path.clear();
     return runtime->hold({});
   }
-  const auto* filename = as<std::string>(*path);
+  const auto* filename = file_path(*path, true);
   if (!filename)
     return runtime->fail("output requires a file path");
   if (!write(*runtime, *filename, "", append != 0))
@@ -566,7 +567,7 @@ extern "C" const Value* ctk_jit_document_output_v1(Values* runtime, const Value*
 
 extern "C" const Value* ctk_jit_document_print_v1(Values* runtime, const Value* value,
                                                   const Value* path, std::int32_t append) {
-  const auto* filename = as<std::string>(*path);
+  const auto* filename = file_path(*path, true);
   if (!filename)
     return runtime->fail("output requires a file path");
   const auto* rendered = ctk_jit_value_render_v1(runtime, value);
@@ -592,6 +593,21 @@ bool write_settings_file(Values& runtime, llvm::StringRef path, const Value& val
 bool emit_text(Values& runtime, llvm::StringRef text) {
   if (runtime.consume_depth)
     return true;
+  if (auto* match = runtime.match_output;
+      match && (!match->route_to_file || runtime.state.output_path.empty())) {
+    if (!text.empty()) {
+      const auto separator = match->text.empty() ? 0 : 1;
+      if (match->text.size() + separator + text.size() > 1000000) {
+        runtime.fail("match do output exceeds 1000000 bytes");
+        return false;
+      }
+      if (separator)
+        match->text += '\n';
+      match->text += text;
+    }
+    ++runtime.emissions;
+    return true;
+  }
   if (auto& used = runtime.state.batch_output_bytes; used && !text.empty()) {
     constexpr std::size_t limit = 1000000;
     if (text.size() >= limit - *used) {

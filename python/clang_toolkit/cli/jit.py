@@ -349,6 +349,16 @@ def lower_ir(source: str, path: Path | None = None) -> str:
 
 def _lower_host(ir: LanguageIR, node: Node, source: str) -> str:
     tree, mode = node.value
+    if tree.data in {"session_label", "history_save", "history_clear"}:
+        action = tree.data.split("_")[1]
+        value = _host_value(ir, tree.children[2]) if len(tree.children) > 2 else "null"
+        return ir.call(
+            "ctk_jit_history_v1",
+            "ptr",
+            ("ptr", "%context"),
+            ("ptr", ir.string(action)),
+            ("ptr", value),
+        )
     if tree.data in LOCAL_COMMANDS:
         return lower_operation(ir, tree, mode, _host_value, source)
     if tree.data in ANALYSIS_COMMANDS:
@@ -401,6 +411,26 @@ def _lower_host(ir: LanguageIR, node: Node, source: str) -> str:
         ):
             scope = str(options[0].children[-1])
             options = options[1:]
+        if options and options[0] == "do":
+            block = options[1]
+            body_source = source[block.meta.start_pos + 1 : block.meta.end_pos - 1]
+            body = ir.match_body(
+                parse(body_source),
+                lambda child, item: _lower_host(child, item, body_source),
+                ir.source_location(block.meta.line, block.meta.column),
+            )
+            result = ir.call(
+                "ctk_jit_match_block_v1",
+                "ptr",
+                ("ptr", "%context"),
+                ("ptr", _host_value(ir, matcher)),
+                ("ptr", target),
+                ("ptr", ir.string(scope)),
+                ("ptr", body),
+                ("i32", int(mode == "statement")),
+            )
+            ir.check_exit()
+            return result
         if options:
             raise _unsupported(node, "unsupported standalone match options")
         rows = ir.call(
@@ -473,7 +503,7 @@ def _lower_host(ir: LanguageIR, node: Node, source: str) -> str:
             items = tree.children[1::2]
         arguments = _host_arguments(ir, items)
         return ir.value("call", ir.string(name), arguments, ir.collection(2))
-    if tree.data in {"display", "matcher", "reference"}:
+    if tree.data in {"display", "matcher", "reference", "glob_call"}:
         return _host_value(ir, tree)
     raise _unsupported(node, f"unsupported standalone CTK command {tree.data!r}")
 
@@ -668,6 +698,11 @@ def _host_value(ir: LanguageIR, item: Node | Tree | Token) -> str:
         return ir.literal(item.data == "true")
     if item.data == "display":
         return _host_value(ir, item.children[0])
+    if item.data == "glob_call":
+        return ir.call(
+            "ctk_jit_glob_v1", "ptr", ("ptr", "%values"),
+            ("ptr", _host_value(ir, item.children[2])),
+        )
     if item.data == "reference":
         _, name, *access = item.children
         result = ir.value("lookup", ir.string(str(name)))
@@ -862,6 +897,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("script", type=Path, nargs="?")
     run.add_argument("--bundle", type=Path, help="run a precompiled bundle")
     repl = commands.add_parser("repl", help="start a standalone LLVM IR session")
+    repl.add_argument("--ui", choices=("prompt", "workspace"), default="prompt")
     for command in (run, repl):
         command.add_argument(
             "--file", type=Path, help="default target translation unit"
@@ -940,6 +976,7 @@ def main(argv: list[str] | None = None) -> int:
                 lower_repl,
                 args.arguments,
                 _lower_request,
+                workspace=args.ui == "workspace",
             )
         if args.command == "run":
             return _native_command(args, runner)

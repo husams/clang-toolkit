@@ -58,7 +58,8 @@ add_executable(ctk-jit-runner
   documents.cpp
   typed_snapshot.cpp
   settings.cpp
-  platform/compiler_channel.cpp)
+  platform/compiler_channel.cpp
+  platform/file_values.cpp)
 target_compile_features(ctk-jit-runner PRIVATE cxx_std_23)
 set_target_properties(ctk-jit-runner PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")

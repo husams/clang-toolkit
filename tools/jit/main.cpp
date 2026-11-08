@@ -71,6 +71,20 @@ parse_target(const fs::path &target_path, fs::path database_path,
 
   tooling::ClangTool tool(*database, {file});
   tool.setDiagnosticConsumer(&diagnostics);
+  const auto directory = fs::absolute(commands.front().Directory);
+  tool.appendArgumentsAdjuster(
+      [&](const tooling::CommandLineArguments &arguments, llvm::StringRef) {
+        auto normalized = arguments;
+        // The AST's input spelling is visible to file matchers.
+        for (std::size_t index = 1; index < normalized.size(); ++index) {
+          auto &argument = normalized[index];
+          if (argument.empty() || argument.front() == '-')
+            continue;
+          if ((directory / argument).lexically_normal() == file)
+            argument = file;
+        }
+        return normalized;
+      });
   tooling::CommandLineArguments defaults{std::string("-resource-dir=") +
                                          CTK_JIT_RESOURCE_DIR};
   if (llvm::StringRef(CTK_JIT_SYSROOT) != "") {

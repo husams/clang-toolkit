@@ -1,4 +1,5 @@
 #include "typed_snapshot.hpp"
+#include "file_values.hpp"
 
 #include "match/v1/saved_value.pb.h"
 #include "semantic.hpp"
@@ -92,15 +93,56 @@ llvm::Expected<llvm::json::Value> unpack_json(const SavedData& data, unsigned de
   }
 }
 
+Value snapshot_data(const llvm::json::Value& json) {
+  if (const auto* mapping = json.getAsObject()) {
+    auto result = std::make_shared<Record>();
+    for (const auto& [key, value] : *mapping)
+      result->set(key, snapshot_data(value));
+    return {std::move(result)};
+  }
+  if (const auto* sequence = json.getAsArray()) {
+    std::vector<Value> result;
+    for (const auto& item : *sequence)
+      result.push_back(snapshot_data(item));
+    return list(std::move(result));
+  }
+  if (const auto text = json.getAsString()) return {text->str()};
+  if (const auto flag = json.getAsBoolean()) return {*flag};
+  if (const auto number = json.getAsInteger()) return {*number};
+  if (const auto number = json.getAsNumber()) return {*number};
+  return {};
+}
+
 llvm::Error pack(const Value& value, SavedData& output, unsigned depth, std::size_t& remaining) {
   if (depth > max_depth)
     return invalid("snapshot nesting limit exceeded");
   if (!remaining)
     return invalid("snapshot exceeds item limit");
   --remaining;
+  if (const auto* row = object<Record>(value); row && row->match_row) {
+    auto snapshot = match_row_snapshot(*row);
+    if (!snapshot)
+      return snapshot.takeError();
+    ++remaining;
+    return pack(snapshot_data(llvm::json::Value(std::move(*snapshot))), output, depth,
+                remaining);
+  }
   auto& fields = *output.mutable_record_value()->mutable_fields();
   auto& type = fields["type"];
   auto& data = fields["value"];
+  const auto* sequence = object<Sequence>(value);
+  const auto* record = object<Record>(value);
+  const auto* collection =
+      sequence && sequence->semantic_collection ? &*sequence->semantic_collection
+      : record && record->semantic_collection ? &*record->semantic_collection
+      : nullptr;
+  if (collection) {
+    type.set_string_value(sequence ? "semantic_repeated" : "semantic_map");
+    auto snapshot = semantic_snapshot(*collection->owner, collection->field);
+    if (!snapshot)
+      return snapshot.takeError();
+    return pack_json(llvm::json::Value(std::move(*snapshot)), data, depth + 1, remaining);
+  }
   if (std::holds_alternative<std::monostate>(value.data)) {
     type.set_string_value("null");
     data.set_null_value(SavedData::NULL_VALUE);
@@ -117,7 +159,7 @@ llvm::Error pack(const Value& value, SavedData& output, unsigned depth, std::siz
     type.set_string_value("str");
     data.set_string_value(*text);
   } else if (const auto* items = object<Sequence>(value); items && !items->tuple) {
-    type.set_string_value("list");
+    type.set_string_value(items->match_snapshot ? "match_snapshot" : "list");
     auto& list = *data.mutable_list_value();
     for (const auto& item : items->items)
       if (auto error = pack(item, *list.add_items(), depth + 1, remaining))
@@ -128,6 +170,13 @@ llvm::Error pack(const Value& value, SavedData& output, unsigned depth, std::siz
     for (const auto& key : record->keys)
       if (auto error = pack(record->fields.find(key)->second, entries[key], depth + 1, remaining))
         return error;
+  } else if (const auto* entry = object<FileEntry>(value)) {
+    type.set_string_value(entry->directory ? "directory" : "file");
+    auto& data_fields = *data.mutable_record_value()->mutable_fields();
+    data_fields["path"].set_string_value(entry->path);
+    data_fields["absolute"].set_string_value(entry->absolute);
+    data_fields["modified"].set_string_value(entry->modified);
+    data_fields["size"].set_integer_value(std::to_string(entry->size));
   } else if (const auto* matcher = as<MatcherValue>(value)) {
     type.set_string_value("matcher");
     auto& entries = *data.mutable_record_value()->mutable_fields();
@@ -154,6 +203,8 @@ llvm::Error pack(const Value& value, SavedData& output, unsigned depth, std::siz
       return invalid("cannot detach native binding");
     auto& entries = *data.mutable_record_value()->mutable_fields();
     entries["name"].set_string_value(node->binding_name);
+    if (const auto path = native_source_file(node->ast))
+      entries["source_file"].set_string_value(*path);
     return pack(Value{view}, entries["value"], depth + 1, remaining);
   } else if (const auto* enumeration = as<SemanticEnum>(value)) {
     type.set_string_value("semantic_enum");
@@ -194,6 +245,21 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
     return Value{data->float_value()};
   if ((kind == "str" || kind == "qualified_name") && data->has_string_value())
     return Value{data->string_value()};
+  if ((kind == "file" || kind == "directory") && data->has_record_value()) {
+    const auto& fields = data->record_value();
+    const auto* path = field(fields, "path");
+    const auto* absolute = field(fields, "absolute");
+    const auto* modified = field(fields, "modified");
+    const auto* size = field(fields, "size");
+    std::int64_t bytes;
+    if (fields.fields_size() != 4 || !path || !path->has_string_value() ||
+        !absolute || !absolute->has_string_value() || !modified || !modified->has_string_value() ||
+        !size || !size->has_integer_value() ||
+        llvm::StringRef(size->integer_value()).getAsInteger(10, bytes))
+      return invalid("invalid file snapshot");
+    return Value{std::make_shared<FileEntry>(FileEntry{path->string_value(),
+        absolute->string_value(), modified->string_value(), bytes, kind == "directory"})};
+  }
   if (kind == "matcher" && data->has_record_value()) {
     const auto& entries = data->record_value();
     const auto* name = field(entries, "name");
@@ -208,7 +274,8 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
       auto value = unpack(item, depth + 1);
       if (!value)
         return value.takeError();
-      if (!as<MatcherValue>(*value) && (value->data.index() == 0 || value->data.index() > 4))
+      if (!as<MatcherValue>(*value) && !object<FileEntry>(*value) &&
+          (value->data.index() == 0 || value->data.index() > 4))
         return invalid("invalid matcher snapshot argument");
       args.items.push_back(std::move(*value));
     }
@@ -260,9 +327,11 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
         return decoded.takeError();
       items.push_back(std::move(*decoded));
     }
-    return list(std::move(items));
+    auto result = list(std::move(items));
+    object<Sequence>(result)->match_snapshot = kind == "match_snapshot";
+    return result;
   }
-  if (kind == "record" && data->has_record_value()) {
+  if ((kind == "record" || kind == "semantic_bindings") && data->has_record_value()) {
     auto result = std::make_shared<Record>();
     const auto& entries = data->record_value().fields();
     if (entries.size() > max_items)

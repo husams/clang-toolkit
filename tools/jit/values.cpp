@@ -1,4 +1,5 @@
 #include "values.hpp"
+#include "file_values.hpp"
 #include "semantic.hpp"
 #include "documents.hpp"
 #include "filters.hpp"
@@ -66,9 +67,9 @@ std::optional<Value> node_property(const NativeNode& native, llvm::StringRef key
   if (key == "kind" || key == "clang_kind")
     return Value{node.getNodeKind().asStringRef().str()};
   if (key == "source_file") {
-    const auto& sources = native.ast->getSourceManager();
-    const auto file = sources.getFileEntryRefForID(sources.getMainFileID());
-    return file ? std::optional<Value>{Value{file->getName().str()}} : std::nullopt;
+    if (auto path = native_source_file(native.ast))
+      return Value{std::move(*path)};
+    return Value{};
   }
   if (const auto* decl = node.get<clang::NamedDecl>()) {
     if (key == "decl_name" || key == "name")
@@ -145,6 +146,11 @@ void format(llvm::raw_ostream& out, const Value& value, bool quote) {
     out << node->node->getNodeKind().asStringRef();
     if (name)
       out << '(' << *as<std::string>(*name) << ')';
+  } else if (const auto* entry = object<FileEntry>(value)) {
+    if (quote)
+      out << llvm::json::Value(entry->absolute);
+    else
+      out << entry->path;
   } else if (const auto* matcher = as<MatcherValue>(value)) {
     out << matcher->text;
   } else if (const auto* runnable = object<Runnable>(value)) {
@@ -248,6 +254,10 @@ void render(llvm::raw_ostream& out, const Value& value, Render style, unsigned d
     if (keys.size() < mapping->keys.size())
       out << ", \"truncated_items\": " << mapping->keys.size() - keys.size();
     out << '}';
+  } else if (const auto* entry = object<FileEntry>(value)) {
+    if (style == Render::Json)
+      render(out, file_record(*entry), style, depth);
+    else out << entry->path;
   } else if (const auto* view = object<SemanticValue>(value)) {
     out << llvm::StringRef(semantic_json(*view, style == Render::Console)).rtrim("\n");
   } else if (const auto* flag = as<SemanticEnum>(value)) {
@@ -544,10 +554,27 @@ extern "C" const Value* ctk_jit_value_get_v1(Values* runtime, const Value* value
     }
   }
   if (const auto* data = object<Record>(*value)) {
+    if (data->match_row) {
+      if (property == "source_file")
+        return runtime->hold(data->source_file ? Value{*data->source_file} : Value{});
+      if (property == "source_match_index")
+        return runtime->hold(data->source_match_index ? Value{*data->source_match_index} : Value{});
+      if (property == "bindings") {
+        auto bindings = std::make_shared<Record>();
+        for (const auto& name : data->keys)
+          if (const auto* node = object<NativeNode>(data->fields.at(name)))
+            bindings->set(name, {semantic(*node)});
+        return runtime->hold({std::move(bindings)});
+      }
+    }
     if (const auto found = data->fields.find(key); found != data->fields.end()) {
       return runtime->hold(found->second);
     }
     return runtime->fail(llvm::Twine("no record field named '") + key + "'");
+  }
+  if (const auto* entry = object<FileEntry>(*value)) {
+    if (auto field = file_field(*entry, property))
+      return runtime->hold(std::move(*field));
   }
   if (const auto* node = object<NativeNode>(*value)) {
     if (property == "value") {
@@ -708,6 +735,8 @@ extern "C" const Value* ctk_jit_value_store_v1(Values* runtime, const Value* val
   if (runtime->state.batch_output_bytes && contains_live_batch_value(*item))
     return runtime->fail("batch collection updates cannot retain live resources");
   if (auto* sequence = object<Sequence>(*value)) {
+    if (sequence->semantic_collection)
+      return runtime->fail("semantic collections are immutable");
     if (sequence->tuple)
       return runtime->fail("tuples are immutable");
     const auto index = position(*key, sequence->items.size());
@@ -718,8 +747,11 @@ extern "C" const Value* ctk_jit_value_store_v1(Values* runtime, const Value* val
     sequence->items[*index] = *item;
     return item;
   }
-  if (!object<Record>(*value))
+  const auto* record = object<Record>(*value);
+  if (!record)
     return runtime->fail("assignment requires a list or record");
+  if (record->semantic_collection)
+    return runtime->fail("semantic collections are immutable");
   return ctk_jit_value_add_v1(runtime, value, key, item) ? item : nullptr;
 }
 
@@ -755,6 +787,12 @@ extern "C" const Value* ctk_jit_value_predicate_v1(Values* runtime, const char* 
   if (op == "is_kind" || op == "is_not_kind") {
     const auto* node = object<NativeNode>(*left);
     const auto* kind = as<std::string>(*right);
+    if (kind && (*kind == "File" || *kind == "Directory" || *kind == "FileSystemEntry")) {
+      const auto* entry = object<FileEntry>(*left);
+      const bool equal = entry && (*kind == "FileSystemEntry" ||
+                                   (*kind == "Directory") == entry->directory);
+      return runtime->hold({op == "is_kind" ? equal : !equal});
+    }
     if (const auto* view = object<SemanticValue>(*left); view && kind) {
       const bool equal = semantic_kind(*view, *kind);
       return runtime->hold({op == "is_kind" ? equal : !equal});
@@ -942,6 +980,24 @@ extern "C" const Value* ctk_jit_value_argument_v1(Values* runtime, const Value* 
   return nullptr;
 }
 
+extern "C" void ctk_jit_value_match_location_v1(Values* runtime, std::uint64_t line,
+                                                  std::uint64_t column) {
+  if (auto* match = runtime->match_output) {
+    match->line = line;
+    match->column = column;
+  }
+}
+
+extern "C" const Value* ctk_jit_value_match_bindings_v1(Values* runtime, const Value* bindings) {
+  for (const auto& [name, value] : object<Record>(*bindings)->fields)
+    runtime->local().insert_or_assign(name, value);
+  return bindings;
+}
+
+extern "C" std::int32_t ctk_jit_value_exit_requested_v1(Values* runtime) {
+  return runtime->exit_requested;
+}
+
 extern "C" void ctk_jit_value_exit_v1(Values* runtime) { runtime->exit_requested = true; }
 
 extern "C" void ctk_jit_value_set_source_v1(Values* runtime, const char* path) {
@@ -988,7 +1044,7 @@ extern "C" const Value* ctk_jit_value_bindings_v1(Values* runtime) {
       "NoneType",    "bool",          "int",
       "float",       "str",           "list",
       "dict",        "ParsedTree",    "BindingSelection",
-      "MatcherExpr", "RunnableBlock", "function", "MessageView", "EnumValue",
+      "MatcherExpr", "RunnableBlock", "function", "MessageView", "EnumValue", "File",
   };
   std::size_t width = 0;
   for (auto name : names)
@@ -1000,6 +1056,7 @@ extern "C" const Value* ctk_jit_value_bindings_v1(Values* runtime) {
     const auto* sequence = object<Sequence>(value);
     auto type = sequence && sequence->tuple ? llvm::StringRef("tuple")
                                             : llvm::StringRef(types[value.data.index()]);
+    if (const auto* entry = object<FileEntry>(value); entry && entry->directory) type = "Directory";
     out << "\n$" << name << std::string(width - name.size() + 2, ' ') << type;
   }
   return runtime->hold({std::move(result)});
@@ -1011,10 +1068,10 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
   const auto& args = parameters.items;
   const llvm::StringRef name(method);
   if (const auto* view = object<SemanticValue>(*base))
-    return hold_semantic(*runtime, semantic_method(*view, name, parameters));
+    return hold_semantic(*runtime, semantic_method(*view, name, parameters, runtime));
   if (const auto* node = object<NativeNode>(*base)) {
     if (const auto view = semantic(*node))
-      return hold_semantic(*runtime, semantic_method(*view, name, parameters));
+      return hold_semantic(*runtime, semantic_method(*view, name, parameters, runtime));
   }
   if (name == "hasField" && args.size() == 1) {
     return ctk_jit_value_predicate_v1(runtime, "has", base, &args[0]);
@@ -1025,7 +1082,7 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
         return runtime->hold(sequence->items[0]);
       return runtime->fail("one requires exactly one item");
     }
-    if (!sequence->tuple) {
+    if (!sequence->tuple && !sequence->semantic_collection) {
       if (name == "push" && args.size() == 1) {
         if (runtime->state.batch_output_bytes && contains_live_batch_value(args[0]))
           return runtime->fail("batch collection updates cannot retain live resources");
@@ -1067,7 +1124,7 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
     }
   }
   if (auto* data = object<Record>(*base)) {
-    if (name == "clear" && args.empty()) {
+    if (name == "clear" && args.empty() && !data->semantic_collection) {
       data->fields.clear();
       data->keys.clear();
       return base;
@@ -1086,7 +1143,7 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
       if (name == "hasKey" && args.size() == 1) {
         return runtime->hold({found != data->fields.end()});
       }
-      if (name == "delete" && args.size() == 1) {
+      if (name == "delete" && args.size() == 1 && !data->semantic_collection) {
         if (found == data->fields.end())
           return runtime->fail("dictionary key not found");
         auto result = std::move(found->second);
@@ -1104,8 +1161,8 @@ extern "C" const Value* ctk_jit_value_matcher_v1(Values* runtime, const char* na
   const auto& args = *object<Sequence>(*arguments);
   for (const auto& arg : args.items) {
     if ((!scalar(arg) || std::holds_alternative<std::monostate>(arg.data)) &&
-        !as<MatcherValue>(arg))
-      return runtime->fail("matcher arguments require a matcher, number, string or bool");
+        !as<MatcherValue>(arg) && !object<FileEntry>(arg))
+      return runtime->fail("matcher arguments require a matcher, number, string, bool or file");
   }
   const auto* key = binding ? as<std::string>(*binding) : nullptr;
   if (binding && !key) return runtime->fail("matcher binding requires a string");
@@ -1225,6 +1282,9 @@ llvm::Error expose_values(llvm::orc::LLJIT& jit) {
   EXPOSE(ctk_jit_value_call_v1);
   EXPOSE(ctk_jit_value_set_source_v1);
   EXPOSE(ctk_jit_value_exit_v1);
+  EXPOSE(ctk_jit_value_exit_requested_v1);
+  EXPOSE(ctk_jit_value_match_bindings_v1);
+  EXPOSE(ctk_jit_value_match_location_v1);
   EXPOSE(ctk_jit_value_set_result_v1);
   EXPOSE(ctk_jit_value_method_v1);
   EXPOSE(ctk_jit_value_bindings_v1);

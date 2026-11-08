@@ -1,4 +1,5 @@
 #include "semantic.hpp"
+#include "analysis.hpp"
 #include "analysis/v1/batch.pb.h"
 #include "analysis/v1/call_graph_response.pb.h"
 #include "match/v1/match_service.pb.h"
@@ -12,11 +13,16 @@
 #include <map>
 #include <set>
 
+#include <clang/AST/ASTContext.h>
+#include <clang/Basic/FileManager.h>
+#include <clang/Basic/SourceManager.h>
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
 #include <google/protobuf/util/json_util.h>
 #include <llvm/ADT/StringSet.h>
 #include <llvm/ADT/StringSwitch.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Path.h>
 
 namespace ctk::jit {
 namespace pb = google::protobuf;
@@ -34,6 +40,8 @@ struct SemanticValue {
   std::shared_ptr<NativeNode> selected;
   bool file_handle = false;
   std::shared_ptr<const std::vector<ast::FieldAvailability>> restored_availability;
+  std::optional<std::string> streamed_name;
+  std::optional<std::string> source_file;
 };
 
 namespace {
@@ -242,6 +250,8 @@ llvm::Expected<Value> read(const SemanticValue& owner, const pb::FieldDescriptor
   const auto size = ref.FieldSize(msg, &field);
   if (field.is_map()) {
     auto mapping = std::make_shared<Record>();
+    mapping->semantic_collection = SemanticCollection{
+        std::make_shared<SemanticValue>(owner), std::string(field.name())};
     for (int i = 0; i < size; ++i) {
       const auto& entry = ref.GetRepeatedMessage(msg, &field, i);
       const auto* key = entry.GetDescriptor()->map_key();
@@ -263,7 +273,57 @@ llvm::Expected<Value> read(const SemanticValue& owner, const pb::FieldDescriptor
       return item.takeError();
     items.push_back(std::move(*item));
   }
-  return list(std::move(items));
+  auto value = list(std::move(items));
+  object<Sequence>(value)->semantic_collection = SemanticCollection{
+      std::make_shared<SemanticValue>(owner), std::string(field.name())};
+  return value;
+}
+
+std::optional<Value> node_alias(const SemanticValue& value, llvm::StringRef name,
+                                unsigned depth = 0) {
+  if (depth > 12)
+    return std::nullopt;
+  if (const auto field = find_field(value, name)) {
+    auto resolved = read(field->owner, *field->descriptor);
+    if (resolved)
+      return std::move(*resolved);
+    llvm::consumeError(resolved.takeError());
+  }
+  const auto& message = *value.message;
+  const auto* descriptor = message.GetDescriptor();
+  for (int index = 0; index < descriptor->field_count(); ++index) {
+    const auto* field = descriptor->field(index);
+    if (field->is_repeated() || !field->message_type() || status(value, *field) != "PRESENT")
+      continue;
+    const auto& nested = message.GetReflection()->GetMessage(message, field);
+    if (auto result = node_alias(child(value, nested, field->name()), name, depth + 1))
+      return result;
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string> nested_text(const pb::Message& message, llvm::StringRef name) {
+  const auto* reflection = message.GetReflection();
+  const auto* field = message.GetDescriptor()->FindFieldByName(name.str());
+  if (field && !field->is_repeated() && field->type() == pb::FieldDescriptor::TYPE_STRING) {
+    auto text = reflection->GetString(message, field);
+    if (!text.empty())
+      return text;
+  }
+  std::vector<const pb::FieldDescriptor*> present;
+  reflection->ListFields(message, &present);
+  for (const auto* child : present) {
+    if (child->cpp_type() != pb::FieldDescriptor::CPPTYPE_MESSAGE)
+      continue;
+    const auto count = child->is_repeated() ? reflection->FieldSize(message, child) : 1;
+    for (int index = 0; index < count; ++index) {
+      const auto& sub = child->is_repeated() ? reflection->GetRepeatedMessage(message, child, index)
+                                            : reflection->GetMessage(message, child);
+      if (auto text = nested_text(sub, name))
+        return text;
+    }
+  }
+  return std::nullopt;
 }
 
 } // namespace
@@ -289,6 +349,58 @@ SemanticHandle semantic(const NativeNode& node) {
     node.semantic = semantic(std::move(binding));
   }
   return node.semantic;
+}
+
+std::optional<std::string> native_source_file(const AstHandle& ast) {
+  const auto& sources = ast->getSourceManager();
+  const auto file = sources.getFileEntryRefForID(sources.getMainFileID());
+  if (!file)
+    return std::nullopt;
+  llvm::SmallString<256> path(file->getNameAsRequested()), canonical;
+  sources.getFileManager().makeAbsolutePath(path);
+  if (!llvm::sys::fs::real_path(path, canonical))
+    return canonical.str().str();
+  llvm::sys::path::remove_dots(path, true);
+  return path.str().str();
+}
+
+llvm::Expected<llvm::json::Object> match_row_snapshot(const Record& row) {
+  auto message = std::make_unique<match::MatchResult>();
+  for (const auto& [name, value] : row.fields) {
+    const auto* node = object<NativeNode>(value);
+    auto binding = node ? semantic(*node) : SemanticHandle{};
+    if (!binding)
+      return fail("could not detach match row binding");
+    (*message->mutable_bindings())[name.str()] =
+        static_cast<const match::MatchBinding&>(*binding->message);
+  }
+  if (row.source_match_index)
+    message->set_source_match_index(*row.source_match_index);
+  auto json = llvm::json::parse(semantic_json(*semantic(std::move(message)), false));
+  if (!json)
+    return json.takeError();
+  auto* record = json->getAsObject();
+  if (!record)
+    return fail("invalid match row");
+  if (row.source_file)
+    (*record)["source_file"] = *row.source_file;
+  return std::move(*record);
+}
+
+SemanticHandle streamed_binding(const NativeNode& node,
+                                const std::optional<std::string>& source_file) {
+  const auto binding = semantic(node);
+  if (!binding)
+    return {};
+  auto result = std::make_shared<SemanticValue>(*binding);
+  result->streamed_name = node.binding_name;
+  result->source_file = source_file;
+  return result;
+}
+
+bool is_streamed_binding(const Value& value) {
+  const auto* view = object<SemanticValue>(value);
+  return view && view->streamed_name.has_value();
 }
 
 SemanticHandle semantic_graph(std::unique_ptr<pb::Message> message,
@@ -351,6 +463,24 @@ std::optional<Value> semantic_iteration(const Value& value) {
 
 llvm::Expected<Value> semantic_field(const SemanticValue& value, llvm::StringRef name) {
   const auto* descriptor = value.message->GetDescriptor();
+  if (value.streamed_name) {
+    if (name == "name")
+      return Value{*value.streamed_name};
+    if (name == "source_file")
+      return value.source_file ? Value{*value.source_file} : Value{};
+    if (name == "value") {
+      auto detached = std::make_shared<SemanticValue>(value);
+      detached->streamed_name.reset();
+      detached->source_file.reset();
+      return Value{std::move(detached)};
+    }
+    if (name == "decl_name" || name == "record_name" || name == "parameter_name") {
+      for (const auto* field : {"qualified_name", "identifier", "literal_operator_suffix"})
+        if (auto text = nested_text(*value.message, field))
+          return Value{std::move(*text)};
+      return Value{};
+    }
+  }
   if (value.file_handle && descriptor == match::FileInfo::descriptor()) {
     const auto& info = static_cast<const match::FileInfo&>(*value.message);
     if (name == "path")
@@ -412,6 +542,12 @@ llvm::Expected<Value> semantic_field(const SemanticValue& value, llvm::StringRef
   if (value.graph_nodes && (name == "response" || name == "proto") &&
       value.message == value.owner.get()) {
     return Value{std::make_shared<SemanticValue>(value)};
+  }
+  if (descriptor == ast::AstNode::descriptor() &&
+      (name == "name" || name == "qualified_name" || name == "declared_type")) {
+    if (auto alias = node_alias(value, name))
+      return std::move(*alias);
+    return fail(llvm::Twine("AST node has no available ") + name + " convenience field");
   }
   if (auto field = find_field(value, name))
     return read(field->owner, *field->descriptor);
@@ -729,7 +865,7 @@ private:
 };
 
 llvm::Expected<Value> graph_method(const SemanticValue& view, llvm::StringRef name,
-                                   const Sequence& arguments) {
+                                   const Sequence& arguments, Values* runtime) {
   const auto& args = arguments.items;
   GraphTopology topology(view);
   if (name == "grouped_calls" || name == "recursive_components" || name == "recursion_components") {
@@ -759,6 +895,13 @@ llvm::Expected<Value> graph_method(const SemanticValue& view, llvm::StringRef na
     else
       return fail("depth must be 0..32 or 'all'");
   }
+  if (const auto* target = object<NativeNode>(args[0]); runtime && target) {
+    const auto& graph = static_cast<const graph_api::CallGraphResponse&>(*view.message);
+    const auto* selected = select_callgraph(*runtime, *target, graph, depth, name == "callers");
+    if (!selected)
+      return fail(runtime->error);
+    return *selected;
+  }
   auto root = topology.select(args[0]);
   if (!root)
     return root.takeError();
@@ -768,7 +911,7 @@ llvm::Expected<Value> graph_method(const SemanticValue& view, llvm::StringRef na
 } // namespace
 
 llvm::Expected<Value> semantic_method(const SemanticValue& value, llvm::StringRef name,
-                                      const Sequence& arguments) {
+                                      const Sequence& arguments, Values* runtime) {
   if (value.graph_nodes &&
       value.message->GetDescriptor() == ctk::analysis::v1::CallGraphResponse::descriptor() &&
       name == "function") {
@@ -810,7 +953,7 @@ llvm::Expected<Value> semantic_method(const SemanticValue& value, llvm::StringRe
       (name == "callers" || name == "callees" || name == "shortest_path" ||
        name == "shortest_route" || name == "grouped_calls" || name == "recursive_components" ||
        name == "recursion_components"))
-    return graph_method(value, name, arguments);
+    return graph_method(value, name, arguments, runtime);
   if (name != "fieldOr" && name != "fieldState" && name != "hasField")
     return fail(llvm::Twine("unknown semantic method: ") + name);
   const bool fallback = name == "fieldOr";
@@ -848,7 +991,7 @@ bool semantic_kind(const SemanticValue& value, llvm::StringRef kind) {
   return llvm::StringRef(owner.message->GetDescriptor()->name()) == kind;
 }
 
-llvm::Expected<llvm::json::Object> semantic_snapshot(const SemanticValue& value) {
+llvm::Expected<llvm::json::Object> semantic_snapshot(const SemanticValue& value, llvm::StringRef only_field) {
   if (value.file_handle || value.message->GetDescriptor() == match::SessionInfo::descriptor())
     return fail("native resource handles cannot be saved");
   const pb::Message* message = value.message;
@@ -865,6 +1008,15 @@ llvm::Expected<llvm::json::Object> semantic_snapshot(const SemanticValue& value)
         static_cast<const graph_api::CallGraphNode&>(*message));
     copy->clear_native_match_index();
     detached = std::move(copy);
+  }
+  if (!only_field.empty()) {
+    detached.reset(message->New());
+    detached->CopyFrom(*message);
+    for (int index = 0; index < message->GetDescriptor()->field_count(); ++index) {
+      const auto* field = message->GetDescriptor()->field(index);
+      if (llvm::StringRef(field->name()) != only_field)
+        detached->GetReflection()->ClearField(detached.get(), field);
+    }
   }
   if (detached)
     message = detached.get();
@@ -887,12 +1039,15 @@ llvm::Expected<llvm::json::Object> semantic_snapshot(const SemanticValue& value)
         field->has_reason() ? llvm::json::Value(field->reason()) : nullptr,
     });
   }
-  return llvm::json::Object{
+  llvm::json::Object result{
       {"message_type", std::string(message->GetDescriptor()->full_name())},
       {"message", std::move(*decoded)},
       {"path", value.path},
       {"availability", std::move(availability)},
   };
+  if (!only_field.empty())
+    result["field"] = only_field;
+  return result;
 }
 
 llvm::Expected<Value> restore_semantic_snapshot(const llvm::json::Object& snapshot) {

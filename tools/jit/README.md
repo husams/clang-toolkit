@@ -53,7 +53,8 @@ CFG, call graph, variable flow, traversal, `peek`, and `step` use the
 existing native analysis code and the retained AST. File discovery, file
 leases, cursors, and the secondary `script` DSL execute in the runner process.
 Typed `.proto` files support detached scalar, list, record, enum, matcher,
-and semantic values, including copied AST bindings and call graph records.
+and semantic values, including copied AST bindings, match results, repeated
+and map fields, and call graph records.
 
 The REPL also embeds the managed query controller, project index controller,
 resource scopes, and durable batch registry. `session start`, `session add`,
@@ -72,11 +73,31 @@ index and `batch status` to inspect a saved run.
 The runner reads the existing layered console settings and saves updates to
 the user or project settings file. Graph values support local neighborhoods,
 shortest paths and routes, grouped calls, and recursive components.
+Pass a retained function binding to `graph.callers()` or `graph.callees()`
+to build a new neighborhood from that binding's AST.
 
-Remaining differences include console history and workspace UI, `glob` and
-`match ... do` syntax, some command rendering, detached collection snapshot
-formats, and live graph expansion from a retained binding outside the
-current graph.
+`glob` returns typed file and directory snapshots with metadata. A match
+can take the resulting file list. Each `match ... do` row runs its block in
+a fresh scope with the named bindings and `root`. Assign the command to a
+binding to collect its text output.
+
+```text
+let sources = glob("src/**/*.cpp")
+match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in $sources do {
+    print $f.value.node.qualified_name;
+}
+```
+
+The prompt recalls persistent history with Up/Down and Ctrl+R. `session label`
+tags subsequent commands, `history save "history.jsonl"` exports the records,
+and `history clear` clears them. The log is shared with the existing console
+at `$XDG_STATE_HOME/clang_tools/history.jsonl`, or
+`~/.local/state/clang_tools/history.jsonl` by default. Use `ctk-jit repl
+--ui workspace` for the full-screen editor, transcript, and source viewer.
+
+Some command previews differ from the existing console. The native workspace
+currently displays command output as text and has no live binding, resource,
+or server status panels.
 
 Use `--cpp-jit` to select the C++ backend or `--llvm-ir` to select IR explicitly.
 

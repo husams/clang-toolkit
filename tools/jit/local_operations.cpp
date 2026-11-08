@@ -1,4 +1,5 @@
 #include "local_operations.hpp"
+#include "file_values.hpp"
 
 #include "analysis.hpp"
 #include "analysis/v1/call_graph_response.pb.h"
@@ -524,7 +525,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     for (const auto& arg : settings_.compilation_arguments)
       options.add_compile_arguments(arg);
     if (args.size() > 1) {
-      const auto* path = as<std::string>(args[1]);
+      const auto* path = file_path(args[1]);
       if (!path)
         return runtime.fail("script target requires a file path");
       request.mutable_file()->set_file_path(*path);
@@ -535,6 +536,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     return result(runtime, std::move(reply.response), display);
   }
   if (command == "files_expression") {
+    text = file_path(first);
     api::DiscoverFilesRequest request;
     *request.mutable_profile() = profile(settings_);
     const auto* paths = object<Sequence>(first);
@@ -542,7 +544,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
       request.add_paths(*text);
     else if (paths) {
       for (const auto& value : paths->items) {
-        const auto* path = as<std::string>(value);
+        const auto* path = file_path(value);
         if (!path)
           return runtime.fail("files accepts paths, directories, or glob strings");
         request.add_paths(*path);
@@ -561,6 +563,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     MatchCode code;
     std::string detail;
     if (command == "file_open") {
+      text = file_path(first);
       api::OpenFileRequest request;
       if (text) {
         request.mutable_input()->set_file_path(*text);

@@ -212,11 +212,8 @@ std::string compact(const api::CallGraphResponse& graph) {
 
 const Value* callgraph(Values& runtime, const std::shared_ptr<SelectedAst>& engine,
                        const std::shared_ptr<CapturedBindingState>& state,
-                       const NativeNode* selected, const AstHandle& ast, llvm::StringRef options,
-                       bool display, bool json) {
-  api::CallGraphRequest request;
-  if (!parse_options(runtime, request, options))
-    return nullptr;
+                       const NativeNode* selected, const AstHandle& ast,
+                       api::CallGraphRequest request, bool display, bool json) {
   set_target(request, selected);
   request.set_retain_nodes(!display);
   auto backend = clang_layer::make_call_graph_backend(engine);
@@ -317,6 +314,28 @@ AstHandle retain_ast(std::unique_ptr<clang::ASTUnit> unit, std::uint64_t generat
       std::make_shared<ctk::cache::SnapshotEntry>(generation, "standalone", std::move(loaded)));
 }
 
+const Value* select_callgraph(Values& runtime, const NativeNode& target,
+                               const api::CallGraphResponse& graph, std::optional<std::uint64_t> depth,
+                               bool callers) {
+  if (!runtime.accepts_ast(target.ast))
+    return runtime.fail("AST is outside the resource scope manifest");
+  if (!snapshot(target.ast))
+    return runtime.fail("native snapshot unavailable");
+  api::CallGraphRequest request;
+  request.set_direction(callers ? api::CALL_GRAPH_DIRECTION_IN : api::CALL_GRAPH_DIRECTION_OUT);
+  if (depth)
+    request.set_max_depth(*depth);
+  else
+    request.set_unlimited_depth(true);
+  request.set_main_file_only(graph.main_file_only());
+  request.set_exclude_system_headers(graph.exclude_system_headers());
+  request.set_node_filter(graph.node_filter());
+  request.set_strict_node_filter(graph.strict_node_filter());
+  return callgraph(runtime, std::make_shared<SelectedAst>(snapshot(target.ast)),
+                   bindings(target.ast, &target), &target, target.ast, std::move(request),
+                   false, false);
+}
+
 const Value* analyze(Values& runtime, llvm::StringRef operation, const AstHandle& ast,
                      const NativeNode* selected, const Value* operand, llvm::StringRef options,
                      bool display) {
@@ -332,7 +351,10 @@ const Value* analyze(Values& runtime, llvm::StringRef operation, const AstHandle
   if (operation == "variable_flow")
     return variable_flow(runtime, engine, state, selected, operand, options, display);
   if (operation == "callgraph" || operation == "callgraph_json") {
-    return callgraph(runtime, engine, state, selected, ast, options, display,
+    api::CallGraphRequest request;
+    if (!parse_options(runtime, request, options))
+      return nullptr;
+    return callgraph(runtime, engine, state, selected, ast, std::move(request), display,
                      operation == "callgraph_json");
   }
   return runtime.fail(llvm::Twine("unknown analysis operation: ") + operation);
@@ -363,10 +385,15 @@ const Value* navigate(Values& runtime, const NativeNode& selected, const Matcher
   if (!native)
     return runtime.fail("native navigation result is unavailable");
 
+  const auto& result_rows = result.rows;
   auto row = [&](std::size_t ordinal) {
     const auto& values = native->rows[ordinal];
     const auto& parents = native->navigation_parents[ordinal];
     auto result = std::make_shared<Record>();
+    result->match_row = true;
+    result->source_file = native_source_file(selected.ast);
+    if (const auto& wire = result_rows[ordinal]; wire.has_source_match_index())
+      result->source_match_index = wire.source_match_index();
     for (const auto& [name, node] : values) {
       auto value = std::make_shared<NativeNode>(
           NativeNode{selected.ast, std::make_shared<clang::DynTypedNode>(node), {}, {}, name});

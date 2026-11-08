@@ -31,6 +31,8 @@ class LanguageIR:
         self.scope_depth = 0
         self.loops: list[tuple[str, str, int, int, int]] = []
         self.consume_depth = 0
+        self.return_type = "i32"
+        self.match_origin: tuple[int, int] | None = None
         self.cleanups: list[tuple[Node, int, str]] = []
 
     def fresh(self, prefix: str) -> str:
@@ -119,7 +121,7 @@ class LanguageIR:
             self.expression(cleanup)
         self.cleanups, self.failure = cleanups, failure
         self.native("exit", "void")
-        self.emit("ret i32 0")
+        self.emit("ret i32 0" if self.return_type == "i32" else "ret ptr null")
         self.label(self.fresh("after.exit"))
         return self.literal(None)
 
@@ -208,6 +210,9 @@ class LanguageIR:
             self.failure = recover
         result = self.literal(None)
         for index, item in enumerate(items):
+            if self.match_origin:
+                line, column = self.source_location(item.line, item.column)
+                self.native("match_location", "void", ("i64", line), ("i64", column))
             visible = display and item.kind not in {
                 "let",
                 "destructure",
@@ -543,13 +548,77 @@ class LanguageIR:
                 value = argument
             self.pattern(pattern, value)
 
-    def runnable(self, node: Node) -> str:
+    def source_location(self, line: int, column: int) -> tuple[int, int]:
+        if self.match_origin:
+            start_line, start_column = self.match_origin
+            return start_line + line - 1, column + (start_column if line == 1 else 0)
+        return line, column
+
+    def match_body(
+        self,
+        program: Node,
+        host: Callable[[LanguageIR, Node], str],
+        origin: tuple[int, int],
+    ) -> str:
+        child, slot, symbol = self._callable_body(host)
+        child.match_origin = origin
+        child.value("match_bindings", "%arguments")
+        child.statements(program.children, collect=False, display=True)
+        result = child.literal(None)
+        child.emit(f"ret ptr {result}")
+        return self._finish_callable(child, slot, symbol, "", 0, 0)
+
+    def check_exit(self) -> None:
+        requested = self.native("exit_requested", "i32")
+        exiting = self.fresh("%exiting")
+        self.emit(f"{exiting} = icmp ne i32 {requested}, 0")
+        stop, proceed = self.fresh("stop"), self.fresh("proceed")
+        self.emit(f"br i1 {exiting}, label %{stop}, label %{proceed}")
+        self.label(stop)
+        self.stop()
+        self.branch(proceed)
+        self.label(proceed)
+
+    def _callable_body(
+        self, host: Callable[[LanguageIR, Node], str]
+    ) -> tuple[LanguageIR, int, str]:
         slot = len(self.functions)
         self.functions.append("")
         symbol = f"ctk.runnable.{slot}"
-        child = LanguageIR(self.string, self.constant, self.host)
+        child = LanguageIR(self.string, self.constant, host)
+        child.return_type = "ptr"
         child.declarations = self.declarations
         child.functions = self.functions
+        return child, slot, symbol
+
+    def _finish_callable(
+        self,
+        child: LanguageIR,
+        slot: int,
+        symbol: str,
+        name: str,
+        minimum: int,
+        maximum: int,
+    ) -> str:
+        child.label("error")
+        child.emit("ret ptr null")
+        body = "\n".join(child.lines)
+        self.functions[slot] = (
+            f"define internal ptr @{symbol}(ptr %context, ptr %values, ptr %arguments, ptr %keywords) {{\n"
+            f"entry:\n{body}\n}}"
+        )
+        return self.call(
+            "ctk_jit_value_runnable_v2",
+            "ptr",
+            ("ptr", "%values"),
+            ("ptr", self.string(name)),
+            ("ptr", f"@{symbol}"),
+            ("i64", minimum),
+            ("i64", maximum),
+        )
+
+    def runnable(self, node: Node) -> str:
+        child, slot, symbol = self._callable_body(self.host)
         if node.kind == "clause_runnable":
             name = node.value
             for clause in node.children:
@@ -572,23 +641,10 @@ class LanguageIR:
             child.parameters(node, positional_only=False)
             result = child.expression(node.children[0])
             child.emit(f"ret ptr {result}")
-        child.label("error")
-        child.emit("ret ptr null")
-        body = "\n".join(child.lines)
-        self.functions[slot] = (
-            f"define internal ptr @{symbol}(ptr %context, ptr %values, ptr %arguments, ptr %keywords) {{\n"
-            f"entry:\n{body}\n}}"
-        )
         signature = node.children[0] if node.kind == "clause_runnable" else node
         arity = len(signature.value[1])
-        value = self.call(
-            "ctk_jit_value_runnable_v2",
-            "ptr",
-            ("ptr", "%values"),
-            ("ptr", self.string(name)),
-            ("ptr", f"@{symbol}"),
-            ("i64", arity - len(signature.children[1:])),
-            ("i64", arity),
+        value = self._finish_callable(
+            child, slot, symbol, name, arity - len(signature.children[1:]), arity
         )
         if node.kind == "runnable":
             self.define(name, value)
