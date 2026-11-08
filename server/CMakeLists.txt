@@ -64,6 +64,8 @@ endif()
 if(CTK_BUILD_NETWORK OR CTK_BUILD_JIT OR CTK_BUILD_LOCAL_OPERATIONS)
   add_library(ctk_operations
     src/application/match_controller.cpp
+    src/application/analysis_session.cpp
+    src/application/query_controller.cpp
     src/application/operation_executor.cpp
     src/application/cursor_registry.cpp
     src/application/resource_manager.cpp
@@ -84,20 +86,34 @@ if(TARGET ctk_operations)
   add_library(ctk_script_commands
     src/application/script_controller.cpp
     src/application/native_script_environment.cpp
-    src/application/script_options.cpp)
-  target_link_libraries(ctk_script_commands PUBLIC ctk_core ctk_operations)
+    src/application/script_options.cpp
+    src/application/batch_registry.cpp)
+  target_link_libraries(ctk_script_commands PUBLIC ctk_core ctk_operations
+    PRIVATE OpenSSL::Crypto)
+endif()
+
+if(TARGET ctk_operations)
+  add_library(ctk_project_index
+    src/application/project_index.cpp
+    src/platform/index_worker.cpp
+    src/platform/directory_watch.cpp
+    src/platform/index_input_watch.cpp
+    src/platform/index_file_reader.cpp
+    src/platform/index_filesystem.cpp)
+  target_include_directories(ctk_project_index PUBLIC include)
+  target_compile_features(ctk_project_index PUBLIC cxx_std_23)
+  target_link_libraries(ctk_project_index PUBLIC ctk_index_api ctk_cache
+    PRIVATE Threads::Threads OpenSSL::Crypto ctk::sqlite)
+  if(APPLE)
+    target_link_libraries(ctk_project_index PRIVATE "-framework CoreServices")
+  endif()
 endif()
 
 if(CTK_BUILD_NETWORK)
   find_path(CTK_YAML_INCLUDE_DIR yaml.h REQUIRED)
   find_library(CTK_YAML_LIBRARY yaml REQUIRED)
-  target_sources(ctk_core PRIVATE
-    src/platform/loopback_address.cpp
-    src/config/config.cpp
-    src/application/analysis_session.cpp
-    src/application/query_controller.cpp)
+  target_sources(ctk_core PRIVATE src/platform/loopback_address.cpp src/config/config.cpp)
   target_sources(ctk_core PRIVATE src/application/traversal_controller.cpp src/application/cfg_controller.cpp src/application/call_graph_controller.cpp)
-  target_sources(ctk_core PRIVATE src/application/batch_registry.cpp)
   target_include_directories(ctk_core PRIVATE "${CTK_YAML_INCLUDE_DIR}")
   target_link_libraries(ctk_core PRIVATE "${CTK_YAML_LIBRARY}")
   target_link_libraries(ctk_core PRIVATE OpenSSL::Crypto)
@@ -107,17 +123,12 @@ if(CTK_BUILD_NETWORK)
     src/net/protocol_adapter.cpp
     src/net/outbound_event_queue.cpp
     src/net/query_call_state.cpp
-    src/platform/index_worker.cpp
-    src/platform/directory_watch.cpp
-    src/platform/index_input_watch.cpp
-    src/platform/index_file_reader.cpp
-    src/platform/index_filesystem.cpp
     src/net/network_service.cpp)
   target_sources(ctk_network PRIVATE src/net/match_service.cpp src/net/match_status.cpp
     src/net/analysis_service.cpp src/net/index_service.cpp)
   target_include_directories(ctk_network PUBLIC include)
   target_link_libraries(ctk_core PUBLIC ctk_query_api ctk_analysis_api ctk_operations)
-  target_link_libraries(ctk_network PUBLIC ctk_core ctk_script_commands ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto
+  target_link_libraries(ctk_network PUBLIC ctk_core ctk_script_commands ctk_project_index ctk_query_api ctk_match_grpc ctk_analysis_grpc ctk_index_api Threads::Threads OpenSSL::Crypto
     PRIVATE ctk::sqlite)
   if(APPLE)
     target_link_libraries(ctk_network PRIVATE "-framework CoreServices")
@@ -227,13 +238,15 @@ elseif(CTK_BUILD_NETWORK)
   target_sources(ctk_core PRIVATE src/application/cfg_backend_compat.cpp)
 endif()
 
+if(TARGET ctk_project_index AND CTK_WITH_CLANG)
+  add_executable(ctk-index-worker src/index_worker_main.cpp)
+  target_link_libraries(ctk-index-worker PRIVATE ctk_clang ctk_project_index)
+endif()
+
 if(CTK_BUILD_NETWORK)
   add_executable(ctk-server src/main.cpp)
   target_link_libraries(ctk-server PRIVATE ctk_network)
-  if(CTK_WITH_CLANG)
-    add_executable(ctk-index-worker src/index_worker_main.cpp)
-    target_sources(ctk-index-worker PRIVATE src/platform/index_worker.cpp)
-    target_link_libraries(ctk-index-worker PRIVATE ctk_clang ctk_index_api)
+  if(TARGET ctk-index-worker)
     add_dependencies(ctk-server ctk-index-worker)
     install(TARGETS ctk-index-worker RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT ctk-server)
   endif()
