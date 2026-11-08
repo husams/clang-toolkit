@@ -92,8 +92,10 @@ The prompt recalls persistent history with Up/Down and Ctrl+R. `session label`
 tags subsequent commands, `history save "history.jsonl"` exports the records,
 and `history clear` clears them. The log is shared with the existing console
 at `$XDG_STATE_HOME/clang_tools/history.jsonl`, or
-`~/.local/state/clang_tools/history.jsonl` by default. Use `ctk-jit repl
---ui workspace` for the full-screen editor, transcript, and source viewer.
+`~/.local/state/clang_tools/history.jsonl` by default. Use `ctk-jit repl --ui`
+or `ctk-jit repl --ui workspace` for the full-screen editor, transcript, and
+source viewer. Use `ctk-jit repl --ui prompt` for the line prompt, which is the
+default when `--ui` is omitted.
 
 The workspace shows the native session's bindings (F7), file leases and
 retained cursors (F8), and local runtime status (F9). Expand match and

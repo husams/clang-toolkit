@@ -899,7 +899,14 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("script", type=Path, nargs="?")
     run.add_argument("--bundle", type=Path, help="run a precompiled bundle")
     repl = commands.add_parser("repl", help="start a standalone LLVM IR session")
-    repl.add_argument("--ui", choices=("prompt", "workspace"), default="prompt")
+    repl.add_argument(
+        "--ui",
+        nargs="?",
+        const="workspace",
+        choices=("prompt", "workspace"),
+        default="prompt",
+        help="select the REPL interface (bare --ui opens the workspace)",
+    )
     for command in (run, repl):
         command.add_argument(
             "--file", type=Path, help="default target translation unit"

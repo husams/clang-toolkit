@@ -182,6 +182,26 @@ foreach row in saved do { print row.f.decl_name }
     assert not (jit_project / "cache").exists()
 
 
+@pytest.mark.parametrize(
+    ("options", "expected_workspace"),
+    [
+        ((), False),
+        (("--ui",), True),
+        (("--ui", "prompt"), False),
+        (("--ui", "workspace"), True),
+    ],
+)
+def test_repl_ui_selection(
+    options: tuple[str, ...], expected_workspace: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def run_repl(*_args: object, workspace: bool) -> int:
+        assert workspace == expected_workspace
+        return 0
+
+    monkeypatch.setattr(jit, "run_repl", run_repl)
+    assert jit.main(["repl", *options, "--runner", str(_RUNNER)]) == 0
+
+
 def test_repl_reuses_compiled_commands_with_current_bindings(
     jit_project: Path,
     monkeypatch: pytest.MonkeyPatch,
