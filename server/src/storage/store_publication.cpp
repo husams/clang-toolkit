@@ -1,4 +1,5 @@
 #include "storage_internal.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -79,7 +80,7 @@ void Store::Impl::cleanup_failed_publication(
   release_publisher_blobs(digests);
   const auto referenced = metadata.referenced_digests();
   for (const auto &digest : digests) {
-    if (!referenced.contains(digest) && !blob_leases.contains(digest)) {
+    if (!ctk::compat::contains(referenced, digest) && !ctk::compat::contains(blob_leases, digest)) {
       try { blobs->remove(digest); } catch (...) {}
     }
   }

@@ -1,4 +1,5 @@
 #include "ctk/config/config.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/util/json_util.h>
@@ -215,7 +216,7 @@ TEST(NetworkConfig, ExposesTypedDefaultsAndWinningValueOrigins) {
             7);
   EXPECT_TRUE(std::holds_alternative<std::monostate>(
       settings.effective_values.at("client.rpc_timeout_ms")));
-  EXPECT_FALSE(settings.provenance.contains("network.tcp.host"));
+  EXPECT_FALSE(ctk::compat::contains(settings.provenance, "network.tcp.host"));
   EXPECT_EQ(std::get<std::int64_t>(settings.effective_values.at(
                 "client.grpc.max_receive_message_bytes")),
             -1);
@@ -443,7 +444,7 @@ TEST(NetworkConfig, SharedRuntimeConfigurationConformance) {
           offset += value.size();
         }
       }
-      if (text.starts_with("unix://"))
+      if (ctk::compat::starts_with(text, "unix://"))
         text =
             "unix://" +
             std::filesystem::path(text.substr(7)).lexically_normal().string();
@@ -461,7 +462,7 @@ TEST(NetworkConfig, SharedRuntimeConfigurationConformance) {
       if (const auto values = expected.find("values"); values != expected.end())
         for (const auto &[key, value] :
              values->second.struct_value().fields()) {
-          ASSERT_TRUE(settings.effective_values.contains(key)) << key;
+          ASSERT_TRUE(ctk::compat::contains(settings.effective_values, key)) << key;
           const auto &actual = settings.effective_values.at(key);
           if (value.kind_case() == google::protobuf::Value::kNullValue)
             EXPECT_TRUE(std::holds_alternative<std::monostate>(actual)) << key;
@@ -480,7 +481,7 @@ TEST(NetworkConfig, SharedRuntimeConfigurationConformance) {
           origins != expected.end())
         for (const auto &[key, value] :
              origins->second.struct_value().fields()) {
-          ASSERT_TRUE(settings.provenance.contains(key)) << key;
+          ASSERT_TRUE(ctk::compat::contains(settings.provenance, key)) << key;
           EXPECT_EQ(settings.provenance.at(key), expand(value.string_value()))
               << key;
         }

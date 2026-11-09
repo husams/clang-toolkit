@@ -1,5 +1,6 @@
 #include "ctk/application/call_graph_controller.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -49,9 +50,9 @@ TEST_F(CallGraph,
     if (node.has_function())
       nodes.emplace(node.function().qualified_name(), node.node_index());
   }
-  ASSERT_TRUE(nodes.contains("twice"));
-  ASSERT_TRUE(nodes.contains("leaf"));
-  ASSERT_TRUE(nodes.contains("external"));
+  ASSERT_TRUE(ctk::compat::contains(nodes, "twice"));
+  ASSERT_TRUE(ctk::compat::contains(nodes, "leaf"));
+  ASSERT_TRUE(ctk::compat::contains(nodes, "external"));
   EXPECT_FALSE(response.nodes(nodes.at("external")).has_definition());
   EXPECT_TRUE(response.nodes(nodes.at("leaf")).has_definition());
   int repeated = 0, recursive = 0;
@@ -222,8 +223,8 @@ TEST_F(CallGraph, IncomingDepthZeroAndAmbiguousSelectorsAreExplicit) {
   for (const auto &node : graph.nodes())
     if (node.has_function())
       names.insert(node.function().qualified_name());
-  EXPECT_TRUE(names.contains("before"));
-  EXPECT_TRUE(names.contains("next"));
+  EXPECT_TRUE(ctk::compat::contains(names, "before"));
+  EXPECT_TRUE(ctk::compat::contains(names, "next"));
   EXPECT_EQ(graph.call_sites_size(), 2);
 
   request.set_max_depth(0);
@@ -417,11 +418,11 @@ TEST_F(CallGraph, ScopeFiltersAreAppliedBeforeTopologyAndEchoedInHeader) {
   for (const auto &node : filtered.response.nodes())
     if (node.has_function())
       names.insert(node.function().qualified_name());
-  EXPECT_TRUE(names.contains("entry"));
-  EXPECT_TRUE(names.contains("helper"));
-  EXPECT_TRUE(names.contains("user_header"));
-  EXPECT_FALSE(names.contains("system_leaf"));
-  EXPECT_FALSE(names.contains("bridge"));
+  EXPECT_TRUE(ctk::compat::contains(names, "entry"));
+  EXPECT_TRUE(ctk::compat::contains(names, "helper"));
+  EXPECT_TRUE(ctk::compat::contains(names, "user_header"));
+  EXPECT_FALSE(ctk::compat::contains(names, "system_leaf"));
+  EXPECT_FALSE(ctk::compat::contains(names, "bridge"));
   bool retained_header_boundary_site = false;
   for (const auto &site : filtered.response.call_sites())
     if (site.has_facts() && site.facts().caller_name() == "entry" &&
@@ -536,9 +537,9 @@ TEST_F(CallGraph, SystemRootCallSitesAreFilteredBeforeTheSiteBudget) {
   int user_header_roots = 0, main_roots = 0, boundary_sites = 0;
   for (const auto &site : filtered.response.call_sites()) {
     if (site.caller_node() == filtered.response.root_node()) {
-      EXPECT_FALSE(site.location().file().ends_with("system_roots.hpp"));
-      user_header_roots += site.location().file().ends_with("user_roots.hpp");
-      main_roots += site.location().file().ends_with("roots.cc");
+      EXPECT_FALSE(ctk::compat::ends_with(site.location().file(), "system_roots.hpp"));
+      user_header_roots += ctk::compat::ends_with(site.location().file(), "user_roots.hpp");
+      main_roots += ctk::compat::ends_with(site.location().file(), "roots.cc");
     }
     if (site.facts().static_callee_name() == "system_leaf") {
       ++boundary_sites;
@@ -621,9 +622,9 @@ TEST_F(CallGraph, HeaderVaListImplicitConstructorDoesNotBreakFullScopeGraph) {
         node_indices[node.function().qualified_name()].push_back(
             node.node_index());
       }
-    EXPECT_TRUE(names.contains("entry"));
-    EXPECT_TRUE(names.contains("demo::chargeCard"));
-    ASSERT_TRUE(node_indices.contains(constructor));
+    EXPECT_TRUE(ctk::compat::contains(names, "entry"));
+    EXPECT_TRUE(ctk::compat::contains(names, "demo::chargeCard"));
+    ASSERT_TRUE(ctk::compat::contains(node_indices, constructor));
     ASSERT_GE(node_indices.at(constructor).size(),
               static_cast<std::size_t>(expected_constructors));
     std::size_t va_list_constructor_edges = 0;

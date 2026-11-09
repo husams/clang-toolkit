@@ -1,5 +1,6 @@
 #include "ctk/clang/file_discovery.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <fstream>
 #include <gtest/gtest.h>
 
@@ -28,8 +29,8 @@ TEST(FileDiscovery, StableManifestContainsMetadataWithoutNativeAcquisition) {
   const auto before = engine->resources();
   const auto manifest = discover_file_descriptors(request);
   ASSERT_EQ(manifest.inputs_size(), 2);
-  EXPECT_TRUE(manifest.inputs(0).file_path().ends_with("nested/a.cc"));
-  EXPECT_TRUE(manifest.inputs(1).file_path().ends_with("z.cc"));
+  EXPECT_TRUE(ctk::compat::ends_with(manifest.inputs(0).file_path(), "nested/a.cc"));
+  EXPECT_TRUE(ctk::compat::ends_with(manifest.inputs(1).file_path(), "z.cc"));
   EXPECT_EQ(manifest.inputs(0).profile().profile_id(),
             manifest.inputs(1).profile().profile_id());
   EXPECT_TRUE(manifest.inputs(0).profile().frozen());

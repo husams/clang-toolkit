@@ -1,6 +1,8 @@
 #include "cache_state.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <stdexcept>
 #include <utility>
@@ -32,10 +34,18 @@ private:
 // Wait only on the flight's mutex. Return owned results before any subsequent
 // metadata lookup, so cancellation and slow loaders cannot block cache stats.
 detail::FlightResult await_flight(const std::shared_ptr<detail::Flight> &flight,
-                                  std::stop_token cancellation) {
+                                  ctk::compat::StopToken cancellation) {
   std::unique_lock lock(flight->mutex);
-  if (!flight->ready.wait(lock, cancellation, [&] { return flight->done; }))
-    throw AcquisitionCancelled();
+  if (!cancellation.stop_possible()) {
+    flight->ready.wait(lock, [&] { return flight->done; });
+  } else {
+    // The C++17 condition variable cannot wake on a stop token. Only
+    // cancellable callers use a timed wait, so other waiters stay idle.
+    while (!flight->done && !cancellation.stop_requested())
+      flight->ready.wait_for(lock, std::chrono::milliseconds(10));
+    if (!flight->done)
+      throw AcquisitionCancelled();
+  }
   return {flight->snapshot, flight->publication_epoch, flight->error};
 }
 
@@ -47,7 +57,7 @@ prepare_snapshot(SnapshotPtr snapshot,
   detail::PreparedSnapshot prepared;
   prepared.snapshot = std::move(snapshot);
   prepared.observations = prepared.snapshot->inputs;
-  std::ranges::sort(prepared.observations, {}, &InputObservation::path);
+  ctk::compat::sort(prepared.observations, {}, &InputObservation::path);
   prepared.observations.erase(std::unique(prepared.observations.begin(),
                                           prepared.observations.end(),
                                           [](const auto &lhs, const auto &rhs) {
@@ -205,7 +215,7 @@ SnapshotCache::Impl::load_snapshot(const detail::AcquisitionRequest &request,
   auto loaded = loader->load(request.path, request.context);
   if (loaded.inputs.size() > options.max_inputs_per_snapshot)
     throw ResourceExhausted();
-  if (!std::ranges::any_of(loaded.inputs, [&](const auto &input) {
+  if (!ctk::compat::any_of(loaded.inputs, [&](const auto &input) {
         return input.path == request.path && input.kind == InputKind::File;
       }))
     throw std::invalid_argument("snapshot manifest lacks main source");

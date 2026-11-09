@@ -2,10 +2,15 @@
 #include "file_values.hpp"
 #include "semantic.hpp"
 #include "value_access.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 #include <optional>
 #include <set>
 #include <string_view>
@@ -83,7 +88,7 @@ struct Signature {
 Signature signature(llvm::StringRef name) {
   return llvm::StringSwitch<Signature>(name)
       .Case("range", {Filter::Range, 1, "", "", true})
-      .Cases({"len", "length"}, {Filter::Length, 1, "value"})
+      .Cases("len", "length", {Filter::Length, 1, "value"})
       .Case("map", {Filter::Map, 2, "value callback"})
       .Case("filter", {Filter::Keep, 2, "value callback"})
       .Case("take", {Filter::Take, 2, "value n"})
@@ -351,10 +356,31 @@ int order(const Value& left, const Value& right) {
 } // namespace
 
 std::string format_float(double number) {
+#if defined(_GLIBCXX_RELEASE) && _GLIBCXX_RELEASE < 11
+  std::ostringstream output;
+  output.imbue(std::locale::classic());
+  // Find the shortest scientific representation that round-trips to number.
+  std::string rendered;
+  for (int precision = 0; precision < std::numeric_limits<double>::max_digits10;
+       ++precision) {
+    output.str("");
+    output << std::scientific << std::setprecision(precision) << number;
+    rendered = output.str();
+    if (!std::isfinite(number))
+      return rendered;
+    std::istringstream input(rendered);
+    input.imbue(std::locale::classic());
+    double roundtrip;
+    if (input >> roundtrip && roundtrip == number)
+      break;
+  }
+  llvm::StringRef scientific(rendered);
+#else
   char buffer[48];
   const auto sci =
       std::to_chars(buffer, buffer + sizeof(buffer), number, std::chars_format::scientific);
   llvm::StringRef scientific(buffer, sci.ptr - buffer);
+#endif
   int exponent = 0;
   auto power = scientific.split('e').second;
   power.consume_front("+");
@@ -362,9 +388,28 @@ std::string format_float(double number) {
     return scientific.str();
   if (exponent < -4 || exponent >= 16)
     return scientific.str();
+#if defined(_GLIBCXX_RELEASE) && _GLIBCXX_RELEASE < 11
+  auto mantissa = scientific.split('e').first;
+  const bool negative = mantissa.consume_front("-");
+  auto digits = mantissa.str();
+  digits.erase(std::remove(digits.begin(), digits.end(), '.'), digits.end());
+  std::string result = negative ? "-" : "";
+  if (exponent < 0) {
+    result += "0." + std::string(-1 - exponent, '0') + digits;
+  } else {
+    const auto point = static_cast<std::size_t>(exponent + 1);
+    if (point < digits.size()) {
+      digits.insert(point, 1, '.');
+    } else {
+      digits.resize(point, '0');
+    }
+    result += digits;
+  }
+#else
   const auto fixed =
       std::to_chars(buffer, buffer + sizeof(buffer), number, std::chars_format::fixed);
   std::string result(buffer, fixed.ptr);
+#endif
   if (result.find('.') == std::string::npos)
     result += ".0";
   return result;
@@ -643,18 +688,18 @@ const Value* string_filter(Values& runtime, Filter filter, const Arguments& args
     return runtime.fail("string filter argument must be a string within the byte limit");
   const llvm::StringRef text(*value);
   if (filter == Filter::StartsWith)
-    return runtime.hold({text.starts_with(*argument)});
+    return runtime.hold({ctk::compat::starts_with(text, *argument)});
   if (filter == Filter::EndsWith)
-    return runtime.hold({text.ends_with(*argument)});
+    return runtime.hold({ctk::compat::ends_with(text, *argument)});
   if (filter == Filter::Contains)
-    return runtime.hold({text.contains(*argument)});
+    return runtime.hold({ctk::compat::contains(text, *argument)});
   if (filter == Filter::StripPrefix) {
     return runtime.hold(
-        {text.starts_with(*argument) ? text.drop_front(argument->size()).str() : *value});
+        {ctk::compat::starts_with(text, *argument) ? text.drop_front(argument->size()).str() : *value});
   }
   if (filter == Filter::StripSuffix) {
     return runtime.hold(
-        {text.ends_with(*argument) ? text.drop_back(argument->size()).str() : *value});
+        {ctk::compat::ends_with(text, *argument) ? text.drop_back(argument->size()).str() : *value});
   }
   if (argument->empty())
     return runtime.fail("separator or replacement key must be nonempty");

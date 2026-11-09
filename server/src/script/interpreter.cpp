@@ -1,6 +1,7 @@
 #include "interpreter.hpp"
 #include "ctk/script/error.hpp"
 #include "scoped_block.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <unordered_set>
 namespace ctk::script::detail {
@@ -92,7 +93,7 @@ void Interpreter::retain(const Value &value) {
   std::size_t bytes = response_.SpaceUsedLong();
   std::unordered_set<const void *> seen;
   auto inspect = [&](auto &list, const auto &size) {
-    std::erase_if(list, [&](const auto &weak) {
+    ctk::compat::erase_if(list, [&](const auto &weak) {
       auto live = weak.lock();
       if (!live)
         return true;
@@ -468,7 +469,7 @@ Value Interpreter::evaluate(const Expression &expression) {
                     "positional arguments must precede named arguments");
       arguments.push_back(evaluate(*argument.expression));
     } else {
-      if (options.contains(argument.name))
+      if (ctk::compat::contains(options, argument.name))
         throw Error(Code::InvalidArgument,
                     "duplicate script option: " + argument.name);
       options.emplace(argument.name, evaluate(*argument.expression));
@@ -675,7 +676,7 @@ Value Interpreter::statements(const std::vector<Statement> &body) {
     tick();
     auto value = evaluate(*statement.expression);
     if (statement.kind == Statement::Kind::Assignment) {
-      if (scopes_.back().contains(statement.name))
+      if (ctk::compat::contains(scopes_.back(), statement.name))
         throw Error(Code::InvalidArgument,
                     "duplicate script variable: " + statement.name);
       scopes_.back().emplace(statement.name, std::move(value));

@@ -1,5 +1,6 @@
 #include "../src/net/project_index_store.hpp"
 #include "ctk/net/index_service.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -58,7 +59,7 @@ int trace_revision_one(unsigned event, void *context, void *statement, void *) {
     return 0;
   char *expanded = sqlite3_expanded_sql(static_cast<sqlite3_stmt *>(statement));
   const std::string_view sql(expanded ? expanded : "");
-  if (sql.starts_with("WITH selected AS MATERIALIZED") &&
+  if (ctk::compat::starts_with(sql, "WITH selected AS MATERIALIZED") &&
       sql.find("kind IN ('TypeAlias','Typedef')") != std::string_view::npos) {
     const int scans =
         sqlite3_stmt_status(static_cast<sqlite3_stmt *>(statement),
@@ -2799,8 +2800,8 @@ TEST_F(ProjectIndexServiceTest, SourceOnlyAliasBrowsePagesAtStableRevision) {
   for (const auto &symbol : second.symbols())
     EXPECT_TRUE(source_usrs.insert(symbol.usr()).second);
   EXPECT_EQ(source_usrs.size(), 1006u);
-  EXPECT_TRUE(source_usrs.contains("symlink-alias"));
-  EXPECT_TRUE(source_usrs.contains("inroot-file-symlink-alias"));
+  EXPECT_TRUE(ctk::compat::contains(source_usrs, "symlink-alias"));
+  EXPECT_TRUE(ctk::compat::contains(source_usrs, "inroot-file-symlink-alias"));
   const auto all_first = page(false, 0, 0);
   ASSERT_EQ(all_first.symbols_size(), 1000);
   EXPECT_TRUE(all_first.truncated());
@@ -2948,7 +2949,7 @@ template<class T> using AliasTemplate = T;
   EXPECT_FALSE(unique.truncated());
   for (const auto &symbol : unique.symbols()) {
     EXPECT_EQ(symbol.kind(), "CXXRecord");
-    EXPECT_TRUE(symbol.translation_unit().ends_with(".cpp"));
+    EXPECT_TRUE(ctk::compat::ends_with(symbol.translation_unit(), ".cpp"));
   }
   const auto limited =
       search("Unique", FindSymbolsRequest::KIND_CLASS, true, 1, true);

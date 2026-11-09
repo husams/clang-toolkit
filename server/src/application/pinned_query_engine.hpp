@@ -1,4 +1,6 @@
 #pragma once
+#include "ctk/support/algorithm.hpp"
+
 #include "ctk/clang/tooling.hpp"
 #include "ctk/script/error.hpp"
 #include <filesystem>
@@ -27,7 +29,7 @@ public:
       return found->second;
     auto snapshot = engine_->acquire_snapshot(file);
     if (snapshot) {
-      const bool distinct = !owners_.contains(snapshot.get());
+      const bool distinct = !ctk::compat::contains(owners_, snapshot.get());
       if (distinct && (bytes_ > max_bytes_ ||
                        snapshot->estimated_bytes > max_bytes_ - bytes_))
         throw ctk::script::Error(ctk::clang_layer::MatchCode::ResourceExhausted,

@@ -1,6 +1,7 @@
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 #include "ast/v1/semantic.pb.h"
+#include "ctk/support/algorithm.hpp"
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
@@ -13,7 +14,7 @@ bool has_unrequested(const ctk::match::v1::MatchBinding &binding,
                      const std::string &suffix) {
   for (const auto &entry : binding.availability())
     if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
-        entry.field_path().ends_with(suffix))
+        ctk::compat::ends_with(entry.field_path(), suffix))
       return true;
   return false;
 }
@@ -28,7 +29,7 @@ void expect_record_qualifier_availability(
   EXPECT_FALSE(binding.is_complete());
   bool found = false;
   for (const auto &entry : binding.availability()) {
-    if (!entry.field_path().ends_with("RecordType.qualifier"))
+    if (!ctk::compat::ends_with(entry.field_path(), "RecordType.qualifier"))
       continue;
     found = true;
     EXPECT_EQ(entry.state(), ctk::ast::v1::FIELD_STATE_UNAVAILABLE);

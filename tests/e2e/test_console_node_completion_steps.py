@@ -40,7 +40,9 @@ async def _wait_for_text(session, expected: str) -> None:
     )
 
 
-async def _prompt_completions(runtime: Runtime, reference: str) -> dict[str, str]:
+async def _prompt_completions(
+    runtime: Runtime, reference: str, *, minimum: int = 1
+) -> dict[str, str]:
     with create_pipe_input() as pipe:
         session = create_session(
             input=pipe,
@@ -60,7 +62,7 @@ async def _prompt_completions(runtime: Runtime, reference: str) -> dict[str, str
                 if (
                     state is not None
                     and state.original_document.text == reference
-                    and state.completions
+                    and len(state.completions) >= minimum
                 ):
                     return {
                         completion.text: to_plain_text(completion.display_meta)
@@ -156,11 +158,16 @@ def explore_native_completion(function_completion_context):
                 name_suggestions[index] = asyncio.run(
                     _prompt_completions(runtime, node_reference + ".name.")
                 )
-                presence_suggestions[index] = asyncio.run(
-                    _prompt_completions(runtime, node_reference + ".hasField(")
-                )
                 presence_fields[index] = set(
                     runtime.completion_presence_fields(node_reference)
+                )
+                # The buffer may publish a partial menu while completing.
+                presence_suggestions[index] = asyncio.run(
+                    _prompt_completions(
+                        runtime,
+                        node_reference + ".hasField(",
+                        minimum=len(presence_fields[index]),
+                    )
                 )
             quoted_presence = {
                 quote: asyncio.run(

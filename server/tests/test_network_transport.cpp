@@ -77,7 +77,11 @@ struct FakeHandle : app::IQueryHandle {
 };
 struct FakeController : app::IQueryController {
   std::shared_ptr<FakeHandle> task;
-  std::jthread worker;
+  std::thread worker;
+  ~FakeController() override {
+    if (worker.joinable())
+      worker.join();
+  }
   int events = 300;
   std::shared_ptr<app::IQueryHandle>
   open(std::shared_ptr<app::IQueryEventSink> sink) override {
@@ -89,7 +93,9 @@ struct FakeController : app::IQueryController {
   start(app::QueryRequest,
         std::shared_ptr<app::IQueryEventSink> sink) override {
     auto handle = std::static_pointer_cast<FakeHandle>(open(sink));
-    worker = std::jthread([handle, total = events] {
+    if (worker.joinable())
+      worker.join();
+    worker = std::thread([handle, total = events] {
       for (int index = 0; index < total && !handle->cancelled; ++index) {
         app::QueryEvent event{app::EventKind::Match};
         event.file = "fixture.cpp";

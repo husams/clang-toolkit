@@ -18,8 +18,17 @@ struct IndexFileIdentity {
   std::int64_t ctime_seconds = 0;
   std::int64_t ctime_nanoseconds = 0;
   std::uint32_t mode = 0;
-  friend bool operator==(const IndexFileIdentity &,
-                         const IndexFileIdentity &) = default;
+  bool operator==(const IndexFileIdentity &other) const {
+    return device == other.device && inode == other.inode &&
+           owner == other.owner && group == other.group && size == other.size &&
+           mtime_seconds == other.mtime_seconds &&
+           mtime_nanoseconds == other.mtime_nanoseconds &&
+           ctime_seconds == other.ctime_seconds &&
+           ctime_nanoseconds == other.ctime_nanoseconds && mode == other.mode;
+  }
+  bool operator!=(const IndexFileIdentity &other) const {
+    return !(*this == other);
+  }
 };
 
 // Keeps a file descriptor open so index planning can re-read the same file

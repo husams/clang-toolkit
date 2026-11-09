@@ -1,5 +1,6 @@
 #include "ctk/platform/directory_watch.hpp"
 #include "index_filesystem.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <array>
@@ -60,7 +61,7 @@ watch_descriptor(const std::filesystem::path &path) {
   if (handle->fd < 0 || !supports_index_input_reuse(handle->fd))
     return {};
   if (pool.paths.size() > 12288)
-    std::erase_if(pool.paths,
+    ctk::compat::erase_if(pool.paths,
                   [](const auto &entry) { return entry.second.expired(); });
   pool.paths[path] = handle;
   return handle;
@@ -185,7 +186,7 @@ bool DirectoryWatch::Impl::add(const std::filesystem::path &path, bool file,
                                bool metadata) {
   if (queue < 0)
     return false;
-  if (directories.contains(path))
+  if (ctk::compat::contains(directories, path))
     return true;
   if (directories.size() >= budget)
     return false;

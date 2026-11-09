@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ctk/support/algorithm.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
@@ -35,13 +37,13 @@ include_roots(const std::string &source, const std::string &working_directory,
          argument == "-iframework") &&
         i + 1 < arguments.size())
       path = arguments[++i];
-    else if (argument.starts_with("-I") && argument.size() > 2)
+    else if (ctk::compat::starts_with(argument, "-I") && argument.size() > 2)
       path = argument.substr(2);
     else {
       for (const char *option :
            {"-iquote", "-isystem", "-idirafter", "-F", "-iframework"}) {
         const std::string_view prefix(option);
-        if (argument.starts_with(prefix) && argument.size() > prefix.size()) {
+        if (ctk::compat::starts_with(argument, prefix) && argument.size() > prefix.size()) {
           path = argument.substr(prefix.size());
           break;
         }

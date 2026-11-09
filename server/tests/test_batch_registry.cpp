@@ -1,4 +1,5 @@
 #include "ctk/application/batch_registry.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "ctk/clang/file_discovery.hpp"
 #include "ctk/platform/durable_file.hpp"
@@ -493,7 +494,7 @@ TEST(BatchRegistry, PostRenameJournalFailureFailsClosedUntilRestart) {
     if (!injected->load() && manifest.groups_size() > 0 &&
         !manifest.groups(0).resource_scope_id().empty() &&
         manifest.groups(0).source_revisions_size() > 0 &&
-        manifest.groups(0).source_revisions(0).starts_with("closure:") &&
+        ctk::compat::starts_with(manifest.groups(0).source_revisions(0), "closure:") &&
         !injected->exchange(true))
       throw std::runtime_error("injected post-rename journal failure");
   };

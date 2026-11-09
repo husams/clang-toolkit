@@ -1,6 +1,7 @@
 #include "lower.hpp"
 #include "help.hpp"
 #include "syntax.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -32,9 +33,9 @@ using Children = llvm::SmallVector<const Syntax *, 8>;
 
 Kind kind(const Syntax &node) {
   auto name = node.name;
-  if (name.starts_with("proto_"))
+  if (ctk::compat::starts_with(name, "proto_"))
     name.remove_prefix(6);
-  else if (name.starts_with("legacy_"))
+  else if (ctk::compat::starts_with(name, "legacy_"))
     name.remove_prefix(7);
   return name;
 }
@@ -108,13 +109,13 @@ public:
 private:
   [[noreturn]] void fail(const Syntax &node, llvm::Twine message) const {
     const auto prefix = source.take_front(node.begin);
-    const auto line = std::ranges::count(prefix, '\n') + 1;
+    const auto line = ctk::compat::count(prefix, '\n') + 1;
     const auto newline = prefix.rfind('\n');
     const auto previous = newline == llvm::StringRef::npos
                               ? prefix
                               : prefix.drop_front(newline + 1);
     const auto column =
-        std::ranges::count_if(previous,
+        ctk::compat::count_if(previous,
                               [](char byte) {
                                 return (static_cast<unsigned char>(byte) &
                                         0xc0) != 0x80;
@@ -451,7 +452,7 @@ private:
       const auto identifier = children.front()->text;
       if (identifier == "_")
         return;
-      if (std::ranges::any_of(bindings, [&](const auto &item) {
+      if (ctk::compat::any_of(bindings, [&](const auto &item) {
             return item.first == identifier;
           }))
         fail(node, "destructuring pattern has duplicate names");
@@ -760,7 +761,7 @@ private:
     for (const auto *item : children) {
       if (dict) {
         const auto &key = item->children[0];
-        const auto text = key.name.ends_with("STRING")
+        const auto text = ctk::compat::ends_with(key.name, "STRING")
                               ? decode_ctk_string(key.text)
                               : std::string(key.text);
         value("add", {result, literal(4, text), expression(item->children[1])});
@@ -860,7 +861,7 @@ private:
     IrValue *request = nullptr;
     for (const auto &item : parts) {
       const auto label = kind(item);
-      if (!label.starts_with("batch_"))
+      if (!ctk::compat::starts_with(label, "batch_"))
         continue;
       if (label == "batch_size" || label == "batch_count" ||
           label == "batch_jobs") {
@@ -920,7 +921,7 @@ private:
     };
     std::string options;
     const Syntax *destination = nullptr;
-    if (name.starts_with("index_")) {
+    if (ctk::compat::starts_with(name, "index_")) {
       for (const auto &part : parts)
         if (part.name == "LEGACY_STRING")
           add(part);
@@ -1009,8 +1010,8 @@ private:
       options =
           llvm::formatv("{0}", llvm::json::Value(std::move(fields))).str();
     } else if (name == "file_info" || name == "session_close_retained" ||
-               name == "cursor_close" || name.starts_with("batch_") ||
-               (name.starts_with("session_") && name != "session_list")) {
+               name == "cursor_close" || ctk::compat::starts_with(name, "batch_") ||
+               (ctk::compat::starts_with(name, "session_") && name != "session_list")) {
       if (parts.size() > 2)
         add(parts[2]);
     }
@@ -1063,7 +1064,7 @@ private:
   IrValue *setting(const Syntax &node) {
     const auto name = kind(node);
     const auto &parts = node.children;
-    const auto user = std::ranges::any_of(
+    const auto user = ctk::compat::any_of(
         parts, [](const Syntax &item) { return item.text == "user"; });
     const auto append = name == "add_arg";
     Kind key;
@@ -1194,7 +1195,7 @@ private:
 
   IrValue *navigate(const Syntax &node, bool statement) {
     const auto &parts = node.children;
-    const auto in = std::ranges::find_if(
+    const auto in = ctk::compat::find_if(
         parts, [](const Syntax &item) { return item.text == "in"; });
     if (in == parts.end())
       fail(node, "navigation requires a source");
@@ -1318,7 +1319,7 @@ private:
         add(projection, depth ? "max_depth" : "max_nodes",
             unsigned_number(field, 1, depth ? 64 : 100000));
       } else if (const auto limit =
-                     std::ranges::find(limits, name, &Limit::form);
+                     ctk::compat::find(limits, name, &Limit::form);
                  limit != std::end(limits)) {
         if (limit->key == "max_depth" && options.get("unlimited_depth"))
           fail(item, "duplicate analysis option max_depth");
@@ -1332,7 +1333,7 @@ private:
           add(options, limit->key,
               unsigned_number(field, limit->minimum, limit->maximum));
         }
-      } else if (const auto flag = std::ranges::find(
+      } else if (const auto flag = ctk::compat::find(
                      flags, name, &std::pair<Kind, Kind>::first);
                  flag != std::end(flags)) {
         add(options, flag->second, text == "true");
@@ -1380,7 +1381,7 @@ private:
         if (kind(entry) != "dict_entry")
           continue;
         const auto &key = entry.children.front();
-        const auto label = key.name.ends_with("STRING")
+        const auto label = ctk::compat::ends_with(key.name, "STRING")
                                ? decode_ctk_string(key.text)
                                : std::string(key.text);
         value("add",
@@ -1406,7 +1407,7 @@ private:
         "callgraph",     "callgraph_file", "callgraph_binding",
         "variable_flow", "traverse",       "step",
         "peek"};
-    if (std::ranges::find(analysis, name) != std::end(analysis))
+    if (ctk::compat::find(analysis, name) != std::end(analysis))
       return analyze(node, statement);
     if (name == "compiled_batch_statement" || name == "durable_batch")
       return batch(node, statement);
@@ -1451,7 +1452,7 @@ private:
         "cache_prune",
         "script",
     };
-    if (std::ranges::find(local, name) != std::end(local))
+    if (ctk::compat::find(local, name) != std::end(local))
       return local_command(node, statement);
     if (name == "import_command")
       return call("ctk_jit_import_v1", builder.getPtrTy(),
@@ -1665,7 +1666,7 @@ private:
         fail(left, "binding predicate requires a reference");
       return value("binding_test",
                    {string(left.children.back().text),
-                    builder.getInt32(op.ends_with("set")),
+                    builder.getInt32(ctk::compat::ends_with(op, "set")),
                     builder.getInt32(op.find("_not_") != Kind::npos)});
     }
     auto *operand = expression(left);
@@ -1812,8 +1813,8 @@ private:
     const auto decoded = decode_ctk_string(masked);
     const llvm::StringRef content(decoded);
     const bool braces =
-        !raw.contains('$') && raw.find_first_of("{}") != llvm::StringRef::npos;
-    if (!braces && !content.contains('$') && !content.contains(escaped))
+        !ctk::compat::contains(raw, '$') && raw.find_first_of("{}") != llvm::StringRef::npos;
+    if (!braces && !ctk::compat::contains(content, '$') && !ctk::compat::contains(content, escaped))
       return literal(4, content);
     IrValue *result = nullptr;
     std::string pending;
@@ -1832,7 +1833,7 @@ private:
     };
     for (std::size_t index = 0; index < content.size();) {
       const auto character = content[index];
-      if (content.drop_front(index).starts_with(escaped)) {
+      if (ctk::compat::starts_with(content.drop_front(index), escaped)) {
         pending += '$';
         index += 3;
       } else if (braces && (content.substr(index, 2) == "{{" ||
@@ -1884,9 +1885,9 @@ private:
     if (!node.text.empty()) {
       if (node.name == "PROTO_PREDICATE_STRING")
         return literal(4, decode_ctk_string(node.text));
-      if (node.name.ends_with("STRING"))
+      if (ctk::compat::ends_with(node.name, "STRING"))
         return string_literal(node);
-      if (node.name.ends_with("NUMBER") || node.name == "PROTO_INT" ||
+      if (ctk::compat::ends_with(node.name, "NUMBER") || node.name == "PROTO_INT" ||
           node.name == "PROTO_FLOAT") {
         const bool floating = node.text.find_first_of(".eE") != Kind::npos;
         if (!floating) {
@@ -1915,8 +1916,8 @@ private:
       return expression(*children.front());
     if (name == "true_literal" || name == "false_literal" || name == "true" ||
         name == "false")
-      return literal(1, name.starts_with("true") ? "true" : "false");
-    if (name == "reference" && node.name.starts_with("proto_"))
+      return literal(1, ctk::compat::starts_with(name, "true") ? "true" : "false");
+    if (name == "reference" && ctk::compat::starts_with(node.name, "proto_"))
       return value("lookup", {string(node.children.back().text)});
     if (name == "postfix" || name == "natural_postfix" ||
         name == "natural_reference_postfix" || name == "target")

@@ -1,4 +1,5 @@
 #include "../file_values.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <ctime>
 #include <filesystem>
@@ -86,7 +87,7 @@ llvm::Expected<std::set<fs::path>> expand(const fs::path& pattern, bool include_
     for (const fs::directory_iterator end; !issue && iter != end; iter.increment(issue)) {
       const auto& entry = *iter;
       const auto basename = entry.path().filename().string();
-      if (!include_hidden && basename.starts_with('.') && !part.starts_with('.')) {
+      if (!include_hidden && ctk::compat::starts_with(basename, '.') && !ctk::compat::starts_with(part, '.')) {
         continue;
       }
       if (!recursive) {
@@ -243,7 +244,7 @@ llvm::Expected<std::optional<std::vector<std::string>>> match_paths(llvm::String
     for (const fs::recursive_directory_iterator end; !issue && it != end; it.increment(issue)) {
       const auto suffix = it->path().extension().string();
       if (!llvm::StringSwitch<bool>(suffix)
-               .Cases({".c", ".cc", ".cpp", ".cxx", ".c++", ".C", ".m", ".mm"}, true)
+               .Cases(".c", ".cc", ".cpp", ".cxx", ".c++", ".C", ".m", ".mm", true)
                .Default(false)) {
         continue;
       }

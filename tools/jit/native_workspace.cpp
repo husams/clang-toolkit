@@ -3,6 +3,7 @@
 #include "grammar/help.hpp"
 #include "platform/repl_cancellation.hpp"
 #include "workspace_display.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,7 @@
 #include <google/protobuf/message.h>
 #include <google/protobuf/util/json_util.h>
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/ScopeExit.h>
 #include <llvm/ADT/StringMap.h>
 #include <llvm/ADT/StringSet.h>
 #include <llvm/Support/Base64.h>
@@ -100,7 +102,12 @@ struct Source {
   unsigned line = 1;
   unsigned column = 1;
 
-  bool operator==(const Source &) const = default;
+  bool operator==(const Source &other) const {
+    return path == other.path &&
+           line == other.line &&
+           column == other.column;
+  }
+  bool operator!=(const Source &other) const { return !(*this == other); }
 };
 
 struct Row {
@@ -230,16 +237,30 @@ public:
     });
     auto controls = tui::CatchEvent(
         renderer, [&](const auto &event) { return dispatch(editor, event); });
-    std::jthread ticker([&](std::stop_token stop) {
-      std::mutex mutex;
-      std::unique_lock lock(mutex);
-      std::condition_variable_any tick;
-      while (!stop.stop_requested()) {
-        tick.wait_for(lock, stop, std::chrono::seconds(2),
-                      [] { return false; });
-        if (!stop.stop_requested())
-          app.PostEvent(tui::Event::Special("ctk-workspace-tick"));
+    std::mutex tick_mutex;
+    std::condition_variable tick;
+    bool stop_ticker = false;
+    std::thread ticker([&] {
+      std::unique_lock lock(tick_mutex);
+      while (!tick.wait_for(lock, std::chrono::seconds(2),
+                            [&] { return stop_ticker; })) {
+        lock.unlock();
+        app.PostEvent(tui::Event::Special("ctk-workspace-tick"));
+        lock.lock();
       }
+    });
+
+    auto stop_ticks = [&] {
+      {
+        std::lock_guard lock(tick_mutex);
+        stop_ticker = true;
+      }
+      tick.notify_one();
+      ticker.join();
+    };
+    auto ticker_cleanup = llvm::make_scope_exit([&] {
+      if (ticker.joinable())
+        stop_ticks();
     });
 
     ReplIO io{
@@ -259,8 +280,7 @@ public:
         deliver(json::Object{{"fatal", fatal}});
     });
     auto finish = [&] {
-      ticker.request_stop();
-      ticker.join();
+      stop_ticks();
       mailbox.stop();
       worker.join();
     };
@@ -324,7 +344,7 @@ private:
         ++remove;
       }
       while (remove < transcript.rows.size() && transcript.rows[remove].tree &&
-             !result_trees.contains(*transcript.rows[remove].tree))
+             !ctk::compat::contains(result_trees, *transcript.rows[remove].tree))
         ++remove;
       if (remove) {
         transcript.rows.erase(transcript.rows.begin(),
@@ -405,7 +425,7 @@ private:
   }
 
   void request_status() {
-    if (!busy && std::ranges::none_of(pending, [](const auto &item) {
+    if (!busy && ctk::compat::none_of(pending, [](const auto &item) {
           return item.first == Reply::Status;
         }))
       request(Reply::Status, json::Object{{"inspect", "status"}});
@@ -608,7 +628,7 @@ private:
           std::vector<llvm::StringRef> names;
           for (const auto &[name, value] : *bindings)
             names.push_back(name);
-          std::ranges::sort(names);
+          ctk::compat::sort(names);
           for (const auto name : names)
             if (const auto *binding = bindings->getObject(name))
               if (const auto *location = binding->get("location"))
@@ -626,7 +646,7 @@ private:
             std::max<std::int64_t>(1, data->getInteger("column").value_or(1));
         const Source target{location, static_cast<unsigned>(line),
                             static_cast<unsigned>(column)};
-        if (std::ranges::none_of(
+        if (ctk::compat::none_of(
                 rows, [&](const auto &row) { return row.source == target; })) {
           rows.push_back({location.filename().string() + ":" +
                               std::to_string(line) + ":" +
@@ -661,7 +681,7 @@ private:
     const auto *children = object ? object->getArray("data") : nullptr;
     const auto type =
         object ? object->getString("kind").value_or("") : llvm::StringRef();
-    const auto open = tree.expanded.contains(path);
+    const auto open = ctk::compat::contains(tree.expanded, path);
     if (length && children) {
       rows.push_back(
           {indent + (open ? "▾ " : "▸ ") + title.str() + " = " + label(value),
@@ -719,7 +739,7 @@ private:
       return wire ? decode_message(*wire) : json::Value(nullptr);
     };
     const auto branch = [&](std::string id, std::string label, unsigned depth) {
-      const auto open = side_tree.expanded.contains(id);
+      const auto open = ctk::compat::contains(side_tree.expanded, id);
       rows.push_back(
           {std::string(depth * 2, ' ') + (open ? "▾ " : "▸ ") + label,
            {},
@@ -850,7 +870,7 @@ private:
           std::vector<llvm::StringRef> names;
           for (const auto &[name, operand] : *bindings)
             names.push_back(name);
-          std::ranges::sort(names);
+          ctk::compat::sort(names);
           for (const auto name : names) {
             const auto path = "$" + name.str();
             projected_rows(rows, *bindings->get(name), path, path, side_tree);
@@ -876,7 +896,7 @@ private:
 
   void show_result(std::int64_t id, const json::Value *value) {
     auto &rows = transcript.rows;
-    const auto root = std::ranges::find_if(
+    const auto root = ctk::compat::find_if(
         rows, [&](const Row &row) { return row.preview == id; });
     if (root == rows.end())
       return;
@@ -903,7 +923,7 @@ private:
         row.print.clear();
       }
     }
-    if (root->text.starts_with("▸ ") || root->text.starts_with("▾ "))
+    if (ctk::compat::starts_with(root->text, "▸ ") || ctk::compat::starts_with(root->text, "▾ "))
       root->text.replace(0, std::string_view("▸").size(),
                          children.empty() ? "▸" : "▾");
     rows.erase(root + 1, end);
@@ -946,13 +966,13 @@ private:
         break;
       const auto directory = fs::is_directory(type);
       if (!show_hidden &&
-          (name.starts_with(".") ||
+          (ctk::compat::starts_with(name, ".") ||
            (directory && (name == "build" || name == "node_modules" ||
                           name == "__pycache__" || name == "vendor"))))
         continue;
       entries.push_back({item->path(), directory});
     }
-    std::ranges::sort(entries, [](const Entry &a, const Entry &b) {
+    ctk::compat::sort(entries, [](const Entry &a, const Entry &b) {
       if (a.directory != b.directory)
         return a.directory;
       return llvm::StringRef(a.path.filename().string())
@@ -962,7 +982,7 @@ private:
       if (rows.size() >= 500)
         break;
       const auto key = entry.path.string();
-      const auto open = open_directories.contains(key);
+      const auto open = ctk::compat::contains(open_directories, key);
       const auto name = entry.path.filename().string();
       rows.push_back({std::string(depth * 2, ' ') +
                           (entry.directory ? (open ? "▾ " : "▸ ") : "  ") +
@@ -1025,13 +1045,13 @@ private:
     std::vector<Row> links;
     for (const auto &row : panel.rows)
       if (row.source && (!tree || row.tree == tree) &&
-          std::ranges::none_of(links, [&](const Row &link) {
+          ctk::compat::none_of(links, [&](const Row &link) {
             return link.source == row.source;
           }))
         links.push_back(row);
     source_matches.replace(std::move(links));
     const auto found =
-        std::ranges::find_if(source_matches.rows, [&](const Row &row) {
+        ctk::compat::find_if(source_matches.rows, [&](const Row &row) {
           return row.source == target;
         });
     source_matches.selected = found == source_matches.rows.end()
@@ -1200,7 +1220,7 @@ private:
                       llvm::StringRef::npos))
       return {};
     auto expression = input.drop_front(match + 6).ltrim();
-    if (expression.contains(" in "))
+    if (ctk::compat::contains(expression, " in "))
       return {};
     const auto offset = expression.size();
     auto matches = clang::ast_matchers::dynamic::Parser::completeExpression(
@@ -1211,7 +1231,7 @@ private:
         break;
       const auto typed = llvm::StringRef(candidate.TypedText);
       auto insertion =
-          typed.starts_with(prefix) ? typed.str() : prefix.str() + typed.str();
+          ctk::compat::starts_with(typed, prefix) ? typed.str() : prefix.str() + typed.str();
       rows.push_back({insertion + "  " + candidate.MatcherDecl, {}, {}});
       rows.back().completion = std::move(insertion);
     }
@@ -1256,8 +1276,8 @@ private:
           if (!field)
             continue;
           auto name = field->getString("name").value_or("");
-          if (!name.starts_with(query->prefix) ||
-              !name.ends_with(query->suffix))
+          if (!ctk::compat::starts_with(name, query->prefix) ||
+              !ctk::compat::ends_with(name, query->suffix))
             continue;
           if (query->quote) {
             auto insertion = name.str();
@@ -1301,9 +1321,9 @@ private:
         }
       }
     }
-    std::ranges::sort(rows, {}, &Row::text);
+    ctk::compat::sort(rows, {}, &Row::text);
     llvm::StringSet<> seen;
-    std::erase_if(rows, [&](const Row &row) {
+    ctk::compat::erase_if(rows, [&](const Row &row) {
       return !seen.insert(row.completion).second;
     });
     if (!query->reference && rows.size() > 30)
@@ -1323,7 +1343,7 @@ private:
     if (!argument.consume_front("("))
       return false;
     argument = argument.ltrim();
-    const bool quoted = argument.starts_with('"') || argument.starts_with('\'');
+    const bool quoted = ctk::compat::starts_with(argument, '"') || ctk::compat::starts_with(argument, '\'');
     const auto quote = quoted ? argument.front() : '"';
     if (quoted)
       argument = argument.drop_front();
@@ -1365,7 +1385,7 @@ private:
         open_completion(std::move(matches));
         return;
       }
-      if (prefix.empty() || before_word.rtrim().ends_with("."))
+      if (prefix.empty() || ctk::compat::ends_with(before_word.rtrim(), "."))
         return;
     }
     auto suffix_end = completion_end;
@@ -1426,14 +1446,14 @@ private:
     if (!event.is_character() || event.character().size() != 1)
       return false;
     const auto ch = event.character().front();
-    if (!open.contains(ch) && !close.contains(ch))
+    if (!ctk::compat::contains(open, ch) && !ctk::compat::contains(close, ch))
       return false;
     const auto state = input_state(prefix);
     if (state.comment)
       return false;
     if (state.literal) {
       if (at < draft.size() && ch == draft[at] && state.last.front() == ch &&
-          !prefix.ends_with("\\")) {
+          !ctk::compat::ends_with(prefix, "\\")) {
         ++editor_cursor;
         return true;
       }
@@ -1456,7 +1476,7 @@ private:
       }
     }
     if (static_cast<std::size_t>(editor_cursor) < draft.size() &&
-        ch == draft[editor_cursor] && close.contains(ch)) {
+        ch == draft[editor_cursor] && ctk::compat::contains(close, ch)) {
       ++editor_cursor;
       return true;
     }
@@ -1706,7 +1726,7 @@ private:
       panes.push_back(Focus::Files);
     if (side_visible())
       panes.push_back(Focus::Side);
-    const auto current = std::ranges::find(panes, focus);
+    const auto current = ctk::compat::find(panes, focus);
     const auto index = current == panes.end() ? 0 : current - panes.begin();
     focus = panes[(index + (reverse ? panes.size() - 1 : 1)) % panes.size()];
   }
@@ -1731,7 +1751,7 @@ private:
       if (event == Event::CtrlM) {
         activate_file();
       } else if (!row->branch.empty() &&
-                 open_directories.contains(row->branch)) {
+                 ctk::compat::contains(open_directories, row->branch)) {
         if (event == Event::ArrowLeft) {
           open_directories.erase(row->branch);
           files();
@@ -1757,7 +1777,7 @@ private:
     }
     if (row->preview) {
       const auto id = *row->preview;
-      if (result_trees.contains(id)) {
+      if (ctk::compat::contains(result_trees, id)) {
         if (event == Event::ArrowRight) {
           if (panel.selected + 1 < panel.rows.size() &&
               panel.rows[panel.selected + 1].tree == id)
@@ -1779,12 +1799,12 @@ private:
     if (row->page && event != Event::ArrowLeft) {
       tree.pages[row->branch] = *row->page;
     } else if (row->branch.empty() || (event == Event::ArrowLeft &&
-                                       !tree.expanded.contains(row->branch))) {
+                                       !ctk::compat::contains(tree.expanded, row->branch))) {
       if (event == Event::ArrowLeft)
         parent_row(panel, *row);
       return;
     } else if (event == Event::ArrowRight &&
-               tree.expanded.contains(row->branch)) {
+               ctk::compat::contains(tree.expanded, row->branch)) {
       if (panel.selected + 1 < panel.rows.size() &&
           panel.rows[panel.selected + 1].depth > row->depth)
         panel.move(1);
@@ -1993,10 +2013,10 @@ private:
   static bool modified_enter(const tui::Event &event) {
     const llvm::StringRef key(event.input());
     return key == "\x1b\r" || key == "\x1b\n" ||
-           (key.size() == 7 && key.starts_with("\x1b[13;") &&
+           (key.size() == 7 && ctk::compat::starts_with(key, "\x1b[13;") &&
             llvm::StringRef("2356").contains(key[5]) && key.back() == 'u') ||
-           (key.size() == 10 && key.starts_with("\x1b[27;") &&
-            llvm::StringRef("2356").contains(key[5]) && key.ends_with(";13~"));
+           (key.size() == 10 && ctk::compat::starts_with(key, "\x1b[27;") &&
+            llvm::StringRef("2356").contains(key[5]) && ctk::compat::ends_with(key, ";13~"));
   }
 
   bool dispatch(const tui::Component &editor, tui::Event event) {
@@ -2224,7 +2244,7 @@ private:
     for (std::size_t i = 0; i < line.size(); ++i) {
       if (line[i] == 96)
         continue;
-      if (line.substr(i).starts_with("**")) {
+      if (ctk::compat::starts_with(line.substr(i), "**")) {
         ++i;
         continue;
       }
@@ -2266,7 +2286,7 @@ private:
         ++offset;
       text = text.drop_front(offset);
       auto element = tui::text(text.str());
-      if (row.markdown && source.starts_with(std::string(3, 96))) {
+      if (row.markdown && ctk::compat::starts_with(source, std::string(3, 96))) {
         code = !code;
         example_line = 0;
         element = tui::text("");
@@ -2282,7 +2302,7 @@ private:
           fragments.push_back(display::script_line(source, line, tokens) |
                               tui::xflex | tui::bgcolor(tui::Color::Grey15));
         element = tui::vbox(std::move(fragments));
-      } else if (row.markdown && source.starts_with("#")) {
+      } else if (row.markdown && ctk::compat::starts_with(source, "#")) {
         element = tui::paragraph(markdown_text(text.ltrim("# "))) | tui::bold |
                   tui::color(tui::Color::CyanLight);
       } else {
@@ -2396,7 +2416,7 @@ private:
         llvm::StringRef(searching ? saved_draft : draft)
             .take_front(searching ? saved_cursor : editor_cursor);
     const auto line = before.rsplit('\n').second;
-    const auto col = before.contains('\n') ? line : before;
+    const auto col = ctk::compat::contains(before, '\n') ? line : before;
     auto text = " Session open | " + status;
     if (busy || elapsed) {
       const auto seconds = busy

@@ -1,5 +1,6 @@
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
@@ -32,7 +33,7 @@ bool has_unrequested(const ctk::match::v1::MatchBinding &binding,
                      const std::string &suffix) {
   for (const auto &entry : binding.availability())
     if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
-        entry.field_path().ends_with(suffix))
+        ctk::compat::ends_with(entry.field_path(), suffix))
       return true;
   return false;
 }

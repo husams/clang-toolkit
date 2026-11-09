@@ -1,4 +1,5 @@
 #include "ctk/cache/snapshot_cache.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "cache_state.hpp"
 #include "ctk/cache/path_policy.hpp"
@@ -17,7 +18,7 @@ SnapshotCache::~SnapshotCache() = default;
 // engine owns selection, validation, flight waiting and publication separately.
 SnapshotPtr SnapshotCache::acquire(std::string_view spelling,
                                    const CompilationContext &context,
-                                   std::stop_token cancellation,
+                                   ctk::compat::StopToken cancellation,
                                    std::string_view transient_owner) {
   const auto path = path_key(spelling);
   const auto identity = context.canonical_bytes();
@@ -115,7 +116,7 @@ bool SnapshotCache::erase_unused_path(std::string_view spelling) {
     return false;
   const auto file = found->second;
   // Metadata can go only after flights, retained profiles and reverse edges do.
-  if (std::ranges::any_of(file->dependent_snapshots,
+  if (ctk::compat::any_of(file->dependent_snapshots,
                           [](const auto &weak) { return !weak.expired(); }))
     return false;
   for (const auto &[digest, profile] : file->profiles) {

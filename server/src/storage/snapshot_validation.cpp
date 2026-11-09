@@ -1,4 +1,5 @@
 #include "storage_internal.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <functional>
@@ -45,7 +46,7 @@ void validate_closure(const std::vector<ArtifactKind> &kinds,
         edge.parent_index == edge.dependency_index)
       throw std::invalid_argument("artifact dependency index is invalid");
     auto &siblings = children[edge.parent_index];
-    if (std::ranges::find(siblings, edge.dependency_index) != siblings.end())
+    if (ctk::compat::find(siblings, edge.dependency_index) != siblings.end())
       throw std::invalid_argument("duplicate artifact dependency");
     siblings.push_back(edge.dependency_index);
   }
@@ -100,7 +101,7 @@ void validate_snapshot_draft(const SnapshotDraft &snapshot,
     kinds.push_back(artifact.kind);
     logical_paths.push_back(artifact.logical_path);
   }
-  std::ranges::sort(logical_paths);
+  ctk::compat::sort(logical_paths);
   if (std::adjacent_find(logical_paths.begin(), logical_paths.end()) != logical_paths.end())
     throw std::invalid_argument("artifact logical paths must be unique");
   validate_closure(kinds, snapshot.dependencies);

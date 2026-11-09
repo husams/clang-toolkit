@@ -7,6 +7,7 @@
 #include "serialization/match_metadata_helpers.hpp"
 #include "serialization/node_serializers.hpp"
 #include "value_access.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <deque>
 #include <limits>
@@ -150,14 +151,14 @@ const pb::FieldDescriptor* base(const pb::Descriptor& descriptor) {
     return nullptr;
   const auto field =
       llvm::StringSwitch<llvm::StringRef>(descriptor.name())
-          .Cases({"CXXRecordDecl", "ClassTemplateSpecializationDecl",
-                  "ClassTemplatePartialSpecializationDecl", "RecordDecl"},
+          .Cases("CXXRecordDecl", "ClassTemplateSpecializationDecl",
+                  "ClassTemplatePartialSpecializationDecl", "RecordDecl",
                  "record")
           .Case("RecordDeclInfo", "tag")
           .Case("TagDeclInfo", "type_declaration")
           .Case("TypeDeclInfo", "named")
-          .Cases({"FunctionDecl", "CXXDeductionGuideDecl", "CXXMethodDeclInfo"}, "function")
-          .Cases({"CXXMethodDecl", "CXXConstructorDecl", "CXXDestructorDecl", "CXXConversionDecl"},
+          .Cases("FunctionDecl", "CXXDeductionGuideDecl", "CXXMethodDeclInfo", "function")
+          .Cases("CXXMethodDecl", "CXXConstructorDecl", "CXXDestructorDecl", "CXXConversionDecl",
                  "method")
           .Case("FunctionDeclInfo", "declarator")
           .Case("DeclaratorDeclInfo", "value")
@@ -495,7 +496,7 @@ llvm::json::Array semantic_completion_fields(const SemanticValue& value, bool pr
   }
   if (presence)
     return fields;
-  if (!seen.contains("keys"))
+  if (!ctk::compat::contains(seen, "keys"))
     add("keys", "property");
   for (const auto* method : {"fieldOr", "fieldState", "hasField"})
     add(method, "method · checks field presence or reports availability", true);
@@ -639,7 +640,7 @@ public:
       outgoing.try_emplace(node.node_index());
     }
     for (const auto& edge : graph.edges()) {
-      if (!nodes.contains(edge.caller_node()) || !nodes.contains(edge.callee_node()))
+      if (!ctk::compat::contains(nodes, edge.caller_node()) || !ctk::compat::contains(nodes, edge.callee_node()))
         continue;
       edges.push_back(&edge);
       outgoing[edge.caller_node()].push_back(edge.callee_node());
@@ -649,7 +650,7 @@ public:
 
   llvm::Expected<NodeIndex> select(const Value& target) const {
     if (const auto* index = as<std::int64_t>(target)) {
-      if (*index >= 0 && nodes.contains(*index))
+      if (*index >= 0 && ctk::compat::contains(nodes, *index))
         return *index;
       return fail("call graph has no node at that index");
     }
@@ -690,7 +691,7 @@ public:
   Value path(NodeIndex start, NodeIndex finish, bool route) const {
     std::map<NodeIndex, NodeIndex> parents{{start, start}};
     std::deque<NodeIndex> queue{start};
-    while (!queue.empty() && !parents.contains(finish)) {
+    while (!queue.empty() && !ctk::compat::contains(parents, finish)) {
       const auto current = queue.front();
       queue.pop_front();
       for (const auto neighbor : outgoing.at(current)) {
@@ -698,7 +699,7 @@ public:
           queue.push_back(neighbor);
       }
     }
-    if (!parents.contains(finish))
+    if (!ctk::compat::contains(parents, finish))
       return {};
     std::vector<NodeIndex> steps;
     for (auto current = finish;; current = parents.at(current)) {
@@ -731,9 +732,9 @@ public:
     using Key = std::pair<NodeIndex, std::optional<NodeIndex>>;
     std::map<Key, std::vector<const graph_api::CallGraphCallSite*>> groups;
     for (const auto& call : graph.call_sites()) {
-      if (!nodes.contains(call.caller_node()))
+      if (!ctk::compat::contains(nodes, call.caller_node()))
         continue;
-      const auto callee = call.has_callee_node() && nodes.contains(call.callee_node())
+      const auto callee = call.has_callee_node() && ctk::compat::contains(nodes, call.callee_node())
                               ? std::optional{call.callee_node()}
                               : std::nullopt;
       groups[{call.caller_node(), callee}].push_back(&call);
@@ -845,23 +846,23 @@ public:
       remap.emplace(index, out->node_index());
     }
     const auto within = [&](NodeIndex index) {
-      return remap.contains(index) && (!depth || distances.at(index) < *depth);
+      return ctk::compat::contains(remap, index) && (!depth || distances.at(index) < *depth);
     };
     std::uint64_t boundary_edges = 0, boundary_sites = 0;
     for (const auto* edge : edges) {
       const auto caller = edge->caller_node(), callee = edge->callee_node();
-      if (remap.contains(caller) && remap.contains(callee) && within(reverse ? callee : caller)) {
+      if (ctk::compat::contains(remap, caller) && ctk::compat::contains(remap, callee) && within(reverse ? callee : caller)) {
         auto* out = response->add_edges();
         copy(*edge, out);
         out->set_caller_node(remap.at(caller));
         out->set_callee_node(remap.at(callee));
-      } else if (remap.contains(caller) || remap.contains(callee))
+      } else if (ctk::compat::contains(remap, caller) || ctk::compat::contains(remap, callee))
         ++boundary_edges;
     }
     for (const auto& call : graph.call_sites()) {
       const auto caller = call.caller_node(), callee = call.callee_node();
-      const bool caller_selected = remap.contains(caller);
-      const bool callee_selected = call.has_callee_node() && remap.contains(callee);
+      const bool caller_selected = ctk::compat::contains(remap, caller);
+      const bool callee_selected = call.has_callee_node() && ctk::compat::contains(remap, callee);
       const bool keep = call.has_callee_node() ? caller_selected && callee_selected &&
                                                      within(reverse ? callee : caller)
                                                : !reverse && within(caller);

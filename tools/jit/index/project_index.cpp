@@ -4,6 +4,7 @@
 #include "file_digest_cache.hpp"
 #include "include_inventory_cache.hpp"
 #include "project_index_store.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -16,7 +17,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
-#include <semaphore>
+#include "ctk/support/worker_slots.hpp"
 #include <set>
 #include <thread>
 #include <unordered_map>
@@ -196,8 +197,8 @@ private:
           component == ".cache" || component == "dist" ||
           component == "build" || component == "vendor" ||
           component == "third_party" || component == "_deps" ||
-          component.starts_with("build-") ||
-          component.starts_with("cmake-build-"))
+          ctk::compat::starts_with(component, "build-") ||
+          ctk::compat::starts_with(component, "cmake-build-"))
         return true;
     }
     return false;
@@ -248,7 +249,7 @@ class ProjectSymbolMonitor {
 public:
   ProjectSymbolMonitor(fs::path root, std::function<bool()> foreground_busy,
                        fs::path executable, std::size_t max_workers,
-                       std::counting_semaphore<> &worker_slots)
+                       ctk::compat::WorkerSlots &worker_slots)
       : storage_(std::move(root) / "symbol-index"),
         executable_(executable.empty() ? platform::current_executable_sibling(
                                              "ctk-index-worker")
@@ -879,7 +880,7 @@ private:
     while (!worker_slots_.try_acquire_for(std::chrono::milliseconds(25)))
       await_admission(job, stop);
     struct ReleaseSlot {
-      std::counting_semaphore<> &slots;
+      ctk::compat::WorkerSlots &slots;
       ~ReleaseSlot() { slots.release(); }
     } release_slot{worker_slots_};
     if ((stop && stop()) || !admitted(job))
@@ -969,7 +970,7 @@ private:
           waited = await_admission(job) || waited;
           return true;
         };
-        if (path.starts_with("@include-tree:")) {
+        if (ctk::compat::starts_with(path, "@include-tree:")) {
           current = inventories_.digest(path.substr(14), allowed);
         } else {
           try {
@@ -1248,7 +1249,7 @@ private:
         "line!=excluded.line OR column_no!=excluded.column_no OR "
         "signature!=excluded.signature");
     for (const auto &[owner, symbols] : owners) {
-      if (owner != id && !new_owners.contains(owner))
+      if (owner != id && !ctk::compat::contains(new_owners, owner))
         continue;
       for (const auto *entry : symbols) {
         const auto &value = *entry;
@@ -1352,7 +1353,7 @@ private:
                     "WHERE id=?");
     while (previous.step()) {
       const auto old_id = previous.text(0);
-      if (active.contains(old_id))
+      if (ctk::compat::contains(active, old_id))
         continue;
       stale.bind(1, error);
       stale.bind(2, old_id);
@@ -1488,7 +1489,7 @@ private:
               return true;
             };
             std::string current;
-            if (path.starts_with("@include-tree:")) {
+            if (ctk::compat::starts_with(path, "@include-tree:")) {
               current = inventories_.digest(path.substr(14), allowed);
             } else {
               try {
@@ -1516,7 +1517,7 @@ private:
             continue;
           plan->unchanged = std::none_of(
               plan->manifest.begin(), plan->manifest.end(),
-              [&](const auto &dep) { return mismatches.contains(dep.first); });
+              [&](const auto &dep) { return ctk::compat::contains(mismatches, dep.first); });
         }
       }
       for (auto *plan : fallback)
@@ -1972,8 +1973,8 @@ private:
       Statement rows(
           db, "SELECT id,main_file FROM translation_unit WHERE indexed_at>0");
       while (rows.step()) {
-        if (!active.contains(rows.text(0)) &&
-            !failed_sources.contains(rows.text(1)))
+        if (!ctk::compat::contains(active, rows.text(0)) &&
+            !ctk::compat::contains(failed_sources, rows.text(1)))
           obsolete.push_back(rows.text(0));
         else
           retained.push_back(rows.text(0));
@@ -2142,7 +2143,7 @@ private:
             arm_input(rows.text(0));
             try {
               for (const auto &[path, digest] : dependencies(rows.text(1)))
-                if (!path.starts_with("@include-tree:"))
+                if (!ctk::compat::starts_with(path, "@include-tree:"))
                   paths.insert(path);
             } catch (const std::runtime_error &) {
               // Reconciliation handles corrupt manifests per TU, preserving
@@ -2247,7 +2248,7 @@ private:
   fs::path storage_, executable_;
   std::function<bool()> foreground_busy_;
   std::size_t max_workers_;
-  std::counting_semaphore<> &worker_slots_;
+  ctk::compat::WorkerSlots &worker_slots_;
   std::mutex foreground_mutex_;
   IncludeInventoryCache inventories_;
   FileDigestCache files_;
@@ -2365,7 +2366,7 @@ private:
   std::function<bool()> foreground_busy_;
   std::mutex foreground_mutex_;
   std::size_t max_workers_;
-  std::counting_semaphore<> worker_slots_;
+  ctk::compat::WorkerSlots worker_slots_;
   ProjectSymbolMonitor reader_;
   std::mutex mutex_;
   std::map<std::string, std::shared_ptr<ProjectSymbolMonitor>> monitors_;

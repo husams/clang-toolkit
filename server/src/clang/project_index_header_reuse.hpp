@@ -1,4 +1,6 @@
 #pragma once
+#include "ctk/support/algorithm.hpp"
+
 #include "ctk/clang/project_index_extract.hpp"
 #include "index/v1/index_service.pb.h"
 #include <algorithm>
@@ -383,7 +385,7 @@ private:
     }
     std::error_code error;
     const auto physical =
-        name.empty() || name.starts_with("<")
+        name.empty() || ctk::compat::starts_with(name, "<")
             ? name.str()
             : std::filesystem::weakly_canonical(name.str(), error).string();
     if (error) {
@@ -450,15 +452,15 @@ private:
     // Loop unroll hints affect code generation, not definition identity/type.
     const bool unroll_hint =
         line == "unroll" ||
-        (line.starts_with("unroll ") && !line.drop_front(7).empty() &&
+        (ctk::compat::starts_with(line, "unroll ") && !line.drop_front(7).empty() &&
          std::all_of(line.begin() + 7, line.end(),
                      [](char c) { return c >= '0' && c <= '9'; }));
     // once only affects whether tokens are emitted; diagnostic pragmas are
     // cleared by dedicated callbacks. Other pragmas can alter native AST state.
-    if (!unroll_hint && line != "once" && !line.starts_with("once //") &&
-        !line.starts_with("once /*") && !line.starts_with("push_macro(") &&
-        !line.starts_with("pop_macro(") &&
-        !line.starts_with("clang deprecated("))
+    if (!unroll_hint && line != "once" && !ctk::compat::starts_with(line, "once //") &&
+        !ctk::compat::starts_with(line, "once /*") && !ctk::compat::starts_with(line, "push_macro(") &&
+        !ctk::compat::starts_with(line, "pop_macro(") &&
+        !ctk::compat::starts_with(line, "clang deprecated("))
       eligible_ = false;
     pending_pragma_ = {};
   }

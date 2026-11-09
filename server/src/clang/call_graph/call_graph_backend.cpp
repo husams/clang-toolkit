@@ -9,6 +9,7 @@
 #include "call_graph_node.hpp"
 #include "ctk/clang/file_discovery.hpp"
 #include "declaration_order.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <clang/AST/ParentMapContext.h>
 #include <clang/AST/RecursiveASTVisitor.h>
@@ -425,7 +426,7 @@ private:
           continue;
         if (!in_scope(filter_decl(*node)))
           continue;
-        if (!order.ordinals.contains(node->getDecl()->getCanonicalDecl()))
+        if (!ctk::compat::contains(order.ordinals, node->getDecl()->getCanonicalDecl()))
           return {MatchCode::Internal,
                   "call graph declaration missing from native visitor order",
                   {}};

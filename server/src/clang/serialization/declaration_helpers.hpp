@@ -2,6 +2,9 @@
 
 #include "semantic_helpers.hpp"
 
+#include <type_traits>
+#include <utility>
+
 namespace ctk::clang_layer::serialization::helpers {
 void write_decl_info(const clang::Decl &, ctk::ast::v1::DeclInfo &,
                      SerializationContext &);
@@ -40,16 +43,24 @@ void write_signature(const clang::FunctionDecl &,
 
 // Template defaults changed representation in Clang 22. Both branches read the
 // semantic argument, while discarding its TypeLoc/source-location wrapper.
+template <class Argument, class = void>
+struct HasArgumentLocation : std::false_type {};
+
+template <class Argument>
+struct HasArgumentLocation<
+    Argument, std::void_t<decltype(std::declval<Argument>().getArgument())>>
+    : std::true_type {};
+
 template <class Parameter>
 void write_default_argument(const Parameter &native,
                             ctk::ast::v1::TemplateArgument &payload,
                             SerializationContext &context) {
-  if constexpr (requires { native.getDefaultArgument().getArgument(); })
+  using DefaultArgument = decltype(native.getDefaultArgument());
+  if constexpr (HasArgumentLocation<DefaultArgument>::value)
     write_template_argument(native.getDefaultArgument().getArgument(), payload,
                             context);
-  else if constexpr (requires {
-                       clang::TemplateArgument(native.getDefaultArgument());
-                     })
+  else if constexpr (std::is_constructible_v<clang::TemplateArgument,
+                                             DefaultArgument>)
     write_template_argument(
         clang::TemplateArgument(native.getDefaultArgument()), payload, context);
   else

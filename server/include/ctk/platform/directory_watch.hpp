@@ -13,7 +13,11 @@ class DirectoryWatch {
 public:
   struct Identity {
     std::uint64_t device, inode;
-    bool operator==(const Identity &) const = default;
+    bool operator==(const Identity &other) const {
+      return device == other.device &&
+             inode == other.inode;
+    }
+    bool operator!=(const Identity &other) const { return !(*this == other); }
   };
   DirectoryWatch();
   ~DirectoryWatch();

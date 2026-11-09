@@ -131,7 +131,7 @@ add_executable(ctk-jit-runner
   platform/file_values.cpp
   platform/launch.cpp
   platform/repl_cancellation.cpp)
-target_compile_features(ctk-jit-runner PRIVATE cxx_std_23)
+target_compile_features(ctk-jit-runner PRIVATE cxx_std_17)
 set_target_properties(ctk-jit-runner ctk-jit-index-worker PROPERTIES
   CXX_EXTENSIONS OFF RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")

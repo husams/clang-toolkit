@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ctk/support/algorithm.hpp"
+
 #include "ctk/platform/index_file_reader.hpp"
 #include "project_index_store.hpp"
 
@@ -35,7 +37,7 @@ public:
   std::string digest(const std::string &path, const Allowed &allowed = {}) {
     if (allowed && !allowed())
       return {};
-    if (path.starts_with("@include-tree:")) {
+    if (ctk::compat::starts_with(path, "@include-tree:")) {
       ++counters_.hashes;
       const auto value = digest_file(path, allowed);
       return (!allowed || allowed()) ? value : std::string{};

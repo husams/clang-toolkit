@@ -7,7 +7,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
-#include <stop_token>
+#include "ctk/support/stop_token.hpp"
 #include <string_view>
 #include <vector>
 
@@ -62,7 +62,7 @@ public:
   SnapshotCache &operator=(const SnapshotCache &) = delete;
 
   SnapshotPtr acquire(std::string_view path, const CompilationContext &context,
-                      std::stop_token cancellation = {},
+                      ctk::compat::StopToken cancellation = {},
                       std::string_view transient_owner = {});
   // Release only this scope's reuse attribution. External reuse and other
   // scopes stay intact; native owners pinned elsewhere remain valid.

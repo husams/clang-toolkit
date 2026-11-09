@@ -6,6 +6,7 @@
 #include "documents.hpp"
 #include "filters.hpp"
 #include "value_access.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -172,7 +173,7 @@ void format(llvm::raw_ostream& out, const Value& value, bool quote) {
 enum class Render { Console, Json, Tuple };
 
 void quote_tuple(llvm::raw_ostream& out, llvm::StringRef string) {
-  const auto quote = string.contains('\'') && !string.contains('"') ? '"' : '\'';
+  const auto quote = ctk::compat::contains(string, '\'') && !ctk::compat::contains(string, '"') ? '"' : '\'';
   out << quote;
   for (const unsigned char ch : string) {
     if (ch == quote || ch == '\\')
@@ -534,7 +535,7 @@ extern "C" const Value* ctk_jit_value_add_v1(Values* runtime, const Value* colle
     const auto* name = key ? as<std::string>(*key) : nullptr;
     if (!name)
       return runtime->fail("record key must be a string");
-    if (data->keys.size() >= max_items && !data->fields.contains(*name)) {
+    if (data->keys.size() >= max_items && !ctk::compat::contains(data->fields, *name)) {
       return runtime->fail("dictionary exceeds item limit");
     }
     if (references(*item, nullptr, data))
@@ -556,7 +557,7 @@ extern "C" const Value* ctk_jit_value_get_v1(Values* runtime, const Value* value
       if (const auto ordinal = it->ordinals.find(reference); ordinal != it->ordinals.end()) {
         return property == "index" ? runtime->hold({ordinal->second}) : value;
       }
-      if (it->bindings.contains(reference))
+      if (ctk::compat::contains(it->bindings, reference))
         break;
     }
   }
@@ -778,7 +779,7 @@ extern "C" const Value* ctk_jit_value_predicate_v1(Values* runtime, const char* 
       return runtime->fail("field name must be a string");
     bool present;
     if (const auto* data = object<Record>(*left)) {
-      present = data->fields.contains(*key);
+      present = ctk::compat::contains(data->fields, *key);
     } else {
       const auto* view = object<SemanticValue>(*left);
       const auto* node = object<NativeNode>(*left);
@@ -972,7 +973,7 @@ extern "C" std::int32_t ctk_jit_value_check_arguments_v1(Values* runtime, const 
     }
   }
   for (auto index = static_cast<std::int64_t>(positional); index < required; ++index) {
-    if (!labels[index] || !named->fields.contains(labels[index])) {
+    if (!labels[index] || !ctk::compat::contains(named->fields, labels[index])) {
       runtime->fail("missing required argument");
       return -1;
     }
@@ -1039,7 +1040,7 @@ extern "C" const Value* ctk_jit_value_change_binding_v1(Values* runtime, const c
   if (old == globals.end())
     return runtime->fail(llvm::Twine("undefined binding '") + old_name + "'");
   if (new_name && old->getKey() != new_name) {
-    if (globals.contains(new_name))
+    if (ctk::compat::contains(globals, new_name))
       return runtime->fail(llvm::Twine("binding already exists: ") + new_name);
     auto value = std::move(old->second);
     globals.erase(old);
@@ -1169,7 +1170,7 @@ extern "C" const Value* ctk_jit_value_method_v1(Values* runtime, const Value* ba
           return runtime->fail("dictionary key not found");
         auto result = std::move(found->second);
         data->fields.erase(found);
-        std::erase(data->keys, *key);
+        ctk::compat::erase(data->keys, *key);
         return runtime->hold(std::move(result));
       }
     }
@@ -1304,7 +1305,7 @@ extern "C" const Value* ctk_jit_value_display_v2(Values* runtime, const Value* v
 } // namespace
 
 void Record::set(llvm::StringRef key, Value value) {
-  if (!fields.contains(key))
+  if (!ctk::compat::contains(fields, key))
     keys.push_back(key.str());
   fields.insert_or_assign(key, std::move(value));
 }

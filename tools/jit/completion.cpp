@@ -1,4 +1,5 @@
 #include "completion.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "file_values.hpp"
 #include "grammar/syntax.hpp"
@@ -80,7 +81,7 @@ const Value *resolve(Values &values, const Syntax &node) {
 
   if (kind == "PROTO_STRING" || kind == "LEGACY_STRING") {
     // Interpolation can evaluate arbitrary CTK. Only read literal keys here.
-    if (node.text.starts_with('"') &&
+    if (ctk::compat::starts_with(node.text, '"') &&
         node.text.find_first_of("${}") != std::string_view::npos)
       return nullptr;
     return values.hold({decode_ctk_string(node.text)});
@@ -150,7 +151,7 @@ json::Array fields_for(const Value &value, bool presence) {
       for (const auto &key : record->keys)
         add(fields, key, "dictionary key");
       for (llvm::StringRef name : {"keys", "values", "length", "isEmpty"})
-        if (!record->fields.contains(name))
+        if (!ctk::compat::contains(record->fields, name))
           add(fields, name);
       add_names(fields, {"get", "set", "delete", "hasKey", "clear"}, "method",
                 true);

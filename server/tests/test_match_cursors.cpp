@@ -1,6 +1,7 @@
 #include "ctk/application/match_controller.hpp"
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <fstream>
 #include <filesystem>
 #include <future>
@@ -97,7 +98,7 @@ TEST_F(MatchCursors, ChildrenScopeMatchesOnlyDirectCandidatesWithNormalBindings)
   const auto body = fork(body_request);
   ASSERT_EQ(body.code, MatchCode::Ok) << body.message;
   ASSERT_EQ(body.response.results_size(), 1);
-  EXPECT_FALSE(body.response.results(0).bindings().contains("target"));
+  EXPECT_FALSE(ctk::compat::contains(body.response.results(0).bindings(), "target"));
   EXPECT_TRUE(body.response.results(0).bindings().at("root").node().has_compound_stmt());
   auto request = binding(body.response, "body", "callExpr().bind(\"call\")");
   request.mutable_binding()->set_scope(BINDING_MATCH_SCOPE_CHILDREN);
@@ -295,7 +296,7 @@ TEST_F(MatchCursors, NavigationMatchesBaseEdgesAndRetainsReferencedClasses) {
   const auto scoped = run(request);
   ASSERT_EQ(scoped.code, MatchCode::Ok) << scoped.message;
   ASSERT_EQ(scoped.response.results_size(), 3);
-  EXPECT_FALSE(scoped.response.results(0).bindings().contains("target"));
+  EXPECT_FALSE(ctk::compat::contains(scoped.response.results(0).bindings(), "target"));
 }
 
 TEST_F(MatchCursors, NavigationBaseEdgesStreamAndRespectCancellationAndLimits) {
@@ -341,7 +342,7 @@ TEST_F(MatchCursors, NavigationFiltersImmediateChildrenAndKeepsSource) {
   ASSERT_EQ(body.response.results_size(), 1);
   EXPECT_TRUE(body.response.results(0).bindings().at("target")
                   .node().has_compound_stmt());
-  EXPECT_TRUE(body.response.results(0).bindings().contains("body"));
+  EXPECT_TRUE(ctk::compat::contains(body.response.results(0).bindings(), "body"));
   const auto direct = run(navigation(body.response, "target",
                                       NAVIGATION_AXIS_CHILDREN, "callExpr()"));
   ASSERT_EQ(direct.code, MatchCode::Ok) << direct.message;
@@ -493,7 +494,7 @@ TEST_F(MatchCursors, StreamEmitsFullRowsThenCommitsThinContinuationState) {
   // The retained revision carries only selector metadata, while native
   // bindings remain available for later continuation.
   for (const auto &row : result.response.results()) {
-    ASSERT_TRUE(row.bindings().contains("f"));
+    ASSERT_TRUE(ctk::compat::contains(row.bindings(), "f"));
     EXPECT_FALSE(row.bindings().at("f").has_node() ||
                  row.bindings().at("f").has_qualified_type() ||
                  row.bindings().at("f").has_unsupported());
@@ -571,8 +572,8 @@ TEST_F(MatchCursors,
   for (const auto &entry : child.availability()) {
     if (entry.state() != ctk::ast::v1::FIELD_STATE_UNREQUESTED)
       continue;
-    left_unrequested |= entry.field_path().ends_with("left");
-    right_unrequested |= entry.field_path().ends_with("right");
+    left_unrequested |= ctk::compat::ends_with(entry.field_path(), "left");
+    right_unrequested |= ctk::compat::ends_with(entry.field_path(), "right");
   }
   EXPECT_TRUE(left_unrequested);
   EXPECT_TRUE(right_unrequested);
@@ -847,8 +848,8 @@ TEST_F(MatchCursors, DefaultBudgetAcceptsIncludedResultsLargerThan64MiB) {
   ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
   EXPECT_EQ(result.response.results_size(), 15001);
   EXPECT_GT(result.response.ByteSizeLong(), 64U * 1024 * 1024);
-  EXPECT_TRUE(result.response.results(0).bindings().contains("root"));
-  EXPECT_TRUE(result.response.results(0).bindings().contains("x"));
+  EXPECT_TRUE(ctk::compat::contains(result.response.results(0).bindings(), "root"));
+  EXPECT_TRUE(ctk::compat::contains(result.response.results(0).bindings(), "x"));
 }
 
 TEST_F(MatchCursors, AutomaticRootMatchesClangQueryAndIncludesHeaders) {
@@ -1019,7 +1020,7 @@ TEST_F(MatchCursors, CrossCategorySubtreeReturnsOwnedRowsAndSourceIndices) {
     EXPECT_EQ(row.source_match_index(), 0U);
     EXPECT_TRUE(row.has_source_match_index());
     EXPECT_TRUE(row.bindings().at("call").node().has_call_expr());
-    EXPECT_FALSE(row.bindings().contains("function"));
+    EXPECT_FALSE(ctk::compat::contains(row.bindings(), "function"));
   }
   controller.reset();
   EXPECT_TRUE(
@@ -1089,8 +1090,8 @@ TEST_F(MatchCursors, CanonicalTypeErrorsReportDiagnosticsAndPreserveParsedTree) 
       [&](const MatchStreamEvent &event, std::string &) {
         if (event.has_row()) {
           ++rows;
-          EXPECT_TRUE(event.row().bindings().contains("var"));
-          EXPECT_TRUE(event.row().bindings().contains("type"));
+          EXPECT_TRUE(ctk::compat::contains(event.row().bindings(), "var"));
+          EXPECT_TRUE(ctk::compat::contains(event.row().bindings(), "type"));
         }
         if (event.has_completed()) {
           ++completions;
@@ -1124,7 +1125,7 @@ TEST_F(MatchCursors, RootOnlyDoesNotSearchDescendantsAndBindsRoot) {
   ASSERT_EQ(result.code, MatchCode::Ok) << result.message;
   ASSERT_EQ(result.response.results_size(), 1);
   EXPECT_EQ(result.response.results(0).bindings().size(), 1U);
-  EXPECT_TRUE(result.response.results(0).bindings().contains("root"));
+  EXPECT_TRUE(ctk::compat::contains(result.response.results(0).bindings(), "root"));
   EXPECT_EQ(result.response.results(0).source_match_index(), 0U);
   auto missing = run(binding(result.response, "f", "callExpr()"));
   EXPECT_EQ(missing.code, MatchCode::NotFound);

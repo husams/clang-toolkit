@@ -203,4 +203,4 @@ set_source_files_properties("${_api_generated_dir}/ast/v1/semantic.pb.cc"
                             PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 target_include_directories(ctk_ast_api PUBLIC "${_api_generated_dir}")
 target_link_libraries(ctk_ast_api PUBLIC protobuf::libprotobuf)
-target_compile_features(ctk_ast_api PUBLIC cxx_std_20)
+target_compile_features(ctk_ast_api PUBLIC cxx_std_17)

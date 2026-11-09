@@ -1,3 +1,5 @@
+#include "ctk/support/algorithm.hpp"
+
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -321,7 +323,7 @@ static bool selects_workspace(int argc, char** argv) {
   for (int index = 2; index < argc; ++index) {
     const llvm::StringRef argument(argv[index]);
     const auto [flag, inline_value] = argument.split('=');
-    const bool assigned = argument.contains('=');
+    const bool assigned = ctk::compat::contains(argument, '=');
     if (flag == "--ui" || flag == "--u") {
       auto value = assigned ? inline_value : llvm::StringRef("workspace");
       if (!assigned && index + 1 < argc && argv[index + 1][0] != '-')
@@ -344,7 +346,7 @@ static llvm::Error native_workspace_cli(int argc, char** argv) {
   for (int index = 2; index < argc; ++index) {
     const llvm::StringRef argument(argv[index]);
     const auto [flag, inline_value] = argument.split('=');
-    const bool assigned = argument.contains('=');
+    const bool assigned = ctk::compat::contains(argument, '=');
     if (flag == "--help" || flag == "-h") {
       llvm::outs() << "usage: ctk-jit repl --ui [workspace] [--file FILE] [--compdb COMPDB]"
                       " [--arg NAME=VALUE] [--runner RUNNER]\n";
@@ -375,7 +377,7 @@ static llvm::Error native_workspace_cli(int argc, char** argv) {
       runner = value.str();
     else {
       const auto [name, item] = value.split('=');
-      if (name.empty() || !value.contains('='))
+      if (name.empty() || !ctk::compat::contains(value, '='))
         return failure("--arg expects NAME=VALUE");
       arguments[name] = item;
     }

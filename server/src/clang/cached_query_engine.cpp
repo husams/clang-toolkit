@@ -2,6 +2,7 @@
 #include "ctk/clang/file_discovery.hpp"
 #include "ctk/clang/snapshot_resource_scope.hpp"
 #include "ctk/clang/tooling.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "ctk/cache/compilation_context.hpp"
 #include "ctk/cache/snapshot_cache.hpp"
@@ -141,14 +142,14 @@ bool reusable_file_candidate(const FileInput &file) {
   const std::string source((std::istreambuf_iterator<char>(input)), {});
   return std::none_of(file.compile_arguments.begin(),
                       file.compile_arguments.end(), [](const auto &argument) {
-                        return argument.starts_with("@") ||
+                        return ctk::compat::starts_with(argument, "@") ||
                                argument == "-Xclang" ||
-                               argument.starts_with("-Wp,") ||
-                               argument.starts_with("-fplugin") ||
+                               ctk::compat::starts_with(argument, "-Wp,") ||
+                               ctk::compat::starts_with(argument, "-fplugin") ||
                                argument == "-load" ||
-                               argument.starts_with("-ivfsoverlay") ||
-                               argument.starts_with("-fno-validate-pch") ||
-                               argument.starts_with(
+                               ctk::compat::starts_with(argument, "-ivfsoverlay") ||
+                               ctk::compat::starts_with(argument, "-fno-validate-pch") ||
+                               ctk::compat::starts_with(argument,
                                    "-fmodules-validate-once-per-build-session");
                       });
 }
@@ -186,7 +187,7 @@ std::string resource_content_identity() {
     }
     if (error)
       return std::string{};
-    std::ranges::sort(files);
+    ctk::compat::sort(files);
     llvm::SHA256 hasher;
     for (const auto &path : files) {
       std::ifstream input(path, std::ios::binary);
@@ -214,8 +215,8 @@ std::vector<std::string> effective_arguments(const FileInput &file) {
   std::vector<std::string> arguments;
   if (std::none_of(file.compile_arguments.begin(), file.compile_arguments.end(),
                    [](const auto &arg) {
-                     return arg == "-x" || arg.starts_with("-x=") ||
-                            arg.starts_with("-x");
+                     return arg == "-x" || ctk::compat::starts_with(arg, "-x=") ||
+                            ctk::compat::starts_with(arg, "-x");
                    })) {
     arguments.emplace_back("-x");
     arguments.emplace_back("c++");
@@ -229,13 +230,13 @@ std::vector<std::string> effective_arguments(const FileInput &file) {
       break;
     if (arg == "-x" && i + 1 < file.compile_arguments.size())
       language = file.compile_arguments[++i];
-    else if (arg.starts_with("-x"))
+    else if (ctk::compat::starts_with(arg, "-x"))
       language = arg.substr(2);
   }
   if (language != "c" && language != "c-header" && language != "objective-c" &&
       language != "objective-c-header" &&
       std::none_of(file.compile_arguments.begin(), file.compile_arguments.end(),
-                   [](const auto &arg) { return arg.starts_with("-std="); }))
+                   [](const auto &arg) { return ctk::compat::starts_with(arg, "-std="); }))
     arguments.emplace_back("-std=c++20");
 #ifdef CTK_CLANG_RESOURCE_DIR
   arguments.emplace_back(std::string("-resource-dir=") +
@@ -264,9 +265,9 @@ ctk::cache::CompilationContext cache_context(const FileInput &file) {
   context.environment = snapshot::compilation_environment();
   context.reusable = reusable_file_candidate(file);
   for (const auto &arg : context.arguments) {
-    if (arg.starts_with("--target="))
+    if (ctk::compat::starts_with(arg, "--target="))
       context.target = arg.substr(9);
-    else if (arg.starts_with("--sysroot="))
+    else if (ctk::compat::starts_with(arg, "--sysroot="))
       context.sysroot = arg.substr(10);
   }
   return context;
@@ -544,7 +545,7 @@ private:
             // Reject roots with missing imports before lazy declaration access.
             const auto closure = snapshot::capture_native_artifacts(
                 *unit, *filesystem, context.working_directory);
-            const auto expected_count = std::ranges::count_if(
+            const auto expected_count = ctk::compat::count_if(
                 descriptor.artifacts, [](const auto &item) {
                   return item.kind !=
                          ctk::storage::ArtifactKind::TranslationUnit;
@@ -556,7 +557,7 @@ private:
               if (expected.kind == ctk::storage::ArtifactKind::TranslationUnit)
                 continue;
               const auto found =
-                  std::ranges::find(closure.artifacts, expected.logical_path,
+                  ctk::compat::find(closure.artifacts, expected.logical_path,
                                     &snapshot::NativeArtifact::path);
               if (found == closure.artifacts.end() ||
                   found->kind != expected.kind)
@@ -616,14 +617,14 @@ private:
           continue;
         const auto role = path == main_path
                               ? ctk::storage::InputRole::MainSource
-                          : roles.contains(path) ? roles.at(path)
+                          : ctk::compat::contains(roles, path) ? roles.at(path)
                           : captured.error || captured.status.isDirectory()
                               ? ctk::storage::InputRole::Lookup
                               : ctk::storage::InputRole::Header;
         auto observation = snapshot::stored_observation(captured, role);
         if (role == ctk::storage::InputRole::ModuleInput) {
           const auto artifact =
-              std::ranges::find(owner.artifact_closure.artifacts, path,
+              ctk::compat::find(owner.artifact_closure.artifacts, path,
                                 &snapshot::NativeArtifact::path);
           google::protobuf::Struct metadata;
           if (!google::protobuf::util::JsonStringToMessage(

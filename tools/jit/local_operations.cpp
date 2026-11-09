@@ -1,5 +1,6 @@
 #include "local_operations.hpp"
 #include "file_values.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "analysis.hpp"
 #include "analysis/v1/call_graph_response.pb.h"
@@ -156,7 +157,7 @@ llvm::Expected<AstHandle> LocalOperations::target(const Value& value) {
   } else {
     return error("expected a retained file or session");
   }
-  auto release = llvm::scope_exit([&] {
+  auto release = llvm::make_scope_exit([&] {
     if (!scope_ && !temporary.lease_id().empty()) {
       api::CloseFileRequest close;
       close.set_lease_id(temporary.lease_id());
@@ -190,7 +191,7 @@ llvm::Expected<AstHandle> LocalOperations::target(const Value& value) {
 }
 
 bool LocalOperations::accepts(const AstHandle& ast) const {
-  return !scope_ || scope_->asts.contains(ast.get());
+  return !scope_ || ctk::compat::contains(scope_->asts, ast.get());
 }
 
 Value LocalOperations::scoped_inputs() const {
@@ -375,7 +376,7 @@ const Value* LocalOperations::foreground_batch(Values& runtime, const Sequence& 
     if (local.open_resource_scope(owner, request, info, detail) == MatchCode::Ok) {
       accepted += length;
       scope_ = std::make_unique<BatchScope>(BatchScope{info.resource_scope_id(), request});
-      auto cleanup_group = llvm::scope_exit([&] {
+      auto cleanup_group = llvm::make_scope_exit([&] {
         api::ResourceScopeInfo released;
         try {
           const auto closed = local.release_resource_scope(owner, scope_->id, released);
@@ -403,7 +404,7 @@ const Value* LocalOperations::foreground_batch(Values& runtime, const Sequence& 
       runtime.state.batch_output_bytes = 0;
       if (!display)
         ++runtime.consume_depth;
-      auto restore = llvm::scope_exit([&] {
+      auto restore = llvm::make_scope_exit([&] {
         if (!display)
           --runtime.consume_depth;
         const auto used = *runtime.state.batch_output_bytes;
@@ -548,7 +549,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
       return runtime.fail(error.what());
     }
   }
-  if (command.starts_with("index_") || command.starts_with("batch_") ||
+  if (ctk::compat::starts_with(command, "index_") || ctk::compat::starts_with(command, "batch_") ||
       command == "durable_batch" || command == "background" || command == "session_label" ||
       command == "session_start" || command == "session_add" || command == "session_match" ||
       command == "session_pause" || command == "session_resume" || command == "session_close") {

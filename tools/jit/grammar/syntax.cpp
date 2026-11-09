@@ -1,4 +1,5 @@
 #include "syntax.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <array>
@@ -7,7 +8,6 @@
 #include <limits>
 #include <memory>
 #include <optional>
-#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -108,7 +108,13 @@ struct Alternative {
   unsigned order = 0;
   int priority = 0;
 
-  bool operator==(const Alternative &) const = default;
+  bool operator==(const Alternative &other) const {
+    return left == other.left &&
+           right == other.right &&
+           order == other.order &&
+           priority == other.priority;
+  }
+  bool operator!=(const Alternative &other) const { return !(*this == other); }
 };
 
 struct ForestNode {
@@ -128,7 +134,12 @@ struct Item {
   unsigned dot;
   std::size_t begin;
 
-  bool operator==(const Item &) const = default;
+  bool operator==(const Item &other) const {
+    return rule == other.rule &&
+           dot == other.dot &&
+           begin == other.begin;
+  }
+  bool operator!=(const Item &other) const { return !(*this == other); }
 };
 
 struct ItemHash {
@@ -141,7 +152,11 @@ struct Completed {
   Symbol symbol;
   std::size_t begin;
 
-  bool operator==(const Completed &) const = default;
+  bool operator==(const Completed &other) const {
+    return symbol == other.symbol &&
+           begin == other.begin;
+  }
+  bool operator!=(const Completed &other) const { return !(*this == other); }
 };
 
 struct CompletedHash {
@@ -207,7 +222,7 @@ private:
 
   void append(NodeId node, Alternative alternative) {
     auto &alternatives = nodes[node].alternatives;
-    if (std::ranges::find(alternatives, alternative) == alternatives.end())
+    if (ctk::compat::find(alternatives, alternative) == alternatives.end())
       alternatives.push_back(alternative);
   }
 
@@ -346,20 +361,21 @@ private:
   llvm::Error diagnostic() const {
     const auto before = source.take_front(furthest);
     const auto line =
-        static_cast<std::size_t>(std::ranges::count(before, '\n')) + 1;
+        static_cast<std::size_t>(ctk::compat::count(before, '\n')) + 1;
     const auto newline = before.rfind('\n');
     const auto prefix = newline == llvm::StringRef::npos
                             ? before
                             : before.drop_front(newline + 1);
     const auto column =
-        std::ranges::count_if(
+        ctk::compat::count_if(
             prefix, [](char byte) { return !continuation_byte(byte); }) +
         1;
+    const char *message = furthest == source.size()
+                              ? "incomplete CTK input"
+                              : "unexpected CTK input";
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "line %zu, column %td: %s", line, column,
-                                   furthest == source.size()
-                                       ? "incomplete CTK input"
-                                       : "unexpected CTK input");
+                                   message);
   }
 
   std::optional<std::int64_t> resolve(NodeId id) {

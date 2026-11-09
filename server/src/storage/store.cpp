@@ -1,4 +1,5 @@
 #include "storage_internal.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -76,7 +77,7 @@ Store::acquire_ready(const CompilationProfile &profile) {
     auto lease_impl = std::make_shared<SnapshotLease::Impl>();
     lease_impl->snapshot = snapshot;
     for (const auto &artifact : snapshot.artifacts) {
-      if (std::ranges::find(lease_impl->digests, artifact.blob_sha256) ==
+      if (ctk::compat::find(lease_impl->digests, artifact.blob_sha256) ==
           lease_impl->digests.end())
         lease_impl->digests.push_back(artifact.blob_sha256);
     }

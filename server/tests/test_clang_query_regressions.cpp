@@ -1,5 +1,6 @@
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,7 +9,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <ranges>
 #include <set>
 #include <string>
 #include <string_view>
@@ -44,7 +44,7 @@ bool query_finds(const std::shared_ptr<IQueryEngine> &engine,
       file, "functionDecl(hasName(\"" + name + "\")).bind(\"decl\")",
       [] { return true; },
       [&](const IQueryEngine::Bindings &bindings) {
-        found = bindings.contains("decl");
+        found = ctk::compat::contains(bindings, "decl");
       });
   EXPECT_TRUE(result.ok) << result.message;
   return found;
@@ -160,7 +160,7 @@ TEST(ClangQueryRegressions, CorruptStoredArtifactFallsBackToSourceParsing) {
   ASSERT_TRUE(result.ok) << result.message;
   const auto after = stored_blob_paths();
   std::vector<std::filesystem::path> created;
-  std::ranges::set_difference(after, before, std::back_inserter(created));
+  ctk::compat::set_difference(after, before, std::back_inserter(created));
   ASSERT_EQ(created.size(), 1U)
       << "expected the initial query to publish one native artifact";
 
@@ -196,7 +196,7 @@ std::set<std::filesystem::path> staged_artifact_directories() {
   std::set<std::filesystem::path> paths;
   for (const auto &entry : std::filesystem::directory_iterator(
            std::filesystem::temp_directory_path())) {
-    if (!entry.path().filename().string().starts_with("ctk-native-ast-"))
+    if (!ctk::compat::starts_with(entry.path().filename().string(), "ctk-native-ast-"))
       continue;
     std::error_code error;
     if (std::filesystem::exists(entry.path() / "artifact.ast", error))
@@ -223,7 +223,7 @@ TEST(ClangQueryRegressions,
   ASSERT_TRUE(loaded.storage_hit) << loaded.storage_message;
   const auto after = staged_artifact_directories();
   std::vector<std::filesystem::path> created;
-  std::ranges::set_difference(after, before, std::back_inserter(created));
+  ctk::compat::set_difference(after, before, std::back_inserter(created));
   ASSERT_EQ(created.size(), 1U);
 
   // More distinct reusable snapshots than the cache's 64-entry LRU capacity.

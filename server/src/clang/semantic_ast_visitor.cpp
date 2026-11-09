@@ -133,32 +133,39 @@ bool SemanticAstVisitor::around(const clang::DynTypedNode &node,
 }
 namespace {
 template <class Visitor>
-bool traverse_type(Visitor &visitor, clang::QualType type, bool qualifier) {
-  if constexpr (requires { visitor.TraverseType(type, qualifier); })
-    return visitor.TraverseType(type, qualifier);
-  else
-    return visitor.TraverseType(type);
+auto traverse_type(Visitor &visitor, clang::QualType type, bool qualifier, int)
+    -> decltype(visitor.TraverseType(type, qualifier)) {
+  return visitor.TraverseType(type, qualifier);
 }
+
 template <class Visitor>
-bool traverse_type_loc(Visitor &visitor, clang::TypeLoc loc, bool qualifier) {
-  if constexpr (requires { visitor.TraverseTypeLoc(loc, qualifier); })
-    return visitor.TraverseTypeLoc(loc, qualifier);
-  else
-    return visitor.TraverseTypeLoc(loc);
+bool traverse_type(Visitor &visitor, clang::QualType type, bool, long) {
+  return visitor.TraverseType(type);
+}
+
+template <class Visitor>
+auto traverse_type_loc(Visitor &visitor, clang::TypeLoc loc, bool qualifier, int)
+    -> decltype(visitor.TraverseTypeLoc(loc, qualifier)) {
+  return visitor.TraverseTypeLoc(loc, qualifier);
+}
+
+template <class Visitor>
+bool traverse_type_loc(Visitor &visitor, clang::TypeLoc loc, bool, long) {
+  return visitor.TraverseTypeLoc(loc);
 }
 } // namespace
 bool SemanticAstVisitor::TraverseType(clang::QualType type, bool qualifier) {
   if (type.isNull())
     return true;
   return around(clang::DynTypedNode::create(type), [&] {
-    return traverse_type(static_cast<Base &>(*this), type, qualifier);
+    return traverse_type(static_cast<Base &>(*this), type, qualifier, 0);
   });
 }
 bool SemanticAstVisitor::TraverseTypeLoc(clang::TypeLoc loc, bool qualifier) {
   if (loc.isNull())
     return true;
   return around(clang::DynTypedNode::create(loc), [&] {
-    return traverse_type_loc(static_cast<Base &>(*this), loc, qualifier);
+    return traverse_type_loc(static_cast<Base &>(*this), loc, qualifier, 0);
   });
 }
 bool SemanticAstVisitor::TraverseAttr(clang::Attr *attr) {

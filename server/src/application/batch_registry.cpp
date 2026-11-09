@@ -1,4 +1,5 @@
 #include "ctk/application/batch_registry.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "analysis/v1/script_value.pb.h"
 #include "ctk/clang/file_discovery.hpp"
@@ -663,7 +664,7 @@ struct BatchRegistry::Impl {
             break;
           }
           const auto &saved = group.source_revisions(i);
-          if (saved.starts_with("main:") &&
+          if (ctk::compat::starts_with(saved, "main:") &&
               digest_file(input_path(group.inputs(i))) != saved.substr(5)) {
             code = Code::FailedPrecondition;
             message = "batch main source changed since the manifest was frozen";
@@ -681,7 +682,7 @@ struct BatchRegistry::Impl {
                 closure_revision(group.inputs(i).profile().profile_id(),
                                  current[i]);
             const auto &saved = group.source_revisions(i);
-            if (saved.starts_with("closure:") && saved != current_revision) {
+            if (ctk::compat::starts_with(saved, "closure:") && saved != current_revision) {
               code = Code::FailedPrecondition;
               message = "batch source dependency closure changed since the "
                         "manifest was frozen";
@@ -1244,7 +1245,7 @@ struct BatchRegistry::Impl {
         }
         for (int i = 0; i < group->inputs_size(); ++i) {
           if (!group->inputs(i).profile().frozen() ||
-              !group->source_revisions(i).starts_with("closure:")) {
+              !ctk::compat::starts_with(group->source_revisions(i), "closure:")) {
             message = "retry requires a captured dependency closure";
             return Code::FailedPrecondition;
           }

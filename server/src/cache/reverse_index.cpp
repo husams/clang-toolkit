@@ -1,4 +1,5 @@
 #include "ctk/cache/reverse_index.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 
@@ -9,7 +10,7 @@ void prepare_reverse_links(
   record->dependencies.reserve(inputs.size());
   for (const auto &input : inputs) {
     // Acquisition deduplicates paths before taking metadata locking.
-    std::erase_if(input->dependent_snapshots,
+    ctk::compat::erase_if(input->dependent_snapshots,
                   [](const auto &weak) { return weak.expired(); });
     input->dependent_snapshots.reserve(input->dependent_snapshots.size() + 1);
     record->dependencies.push_back(input);
@@ -27,7 +28,7 @@ void detach_reverse_links(
     const std::shared_ptr<SnapshotRecord> &record) noexcept {
   for (const auto &weak : record->dependencies) {
     if (const auto file = weak.lock()) {
-      std::erase_if(file->dependent_snapshots, [&](const auto &edge) {
+      ctk::compat::erase_if(file->dependent_snapshots, [&](const auto &edge) {
         const auto dependent = edge.lock();
         return !dependent || dependent == record;
       });

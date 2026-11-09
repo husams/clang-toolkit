@@ -1,5 +1,6 @@
 #include "ctk/config/config.hpp"
 #include "ctk/platform/loopback_address.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <yaml.h>
 
@@ -72,7 +73,7 @@ Node convert_node(yaml_document_t &document, yaml_node_t *raw,
   Node result;
   result.origin = origin;
   result.tag = reinterpret_cast<const char *>(raw->tag);
-  result.explicit_string = explicit_strings.contains(raw->start_mark.index);
+  result.explicit_string = ctk::compat::contains(explicit_strings, raw->start_mark.index);
   if (raw->type == YAML_SCALAR_NODE) {
     if (result.tag != kStringTag && result.tag != kIntTag &&
         result.tag != kNullTag)
@@ -113,7 +114,7 @@ Node convert_node(yaml_document_t &document, yaml_node_t *raw,
         key_node->data.scalar.length);
     const auto child_path =
         key_path == "configuration" ? key : key_path + "." + key;
-    if (entries.contains(key))
+    if (ctk::compat::contains(entries, key))
       fail(where(result) + ": duplicate key '" + child_path + "'");
     yaml_node_t *child = yaml_document_get_node(&document, pair->value);
     entries.emplace(key, convert_node(document, child, origin, active,

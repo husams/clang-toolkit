@@ -3,6 +3,7 @@
 #include "../native_snapshot_owner.hpp"
 #include "cfg_budget.hpp"
 #include "variable_ranges.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <clang/AST/ExprCXX.h>
 #include <clang/AST/ParentMapContext.h>
@@ -479,7 +480,7 @@ struct Analysis {
           fact->set_initialization(pb::VariableFlowFact::UNKNOWN);
         else {
           fact->set_initialization(
-              state.contains(0)
+              ctk::compat::contains(state, 0)
                   ? (state.size() == 1
                          ? pb::VariableFlowFact::UNINITIALIZED
                          : pb::VariableFlowFact::MAYBE_INITIALIZED)
@@ -498,7 +499,7 @@ struct Analysis {
         }
         emit(event);
         if (block.reachable && unsupported.empty() && reads(usage.kind()) &&
-            state.contains(0)) {
+            ctk::compat::contains(state, 0)) {
           event.Clear();
           auto *finding = event.mutable_finding();
           finding->set_usage_id(usage.id());

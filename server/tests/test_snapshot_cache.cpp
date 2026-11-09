@@ -1,4 +1,5 @@
 #include "ctk/cache/snapshot_cache.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,9 +11,8 @@
 #include <future>
 #include <memory>
 #include <mutex>
-#include <ranges>
 #include <set>
-#include <stop_token>
+#include "ctk/support/stop_token.hpp"
 #include <string>
 #include <thread>
 #include <utility>
@@ -435,7 +435,7 @@ TEST(SnapshotCache, CancelledWaiterLeavesSharedBuildAvailable) {
     return cache.acquire("/src/main.cpp", context);
   });
   gate->wait_until_entered();
-  std::stop_source cancellation;
+  ctk::compat::StopSource cancellation;
   auto waiter = std::async(std::launch::async, [&] {
     return cache.acquire("/src/main.cpp", context, cancellation.get_token());
   });
@@ -456,7 +456,7 @@ TEST(SnapshotCache, CancellationOfLeaderDoesNotDiscardItsCompletedBuild) {
       });
   SnapshotCache cache(loader);
   auto context = context_for();
-  std::stop_source cancellation;
+  ctk::compat::StopSource cancellation;
   auto leader = std::async(std::launch::async, [&] {
     return cache.acquire("/src/main.cpp", context, cancellation.get_token());
   });
@@ -485,12 +485,12 @@ TEST(SnapshotCache, FilesAndInputsAreValueSnapshotsWithIndependentLifetime) {
     input_snapshot = acquired->inputs;
   }
 
-  EXPECT_GE(std::ranges::distance(file_snapshot), 2);
+  EXPECT_GE(ctk::compat::distance(file_snapshot), 2);
   EXPECT_EQ(input_snapshot.size(), 2u);
-  EXPECT_TRUE(std::ranges::any_of(input_snapshot, [](const auto &input) {
+  EXPECT_TRUE(ctk::compat::any_of(input_snapshot, [](const auto &input) {
     return input.path == "/include/api.hpp";
   }));
-  EXPECT_TRUE(std::ranges::any_of(file_snapshot, [](const auto &info) {
+  EXPECT_TRUE(ctk::compat::any_of(file_snapshot, [](const auto &info) {
     return info.path == "/src/main.cpp";
   }));
 }
@@ -542,9 +542,9 @@ TEST(SnapshotCache,
   EXPECT_NE(first, second);
   EXPECT_EQ(cache.stats().reusable_snapshots, 0);
   EXPECT_EQ(loader->loads, 2);
-  EXPECT_TRUE(std::ranges::any_of(
+  EXPECT_TRUE(ctk::compat::any_of(
       metadata, [](const auto &file) { return file.path == "/src/main.cpp"; }));
-  EXPECT_TRUE(std::ranges::any_of(metadata, [](const auto &file) {
+  EXPECT_TRUE(ctk::compat::any_of(metadata, [](const auto &file) {
     return file.path == "/include/api.hpp";
   }));
 }

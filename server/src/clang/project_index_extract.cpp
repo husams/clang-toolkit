@@ -2,6 +2,7 @@
 #include "ctk/cache/include_inventory.hpp"
 #include "project_index_header_reuse.hpp"
 #include "snapshot/compilation_environment.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/DeclTemplate.h>
@@ -308,9 +309,9 @@ public:
     // and the matching compiler that produced a PCH.
     command_.CommandLine = {CTK_CLANG_TOOL_PATH,
                             "-resource-dir=" CTK_CLANG_RESOURCE_DIR};
-    if (source.ends_with(".c") &&
+    if (ctk::compat::ends_with(source, ".c") &&
         std::none_of(arguments.begin(), arguments.end(), [](const auto &arg) {
-          return arg.starts_with("-std=") &&
+          return ctk::compat::starts_with(arg, "-std=") &&
                  arg.find("++") != std::string::npos;
         }))
       command_.CommandLine.push_back("--driver-mode=gcc");
@@ -389,10 +390,10 @@ bool extract_project_index(
         ++i;
       if (i + 1 < arguments.size())
         input = arguments[++i];
-    } else if (arg.starts_with("-fmodule-file=") ||
-               arg.starts_with("-fmodule-map-file=")) {
+    } else if (ctk::compat::starts_with(arg, "-fmodule-file=") ||
+               ctk::compat::starts_with(arg, "-fmodule-map-file=")) {
       input = arg.substr(arg.find('=') + 1);
-      if (arg.starts_with("-fmodule-file=") &&
+      if (ctk::compat::starts_with(arg, "-fmodule-file=") &&
           input.find('=') != std::string::npos)
         input = input.substr(input.find('=') + 1);
     }
@@ -407,14 +408,14 @@ bool extract_project_index(
   SingleCommandDatabase fixed(source, working_directory, arguments);
   const bool reusable =
       std::none_of(arguments.begin(), arguments.end(), [](const auto &arg) {
-        return arg.starts_with("-include") || arg.starts_with("-imacros") ||
+        return ctk::compat::starts_with(arg, "-include") || ctk::compat::starts_with(arg, "-imacros") ||
                arg.find("module") != std::string::npos || arg == "-Xclang" ||
-               arg == "-Xpreprocessor" || arg.starts_with("@") ||
-               arg.starts_with("-Wp,") || arg.starts_with("-ivfsoverlay") ||
-               arg.starts_with("--config") ||
+               arg == "-Xpreprocessor" || ctk::compat::starts_with(arg, "@") ||
+               ctk::compat::starts_with(arg, "-Wp,") || ctk::compat::starts_with(arg, "-ivfsoverlay") ||
+               ctk::compat::starts_with(arg, "--config") ||
                arg.find("plugin") != std::string::npos || arg == "-load" ||
                arg.find("ast-merge") != std::string::npos ||
-               arg == "-fdelayed-template-parsing" || arg.starts_with("-fms-");
+               arg == "-fdelayed-template-parsing" || ctk::compat::starts_with(arg, "-fms-");
       });
   Factory factory(result, header_cache_directory, reusable);
   clang::tooling::ClangTool tool(fixed, {source});

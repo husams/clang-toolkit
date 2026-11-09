@@ -1,4 +1,5 @@
 #include "storage_internal.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <map>
@@ -86,7 +87,7 @@ void bind_optional(Statement &statement, int index,
 }
 
 std::string require_envelope(const Bytes &bytes, std::string_view prefix) {
-  if (!bytes.starts_with(prefix))
+  if (!ctk::compat::starts_with(bytes, prefix))
     throw std::invalid_argument("unsupported or unversioned canonical bytes");
   return bytes;
 }
@@ -471,7 +472,7 @@ std::vector<std::string> MetadataRepository::blob_digests(SnapshotId id) const {
   query.bind(1, id);
   std::vector<std::string> result;
   while (query.step()) result.push_back(query.string(0));
-  std::ranges::sort(result);
+  ctk::compat::sort(result);
   result.erase(std::unique(result.begin(), result.end()), result.end());
   return result;
 }

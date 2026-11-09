@@ -1,4 +1,5 @@
 #include "analysis_session.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <filesystem>
 #include <limits>
@@ -288,7 +289,7 @@ AnalysisSession::AnalysisSession(
 std::shared_ptr<std::mutex>
 AnalysisSession::profile_mutex(const std::string &key) {
   std::lock_guard lock(profile_mutex_map_mutex_);
-  std::erase_if(profile_mutexes_,
+  ctk::compat::erase_if(profile_mutexes_,
                 [](const auto &entry) { return entry.second.expired(); });
   auto &weak = profile_mutexes_[key];
   auto mutex = weak.lock();

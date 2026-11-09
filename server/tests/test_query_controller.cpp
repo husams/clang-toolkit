@@ -1,5 +1,6 @@
 #include "ctk/application/query.hpp"
 #include "ctk/clang/tooling.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <gtest/gtest.h>
 
@@ -107,7 +108,7 @@ TEST(QueryController,
   EXPECT_EQ(std::count_if(events.begin(), events.end(),
                           [](const auto &item) {
                             return item.kind == EventKind::Match &&
-                                   item.bindings.contains("decl");
+                                   ctk::compat::contains(item.bindings, "decl");
                           }),
             2);
   const auto complete =

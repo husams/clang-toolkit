@@ -1,4 +1,5 @@
 #include "help.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -45,7 +46,7 @@ const llvm::json::Object &help_documents() {
 NativeHelp native_help(llvm::StringRef topic) {
   const auto &documents = help_documents();
   auto key = topic;
-  if (key.starts_with("matchers ") && !documents.getArray(key))
+  if (ctk::compat::starts_with(key, "matchers ") && !documents.getArray(key))
     key = key.drop_front(9);
   if (const auto *content = documents.getArray(key)) {
     return {(*content)[0].getAsString().value_or("").str(),
@@ -62,7 +63,7 @@ std::vector<std::string> native_help_topics(llvm::StringRef prefix) {
     if (llvm::StringRef(name).starts_with_insensitive(prefix) &&
         !name.str().empty())
       results.push_back(name.str());
-  std::ranges::sort(results);
+  ctk::compat::sort(results);
   return results;
 }
 
@@ -75,7 +76,7 @@ bool editor_keyword(llvm::StringRef word) {
       result.try_emplace(item, true);
     return result;
   }();
-  return keywords.contains(word);
+  return ctk::compat::contains(keywords, word);
 }
 
 llvm::StringRef editor_matcher_kind(llvm::StringRef word) {

@@ -1,5 +1,6 @@
 #include "input_identity.hpp"
 #include "ctk/cache/compilation_context.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/util/json_util.h>
@@ -25,7 +26,7 @@ std::string namespace_digest(const CapturedInput &input) {
     for (const auto &entry : *input.entries)
       entries.push_back(ctk::cache::canonical_json_string(entry.path().str()) +
                         ":" + std::to_string(static_cast<int>(entry.type())));
-    std::ranges::sort(entries);
+    ctk::compat::sort(entries);
     for (const auto &entry : entries)
       identity += '\n' + entry;
   } else

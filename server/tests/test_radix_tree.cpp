@@ -1,12 +1,11 @@
 #include "ctk/cache/radix_tree.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
-#include <concepts>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <random>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -42,23 +41,12 @@ struct MaybeThrow {
 };
 
 using Tree = RadixTree<NonSortable>;
-static_assert(std::forward_iterator<Tree::iterator>);
-static_assert(std::forward_iterator<Tree::const_iterator>);
-static_assert(std::ranges::forward_range<Tree>);
-static_assert(std::ranges::forward_range<const Tree>);
-static_assert(std::ranges::common_range<Tree>);
-static_assert(std::ranges::common_range<const Tree>);
-static_assert(std::ranges::sized_range<Tree>);
-static_assert(std::ranges::sized_range<const Tree>);
-static_assert(std::ranges::forward_range<Tree::prefix_range>);
-static_assert(std::ranges::common_range<Tree::prefix_range>);
-static_assert(std::ranges::view<Tree::prefix_range>);
-static_assert(std::ranges::forward_range<Tree::const_prefix_range>);
-static_assert(!std::random_access_iterator<Tree::iterator>);
-static_assert(!std::permutable<Tree::iterator>);
-static_assert(!std::sortable<Tree::iterator>);
-static_assert(std::same_as<decltype((std::declval<Tree::iterator>()->first)),
-                           const std::string &>);
+static_assert(std::is_same_v<std::iterator_traits<Tree::iterator>::iterator_category,
+                             std::forward_iterator_tag>);
+static_assert(std::is_same_v<std::iterator_traits<Tree::const_iterator>::iterator_category,
+                             std::forward_iterator_tag>);
+static_assert(std::is_same_v<decltype(std::declval<Tree::iterator>()->first),
+                             const std::string>);
 
 TEST(RadixTreeTest, EmptyKeysAndTerminalNodesWithChildren) {
   Tree tree;
@@ -80,8 +68,8 @@ TEST(RadixTreeTest, EmptyKeysAndTerminalNodesWithChildren) {
   EXPECT_FALSE(inserted_again);
   EXPECT_EQ(same->second.value, 1);
   EXPECT_EQ(tree.find("unit")->first, "unit");
-  EXPECT_TRUE(tree.contains(""));
-  EXPECT_FALSE(tree.contains("units"));
+  EXPECT_TRUE(ctk::compat::contains(tree, ""));
+  EXPECT_FALSE(ctk::compat::contains(tree, "units"));
   EXPECT_EQ(tree.find("unitt"), tree.end());
 }
 
@@ -146,26 +134,24 @@ TEST(RadixTreeTest, IterationAlgorithmsAndUnsignedByteOrdering) {
   tree.try_emplace(low_byte, 4);
 
   std::vector<std::string> keys;
-  std::ranges::for_each(
+  ctk::compat::for_each(
       tree, [&keys](const auto &value) { keys.push_back(value.first); });
-  EXPECT_TRUE(std::ranges::is_sorted(keys, UnsignedLess{}));
+  EXPECT_TRUE(ctk::compat::is_sorted(keys, UnsignedLess{}));
   EXPECT_EQ(keys.front(), "");
   EXPECT_EQ(keys[1], low_byte);
   EXPECT_EQ(keys.back(), high_byte);
 
-  auto distance = std::ranges::distance(tree);
+  auto distance = ctk::compat::distance(tree);
   EXPECT_EQ(distance, 5);
-  auto found = std::ranges::find_if(
+  auto found = ctk::compat::find_if(
       tree, [](const auto &pair) { return pair.second.value == 2; });
   ASSERT_NE(found, tree.end());
   EXPECT_EQ(found->first, "a");
 
-  auto selected =
-      tree | std::views::filter([](const auto &pair) {
-        return pair.second.value % 2 == 0;
-      }) |
-      std::views::transform([](const auto &pair) { return pair.first; });
-  std::vector<std::string> filtered(selected.begin(), selected.end());
+  std::vector<std::string> filtered;
+  for (const auto &pair : tree)
+    if (pair.second.value % 2 == 0)
+      filtered.push_back(pair.first);
   EXPECT_EQ(filtered.size(), 3U);
 }
 
@@ -193,21 +179,19 @@ TEST(RadixTreeTest, PrefixMayEndInsideAnEdgeAndIncludesTheExactTerminal) {
 
   const Tree &constant = tree;
   static_assert(
-      std::same_as<decltype(*constant.begin()), const Tree::value_type &>);
+      std::is_same_v<decltype(*constant.begin()), const Tree::value_type &>);
   auto const_range = constant.prefix("prefix");
-  EXPECT_EQ(std::ranges::distance(const_range), 3);
+  EXPECT_EQ(ctk::compat::distance(const_range), 3);
   EXPECT_EQ(const_range.cbegin(), const_range.begin());
   EXPECT_EQ(const_range.cend(), const_range.end());
   EXPECT_FALSE(const_range.empty());
   EXPECT_TRUE(constant.prefix("absent").empty());
 
-  auto composed =
-      tree.prefix("prefix") | std::views::filter([](const auto &pair) {
-        return pair.second.value != 3;
-      }) |
-      std::views::transform([](const auto &pair) { return pair.first; });
-  EXPECT_EQ(std::vector<std::string>(composed.begin(), composed.end()),
-            (std::vector<std::string>{"prefix-later", "prefix-long"}));
+  std::vector<std::string> selected;
+  for (const auto &pair : tree.prefix("prefix"))
+    if (pair.second.value != 3)
+      selected.push_back(pair.first);
+  EXPECT_EQ(selected, (std::vector<std::string>{"prefix-later", "prefix-long"}));
 }
 
 TEST(RadixTreeTest, MovingPreservesValuesAndLeavesSourceUsable) {
@@ -221,18 +205,18 @@ TEST(RadixTreeTest, MovingPreservesValuesAndLeavesSourceUsable) {
   EXPECT_TRUE(source.empty());
   EXPECT_EQ(source.size(), 0U);
   EXPECT_EQ(std::addressof(moved.find("move-target")->second), stable_value);
-  EXPECT_EQ(std::ranges::distance(moved), 3);
+  EXPECT_EQ(ctk::compat::distance(moved), 3);
   source.try_emplace("reused", 4);
-  EXPECT_TRUE(source.contains("reused"));
+  EXPECT_TRUE(ctk::compat::contains(source, "reused"));
 
   Tree destination;
   destination.try_emplace("old", 5);
   destination = std::move(moved);
   EXPECT_TRUE(moved.empty());
-  EXPECT_FALSE(destination.contains("old"));
+  EXPECT_FALSE(ctk::compat::contains(destination, "old"));
   EXPECT_EQ(std::addressof(destination.find("move-target")->second),
             stable_value);
-  EXPECT_EQ(std::ranges::distance(destination), 3);
+  EXPECT_EQ(ctk::compat::distance(destination), 3);
 }
 
 TEST(RadixTreeTest, ErasePrunesAndMergesWithoutMovingSurvivingValues) {
@@ -277,9 +261,9 @@ TEST(RadixTreeTest, ThrowingValueConstructionLeavesTreeUnchanged) {
   MaybeThrow::throw_on_construction = false;
 
   EXPECT_EQ(tree.size(), original_size);
-  EXPECT_TRUE(tree.contains("existing-key"));
-  EXPECT_FALSE(tree.contains("existing-new-branch"));
-  EXPECT_FALSE(tree.contains("existing"));
+  EXPECT_TRUE(ctk::compat::contains(tree, "existing-key"));
+  EXPECT_FALSE(ctk::compat::contains(tree, "existing-new-branch"));
+  EXPECT_FALSE(ctk::compat::contains(tree, "existing"));
 }
 
 TEST(RadixTreeTest, RandomizedOperationsMatchAnUnsignedOrderedMap) {
@@ -308,7 +292,7 @@ TEST(RadixTreeTest, RandomizedOperationsMatchAnUnsignedOrderedMap) {
       EXPECT_EQ(tree.erase(key), model.erase(key));
       break;
     default:
-      EXPECT_EQ(tree.contains(key), model.contains(key));
+      EXPECT_EQ(tree.contains(key), ctk::compat::contains(model, key));
       break;
     }
 

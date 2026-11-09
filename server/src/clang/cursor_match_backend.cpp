@@ -5,6 +5,7 @@
 #include "matcher_parser.hpp"
 #include "native_snapshot_owner.hpp"
 #include "native_navigation.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/ASTMatchers/ASTMatchers.h>
 #include <clang/ASTMatchers/Dynamic/Diagnostics.h>
@@ -50,9 +51,9 @@ bool requires_translation_unit_match_metadata(llvm::StringRef query) {
   // MatchASTVisitor gathers typedef aliases and Objective-C compatible aliases
   // before evaluating these inheritance matchers. Per-node MatchFinder::match
   // does not build that translation-unit cache.
-  return query.contains("isDerivedFrom") ||
-         query.contains("isDirectlyDerivedFrom") ||
-         query.contains("isSameOrDerivedFrom");
+  return ctk::compat::contains(query, "isDerivedFrom") ||
+         ctk::compat::contains(query, "isDirectlyDerivedFrom") ||
+         ctk::compat::contains(query, "isSameOrDerivedFrom");
 }
 
 // MatchFinder::matchAST walks the whole translation unit. For a selected

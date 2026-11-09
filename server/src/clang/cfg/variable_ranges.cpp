@@ -19,12 +19,22 @@ Num maximum(const Num &a, const Num &b) { return a.sgt(b) ? a : b; }
 struct Value {
   bool any{};
   Num lower{bits, 0}, upper{bits, 0};
-  bool operator==(const Value &) const = default;
+  bool operator==(const Value &other) const {
+    return any == other.any &&
+           lower == other.lower &&
+           upper == other.upper;
+  }
+  bool operator!=(const Value &other) const { return !(*this == other); }
 };
 struct State {
   bool reachable{}, uninitialized{};
   Value value;
-  bool operator==(const State &) const = default;
+  bool operator==(const State &other) const {
+    return reachable == other.reachable &&
+           uninitialized == other.uninitialized &&
+           value == other.value;
+  }
+  bool operator!=(const State &other) const { return !(*this == other); }
 };
 Value join(Value a, const Value &b) {
   if (!a.any)

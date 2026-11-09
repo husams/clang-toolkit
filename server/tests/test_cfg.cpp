@@ -1,5 +1,6 @@
 #include "ctk/application/cfg_controller.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <fstream>
 #include <gtest/gtest.h>
 #include <set>
@@ -55,14 +56,14 @@ TEST_F(ControlFlow, TypedOverloadsPreservePrunedEdgeSlotsAndOwnedBlocks) {
                          .has_integer_literal();
       }
     }
-    EXPECT_TRUE(indices.contains(graph.entry_block()));
-    EXPECT_TRUE(indices.contains(graph.exit_block()));
+    EXPECT_TRUE(ctk::compat::contains(indices, graph.entry_block()));
+    EXPECT_TRUE(ctk::compat::contains(indices, graph.exit_block()));
     for (const auto &block : graph.blocks())
       for (const auto &edge : block.successors()) {
         if (edge.has_reachable_block())
-          EXPECT_TRUE(indices.contains(edge.reachable_block()));
+          EXPECT_TRUE(ctk::compat::contains(indices, edge.reachable_block()));
         if (edge.has_possibly_unreachable_block())
-          EXPECT_TRUE(indices.contains(edge.possibly_unreachable_block()));
+          EXPECT_TRUE(ctk::compat::contains(indices, edge.possibly_unreachable_block()));
       }
   }
   EXPECT_TRUE(pruned);
@@ -167,7 +168,7 @@ TEST_F(ControlFlow, RichOptionsExposeConstructionContextsAndLifetimeEvents) {
         Element::AUTOMATIC_OBJECT_DTOR, Element::DELETE_DTOR,
         Element::TEMPORARY_DTOR, Element::SCOPE_BEGIN, Element::SCOPE_END,
         Element::LIFETIME_ENDS, Element::LOOP_EXIT, Element::CLEANUP_FUNCTION})
-    EXPECT_TRUE(kinds.contains(kind)) << kind;
+    EXPECT_TRUE(ctk::compat::contains(kinds, kind)) << kind;
   EXPECT_TRUE(construction);
   EXPECT_TRUE(named_dtor);
   request.set_function("Derived::Derived");
@@ -313,9 +314,9 @@ void contexts(){ A a; A b=make(); A c=A(); consume(A()); auto *p=new A(); delete
     }
   }
   for (int kind = 1; kind <= 15; ++kind)
-    EXPECT_TRUE(kinds.contains(kind)) << "element " << kind;
+    EXPECT_TRUE(ctk::compat::contains(kinds, kind)) << "element " << kind;
   for (int kind = 1; kind <= 11; ++kind)
-    EXPECT_TRUE(constructions.contains(kind)) << "construction " << kind;
+    EXPECT_TRUE(ctk::compat::contains(constructions, kind)) << "construction " << kind;
 }
 TEST_F(ControlFlow, VersionSpecificBuildOptionIsExplicitlySupportedOrRejected) {
   request.mutable_options()->set_assume_reachable_default_in_switch_statements(

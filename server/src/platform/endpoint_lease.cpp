@@ -1,4 +1,5 @@
 #include "ctk/platform/endpoint_lease.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <fcntl.h>
 #include <filesystem>
 #include <stdexcept>
@@ -8,7 +9,7 @@
 namespace ctk::platform {
 EndpointLease::EndpointLease(const std::string &endpoint) {
   std::filesystem::path pathname;
-  if (endpoint.starts_with("unix://")) {
+  if (ctk::compat::starts_with(endpoint, "unix://")) {
     pathname = endpoint.substr(7) + ".lock";
   } else {
     // A port-wide lease also covers localhost/IPv4/IPv6 aliases, while leaving

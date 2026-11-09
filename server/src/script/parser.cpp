@@ -4,8 +4,11 @@
 #include "program.hpp"
 #include "scoped_block.hpp"
 #include "syntax_errors.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <cctype>
 #include <charconv>
+#include <locale>
+#include <sstream>
 #include <cmath>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/util/json_util.h>
@@ -66,10 +69,12 @@ expression(Parser::ExpressionContext *context) {
         result->literal.set_integer(value);
       } else {
         double value;
-        auto parsed =
-            std::from_chars(text.data(), text.data() + text.size(), value);
-        if (parsed.ec != std::errc{} ||
-            parsed.ptr != text.data() + text.size() || !std::isfinite(value))
+        std::istringstream input(text);
+        input.imbue(std::locale::classic());
+        input >> std::noskipws >> value;
+        const auto significand = text.substr(0, text.find_first_of("eE"));
+        if (!input || !input.eof() || !std::isfinite(value) ||
+            (value == 0 && significand.find_first_of("123456789") != std::string::npos))
           throw Error(Code::InvalidArgument, "script number must be finite");
         result->literal.set_number(value);
       }
@@ -196,7 +201,7 @@ expression(Parser::ExpressionContext *context) {
                {"GiB", 1024ULL * 1024 * 1024},
                {"MiB", 1024ULL * 1024},
                {"KiB", 1024ULL}}) {
-        if (memory.ends_with(suffix)) {
+        if (ctk::compat::ends_with(memory, suffix)) {
           multiplier = factor;
           memory.resize(memory.size() - suffix.size());
           break;

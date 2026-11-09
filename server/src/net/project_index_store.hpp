@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ctk/support/algorithm.hpp"
+
 #include "ctk/cache/include_inventory.hpp"
 
 #include <array>
@@ -49,7 +51,7 @@ inline std::string digest_text(const std::string &value) {
 }
 inline std::string digest_file(const std::string &path,
                                const std::function<bool()> &allowed = {}) {
-  if (path.starts_with("@include-tree:"))
+  if (ctk::compat::starts_with(path, "@include-tree:"))
     return digest_text(cache::include_inventory(path.substr(14), allowed));
   std::ifstream input(path, std::ios::binary);
   if (!input)
@@ -91,7 +93,7 @@ dependencies(const std::string &json_text) {
     if (hash.kind_case() != google::protobuf::Value::kStringValue ||
         hash.string_value().empty())
       throw std::runtime_error("invalid stored index dependency digest");
-    if (path == "@symbol-layout" || path.starts_with("@symbol-group:"))
+    if (path == "@symbol-layout" || ctk::compat::starts_with(path, "@symbol-group:"))
       continue;
     result.emplace(path, hash.string_value());
   }
@@ -103,7 +105,7 @@ inline std::set<std::string> symbol_groups(const std::string &encoded) {
     throw std::runtime_error("invalid stored index dependency manifest");
   std::set<std::string> groups;
   for (const auto &[key, field] : value.fields())
-    if (key.starts_with("@symbol-group:"))
+    if (ctk::compat::starts_with(key, "@symbol-group:"))
       groups.insert(field.string_value());
   return groups;
 }

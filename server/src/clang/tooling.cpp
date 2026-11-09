@@ -1,6 +1,7 @@
 #include "ctk/clang/tooling.hpp"
 #include "matcher_parser.hpp"
 #include "serialization/node_serializers.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Decl.h>
@@ -345,15 +346,15 @@ private:
           auto arguments = file.compile_arguments;
           if (std::none_of(arguments.begin(), arguments.end(),
                            [](const auto &arg) {
-                             return arg == "-x" || arg.starts_with("-x=") ||
-                                    arg.starts_with("-x");
+                             return arg == "-x" || ctk::compat::starts_with(arg, "-x=") ||
+                                    ctk::compat::starts_with(arg, "-x");
                            })) {
             arguments.emplace_back("-x");
             arguments.emplace_back("c++");
           }
           if (std::none_of(
                   arguments.begin(), arguments.end(),
-                  [](const auto &arg) { return arg.starts_with("-std="); })) {
+                  [](const auto &arg) { return ctk::compat::starts_with(arg, "-std="); })) {
             arguments.emplace_back("-std=c++20");
           }
 #ifdef CTK_CLANG_RESOURCE_DIR
@@ -433,7 +434,7 @@ private:
 
   std::shared_ptr<std::mutex> lock_for_profile(const std::string &key) {
     std::lock_guard lock(profile_locks_mutex_);
-    std::erase_if(profile_locks_,
+    ctk::compat::erase_if(profile_locks_,
                   [](const auto &entry) { return entry.second.expired(); });
     auto &weak = profile_locks_[key];
     auto mutex = weak.lock();
@@ -452,20 +453,20 @@ private:
     const auto main = dependencies.find(main_path);
     if (main == dependencies.end() || !main->second)
       return false;
-    if (main->second->contains("#") || main->second->contains("%:") ||
-        main->second->contains("?"
+    if (ctk::compat::contains(*main->second, "#") || ctk::compat::contains(*main->second, "%:") ||
+        ctk::compat::contains(*main->second, "?"
                                "?=") ||
-        main->second->contains("__has_include") ||
-        main->second->contains("__has_embed") ||
-        main->second->contains("import"))
+        ctk::compat::contains(*main->second, "__has_include") ||
+        ctk::compat::contains(*main->second, "__has_embed") ||
+        ctk::compat::contains(*main->second, "import"))
       return false;
     return std::none_of(file.compile_arguments.begin(),
                         file.compile_arguments.end(), [](const auto &argument) {
-                          return argument.starts_with("-include") ||
-                                 argument.starts_with("-imacros") ||
-                                 argument.starts_with("-fmodule") ||
-                                 argument.starts_with("-fprebuilt-module") ||
-                                 argument.ends_with(".pch");
+                          return ctk::compat::starts_with(argument, "-include") ||
+                                 ctk::compat::starts_with(argument, "-imacros") ||
+                                 ctk::compat::starts_with(argument, "-fmodule") ||
+                                 ctk::compat::starts_with(argument, "-fprebuilt-module") ||
+                                 ctk::compat::ends_with(argument, ".pch");
                         });
   }
 };

@@ -1,4 +1,5 @@
 #include "ctk/cache/snapshot_cache.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <gtest/gtest.h>
 
@@ -6,7 +7,6 @@
 #include <atomic>
 #include <future>
 #include <memory>
-#include <ranges>
 
 namespace {
 using namespace ctk::cache;
@@ -93,9 +93,9 @@ TEST(CacheContract, ManifestExcludesStatHintsAndRetainsOrderedObservations) {
   const SnapshotEntry a(1, identity, first);
   const SnapshotEntry b(2, identity, second);
   EXPECT_EQ(a.canonical_manifest, b.canonical_manifest);
-  std::ranges::reverse(second.inputs);
+  ctk::compat::reverse(second.inputs);
   const SnapshotEntry reversed(3, identity, second);
   EXPECT_NE(a.canonical_manifest, reversed.canonical_manifest);
-  EXPECT_EQ(std::ranges::distance(a.inputs), 2);
+  EXPECT_EQ(ctk::compat::distance(a.inputs), 2);
 }
 } // namespace

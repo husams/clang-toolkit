@@ -2,11 +2,9 @@
 
 #include <algorithm>
 #include <cassert>
-#include <concepts>
 #include <cstddef>
 #include <iterator>
 #include <memory>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -78,7 +76,6 @@ private:
 
   public:
     using iterator_category = std::forward_iterator_tag;
-    using iterator_concept = std::forward_iterator_tag;
     using value_type = RadixTree::value_type;
     using difference_type = RadixTree::difference_type;
     using reference =
@@ -88,8 +85,7 @@ private:
 
     basic_iterator() = default;
 
-    template <bool OtherConst>
-      requires(IsConst && !OtherConst)
+    template <bool OtherConst, std::enable_if_t<IsConst && !OtherConst, int> = 0>
     basic_iterator(const basic_iterator<OtherConst> &other)
         : tree_(other.tree_), current_(other.current_),
           boundary_(other.boundary_) {}
@@ -116,12 +112,15 @@ private:
     }
 
     template <bool OtherConst>
-    friend bool operator==(const basic_iterator &lhs,
-                           const basic_iterator<OtherConst> &rhs) noexcept {
-      // Equal iterators must have equal successors. A prefix's subtree end
-      // differs from the full-tree successor even at the same terminal node.
-      return lhs.tree_ == rhs.tree_ && lhs.current_ == rhs.current_ &&
-             lhs.boundary_ == rhs.boundary_;
+    bool operator==(const basic_iterator<OtherConst> &other) const noexcept {
+      // Equal iterators must have equal successors, including at prefix ends.
+      return tree_ == other.tree_ && current_ == other.current_ &&
+             boundary_ == other.boundary_;
+    }
+
+    template <bool OtherConst>
+    bool operator!=(const basic_iterator<OtherConst> &other) const noexcept {
+      return !(*this == other);
     }
 
   private:
@@ -186,8 +185,7 @@ private:
   // Prefix ranges are lightweight, non-owning views; they require the tree to
   // outlive iteration and are invalidated by any structural mutation.
   template <bool IsConst>
-  class basic_prefix_range
-      : public std::ranges::view_interface<basic_prefix_range<IsConst>> {
+  class basic_prefix_range {
     using tree_pointer =
         std::conditional_t<IsConst, const RadixTree *, RadixTree *>;
     using node_pointer = std::conditional_t<IsConst, const Node *, Node *>;
@@ -259,8 +257,7 @@ public:
     return node != nullptr && static_cast<bool>(node->value);
   }
 
-  template <class... Args>
-    requires std::constructible_from<T, Args...>
+  template <class... Args, std::enable_if_t<std::is_constructible_v<T, Args...>, int> = 0>
   std::pair<iterator, bool> try_emplace(std::string key, Args &&...args) {
     Node *parent = &root_;
     std::string_view remaining(key);

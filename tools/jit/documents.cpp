@@ -3,6 +3,7 @@
 #include "filters.hpp"
 #include "typed_snapshot.hpp"
 #include "value_access.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <cmath>
 #include <filesystem>
@@ -28,7 +29,7 @@ constexpr std::size_t max_document_bytes = 16 * 1024 * 1024;
 
 bool write(Values& runtime, llvm::StringRef path, llvm::StringRef text, bool append,
            unsigned mode = llvmfs::all_read | llvmfs::all_write) {
-  if (path.empty() || path.contains('\0')) {
+  if (path.empty() || ctk::compat::contains(path, '\0')) {
     runtime.fail("output requires a nonempty path");
     return false;
   }

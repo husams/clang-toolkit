@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ctk/support/algorithm.hpp"
+
 #include "grammar/help.hpp"
 
 #include <algorithm>
@@ -135,7 +137,7 @@ inline std::vector<Token> tokens(llvm::StringRef text) {
         role = Role::Reference;
       } else if (editor_keyword(word)) {
         role = Role::Keyword;
-      } else if (text.drop_front(at).ltrim().starts_with("(")) {
+      } else if (ctk::compat::starts_with(text.drop_front(at).ltrim(), "(")) {
         const auto kind = editor_matcher_kind(word);
         role = kind == "node"        ? Role::Node
                : kind == "narrowing" ? Role::Predicate

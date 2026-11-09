@@ -1,4 +1,5 @@
 #include "ctk/platform/index_worker.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -216,7 +217,7 @@ std::size_t effective_cgroup_parallelism(std::size_t cpus, std::uint64_t memory,
     if (mount.unified) {
       if (!visit_cgroup_ancestors(
               mount, *directory, "cpu.max", [&](const std::string &value) {
-                if (value.starts_with("max ")) {
+                if (ctk::compat::starts_with(value, "max ")) {
                   std::istringstream input(value);
                   std::string marker, trailing;
                   std::uint64_t period = 0;

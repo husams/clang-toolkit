@@ -1,6 +1,7 @@
 #include "embedded_services.hpp"
 #include "workspace.hpp"
 #include "file_values.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "ctk/application/batch_registry.hpp"
 #include "ctk/application/match_controller.hpp"
@@ -79,7 +80,7 @@ const std::string& string_arg(const Sequence& args, std::size_t index) {
 }
 
 std::string local_path(llvm::StringRef path) {
-  if (path.starts_with("~/") || path == "~") {
+  if (ctk::compat::starts_with(path, "~/") || path == "~") {
     if (const auto* home = environment("HOME"))
       return (fs::path(home) / path.drop_front(std::min<std::size_t>(2, path.size())).str())
           .lexically_normal()
@@ -99,7 +100,7 @@ std::string project_name(const index_api::ProjectIndexStatus& status) {
 }
 
 std::string resolve_project(app::ProjectIndexController& index, llvm::StringRef text) {
-  if (text.empty() || text == "." || text == ".." || text.starts_with("~") || text.contains('/'))
+  if (text.empty() || text == "." || text == ".." || ctk::compat::starts_with(text, "~") || ctk::compat::contains(text, '/'))
     return local_path(text);
   auto projects = index.list();
   std::string root;
@@ -625,7 +626,7 @@ const Value* EmbeddedServices::Impl::query_command(Values& runtime, llvm::String
     const auto* matcher = args.items.empty() ? nullptr : as<MatcherValue>(args.items.front());
     if (!matcher)
       return runtime.fail("background requires a matcher expression");
-    std::erase_if(background, [](const QueryStream& stream) { return stream.events->done(); });
+    ctk::compat::erase_if(background, [](const QueryStream& stream) { return stream.events->done(); });
     if (background.size() >= 100)
       return runtime.fail("too many active background queries");
     auto sink = std::make_shared<QueryEvents>(events);
@@ -672,14 +673,14 @@ const Value* EmbeddedServices::execute(Values& runtime, llvm::StringRef command,
                                        const Sequence& args, llvm::StringRef options,
                                        const LocalState& settings, bool display) {
   try {
-    if (command.starts_with("index_")) {
+    if (ctk::compat::starts_with(command, "index_")) {
       if (!impl_->index)
         impl_->index = std::make_unique<app::ProjectIndexController>(
             impl_->owned_root(), std::function<bool()>{}, index_worker());
       return index_command(runtime, *impl_->index, command, args, options,
                            settings.compilation_database, display);
     }
-    if (command == "durable_batch" || command.starts_with("batch_")) {
+    if (command == "durable_batch" || ctk::compat::starts_with(command, "batch_")) {
       if (!impl_->batches)
         impl_->batches = std::make_unique<app::BatchRegistry>(
             scripts(), impl_->matches.resource_manager(), impl_->owned_root());

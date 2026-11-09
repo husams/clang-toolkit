@@ -1,5 +1,6 @@
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <gtest/gtest.h>
 
@@ -17,7 +18,7 @@ bool has_unrequested(const ctk::match::v1::MatchBinding &binding,
                      const std::string &suffix) {
   for (const auto &entry : binding.availability())
     if (entry.state() == pb::FIELD_STATE_UNREQUESTED &&
-        entry.field_path().ends_with(suffix))
+        ctk::compat::ends_with(entry.field_path(), suffix))
       return true;
   return false;
 }
@@ -72,9 +73,9 @@ TEST_F(DeclarationSemantics, FunctionReportsImmediateFieldsAndUnrequestedChildre
   for (const auto &availability : rows[0].availability()) {
     if (availability.state() != pb::FIELD_STATE_UNREQUESTED)
       continue;
-    if (availability.field_path().ends_with("parameters"))
+    if (ctk::compat::ends_with(availability.field_path(), "parameters"))
       parameters_unrequested = true;
-    if (availability.field_path().ends_with("body"))
+    if (ctk::compat::ends_with(availability.field_path(), "body"))
       body_unrequested = true;
   }
   EXPECT_TRUE(parameters_unrequested);
@@ -126,7 +127,7 @@ TEST_F(DeclarationSemantics,
     bool unrequested = false;
     for (const auto &entry : row.availability())
       unrequested |= entry.state() == pb::FIELD_STATE_UNREQUESTED &&
-                     entry.field_path().ends_with("default_argument");
+                     ctk::compat::ends_with(entry.field_path(), "default_argument");
     EXPECT_TRUE(unrequested);
   }
 }

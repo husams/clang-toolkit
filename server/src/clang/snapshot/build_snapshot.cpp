@@ -1,5 +1,6 @@
 #include "build_snapshot.hpp"
 #include "ast_builder_action.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/SourceManager.h>
@@ -65,7 +66,7 @@ build_snapshot(const std::string &path,
       clang::FileSystemOptions(), filesystem);
   std::vector<std::string> command{tool, "-fsyntax-only"};
   for (const auto &argument : arguments)
-    if (argument.starts_with("-working-directory="))
+    if (ctk::compat::starts_with(argument, "-working-directory="))
       if (auto error =
               filesystem->setCurrentWorkingDirectory(argument.substr(19))) {
         diagnostic_text =
@@ -81,7 +82,7 @@ build_snapshot(const std::string &path,
   }
   std::vector<std::string> expanded;
   for (const auto &argument : arguments) {
-    if (!argument.starts_with('@')) {
+    if (!ctk::compat::starts_with(argument, '@')) {
       expanded.push_back(argument);
       continue;
     }

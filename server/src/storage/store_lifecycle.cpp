@@ -1,4 +1,5 @@
 #include "storage_internal.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -23,7 +24,7 @@ void Store::Impl::flush_access_times_locked() {
 void Store::Impl::collect_unreferenced_locked(std::size_t budget) {
   const auto deleting = metadata.snapshots_in_state("DELETING", budget);
   for (const auto id : deleting) {
-    if (snapshot_leases.contains(id)) continue;
+    if (ctk::compat::contains(snapshot_leases, id)) continue;
     {
       detail::Transaction transaction(database);
       metadata.delete_snapshot(id);
@@ -35,7 +36,7 @@ void Store::Impl::collect_unreferenced_locked(std::size_t budget) {
 
   for (const auto &[digest, size] : metadata.unreferenced_blobs(budget)) {
     (void)size;
-    if (blob_leases.contains(digest)) continue;
+    if (ctk::compat::contains(blob_leases, digest)) continue;
     {
       detail::Transaction transaction(database);
       metadata.remove_blob_row(digest);
@@ -63,7 +64,7 @@ void Store::Impl::enforce_retention_locked() {
   const auto budget = std::max<std::size_t>(options.recovery_entry_budget * 4096, 4096);
   for (const auto id : metadata.retention_candidates(budget)) {
     if (blobs->physical_bytes(budget) <= options.max_physical_bytes) return;
-    if (snapshot_leases.contains(id)) continue;
+    if (ctk::compat::contains(snapshot_leases, id)) continue;
     {
       detail::Transaction transaction(database);
       metadata.set_state(id, SnapshotState::Deleting);
@@ -120,7 +121,7 @@ void Store::prune_unused() {
   std::lock_guard lock(impl_->mutex);
   const auto budget = std::max<std::size_t>(impl_->options.recovery_entry_budget * 4096, 4096);
   for (const auto id : impl_->metadata.retention_candidates(budget)) {
-    if (impl_->snapshot_leases.contains(id))
+    if (ctk::compat::contains(impl_->snapshot_leases, id))
       continue;
     detail::Transaction transaction(impl_->database);
     impl_->metadata.set_state(id, SnapshotState::Deleting);

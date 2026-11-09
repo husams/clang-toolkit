@@ -3,6 +3,7 @@
 #include "captured_file.hpp"
 #include "ctk/cache/path_policy.hpp"
 #include "input_identity.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <google/protobuf/struct.pb.h>
@@ -36,7 +37,7 @@ CapturedInput *CapturedFileSystem::capture(const llvm::Twine &path) {
     auto &input = found->second;
     const auto spelling = absolute_lookup(path);
     if (spelling == input.lookup_path ||
-        std::ranges::find(input.aliases, spelling) != input.aliases.end())
+        ctk::compat::find(input.aliases, spelling) != input.aliases.end())
       return &input;
     if (sealed_ || input.aliases.size() >= max_inputs) {
       complete_ = false;

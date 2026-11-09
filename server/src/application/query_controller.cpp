@@ -1,4 +1,5 @@
 #include "ctk/application/query.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "analysis_session.hpp"
 #include "ctk/clang/tooling.hpp"
@@ -84,14 +85,14 @@ struct QueryController::Impl {
 
   void register_session(const std::shared_ptr<Session> &session) {
     std::lock_guard lock(sessions_mutex);
-    std::erase_if(sessions, [](const auto &weak) { return weak.expired(); });
+    ctk::compat::erase_if(sessions, [](const auto &weak) { return weak.expired(); });
     sessions.emplace_back(session);
   }
 
   std::vector<std::shared_ptr<Session>> live_sessions() {
     std::vector<std::shared_ptr<Session>> active;
     std::lock_guard lock(sessions_mutex);
-    std::erase_if(sessions, [](const auto &weak) { return weak.expired(); });
+    ctk::compat::erase_if(sessions, [](const auto &weak) { return weak.expired(); });
     active.reserve(sessions.size());
     for (const auto &weak : sessions) {
       if (auto session = weak.lock())
@@ -551,7 +552,7 @@ void run_files(QueryController::Impl *impl,
     {
       std::lock_guard lock(session->mutex);
       release_claim = session->claimed_profiles.erase(key) != 0;
-      std::erase_if(session->fresh_profiles,
+      ctk::compat::erase_if(session->fresh_profiles,
                     [&](const auto &item) { return item.first == key; });
     }
     impl->analysis.admission.reconcile(
@@ -592,7 +593,7 @@ void run_files(QueryController::Impl *impl,
         if (session->claimed_profiles.erase(item.first) != 0) {
           abandoned_claims.push_back(item);
         }
-        std::erase_if(session->fresh_profiles, [&](const auto &fresh) {
+        ctk::compat::erase_if(session->fresh_profiles, [&](const auto &fresh) {
           return fresh.first == item.first;
         });
       }
@@ -652,7 +653,7 @@ void QueryHandle::schedule(
     std::lock_guard lock(session_->mutex);
     for (const auto &[key, _] : rollback_copy) {
       session_->claimed_profiles.erase(key);
-      std::erase_if(session_->fresh_profiles,
+      ctk::compat::erase_if(session_->fresh_profiles,
                     [&](const auto &item) { return item.first == key; });
     }
     for (const auto &[key, _] : scheduled_copy) {
@@ -849,7 +850,7 @@ void QueryHandle::process_command(QueryCommand command) {
       } else {
         session_->matching = true;
         for (const auto &item : session_->files) {
-          if (!session_->scheduled.contains(item.first)) {
+          if (!ctk::compat::contains(session_->scheduled, item.first)) {
             session_->scheduled[item.first] = true;
             work.push_back(item);
           }

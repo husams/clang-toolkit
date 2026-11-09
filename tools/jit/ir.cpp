@@ -16,6 +16,7 @@
 #include "value_access.hpp"
 #include "values.hpp"
 #include "workspace.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -64,7 +65,7 @@ struct Targets {
   Targets(llvm::StringRef file, llvm::StringRef database, const LoadTarget& load)
       : file(file)
       , load(load)
-      , state{.default_database = database.str(), .compilation_database = database.str()}
+      , state{{}, database.str(), database.str()}
       , local(state)
       , loaded_database(database) {}
 
@@ -87,7 +88,7 @@ struct Targets {
     auto args = std::make_shared<Record>();
     for (const auto& [key, value] : arguments)
       args->set(key, {value});
-    if (!file.empty() && !args->fields.contains("file"))
+    if (!file.empty() && !ctk::compat::contains(args->fields, "file"))
       args->set("file", {file.str()});
     Bindings bindings;
     bindings.try_emplace("arg", Value{std::move(args)});
@@ -309,14 +310,14 @@ extern "C" const Value* ctk_jit_parse_cpp_v1(IrContext* context, const Value* co
               request.arguments.push_back(*value);
             } else {
               const llvm::StringRef header(*value);
-              if (header.empty() || header.contains('\n') || header.contains('\r') ||
-                  header.contains('\0')) {
+              if (header.empty() || ctk::compat::contains(header, '\n') || ctk::compat::contains(header, '\r') ||
+                  ctk::compat::contains(header, '\0')) {
                 return runtime.fail("invalid snippet include");
               }
               includes.push_back(*value);
               source += "#include ";
-              if ((header.starts_with("<") && header.ends_with(">")) ||
-                  (header.starts_with("\"") && header.ends_with("\""))) {
+              if ((ctk::compat::starts_with(header, "<") && ctk::compat::ends_with(header, ">")) ||
+                  (ctk::compat::starts_with(header, "\"") && ctk::compat::ends_with(header, "\""))) {
                 source += *value;
               } else {
                 source += "\"" + *value + "\"";
@@ -1169,7 +1170,7 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
           auto value = targets.local.workspace_state(*inspect);
           if (*inspect == "resources") {
             std::size_t number = 1;
-            while (bindings.contains("attached" + std::to_string(number)))
+            while (ctk::compat::contains(bindings, "attached" + std::to_string(number)))
               ++number;
             (*value.getAsObject())["attach_name"] = "attached" + std::to_string(number);
           }

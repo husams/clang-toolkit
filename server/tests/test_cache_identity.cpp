@@ -1,5 +1,6 @@
 #include "ctk/cache/compilation_context.hpp"
 #include "ctk/cache/path_policy.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <gtest/gtest.h>
 
@@ -47,7 +48,7 @@ TEST(CompilationContext, CanonicalizesEnvironmentButPreservesOrderedInputs) {
                reordered_environment.environment.end());
   EXPECT_EQ(first.canonical_bytes(), reordered_environment.canonical_bytes());
   EXPECT_NE(first.digest(), "");
-  EXPECT_TRUE(first.canonical_bytes().starts_with("ctk-profile-v1:"));
+  EXPECT_TRUE(ctk::compat::starts_with(first.canonical_bytes(), "ctk-profile-v1:"));
   const auto bytes = first.canonical_bytes();
   std::size_t offset = 0;
   for (const auto *key :

@@ -1,6 +1,7 @@
 #include "ctk/cache/include_inventory.hpp"
 #include "ctk/clang/project_index_extract.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -95,7 +96,7 @@ template<class T> concept Small = sizeof(T) < 8;
   for (const auto &symbol : result.symbols) {
     EXPECT_TRUE(symbol.is_definition);
     EXPECT_TRUE(symbol.signature.empty());
-    EXPECT_FALSE(symbol.qualified_name.starts_with("std::"));
+    EXPECT_FALSE(ctk::compat::starts_with(symbol.qualified_name, "std::"));
   }
 }
 TEST_F(DefinitionIndex, KeepsExternalDefinitionsAndOmitsFunctionLocals) {
@@ -136,7 +137,7 @@ TEST_F(DefinitionIndex,
   const auto cold = extract("one.cpp", {}, false);
   std::map<std::string, std::string> inventories;
   for (const auto &[path, hash] : cold.dependencies)
-    if (path.starts_with("@include-tree:"))
+    if (ctk::compat::starts_with(path, "@include-tree:"))
       inventories.emplace(path.substr(14), hash);
   ASSERT_FALSE(inventories.empty());
   EXPECT_EQ(ctk::cache::include_roots((root / "one.cpp").string(),

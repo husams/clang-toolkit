@@ -3,7 +3,7 @@
 #include "ctk/cache/cache_records.hpp"
 #include "ctk/cache/compilation_context.hpp"
 
-#include <stop_token>
+#include "ctk/support/stop_token.hpp"
 
 namespace ctk::cache::detail {
 
@@ -14,7 +14,7 @@ struct AcquisitionRequest {
   std::string identity;
   std::string digest;
   const CompilationContext &context;
-  std::stop_token cancellation;
+  ctk::compat::StopToken cancellation;
   std::string transient_owner;
 
   void check_cancelled() const;

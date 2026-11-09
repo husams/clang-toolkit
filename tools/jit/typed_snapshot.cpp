@@ -228,22 +228,22 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
   const auto& record = envelope.record_value();
   const auto* type = field(record, "type");
   const auto* data = field(record, "value");
-  if (record.fields_size() != 2 || !type || !type->has_string_value() || !data)
+  if (record.fields_size() != 2 || !type || type->value_case() != SavedData::kStringValue || !data)
     return invalid("invalid typed value envelope");
   const llvm::StringRef kind(type->string_value());
-  if (kind == "null" && data->has_null_value() && data->null_value() == SavedData::NULL_VALUE)
+  if (kind == "null" && data->value_case() == SavedData::kNullValue && data->null_value() == SavedData::NULL_VALUE)
     return Value{};
-  if (kind == "bool" && data->has_bool_value())
+  if (kind == "bool" && data->value_case() == SavedData::kBoolValue)
     return Value{data->bool_value()};
-  if (kind == "int" && data->has_integer_value()) {
+  if (kind == "int" && data->value_case() == SavedData::kIntegerValue) {
     std::int64_t number;
     if (!llvm::StringRef(data->integer_value()).getAsInteger(10, number))
       return Value{number};
     return invalid("snapshot integer exceeds the CTK integer range");
   }
-  if (kind == "float" && data->has_float_value())
+  if (kind == "float" && data->value_case() == SavedData::kFloatValue)
     return Value{data->float_value()};
-  if ((kind == "str" || kind == "qualified_name") && data->has_string_value())
+  if ((kind == "str" || kind == "qualified_name") && data->value_case() == SavedData::kStringValue)
     return Value{data->string_value()};
   if ((kind == "file" || kind == "directory") && data->has_record_value()) {
     const auto& fields = data->record_value();
@@ -252,9 +252,9 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
     const auto* modified = field(fields, "modified");
     const auto* size = field(fields, "size");
     std::int64_t bytes;
-    if (fields.fields_size() != 4 || !path || !path->has_string_value() ||
-        !absolute || !absolute->has_string_value() || !modified || !modified->has_string_value() ||
-        !size || !size->has_integer_value() ||
+    if (fields.fields_size() != 4 || !path || path->value_case() != SavedData::kStringValue ||
+        !absolute || absolute->value_case() != SavedData::kStringValue || !modified || modified->value_case() != SavedData::kStringValue ||
+        !size || size->value_case() != SavedData::kIntegerValue ||
         llvm::StringRef(size->integer_value()).getAsInteger(10, bytes))
       return invalid("invalid file snapshot");
     return Value{std::make_shared<FileEntry>(FileEntry{path->string_value(),
@@ -265,9 +265,9 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
     const auto* name = field(entries, "name");
     const auto* arguments = field(entries, "arguments");
     const auto* binding = field(entries, "binding");
-    if (!name || !name->has_string_value() || name->string_value().empty() || !arguments ||
+    if (!name || name->value_case() != SavedData::kStringValue || name->string_value().empty() || !arguments ||
         !arguments->has_list_value() || arguments->list_value().items_size() > max_items ||
-        !binding || (!binding->has_string_value() && !binding->has_null_value()))
+        !binding || (binding->value_case() != SavedData::kStringValue && binding->value_case() != SavedData::kNullValue))
       return invalid("invalid matcher snapshot");
     Sequence args;
     for (const auto& item : arguments->list_value().items()) {
@@ -280,7 +280,7 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
       args.items.push_back(std::move(*value));
     }
     return Value{matcher_value(name->string_value(), args,
-                               binding->has_string_value() ? std::optional{binding->string_value()}
+                               binding->value_case() == SavedData::kStringValue ? std::optional{binding->string_value()}
                                                            : std::nullopt)};
   }
   if (kind == "semantic_message" || kind == "semantic_repeated" || kind == "semantic_map") {
@@ -295,7 +295,7 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
     const auto& entries = data->record_value();
     const auto* name = field(entries, "name");
     const auto* wire = field(entries, "value");
-    if (!name || !name->has_string_value() || !wire)
+    if (!name || name->value_case() != SavedData::kStringValue || !wire)
       return invalid("invalid binding snapshot");
     auto value = unpack(*wire, depth + 1);
     if (!value)
@@ -303,7 +303,7 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
     auto record = std::make_shared<Record>();
     record->set("name", {name->string_value()});
     record->set("value", std::move(*value));
-    if (const auto* path = field(entries, "source_file"); path && path->has_string_value())
+    if (const auto* path = field(entries, "source_file"); path && path->value_case() == SavedData::kStringValue)
       record->set("source_file", {path->string_value()});
     return Value{std::move(record)};
   }
@@ -312,8 +312,8 @@ llvm::Expected<Value> unpack(const SavedData& envelope, unsigned depth) {
     const auto* name = field(entries, "name");
     const auto* number = field(entries, "number");
     int enum_number;
-    if (entries.fields_size() == 2 && name && name->has_string_value() && number &&
-        number->has_integer_value() &&
+    if (entries.fields_size() == 2 && name && name->value_case() == SavedData::kStringValue && number &&
+        number->value_case() == SavedData::kIntegerValue &&
         !llvm::StringRef(number->integer_value()).getAsInteger(10, enum_number))
       return Value{SemanticEnum{name->string_value(), enum_number}};
   }

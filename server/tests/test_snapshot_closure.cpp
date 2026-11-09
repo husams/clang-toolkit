@@ -1,6 +1,7 @@
 #include "ctk/clang/matching.hpp"
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
@@ -41,7 +42,7 @@ protected:
         });
     ASSERT_TRUE(result.ok) << result.message;
     EXPECT_TRUE(result.storage_hit) << result.storage_message;
-    EXPECT_NE(std::ranges::find(literals, value), literals.end());
+    EXPECT_NE(ctk::compat::find(literals, value), literals.end());
   }
 };
 TEST_F(SnapshotClosure, CapturesHeadersAndReusesOnlyStronglyMatchingContent) {
@@ -53,7 +54,7 @@ TEST_F(SnapshotClosure, CapturesHeadersAndReusesOnlyStronglyMatchingContent) {
   EXPECT_EQ(first, engine->acquire_snapshot(input));
   EXPECT_TRUE(std::any_of(first->inputs.begin(), first->inputs.end(),
                           [](const auto &i) {
-                            return i.path.ends_with("values.hpp") &&
+                            return ctk::compat::ends_with(i.path, "values.hpp") &&
                                    i.kind == ctk::cache::InputKind::File;
                           }));
   const auto time =
@@ -94,7 +95,7 @@ TEST_F(SnapshotClosure,
   EXPECT_EQ(original, engine->acquire_snapshot(input));
   EXPECT_TRUE(std::any_of(original->inputs.begin(), original->inputs.end(),
                           [](const auto &i) {
-                            return i.path.ends_with("first/values.hpp") &&
+                            return ctk::compat::ends_with(i.path, "first/values.hpp") &&
                                    i.kind == ctk::cache::InputKind::Absent;
                           }));
   write("first/values.hpp", "int earlier(){return 9;}\n");
@@ -217,8 +218,8 @@ TEST_F(SnapshotClosure,
       [] { return true; },
       [&](const auto &rows) {
         ASSERT_EQ(rows.size(), 2U);
-        EXPECT_TRUE(rows.contains("root"));
-        EXPECT_TRUE(rows.contains("f"));
+        EXPECT_TRUE(ctk::compat::contains(rows, "root"));
+        EXPECT_TRUE(ctk::compat::contains(rows, "f"));
         ++matches;
       });
   ASSERT_TRUE(result.ok) << result.message;

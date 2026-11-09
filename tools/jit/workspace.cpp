@@ -1,4 +1,5 @@
 #include "workspace.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 
@@ -190,7 +191,7 @@ private:
         }
       }
     }
-    if (!request || (depth < max_depth && expanded.contains(reference))) {
+    if (!request || (depth < max_depth && ctk::compat::contains(expanded, reference))) {
       const auto stop = std::min(total, start + (request ? page_size : max_rows));
       for (auto index = start; index < stop && remaining; ++index) {
         children.push_back(item(index));

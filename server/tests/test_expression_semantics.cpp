@@ -1,6 +1,7 @@
 #include "ast/v1/node.pb.h"
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -13,7 +14,7 @@ bool has_unrequested(const ctk::match::v1::MatchBinding &binding,
                      const std::string &suffix) {
   for (const auto &entry : binding.availability())
     if (entry.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
-        entry.field_path().ends_with(suffix))
+        ctk::compat::ends_with(entry.field_path(), suffix))
       return true;
   return false;
 }
@@ -139,7 +140,7 @@ TEST(ExpressionSemantics,
     for (const auto &entry : binding.availability())
       unavailable |=
           entry.state() == ctk::ast::v1::FIELD_STATE_UNAVAILABLE &&
-          entry.field_path().ends_with("destination_element_type");
+          ctk::compat::ends_with(entry.field_path(), "destination_element_type");
     EXPECT_TRUE(unavailable);
   });
 

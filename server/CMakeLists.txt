@@ -14,7 +14,7 @@ add_library(ctk_cache
   src/cache/snapshot_cache.cpp
 )
 target_include_directories(ctk_cache PUBLIC include)
-target_compile_features(ctk_cache PUBLIC cxx_std_23)
+target_compile_features(ctk_cache PUBLIC cxx_std_17)
 
 add_library(ctk_storage
   src/storage/blob_store.cpp
@@ -30,7 +30,7 @@ add_library(ctk_storage
   src/storage/store_publication.cpp
 )
 target_include_directories(ctk_storage PUBLIC include)
-target_compile_features(ctk_storage PUBLIC cxx_std_23)
+target_compile_features(ctk_storage PUBLIC cxx_std_17)
 target_link_libraries(ctk_storage PRIVATE ctk::sqlite OpenSSL::Crypto)
 
 add_library(ctk_core
@@ -45,7 +45,7 @@ add_custom_target(ctk_version_header
 add_dependencies(ctk_core ctk_version_header)
 target_include_directories(ctk_core PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_include_directories(ctk_core PUBLIC include)
-target_compile_features(ctk_core PUBLIC cxx_std_23)
+target_compile_features(ctk_core PUBLIC cxx_std_17)
 target_link_libraries(ctk_core PUBLIC ctk_cache ctk_storage)
 target_link_libraries(ctk_core PRIVATE Threads::Threads)
 target_link_libraries(ctk_core PUBLIC ctk_analysis_api)
@@ -55,7 +55,7 @@ if(CTK_BUILD_SCRIPT)
   add_library(ctk_script_parser STATIC ${_script_generated} src/script/parser.cpp)
   target_include_directories(ctk_script_parser PRIVATE include)
   target_link_libraries(ctk_script_parser PUBLIC antlr4_static ctk_analysis_api)
-  target_compile_features(ctk_script_parser PUBLIC cxx_std_23)
+  target_compile_features(ctk_script_parser PUBLIC cxx_std_17)
   target_sources(ctk_core PRIVATE src/script/interpreter.cpp)
   target_link_libraries(ctk_core PRIVATE ctk_script_parser)
   target_compile_definitions(ctk_core PUBLIC CTK_BUILD_SCRIPT=1)
@@ -158,17 +158,20 @@ if(CTK_WITH_CLANG)
   target_link_libraries(ctk_clang PRIVATE ctk_index_api)
   target_include_directories(ctk_clang PUBLIC include ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
   target_compile_definitions(ctk_clang PUBLIC ${LLVM_DEFINITIONS})
-  execute_process(COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
+  find_program(CTK_CLANG_TOOL NAMES clang++ HINTS "${LLVM_TOOLS_BINARY_DIR}" REQUIRED)
+  execute_process(COMMAND "${CTK_CLANG_TOOL}" -print-resource-dir
     OUTPUT_VARIABLE CTK_CLANG_RESOURCE_DIR
     OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE CTK_CLANG_RESOURCE_RESULT)
-  if(NOT CTK_CLANG_RESOURCE_RESULT EQUAL 0 OR CTK_CLANG_RESOURCE_DIR STREQUAL "")
-    message(FATAL_ERROR "The selected Clang compiler did not provide its resource directory")
-  endif()
-  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/ctk-clang-tool-path.txt" CONTENT "${CMAKE_CXX_COMPILER}\n")
+    COMMAND_ERROR_IS_FATAL ANY)
+  execute_process(COMMAND "${CTK_CLANG_TOOL}" -dumpversion
+    OUTPUT_VARIABLE CTK_CLANG_TOOL_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY)
+  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/ctk-clang-tool-path.txt" CONTENT "${CTK_CLANG_TOOL}\n")
   target_compile_definitions(ctk_clang PRIVATE
     CTK_CLANG_RESOURCE_DIR="${CTK_CLANG_RESOURCE_DIR}"
-    CTK_CLANG_TOOL_PATH="${CMAKE_CXX_COMPILER}")
+    CTK_CLANG_TOOL_PATH="${CTK_CLANG_TOOL}")
+  set(CTK_CLANG_TOOL_VERSION "${CTK_CLANG_TOOL_VERSION}" PARENT_SCOPE)
   # Identify extractor behavior, not the linked executable's build UUID or the
   # server Git revision. Unrelated rebuilds must keep valid TU contributions.
   include("${PROJECT_SOURCE_DIR}/cmake/IndexProtocolFingerprint.cmake")
@@ -179,7 +182,7 @@ if(CTK_WITH_CLANG)
     src/clang/snapshot/compilation_environment.hpp
     include/ctk/cache/include_inventory.hpp
     ../api/index/v1/index_service.proto)
-  set(_index_identity "ctk-index-extractor-v1\ncompiler:${CMAKE_CXX_COMPILER}\nresource:${CTK_CLANG_RESOURCE_DIR}")
+  set(_index_identity "ctk-index-extractor-v1\ncompiler:${CTK_CLANG_TOOL}\nresource:${CTK_CLANG_RESOURCE_DIR}")
   foreach(_input IN LISTS _index_identity_inputs)
     set(_path "${CMAKE_CURRENT_SOURCE_DIR}/${_input}")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_path}")

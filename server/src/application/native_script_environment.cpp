@@ -7,6 +7,7 @@
 #include "pinned_query_engine.hpp"
 #include "resource_scope_guard.hpp"
 #include "script_options.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <google/protobuf/util/json_util.h>
@@ -464,7 +465,7 @@ void NativeScriptEnvironment::begin_batch_group(const ctk::script::Value &group,
         }
       }
       for (const auto &identity : child_inputs)
-        if (!admitted.contains(identity))
+        if (!ctk::compat::contains(admitted, identity))
           throw Error(Code::FailedPrecondition,
                       "nested batch input/profile is outside its parent scope");
       effective_memory =
@@ -776,7 +777,7 @@ ctk::script::Value NativeScriptEnvironment::call(
     if (request.function().empty())
       throw Error(Code::InvalidArgument, "function name is required");
     for (const auto &[key, value] : options)
-      if (key.starts_with("max_"))
+      if (ctk::compat::starts_with(key, "max_"))
         script_option(request, key, value);
       else
         script_option(*request.mutable_options(), key, value);

@@ -1,5 +1,6 @@
 #include "ctk/clang/tooling.hpp"
 #include "ctk/platform/temporary_directory.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <fstream>
 #include <gtest/gtest.h>
@@ -53,7 +54,7 @@ TEST(BaseSpecifierSemantics,
   bool type_unrequested = false;
   for (const auto &availability : binding.availability())
     if (availability.state() == ctk::ast::v1::FIELD_STATE_UNREQUESTED &&
-        availability.field_path().ends_with("QualType.type"))
+        ctk::compat::ends_with(availability.field_path(), "QualType.type"))
       type_unrequested = true;
   EXPECT_TRUE(type_unrequested);
 }

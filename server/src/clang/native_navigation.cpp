@@ -4,6 +4,7 @@
 #include "matcher_parser.hpp"
 #include "native_snapshot_owner.hpp"
 #include "semantic_ast_visitor.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <clang/AST/ParentMapContext.h>
 #include <clang/ASTMatchers/Dynamic/Diagnostics.h>
 #include <limits>
@@ -153,7 +154,7 @@ MatchExecution navigate_bindings(
           if (!visit(parent))
             break;
       } else if (index < old->navigation_parents.size() &&
-                 old->navigation_parents[index].contains(target.bind())) {
+                 ctk::compat::contains(old->navigation_parents[index], target.bind())) {
         // Non-memoizable native value nodes retain their exact visitor edge.
         visit(old->navigation_parents[index].at(target.bind()));
       } else if (root.get<clang::Type>() || root.get<clang::TypeLoc>() ||

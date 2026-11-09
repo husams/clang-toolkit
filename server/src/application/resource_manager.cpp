@@ -1,4 +1,5 @@
 #include "ctk/application/resource_manager.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <array>
@@ -237,7 +238,7 @@ struct ResourceManager::Impl {
       if (scope.state == ctk::match::v1::RESOURCE_SCOPE_STATE_RELEASED ||
           scope.state == ctk::match::v1::RESOURCE_SCOPE_STATE_EXPIRED)
         continue;
-      if (scope.reservations.contains(identity))
+      if (ctk::compat::contains(scope.reservations, identity))
         return true;
       for (const auto &[resource_id, resource] : scope.cursors) {
         (void)resource_id;
@@ -473,7 +474,7 @@ struct ResourceManager::Impl {
         if (closed && found != unscoped.end())
           unscoped.erase(found);
       }
-      std::erase_if(scopes, [&](const auto &entry) {
+      ctk::compat::erase_if(scopes, [&](const auto &entry) {
         const auto &scope = entry.second;
         return (scope.state == ctk::match::v1::RESOURCE_SCOPE_STATE_RELEASED ||
                 scope.state == ctk::match::v1::RESOURCE_SCOPE_STATE_EXPIRED) &&
@@ -601,7 +602,7 @@ Code ResourceManager::open_scope(
     return Code::ResourceExhausted;
   }
   std::lock_guard guard(impl_->mutex);
-  std::erase_if(impl_->scopes, [&](const auto &entry) {
+  ctk::compat::erase_if(impl_->scopes, [&](const auto &entry) {
     const auto &scope = entry.second;
     return (scope.state == ctk::match::v1::RESOURCE_SCOPE_STATE_RELEASED ||
             scope.state == ctk::match::v1::RESOURCE_SCOPE_STATE_EXPIRED) &&
@@ -729,7 +730,7 @@ Code ResourceManager::admit_generated_input(
         "resource scope cancelled or closed before generated source admission";
     return Code::Cancelled;
   }
-  if (scope.reservations.contains(input.identity))
+  if (ctk::compat::contains(scope.reservations, input.identity))
     return Code::Ok;
   for (const auto &[snapshot_id, claim] : scope.native) {
     (void)snapshot_id;
@@ -783,7 +784,7 @@ bool ResourceManager::scope_contains_input(
   std::lock_guard guard(impl_->mutex);
   const auto found = impl_->scopes.find(scope_id);
   return found != impl_->scopes.end() && found->second.owner == owner &&
-         found->second.reservations.contains(identity);
+         ctk::compat::contains(found->second.reservations, identity);
 }
 
 Code ResourceManager::describe_scope(const std::string &owner,
@@ -883,7 +884,7 @@ void ResourceManager::register_cursor(const std::string &owner,
     throw std::runtime_error("resource scope closed before cursor publication");
   auto &scope = found->second;
   const auto belongs = [&] {
-    if (scope.reservations.contains(input_identity))
+    if (ctk::compat::contains(scope.reservations, input_identity))
       return true;
     for (const auto &[id, resource] : scope.cursors) {
       (void)id;
@@ -982,7 +983,7 @@ void ResourceManager::register_file_lease(
     throw std::runtime_error("resource scope closed before lease publication");
   auto &scope = found->second;
   const auto belongs = [&] {
-    if (scope.reservations.contains(input_identity))
+    if (ctk::compat::contains(scope.reservations, input_identity))
       return true;
     for (const auto &[id, resource] : scope.cursors) {
       (void)id;
@@ -1048,7 +1049,7 @@ void ResourceManager::claim_snapshot(
     throw std::runtime_error("resource scope closed during native acquisition");
   }
   auto &scope = found->second;
-  bool member = scope.reservations.contains(input_identity);
+  bool member = ctk::compat::contains(scope.reservations, input_identity);
   for (const auto &[id, resource] : scope.cursors) {
     (void)id;
     member = member || resource.input_identity == input_identity;
@@ -1115,7 +1116,7 @@ void ResourceManager::unregister_cursor(const std::string &scope_id,
   std::lock_guard guard(impl_->mutex);
   if (scope_id.empty()) {
     for (auto it = impl_->unscoped.begin(); it != impl_->unscoped.end();) {
-      if (it->first.ends_with(":" + cursor_id))
+      if (ctk::compat::ends_with(it->first, ":" + cursor_id))
         it = impl_->unscoped.erase(it);
       else
         ++it;
@@ -1136,7 +1137,7 @@ void ResourceManager::touch_cursor(const std::string &scope_id,
                        impl_->settings.default_ttl;
   if (scope_id.empty()) {
     for (auto &[id, resource] : impl_->unscoped) {
-      if (id.ends_with(":" + cursor_id)) {
+      if (ctk::compat::ends_with(id, ":" + cursor_id)) {
         resource.expires = expires;
         resource.result_bytes = result_bytes;
       }
@@ -1157,7 +1158,7 @@ void ResourceManager::unregister_file_lease(const std::string &scope_id,
   std::lock_guard guard(impl_->mutex);
   if (scope_id.empty()) {
     for (auto it = impl_->unscoped.begin(); it != impl_->unscoped.end();) {
-      if (it->first.ends_with(":" + lease_id))
+      if (ctk::compat::ends_with(it->first, ":" + lease_id))
         it = impl_->unscoped.erase(it);
       else
         ++it;
@@ -1183,9 +1184,10 @@ void ResourceManager::register_work_snapshot(
   const auto new_input = !impl_->contains_input(input_identity);
   if (new_input && impl_->active_inputs() >= impl_->settings.max_inputs)
     throw std::runtime_error("server input limit exceeded");
+  const auto *snapshot_key = snapshot.get();
   const auto [pin, inserted] = work->second.snapshots.try_emplace(
-      snapshot.get(), Impl::Pin{input_identity, std::move(input),
-                                std::move(snapshot)});
+      snapshot_key, Impl::Pin{input_identity, std::move(input),
+                              std::move(snapshot)});
   (void)pin;
   if (inserted && add_saturated(
                       add_saturated(impl_->active_reservations(),

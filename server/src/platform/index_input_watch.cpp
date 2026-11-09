@@ -1,4 +1,5 @@
 #include "index_input_watch.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -93,7 +94,7 @@ void add_compact_root(std::set<fs::path> &roots, const fs::path &candidate) {
   for (const auto &existing : roots)
     if (is_same_or_child(normalized, existing))
       return;
-  std::erase_if(roots, [&](const fs::path &existing) {
+  ctk::compat::erase_if(roots, [&](const fs::path &existing) {
     return is_same_or_child(existing, normalized);
   });
   roots.insert(normalized);
@@ -170,10 +171,10 @@ struct IndexInputWatch::Impl {
 #endif
     std::lock_guard lock(mutex);
 #ifdef __APPLE__
-    if (!files.contains(alias) ||
-        (resolved != alias && !files.contains(resolved)) ||
+    if (!ctk::compat::contains(files, alias) ||
+        (resolved != alias && !ctk::compat::contains(files, resolved)) ||
         std::any_of(links.begin(), links.end(),
-                    [&](const auto &link) { return !symlinks.contains(link); }))
+                    [&](const auto &link) { return !ctk::compat::contains(symlinks, link); }))
       note_registration(FSEventsGetCurrentEventId());
 #endif
     const bool inserted = files.insert(alias).second;
@@ -201,7 +202,7 @@ struct IndexInputWatch::Impl {
     if (inserted || resolved_inserted || link_inserted)
       registrations_dirty = true;
 #endif
-    return inserted || resolved_inserted || files.contains(alias);
+    return inserted || resolved_inserted || ctk::compat::contains(files, alias);
   }
 
   bool add_directory(const fs::path &input) {
@@ -214,9 +215,9 @@ struct IndexInputWatch::Impl {
 #endif
     std::lock_guard lock(mutex);
 #ifdef __APPLE__
-    if (!directories.contains(alias) || !directories.contains(resolved) ||
+    if (!ctk::compat::contains(directories, alias) || !ctk::compat::contains(directories, resolved) ||
         std::any_of(links.begin(), links.end(),
-                    [&](const auto &link) { return !symlinks.contains(link); }))
+                    [&](const auto &link) { return !ctk::compat::contains(symlinks, link); }))
       note_registration(FSEventsGetCurrentEventId());
 #endif
     const bool inserted = directories.insert(alias).second;
@@ -322,21 +323,21 @@ struct IndexInputWatch::Impl {
             IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO;
         constexpr std::uint32_t file_mask =
             entry_mask | IN_CLOSE_WRITE | IN_MODIFY;
-        if ((files.contains(changed_path) && (event->mask & file_mask)) ||
-            (symlinks.contains(changed_path) && (event->mask & entry_mask))) {
+        if ((ctk::compat::contains(files, changed_path) && (event->mask & file_mask)) ||
+            (ctk::compat::contains(symlinks, changed_path) && (event->mask & entry_mask))) {
           changed = true;
           continue;
         }
-        if (path_ancestors.contains(changed_path) &&
+        if (ctk::compat::contains(path_ancestors, changed_path) &&
             (event->mask & entry_mask) && (event->mask & IN_ISDIR)) {
           changed = true;
           continue;
         }
         if ((event->mask & entry_mask) &&
-            directories.contains(changed_path.parent_path()))
+            ctk::compat::contains(directories, changed_path.parent_path()))
           changed = true;
         else if ((event->mask & entry_mask) &&
-                 directories.contains(changed_path))
+                 ctk::compat::contains(directories, changed_path))
           changed = true;
       }
     }
@@ -377,7 +378,7 @@ struct IndexInputWatch::Impl {
     const auto normalized = resolved_path(path);
     if (normalized.empty())
       return false;
-    if (watched_paths.contains(normalized))
+    if (ctk::compat::contains(watched_paths, normalized))
       return true;
     constexpr std::uint32_t mask = IN_ONLYDIR | IN_CLOSE_WRITE | IN_MODIFY |
                                    IN_CREATE | IN_DELETE | IN_MOVED_FROM |
@@ -443,15 +444,15 @@ struct IndexInputWatch::Impl {
       }
       const fs::path changed_path(event_paths[i]);
       const bool needs_scan = flags[i] & kFSEventStreamEventFlagMustScanSubDirs;
-      if ((self->files.contains(changed_path) && (flags[i] & file_flags)) ||
-          (self->symlinks.contains(changed_path) && (flags[i] & entry_flags))) {
+      if ((ctk::compat::contains(self->files, changed_path) && (flags[i] & file_flags)) ||
+          (ctk::compat::contains(self->symlinks, changed_path) && (flags[i] & entry_flags))) {
         self->pending_change = true;
         continue;
       }
       if ((((flags[i] & entry_flags) || needs_scan) &&
-           (self->directories.contains(changed_path) ||
-            self->directories.contains(changed_path.parent_path()))) ||
-          (needs_scan && self->path_ancestors.contains(changed_path)))
+           (ctk::compat::contains(self->directories, changed_path) ||
+            ctk::compat::contains(self->directories, changed_path.parent_path()))) ||
+          (needs_scan && ctk::compat::contains(self->path_ancestors, changed_path)))
         self->pending_change = true;
     }
   }

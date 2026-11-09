@@ -1,4 +1,5 @@
 #include "cache_state.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "ctk/cache/reverse_index.hpp"
 
@@ -39,7 +40,7 @@ SnapshotCache::Impl::ensure_file_locked(const std::string &path) {
 void SnapshotCache::Impl::prune_profiles_locked(FileEntry &file) {
   if (file.profiles.size() < options.max_profiles_per_file)
     return;
-  std::erase_if(file.profiles, [](const auto &item) {
+  ctk::compat::erase_if(file.profiles, [](const auto &item) {
     return item.second->generations.empty() && !item.second->flight;
   });
 }
@@ -134,7 +135,7 @@ void SnapshotCache::Impl::retire_locked(std::shared_ptr<SnapshotRecord> record,
   lru.remove(record);
   detail::detach_reverse_links(record);
   if (const auto profile = record->profile.lock())
-    std::erase(profile->generations, record);
+    ctk::compat::erase(profile->generations, record);
 }
 
 // A waiter may reject a completed owner after another caller already acquired
@@ -180,7 +181,7 @@ void SnapshotCache::Impl::enforce_limits_locked(
 FileInfo
 SnapshotCache::Impl::info_locked(const std::shared_ptr<FileEntry> &file) const {
   const auto live_edges =
-      std::ranges::count_if(file->dependent_snapshots,
+      ctk::compat::count_if(file->dependent_snapshots,
                             [](const auto &weak) { return !weak.expired(); });
   return {file->path_key, file->observation_hint, file->invalidation_epoch,
           file->profiles.size(), static_cast<std::size_t>(live_edges)};

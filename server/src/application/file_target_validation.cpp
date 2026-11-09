@@ -1,4 +1,5 @@
 #include "file_target_validation.hpp"
+#include "ctk/support/algorithm.hpp"
 #include <filesystem>
 #include <set>
 
@@ -18,19 +19,19 @@ std::string invalid_file_target(const ctk::match::v1::FileMatchTarget &file) {
   for (int i = 0; i < file.compile_arguments_size(); ++i) {
     const auto &argument = file.compile_arguments(i);
     if (argument.empty() || argument[0] != '-' || argument == "--" ||
-        argument == "-o" || argument.starts_with("-o") || argument == "-c" ||
+        argument == "-o" || ctk::compat::starts_with(argument, "-o") || argument == "-c" ||
         argument == "-S" || argument == "-E")
       return "compile_arguments must contain flags, not inputs or outputs";
-    if (argument.starts_with("-std=") && !argument.starts_with("-std=c++") &&
-        !argument.starts_with("-std=gnu++"))
+    if (ctk::compat::starts_with(argument, "-std=") && !ctk::compat::starts_with(argument, "-std=c++") &&
+        !ctk::compat::starts_with(argument, "-std=gnu++"))
       return "only C++ language modes are supported";
-    if (valued_flags.contains(argument)) {
+    if (ctk::compat::contains(valued_flags, argument)) {
       if (++i == file.compile_arguments_size())
         return "compiler option requires a value";
       const auto &value = file.compile_arguments(i);
       if (argument == "-x" && value != "c++" && value != "c++-header")
         return "only C++ language modes are supported";
-    } else if (argument.starts_with("-x") && argument != "-xc++" &&
+    } else if (ctk::compat::starts_with(argument, "-x") && argument != "-xc++" &&
                argument != "-xc++-header") {
       return "only C++ language modes are supported";
     }

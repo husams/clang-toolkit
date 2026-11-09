@@ -1,5 +1,6 @@
 #include "ctk/clang/file_discovery.hpp"
 #include "ctk/clang/compilation_database.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #if __has_include(<clang/Options/Options.h>)
 #include <clang/Options/Options.h>
@@ -32,7 +33,7 @@ std::vector<std::string> normalized_flags(const FileInput &file) {
                                 error.message());
   std::vector<std::string> expanded;
   for (const auto &argument : file.compile_arguments) {
-    if (!argument.starts_with('@')) {
+    if (!ctk::compat::starts_with(argument, '@')) {
       expanded.push_back(argument);
       continue;
     }
@@ -88,7 +89,7 @@ std::vector<std::string> normalized_flags(const FileInput &file) {
 bool source_path(const fs::path &path) {
   const std::set<std::string> suffixes{".c",   ".cc", ".cpp", ".cxx",
                                        ".c++", ".C",  ".m",   ".mm"};
-  return suffixes.contains(path.extension().string());
+  return ctk::compat::contains(suffixes, path.extension().string());
 }
 
 std::regex glob_expression(const std::string &pattern) {

@@ -1,5 +1,6 @@
 #include "settings.hpp"
 #include "file_values.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include "documents.hpp"
 #include "value_access.hpp"
@@ -186,7 +187,7 @@ const Value* update_setting(Values& runtime, llvm::StringRef name, const Value* 
     layer.set(name, *value);
   } else {
     layer.fields.erase(name);
-    std::erase(layer.keys, name.str());
+    ctk::compat::erase(layer.keys, name.str());
   }
   const auto effective = merged(*layers);
   if (!apply(runtime, effective, false, true))

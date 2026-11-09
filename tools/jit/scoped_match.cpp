@@ -1,4 +1,5 @@
 #include "scoped_match.hpp"
+#include "ctk/support/algorithm.hpp"
 
 #include <clang/AST/RecursiveASTVisitor.h>
 #include <clang/ASTMatchers/ASTMatchers.h>
@@ -32,9 +33,9 @@ bool requires_translation_unit_match_metadata(llvm::StringRef query) {
   // MatchASTVisitor gathers typedef aliases and Objective-C compatible aliases
   // before evaluating these inheritance matchers. Per-node MatchFinder::match
   // does not build that translation-unit cache.
-  return query.contains("isDerivedFrom") ||
-         query.contains("isDirectlyDerivedFrom") ||
-         query.contains("isSameOrDerivedFrom");
+  return ctk::compat::contains(query, "isDerivedFrom") ||
+         ctk::compat::contains(query, "isDirectlyDerivedFrom") ||
+         ctk::compat::contains(query, "isSameOrDerivedFrom");
 }
 
 namespace {
