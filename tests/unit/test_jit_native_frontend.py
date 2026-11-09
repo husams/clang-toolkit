@@ -9,10 +9,10 @@ import subprocess
 from lark import Token, Tree
 import pytest
 
-from clang_toolkit.cli.runtime.prototype.repl_language import parser
+from clang_toolkit.cli.jit_syntax import parser
 
 
-_RUNNER = Path(__file__).resolve().parents[2] / "build/jit/ctk-jit-runner"
+_RUNNER = Path(__file__).resolve().parents[2] / "build/jit-standalone/ctk-jit-runner"
 
 
 def _tree(value: Tree | Token) -> list:
@@ -229,6 +229,7 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
                 "PYTHONHOME": "/nonexistent",
                 "TERM": "xterm-256color",
                 "CTK_SERVER": "unix:///nonexistent/ctk.sock",
+                "CTK_STORAGE_ROOT": str(tmp_path / "server-store"),
                 "CTK_JIT_STATE_DIR": str(tmp_path / "native"),
                 "XDG_STATE_HOME": str(tmp_path / "xdg"),
             },
@@ -420,6 +421,8 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
                         raise
                     break
         assert process.wait(timeout=2) == 0
+        assert not (tmp_path / "server-store").exists()
+        assert (tmp_path / "native/ast-cache").is_dir()
         commands = [json.loads(line)["command"] for line in history.read_text().splitlines()]
         assert commands == [
             "let pair = [\n    7\n]",

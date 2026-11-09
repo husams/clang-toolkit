@@ -67,7 +67,6 @@ public:
 };
 
 std::shared_ptr<IQueryEngine> make_query_engine();
-std::shared_ptr<IQueryEngine> make_in_memory_query_engine();
 
 std::vector<std::string> match(const Project &project,
                                const std::string &matcher);

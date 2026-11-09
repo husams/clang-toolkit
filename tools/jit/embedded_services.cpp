@@ -4,10 +4,11 @@
 
 #include "ctk/application/batch_registry.hpp"
 #include "ctk/application/match_controller.hpp"
-#include "ctk/application/project_index.hpp"
+#include "index/project_index.hpp"
 #include "ctk/application/query.hpp"
 #include "ctk/platform/index_worker.hpp"
-#include "ctk/storage/root_lock.hpp"
+#include "platform/root_lock.hpp"
+#include "platform/launch.hpp"
 #include "documents.hpp"
 #include "semantic.hpp"
 #include "value_access.hpp"
@@ -44,18 +45,8 @@ const char* environment(const char* name) {
   return value && *value ? value : nullptr;
 }
 
-fs::path state_root() {
-  if (const auto* path = environment("CTK_JIT_STATE_DIR"))
-    return fs::absolute(path);
-  if (const auto* path = environment("XDG_STATE_HOME"))
-    return fs::path(path) / "ctk-jit";
-  if (const auto* home = environment("HOME"))
-    return fs::path(home) / ".local/state/ctk-jit";
-  throw std::runtime_error("set CTK_JIT_STATE_DIR to use indexes or durable batches");
-}
-
 fs::path index_worker() {
-  const auto sibling = platform::current_executable_sibling("ctk-index-worker");
+  const auto sibling = platform::current_executable_sibling("ctk-jit-index-worker");
   if (fs::is_regular_file(sibling))
     return sibling;
   return CTK_JIT_INDEX_WORKER;
@@ -582,7 +573,7 @@ struct EmbeddedServices::Impl {
   std::shared_ptr<clang_layer::IQueryEngine> engine;
   app::MatchController& matches;
   EventSink events;
-  std::unique_ptr<storage::RootLock> state_lock;
+  std::unique_ptr<RootLock> state_lock;
   fs::path root;
   std::unique_ptr<app::ProjectIndexController> index;
   std::unique_ptr<app::ScriptController> scripts;
@@ -598,7 +589,7 @@ struct EmbeddedServices::Impl {
   const fs::path& owned_root() {
     if (!state_lock) {
       root = state_root();
-      state_lock = std::make_unique<storage::RootLock>(root);
+      state_lock = std::make_unique<RootLock>(root);
     }
     return root;
   }

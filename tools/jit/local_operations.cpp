@@ -114,7 +114,7 @@ void LocalOperations::finish() {
 
 application::MatchController& LocalOperations::controller() {
   if (!controller_) {
-    engine_ = clang_layer::make_in_memory_query_engine();
+    engine_ = clang_layer::make_query_engine();
     controller_ = std::make_unique<application::MatchController>(
         application::CursorSettings{}, clang_layer::make_match_backend(engine_));
   }

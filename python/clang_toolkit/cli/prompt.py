@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from functools import lru_cache
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
@@ -21,7 +20,7 @@ from clang_toolkit.cli.completion import ReplCompleter
 from clang_toolkit.cli.project_completion import ProjectCompleter, ProjectEntry
 from clang_toolkit.cli.callable_help import CallableHelp
 from clang_toolkit.cli.highlight import STYLE, ReplLexer
-from clang_toolkit.cli.input_state import InputState, input_state
+from clang_toolkit.cli.input_state import input_state
 from clang_toolkit.cli.language import lex, parser
 from clang_toolkit.cli.syntax_diagnostics import syntax_diagnostic
 from clang_toolkit.cli.runtime.history import HistoryStore
@@ -148,7 +147,6 @@ def create_session(
     history: History | None = None,
     cwd: Path | None = None,
     script_engine: str = "legacy",
-    known_complete: Callable[[str], bool] | None = None,
 ) -> PromptSession[str]:
     if script_engine not in {"legacy", "tree", "compiled"}:
         raise ValueError(f"unknown script engine {script_engine!r}")
@@ -163,18 +161,7 @@ def create_session(
             lex as prototype_lex,
         )
 
-        if known_complete is None:
-            input_state_fn = prototype_input_state
-        else:
-            @lru_cache(maxsize=8)
-            def checked_state(source: str) -> InputState:
-                return prototype_input_state(source)
-
-            def input_state_fn(source: str) -> InputState:
-                if known_complete(source):
-                    return InputState((), False, None)
-                return checked_state(source)
-
+        input_state_fn = prototype_input_state
         editor_tokenizer = prototype_lex
         lexer = PrototypeReplLexer()
         validator = PrototypeInputValidator(input_state_fn)

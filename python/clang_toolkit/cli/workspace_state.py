@@ -47,24 +47,8 @@ class PanelEntry:
 
 
 @dataclass(frozen=True)
-class ProjectedCollection:
-    """One visible page of a collection still owned by a local runtime."""
-
-    kind: str
-    count: int
-    start: int
-    children: tuple[Any, ...]
-
-    def __len__(self) -> int:
-        return self.count
-
-    def __getitem__(self, index: int) -> Any:
-        return self.children[index - self.start]
-
-
-@dataclass(frozen=True)
 class FileInventory:
-    files: tuple[Any, ...] | ProjectedCollection
+    files: tuple[Any, ...]
 
     def __len__(self) -> int:
         return len(self.files)
@@ -90,13 +74,11 @@ def display_snapshot(
     """Recognize typed result displays; never infer structure from printed JSON."""
     if kind == "bindings_list":
         return outline_snapshot(value, expanded, pages)
-    if kind == "file_list" and isinstance(value, (tuple, ProjectedCollection)):
+    if kind == "file_list" and isinstance(value, tuple):
         value = FileInventory(value)
     if kind == "session_list" and isinstance(value, MessageView):
         value = SessionInventory(property_value(value, "sessions"))
-    if isinstance(value, ProjectedCollection):
-        title = {"matches": "Matches", "record": "Dictionary"}.get(value.kind, "List")
-    elif isinstance(value, FileSet | FileInventory):
+    if isinstance(value, FileSet | FileInventory):
         title = "Files"
     elif isinstance(value, SessionInventory):
         title = "Sessions"
@@ -140,7 +122,6 @@ def outline_snapshot(
                 )
             )
             return
-        projected = isinstance(value, ProjectedCollection)
         mapping = type(value) is dict or isinstance(value, MapView | BindingMapView)
         sequence = isinstance(
             value,
@@ -157,9 +138,6 @@ def outline_snapshot(
                 SessionInventory,
             ),
         )
-        if projected:
-            mapping = value.kind == "record"
-            sequence = not mapping
         count = (
             len(value.rows)
             if isinstance(value, MatchSet)
@@ -167,9 +145,7 @@ def outline_snapshot(
             if sequence or mapping
             else None
         )
-        type_name = value.descriptor.name if isinstance(value, MessageView) else getattr(value, "outline_type", type(value).__name__)
-        if projected:
-            type_name = {"matches": "MatchValue", "record": "dict"}.get(value.kind, value.kind)
+        type_name = value.descriptor.name if isinstance(value, MessageView) else type(value).__name__
         label = f"{name} · {type_name}" + (
             f" [{count}]" if count is not None else ""
         )
@@ -235,9 +211,6 @@ def outline_snapshot(
                         else value.files[index].input.file_path,
                     )
                     for index in range(start, stop)
-                    if not isinstance(value, FileInventory)
-                    or not isinstance(value.files, ProjectedCollection)
-                    or value.files.start <= index < value.files.start + len(value.files.children)
                 ]
                 if files:
                     parents = [str(PurePosixPath(path).parent) for _, path in files]
@@ -265,14 +238,6 @@ def outline_snapshot(
                             visit(child_reference, f"[{index}] · {PurePosixPath(path).name}", child, level + 1)
 
                     directory(groups, base or ".", depth + 1)
-            elif projected:
-                for index, child in enumerate(value.children, value.start):
-                    if mapping:
-                        field, child = child
-                        key = json.dumps(field, ensure_ascii=False)
-                        visit(f"{reference}[{key}]", field, child, depth + 1)
-                    else:
-                        visit(f"{reference}[{index}]", f"[{index}]", child, depth + 1)
             elif mapping:
                 for field in islice(value, start, stop):
                     key = json.dumps(field, ensure_ascii=False)

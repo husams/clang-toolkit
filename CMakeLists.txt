@@ -33,6 +33,4 @@ if(CTK_BUILD_TESTS)
   add_subdirectory(server/tests)
 endif()
 
-if(PROJECT_IS_TOP_LEVEL)
-  include(cmake/Packaging.cmake)
-endif()
+include(cmake/Packaging.cmake)

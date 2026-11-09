@@ -107,7 +107,6 @@ class WorkspaceConsole:
         *,
         cancel: Callable[[], Awaitable[str]] | None = None,
         server_status: Callable[[], Awaitable[pb.ServerStatusResponse]] | None = None,
-        status_title: str = "Server",
         outline: Callable[[frozenset[str], dict[str, int]], Awaitable[list[PanelEntry]]]
         | None = None,
         resources: Callable[[], Awaitable[list[PanelEntry]]] | None = None,
@@ -125,7 +124,6 @@ class WorkspaceConsole:
         self.execute = execute
         self.cancel = cancel
         self.read_server_status = server_status
-        self.status_title = status_title
         self.read_outline = outline
         self.read_resources = resources
         self.read_source = source_reader
@@ -148,7 +146,7 @@ class WorkspaceConsole:
         self.server_snapshot: pb.ServerStatusResponse | None = None
         self.server_sampled: float | None = None
         self.server_error = (
-            f"Checking {status_title.lower()}…" if server_status else f"{status_title} status unavailable"
+            "Checking server…" if server_status else "Server status unavailable"
         )
         self.monitor_task: asyncio.Task[None] | None = None
         self.panel_refresh_task: asyncio.Task[None] | None = None
@@ -178,7 +176,7 @@ class WorkspaceConsole:
             tokenizer=getattr(session, "editor_tokenizer", lex),
         )
         self.server_panel = MarkdownPanel()
-        self.server_panel.set_markdown(f"## {status_title} status\n\nChecking {status_title.lower()}…")
+        self.server_panel.set_markdown("## Server status\n\nChecking server…")
         self.outline = WorkspaceTree(
             self.refresh_panels, self.prepare, self.open_source
         )
@@ -369,7 +367,7 @@ class WorkspaceConsole:
                     lambda: self.toggle_panel("resources"),
                 ),
                 WorkspaceAction(
-                    lambda: f"Live {self.status_title.lower()} status  F9",
+                    lambda: "Live server status  F9",
                     lambda: self.toggle_panel("server"),
                 ),
                 WorkspaceAction(
@@ -383,7 +381,7 @@ class WorkspaceConsole:
                     lambda: "List bindings", lambda: self.prepare("bindings")
                 ),
                 WorkspaceAction(
-                    lambda: f"Show {self.status_title.lower()} status", lambda: self.prepare("server status")
+                    lambda: "Show server status", lambda: self.prepare("server status")
                 ),
                 WorkspaceAction(lambda: "Run command  Ctrl+J", self.run_draft),
                 WorkspaceAction(lambda: "Quit  F10", self.request_exit),
@@ -568,7 +566,7 @@ class WorkspaceConsole:
             "help": "Command help · F4",
             "outline": "Bindings · F7",
             "resources": "Resources · F8",
-            "server": f"{self.status_title} · F9",
+            "server": "Server · F9",
         }[self.panel_kind]
 
         def close(event: MouseEvent) -> None:
@@ -652,11 +650,10 @@ class WorkspaceConsole:
                 self.server_sampled = monotonic()
                 self.server_error = ""
                 raw = _render_status(self.server_snapshot)
-                markdown = f"## Live {self.status_title.lower()} status\n\nRefreshed every **2 seconds**.\n\n"
+                markdown = "## Live server status\n\nRefreshed every **2 seconds**.\n\n"
                 for section in raw.split("\n\n"):
                     lines = section.splitlines()
-                    heading = f"{self.status_title} status" if lines[0] == "Server status" else lines[0]
-                    markdown += "### " + heading + "\n\n"
+                    markdown += "### " + lines[0] + "\n\n"
                     for line in lines[1:]:
                         label, _, value = line.rpartition("  ")
                         markdown += (
@@ -665,9 +662,9 @@ class WorkspaceConsole:
                     markdown += "\n"
                 self.server_panel.set_markdown(markdown, 44)
             except Exception as exc:  # noqa: BLE001 - periodic read boundary
-                self.server_error = f"{self.status_title} unavailable: " + str(exc)[:70]
+                self.server_error = "Server unavailable: " + str(exc)[:70]
                 self.server_panel.set_markdown(
-                    f"## {self.status_title} status\n\n**Refresh failed.** Last sample is stale.\n\n"
+                    "## Server status\n\n**Refresh failed.** Last sample is stale.\n\n"
                     + self.server_error,
                     44,
                 )
@@ -756,7 +753,7 @@ class WorkspaceConsole:
             ("help", "Help"),
             ("outline", "Outline"),
             ("resources", "Resources"),
-            ("server", self.status_title),
+            ("server", "Server"),
         ]:
 
             def click(event: MouseEvent, selected: str = kind) -> None:
@@ -1247,7 +1244,7 @@ class WorkspaceConsole:
         self.write_markdown(
             "## Workspace shortcuts\n\n"
             "**F1** Shortcuts · **F2** Actions · **F3** Files · **F4** Help · **F5** Refresh · **F6** Focus\n\n"
-            f"**F7** Outline · **F8** Resources · **F9** {self.status_title} · **F10** Quit\n\n"
+            "**F7** Outline · **F8** Resources · **F9** Server · **F10** Quit\n\n"
             "- **Ctrl+Enter**, **Option+Enter** (macOS), **Alt+Enter**, or **Shift+Enter** adds an indented line, including before a pipeline's next `|` stage. **Ctrl+J** runs the whole script. **Enter** runs complete input at its end; otherwise it adds an indented line. **Actions → Run command** also executes. Paired brackets and quotes keep the cursor inside.\n"
             "- **Ctrl+R** searches history or results; **Ctrl+C** clears a draft or requests cancellation.\n"
             "- **Escape** closes the focused panel or menu. Files are local; selecting a file prepares `parse`.\n"

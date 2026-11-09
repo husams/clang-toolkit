@@ -29,7 +29,7 @@ from .jit_compiler import compiler_channel
 from .jit_language import LanguageIR
 from .jit_operations import LOCAL_COMMANDS, lower_operation
 from .jit_repl import run_repl
-from .runtime.prototype.repl_language import parse
+from .jit_syntax import parse
 from .runtime.prototype.syntax import Node
 
 _ROOT_MATCHERS = {"functionDecl", "cxxMethodDecl"}
@@ -48,6 +48,8 @@ _FRONTEND_FILES = (
     _CLI_DIRECTORY / "jit_compiler.py",
     _CLI_DIRECTORY / "jit_analysis.py",
     _CLI_DIRECTORY / "jit_operations.py",
+    _CLI_DIRECTORY / "jit_syntax.py",
+    _CLI_DIRECTORY / "jit_templates.py",
     _CLI_DIRECTORY / "runtime/graph_options.py",
     _CLI_DIRECTORY / "grammar.lark",
     _CLI_DIRECTORY / "language.py",
@@ -665,8 +667,7 @@ def _host_method(
 
 
 def _lower_string(ir: LanguageIR, raw: str) -> str:
-    from .runtime.prototype.templates import template_parts
-    from .runtime.templates import string_parts
+    from .jit_templates import string_parts, template_parts
 
     parts = template_parts(raw, parse)
     if parts is None:
@@ -810,9 +811,11 @@ def lower_repl(source: str) -> str | None:
 
 
 def _runner() -> Path | None:
-    local = Path(__file__).resolve().parents[3] / "build/jit/ctk-jit-runner"
-    if local.is_file():
-        return local
+    build = Path(__file__).resolve().parents[3] / "build"
+    for directory in ("jit-standalone", "jit"):
+        local = build / directory / "ctk-jit-runner"
+        if local.is_file():
+            return local
     installed = shutil.which("ctk-jit-runner")
     return Path(installed) if installed else None
 
@@ -974,7 +977,7 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("bundle output must differ from the source script")
     runner = args.runner or _runner()
     if runner is None:
-        parser.error("build the native runner in build/jit or specify --runner")
+        parser.error("build the native runner in build/jit-standalone or specify --runner")
     try:
         runner = runner.resolve()
         if args.command == "repl":

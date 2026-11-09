@@ -1,4 +1,4 @@
-#include "../src/application/include_inventory_cache.hpp"
+#include "../src/net/include_inventory_cache.hpp"
 #include "ctk/application/operation_executor.hpp"
 #include "ctk/cache/include_inventory.hpp"
 #include "ctk/platform/index_worker.hpp"
@@ -425,7 +425,7 @@ TEST(IndexForegroundAdmission, CountsRunningWorkWhileThePendingQueueIsEmpty) {
 TEST_F(IndexWorkerProcess, DirectoryInventoryReuseDetectsPreservedTimeEdits) {
   fs::create_directories(root / "nested");
   std::ofstream(root / "nested" / "first.hpp") << "int first;";
-  application::index_detail::IncludeInventoryCache inventories;
+  net::index_detail::IncludeInventoryCache inventories;
   unsigned scans = 0;
   const auto allowed = [&] {
     ++scans;
@@ -455,7 +455,7 @@ TEST_F(IndexWorkerProcess,
   std::ofstream(root / "one" / "value.hpp") << "int one;";
   std::ofstream(root / "two" / "value.hpp") << "int two;";
   fs::create_directory_symlink(root / "one", root / "alias");
-  application::index_detail::IncludeInventoryCache inventories;
+  net::index_detail::IncludeInventoryCache inventories;
   const auto before = inventories.digest(root);
   fs::remove(root / "alias");
   fs::create_directory_symlink(root / "two", root / "alias");
@@ -472,7 +472,7 @@ TEST_F(IndexWorkerProcess,
 
 TEST_F(IndexWorkerProcess,
        DirectoryInventoryDoesNotCacheMissingOrReplacedRoots) {
-  application::index_detail::IncludeInventoryCache inventories;
+  net::index_detail::IncludeInventoryCache inventories;
   const auto missing = inventories.digest(root / "include");
   fs::create_directory(root / "include");
   std::ofstream(root / "include" / "value.hpp") << "int value;";
@@ -487,7 +487,7 @@ TEST_F(IndexWorkerProcess, DirectoryInventoryRefreshInvalidatesOnNewShadow) {
   const auto include = root / "include";
   fs::create_directories(include);
   std::ofstream(include / "base.hpp") << "int base;";
-  application::index_detail::IncludeInventoryCache inventories;
+  net::index_detail::IncludeInventoryCache inventories;
   const auto before = inventories.digest(include);
   ASSERT_FALSE(before.empty());
   const auto generation = inventories.generation();
@@ -508,7 +508,7 @@ TEST_F(IndexWorkerProcess, DirectoryInventoryRefreshInvalidatesOnNewShadow) {
   const auto after = inventories.digest(include);
   EXPECT_NE(after, before);
   EXPECT_EQ(after,
-            application::index_detail::digest_text(cache::include_inventory(include)));
+            net::index_detail::digest_text(cache::include_inventory(include)));
 }
 
 TEST_F(IndexWorkerProcess,
@@ -521,11 +521,11 @@ TEST_F(IndexWorkerProcess,
     roots.push_back(path);
   }
 
-  application::index_detail::IncludeInventoryCache inventories;
+  net::index_detail::IncludeInventoryCache inventories;
   const auto generation = inventories.generation();
   for (const auto &path : roots)
     EXPECT_EQ(inventories.digest(path),
-              application::index_detail::digest_text(cache::include_inventory(path)));
+              net::index_detail::digest_text(cache::include_inventory(path)));
   EXPECT_EQ(inventories.generation(), generation);
 
   unsigned cached_scans = 0;
@@ -551,7 +551,7 @@ TEST_F(IndexWorkerProcess,
 TEST_F(IndexWorkerProcess,
        DirectoryInventoryRetriesChangesDuringItsInitialWalk) {
   std::ofstream(root / "first.hpp") << "int first;";
-  application::index_detail::IncludeInventoryCache inventories;
+  net::index_detail::IncludeInventoryCache inventories;
   bool edited = false;
   const auto digest = inventories.digest(root, [&] {
     if (!edited) {
@@ -562,7 +562,7 @@ TEST_F(IndexWorkerProcess,
   });
   EXPECT_TRUE(edited);
   EXPECT_EQ(digest,
-            application::index_detail::digest_text(cache::include_inventory(root)));
+            net::index_detail::digest_text(cache::include_inventory(root)));
 }
 
 TEST_F(IndexWorkerProcess, DirectoryInventoryTracksExternalSymlinkChains) {
@@ -574,7 +574,7 @@ TEST_F(IndexWorkerProcess, DirectoryInventoryTracksExternalSymlinkChains) {
   fs::create_directory_symlink(outside.path() / "one", outside.path() / "link");
   fs::create_directory_symlink(outside.path() / "link" / "nested",
                                root / "alias");
-  application::index_detail::IncludeInventoryCache inventories;
+  net::index_detail::IncludeInventoryCache inventories;
   const auto before = inventories.digest(root);
   const auto stamp = fs::last_write_time(outside.path());
   fs::remove(outside.path() / "link");
@@ -583,7 +583,7 @@ TEST_F(IndexWorkerProcess, DirectoryInventoryTracksExternalSymlinkChains) {
   const auto after = inventories.digest(root);
   EXPECT_NE(after, before);
   EXPECT_EQ(after,
-            application::index_detail::digest_text(cache::include_inventory(root)));
+            net::index_detail::digest_text(cache::include_inventory(root)));
   fs::remove(outside.path() / "link");
   fs::create_directory_symlink(outside.path() / "one", outside.path() / "link");
   const auto restored = inventories.digest(root);

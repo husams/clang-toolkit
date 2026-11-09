@@ -23,13 +23,12 @@ from clang_toolkit.resources import FileHandle, FileSet, InputDescriptor
 from .runtime.filesystem import Directory, File
 from .runtime.progress import BatchProgress, durable_progress
 from .runtime.semantic import EnumValue, MessageView, property_value, view
-from .workspace_state import (
-    PanelEntry,
+from .jit_workspace_state import (
     ProjectedCollection,
     display_snapshot,
     outline_snapshot,
-    resource_snapshot,
 )
+from .workspace_state import PanelEntry, resource_snapshot
 
 _Request = Callable[[dict[str, Any]], dict[str, Any]]
 _DETACHED_OWNER = CursorOwner(None, "", 0, lambda _: None)

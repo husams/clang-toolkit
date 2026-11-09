@@ -4,7 +4,7 @@
 #include "../platform/index_input_watch.hpp"
 #include "project_index_store.hpp"
 
-namespace ctk::application::index_detail {
+namespace ctk::net::index_detail {
 // Digest-only, bounded, and confined to the index thread. Kernel directory
 // events guard reuse; neither timestamps nor a TTL decide freshness. Header
 // contents remain independently hashed before every publication.
@@ -92,4 +92,4 @@ private:
   std::uint64_t watch_generation_ = 0;
   std::map<fs::path, Entry> entries_;
 };
-} // namespace ctk::application::index_detail
+} // namespace ctk::net::index_detail

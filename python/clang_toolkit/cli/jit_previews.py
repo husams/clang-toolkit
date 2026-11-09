@@ -18,7 +18,7 @@ from .runtime.management import (
 from .runtime.scripting import render_script_response
 from .runtime.semantic import view
 from .runtime.values import render, render_inspection
-from .workspace_state import ProjectedCollection
+from .jit_workspace_state import ProjectedCollection
 
 
 def _materialize(value: Any) -> Any:
