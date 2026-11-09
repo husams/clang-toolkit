@@ -719,9 +719,8 @@ class NativeQueryEngine final
   };
 
 public:
-  explicit NativeQueryEngine(std::shared_ptr<ctk::storage::Store> store)
-      : store_(std::move(store)),
-        loader_(std::make_shared<ClangSnapshotLoader>(store_)),
+  NativeQueryEngine()
+      : loader_(std::make_shared<ClangSnapshotLoader>(shared_store())),
         cache_(loader_) {}
 
   ctk::cache::SnapshotPtr acquire_snapshot(const FileInput &file) override {
@@ -736,8 +735,8 @@ public:
     result.set_reusable_snapshots(memory.reusable_snapshots);
     result.set_reusable_memory_bytes(memory.estimated_reusable_bytes);
     result.set_pending_builds(memory.pending_builds);
-    if (store_) {
-      const auto disk = store_->stats();
+    if (const auto store = shared_store()) {
+      const auto disk = store->stats();
       result.set_storage_available(true);
       result.set_artifact_disk_bytes(disk.physical_bytes);
       result.set_ready_snapshots(disk.ready_snapshots);
@@ -751,8 +750,9 @@ public:
   void prune_caches(bool memory, bool disk) override {
     if (memory)
       cache_.clear_reuse();
-    if (disk && store_)
-      store_->prune_unused();
+    if (disk)
+      if (const auto store = shared_store())
+        store->prune_unused();
   }
 
   QueryResult match(const FileInput &input, const std::string &query,
@@ -859,7 +859,6 @@ private:
     replaced.reset();
   }
 
-  std::shared_ptr<ctk::storage::Store> store_;
   std::shared_ptr<ClangSnapshotLoader> loader_;
   ctk::cache::SnapshotCache cache_;
   std::mutex retained_mutex_;
@@ -876,11 +875,7 @@ std::string resolved_compilation_profile(const FileInput &file) {
 }
 
 std::shared_ptr<IQueryEngine> make_cached_query_engine() {
-  return std::make_shared<NativeQueryEngine>(shared_store());
-}
-
-std::shared_ptr<IQueryEngine> make_in_memory_query_engine() {
-  return std::make_shared<NativeQueryEngine>(nullptr);
+  return std::make_shared<NativeQueryEngine>();
 }
 
 } // namespace ctk::clang_layer

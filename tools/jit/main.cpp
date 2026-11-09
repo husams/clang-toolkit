@@ -433,6 +433,7 @@ int main(int argc, char **argv) {
   }
   if (mode == "repl" && argc > 2 && argv[2][0] == '-') {
     try {
+      ctk::jit::configure_ast_cache();
       if (auto error = native_workspace_cli(argc, argv)) {
         llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
         return 1;
@@ -460,6 +461,8 @@ int main(int argc, char **argv) {
     return 2;
   }
   try {
+    if (!compile)
+      ctk::jit::configure_ast_cache();
     if (auto error = run(mode, compile ? nullptr : argv[2],
                          compile ? nullptr : argv[3], source ? argv[4] : nullptr,
                          source && argc == 6 ? argv[5] : nullptr,

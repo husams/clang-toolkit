@@ -1,20 +1,12 @@
 cmake_minimum_required(VERSION 3.24)
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
-  include(../../cmake/Platform.cmake)
-  project(ctk_jit LANGUAGES C CXX)
-  # Build the existing native analysis library with the standalone runner.
-  # The frontend, transports, and server executables are separate targets.
-  set(CTK_WITH_CLANG ON)
-  set(CTK_BUILD_NETWORK OFF)
-  set(CTK_BUILD_TESTS OFF)
-  set(CTK_BUILD_SCRIPT ON)
-  set(CTK_BUILD_JIT OFF)
-  set(CTK_BUILD_LOCAL_OPERATIONS ON)
-  add_subdirectory(../.. native EXCLUDE_FROM_ALL)
+  message(FATAL_ERROR "Configure from the repository root with -DCTK_BUILD_JIT=ON")
 endif()
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(Clang REQUIRED CONFIG)
+find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 if(APPLE AND NOT DEFINED ICU_ROOT)
   foreach(prefix /opt/homebrew/opt/icu4c /usr/local/opt/icu4c)
     if(IS_DIRECTORY "${prefix}/include/unicode")
@@ -77,12 +69,51 @@ list(REMOVE_AT ctk_ftxui_component_sources ${ctk_ftxui_input_index})
 list(APPEND ctk_ftxui_component_sources "${ctk_ftxui_input_override}")
 set_property(TARGET component PROPERTY SOURCES "${ctk_ftxui_component_sources}")
 
+set(ctk_jit_server_sources "${PROJECT_SOURCE_DIR}/server/src")
+add_library(ctk_jit_services STATIC
+  index/project_index.cpp
+  platform/root_lock.cpp
+  "${ctk_jit_server_sources}/platform/index_worker.cpp"
+  "${ctk_jit_server_sources}/platform/directory_watch.cpp"
+  "${ctk_jit_server_sources}/platform/index_input_watch.cpp"
+  "${ctk_jit_server_sources}/platform/index_file_reader.cpp"
+  "${ctk_jit_server_sources}/platform/index_filesystem.cpp")
+if(NOT CTK_BUILD_NETWORK)
+  foreach(source IN ITEMS
+      application/analysis_session.cpp
+      application/query_controller.cpp
+      application/match_controller.cpp
+      application/operation_executor.cpp
+      application/cursor_registry.cpp
+      application/resource_manager.cpp
+      application/file_target_validation.cpp
+      application/script_controller.cpp
+      application/native_script_environment.cpp
+      application/script_options.cpp
+      application/batch_registry.cpp
+      platform/process_memory.cpp
+      platform/durable_file.cpp)
+    target_sources(ctk_jit_services PRIVATE "${ctk_jit_server_sources}/${source}")
+  endforeach()
+endif()
+target_include_directories(ctk_jit_services PRIVATE
+  "${ctk_jit_server_sources}/net" "${ctk_jit_server_sources}/platform")
+target_link_libraries(ctk_jit_services PUBLIC ctk_core ctk_index_api
+  PRIVATE Threads::Threads OpenSSL::Crypto ctk::sqlite)
+if(APPLE)
+  target_link_libraries(ctk_jit_services PRIVATE "-framework CoreServices")
+endif()
+
+add_executable(ctk-jit-index-worker "${ctk_jit_server_sources}/index_worker_main.cpp")
+target_link_libraries(ctk-jit-index-worker PRIVATE ctk_jit_services)
+
 add_executable(ctk-jit-runner
   main.cpp
   grammar/syntax.cpp
   grammar/lower.cpp
   grammar/help.cpp
   ir.cpp
+  scoped_match.cpp
   analysis.cpp
   local_operations.cpp
   embedded_services.cpp
@@ -101,13 +132,14 @@ add_executable(ctk-jit-runner
   platform/launch.cpp
   platform/repl_cancellation.cpp)
 target_compile_features(ctk-jit-runner PRIVATE cxx_std_23)
-set_target_properties(ctk-jit-runner PROPERTIES CXX_EXTENSIONS OFF)
+set_target_properties(ctk-jit-runner ctk-jit-index-worker PROPERTIES
+  CXX_EXTENSIONS OFF RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")
 target_include_directories(ctk-jit-runner SYSTEM PRIVATE
   ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS} "${CTK_JIT_PCRE2_INCLUDE_DIR}")
 target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_LEGACY_CLI="${CMAKE_CURRENT_SOURCE_DIR}/../../.venv/bin/ctk-jit"
-  CTK_JIT_INDEX_WORKER="$<TARGET_FILE:ctk-index-worker>"
+  CTK_JIT_INDEX_WORKER="$<TARGET_FILE:ctk-jit-index-worker>"
   CTK_JIT_COMPILER="${CTK_JIT_CLANG}"
   CTK_JIT_CLANG_LIBRARY="$<TARGET_FILE:clang-cpp>"
   CTK_JIT_LLVM_LIBRARY="$<TARGET_FILE:LLVM>"
@@ -121,7 +153,7 @@ target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_RESOURCE_DIR="${CTK_JIT_RESOURCE_DIR}"
   CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}")
 target_link_libraries(ctk-jit-runner PRIVATE
-  ctk_script_commands ctk_project_index clang-cpp LLVM ICU::uc ZLIB::ZLIB ftxui::component
+  ctk_jit_services clang-cpp LLVM ICU::uc ZLIB::ZLIB ftxui::component
   "${CTK_JIT_YAML_LIBRARY}" "${CTK_JIT_PCRE2_LIBRARY}")
 
-add_dependencies(ctk-jit-runner ctk-index-worker)
+add_dependencies(ctk-jit-runner ctk-jit-index-worker)

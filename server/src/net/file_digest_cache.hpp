@@ -13,7 +13,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace ctk::application::index_detail {
+namespace ctk::net::index_detail {
 // The index thread retains a bounded set of open file descriptors to avoid
 // repeated open/close. It always reads and hashes the current file contents.
 class FileDigestCache {
@@ -144,4 +144,4 @@ private:
   std::map<std::filesystem::path, Entry> entries_;
   Counters counters_;
 };
-} // namespace ctk::application::index_detail
+} // namespace ctk::net::index_detail

@@ -17,7 +17,7 @@ from clang_toolkit.cli.help import COMMAND_HELP, MATCHER_HELP
 from clang_toolkit.cli.matcher_catalog import MATCHER_METADATA
 from clang_toolkit.cli.runtime.prototype.help import render_help, render_help_markdown
 from clang_toolkit.cli.runtime.prototype.repl_editor import _KEYWORDS, _keyword_patterns
-from clang_toolkit.cli.runtime.prototype.repl_language import parser
+from clang_toolkit.cli.jit_syntax import parser
 
 
 def literal(text: str) -> str:

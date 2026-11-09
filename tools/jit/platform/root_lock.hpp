@@ -2,7 +2,7 @@
 
 #include <filesystem>
 
-namespace ctk::storage {
+namespace ctk::jit {
 
 class RootLock final {
 public:
@@ -15,4 +15,4 @@ private:
   int descriptor_ = -1;
 };
 
-} // namespace ctk::storage
+} // namespace ctk::jit

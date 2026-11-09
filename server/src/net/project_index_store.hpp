@@ -17,7 +17,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace ctk::application::index_detail {
+namespace ctk::net::index_detail {
 namespace fs = std::filesystem;
 
 inline std::string root_key(const std::string &path) {
@@ -273,4 +273,4 @@ inline std::uint64_t timestamp() {
              std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
-} // namespace ctk::application::index_detail
+} // namespace ctk::net::index_detail

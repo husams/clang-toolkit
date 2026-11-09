@@ -8,8 +8,9 @@ The standalone build uses the repository's native
 Clang libraries with the server and gRPC transport disabled.
 
 ```sh
-cmake -S tools/jit -B build/jit -G Ninja
-cmake --build build/jit
+cmake -S . -B build/jit-standalone -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCTK_BUILD_JIT=ON -DCTK_BUILD_NETWORK=OFF -DCTK_BUILD_TESTS=OFF
+cmake --build build/jit-standalone --target ctk-jit-runner
 uv sync --locked
 uv run ctk-jit run query.ctk --file src/example.cpp --compdb build/
 ```
@@ -19,13 +20,13 @@ compilation database produced by a toolchain compatible with the linked Clang.
 On macOS, use the matching Homebrew Clang when generating an entry with
 `clang++ -MJ` so the entry uses flags understood by the runner.
 The CLI accepts a database directory or the JSON file itself. Use `--runner`
-for a native runner built outside `build/jit`.
+for a native runner built outside `build/jit-standalone`.
 
 Use the native runner as the installed `ctk-jit` workspace entry point.
 
 ```sh
 mkdir -p "$HOME/.local/bin"
-ln -sfn "$PWD/build/jit/ctk-jit-runner" "$HOME/.local/bin/ctk-jit"
+ln -sfn "$PWD/build/jit-standalone/ctk-jit-runner" "$HOME/.local/bin/ctk-jit"
 ctk-jit repl --ui --file src/example.cpp --compdb build/
 ```
 
@@ -76,14 +77,15 @@ and map fields, and call graph records.
 The REPL also embeds the managed query controller, project index controller,
 resource scopes, and durable batch registry. `session start`, `session add`,
 `session match`, `session pause`, `session resume`, and `session close` stream
-query events back to the terminal. The index controller uses the existing
-`ctk-index-worker` built alongside the runner for isolated extraction. Foreground
+query events back to the terminal. The index controller uses
+`ctk-jit-index-worker` built alongside the runner for isolated extraction. Foreground
 batch bodies compile to LLVM IR. Durable batches use the shared native script
 engine and persist their reports for status and promotion after restart.
 
 Indexes and durable batch state default to `~/.local/state/ctk-jit` or
 `$XDG_STATE_HOME/ctk-jit`. Set `CTK_JIT_STATE_DIR` to select a different state
-directory. One runner at a time owns that directory. Closing the runner stops
+directory. The managed AST cache uses its own `ast-cache` subdirectory.
+One runner at a time owns the persistent index and batch state. Closing the runner stops
 its background work. Use `index start` to restart reconciliation of a saved
 index and `batch status` to inspect a saved run.
 

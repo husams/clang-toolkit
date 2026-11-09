@@ -1,4 +1,4 @@
-#include "../src/application/project_index_store.hpp"
+#include "../src/net/project_index_store.hpp"
 #include "ctk/net/index_service.hpp"
 
 #include <algorithm>
@@ -492,7 +492,7 @@ TEST_F(ProjectIndexServiceTest,
 
 TEST_F(ProjectIndexServiceTest,
        ListsSortedSavedProjectsAndIgnoresIncompleteStores) {
-  using namespace ctk::application::index_detail;
+  using namespace index_detail;
   for (const auto &name : {"z-project", "a-project"}) {
     const auto key = (root / name).string();
     const auto directory = storage / "symbol-index" / digest_text(key);
@@ -600,9 +600,9 @@ TEST_F(ProjectIndexServiceTest,
 
 TEST_F(ProjectIndexServiceTest,
        LookupBeforeIndexSchemaExistsReturnsEmptyStaleResult) {
-  const auto key = ctk::application::index_detail::root_key(project.string());
+  const auto key = ctk::net::index_detail::root_key(project.string());
   const auto database = storage / "symbol-index" /
-                        ctk::application::index_detail::digest_text(key) /
+                        ctk::net::index_detail::digest_text(key) /
                         "symbols.sqlite3";
   IndexServiceAdapter service(storage, {}, CTK_TEST_INDEX_WORKER);
   const auto missing = find(service, "alphaOnly", false);
@@ -628,13 +628,13 @@ TEST_F(ProjectIndexServiceTest,
 
 TEST_F(ProjectIndexServiceTest,
        LookupReturnsEmptyStaleUntilRequiredPrefixIndexesExist) {
-  const auto key = ctk::application::index_detail::root_key(project.string());
+  const auto key = ctk::net::index_detail::root_key(project.string());
   const auto database = storage / "symbol-index" /
-                        ctk::application::index_detail::digest_text(key) /
+                        ctk::net::index_detail::digest_text(key) /
                         "symbols.sqlite3";
   fs::create_directories(database.parent_path());
   {
-    ctk::application::index_detail::Database db(database, true);
+    ctk::net::index_detail::Database db(database, true);
     db.exec("DROP INDEX symbol_name_prefix; "
             "DROP INDEX symbol_qualified_prefix;");
   }
@@ -1860,7 +1860,7 @@ TEST_F(ProjectIndexServiceTest,
   RevisionTrace trace;
   trace.database =
       storage / "symbol-index" /
-      ctk::application::index_detail::digest_text(ctk::application::index_detail::root_key(project.string())) /
+      index_detail::digest_text(index_detail::root_key(project.string())) /
       "symbols.sqlite3";
   RevisionTraceRegistration registration(trace);
   ASSERT_TRUE(registration.registered());
@@ -1896,7 +1896,7 @@ TEST_F(ProjectIndexServiceTest,
   RevisionTrace trace;
   trace.database =
       storage / "symbol-index" /
-      ctk::application::index_detail::digest_text(ctk::application::index_detail::root_key(project.string())) /
+      index_detail::digest_text(index_detail::root_key(project.string())) /
       "symbols.sqlite3";
   RevisionTraceRegistration registration(trace);
   ASSERT_TRUE(registration.registered());
@@ -2896,7 +2896,7 @@ TEST_F(ProjectIndexServiceTest, AliasBrowseDoesNotScanUnrelatedSymbolPayloads) {
   sqlite3_close(db);
   browse(true);
   {
-    ctk::application::index_detail::Database upgrade(database_file(), true);
+    index_detail::Database upgrade(database_file(), true);
   }
   trace.alias_fullscan_steps.store(-1);
   browse(false);

@@ -1,5 +1,5 @@
-#include "ctk/application/project_index.hpp"
-#include "../platform/index_input_watch.hpp"
+#include "project_index.hpp"
+#include "index_input_watch.hpp"
 #include "ctk/platform/index_worker.hpp"
 #include "file_digest_cache.hpp"
 #include "include_inventory_cache.hpp"
@@ -27,7 +27,7 @@
 namespace ctk::application {
 namespace {
 using namespace ctk::index::v1;
-using namespace index_detail;
+using namespace ctk::net::index_detail;
 
 class Interrupted : public std::exception {};
 struct Job {

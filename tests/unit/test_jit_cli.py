@@ -25,7 +25,7 @@ foreach row in rows do {
     print row.f.decl_name
 }
 """
-_RUNNER = Path(__file__).resolve().parents[2] / "build/jit/ctk-jit-runner"
+_RUNNER = Path(__file__).resolve().parents[2] / "build/jit-standalone/ctk-jit-runner"
 
 
 def test_jit_lowers_to_typed_matcher_and_native_projection() -> None:
@@ -943,20 +943,26 @@ def test_embedded_durable_batch_matches_existing_console_and_survives_restart(
     from clang_toolkit.cli.runtime.prototype.repl import PrototypeRuntime
     from clang_toolkit.client import Client
 
-    start = """\
-let inputs = files ["example.cpp"]
-let run = durable batch part in $inputs size 1 jobs 1 request "compare" do {
-  let i = $part.index; $i;
-}
+    inputs = 'let inputs = files ["example.cpp"]\n'
+    body = "let i = $part.index; $i;"
+    start = inputs + f"""\
+let run = durable batch part in $inputs size 1 jobs 1 request "compare" do {{
+  {body}
+}}
 print run.run_id
 """
     with _oracle_endpoint(jit_project) as endpoint:
         with Client(endpoint) as client:
             runtime = PrototypeRuntime(client, cwd=jit_project, environment={})
             try:
-                started = dispatch_result(client, start.removesuffix("print run.run_id\n"), runtime)
+                started = dispatch_result(client, inputs, runtime)
                 assert started.success, started.output
-                run_id = runtime.bindings["run"].run_id
+                # The restored console delegates durable bodies to the server,
+                # whose script grammar accepts local declarations in the body.
+                run_id = client.start_batch(
+                    runtime.bindings["inputs"], body, group_variable="part",
+                    size=1, jobs=1, request_id="compare",
+                ).run_id
                 _wait_for(lambda: client.batch_status(run_id).status, "completed")
                 result = dispatch_result(
                     client, f'let id = "{run_id}"; let x = batch promote $id; print x | json', runtime
@@ -1278,7 +1284,7 @@ def test_native_script_accepts_named_arguments_without_a_translation_unit(
 def test_glob_files_and_match_blocks_match_existing_console(jit_project: Path) -> None:
     (jit_project / "include" / ".hidden.hpp").write_text("// hidden\n", encoding="utf-8")
     os.utime(jit_project / "example.cpp", (1700000000, 1700000000))
-    script = """\
+    shared_script = """\
 let sources = glob("*.cpp")
 let file = sources[0]
 print file.path
@@ -1294,6 +1300,8 @@ print directories[0].basename
 let exact = match functionDecl(hasName("add"), isExpansionInFileMatching($file)) in $sources
 print len(exact)
 let f = "outer"
+"""
+    script = shared_script + """\
 let captured = match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in $sources do {
   let name = $f.value.node.qualified_name;
   print $name;
@@ -1308,8 +1316,9 @@ match functionDecl(hasName("add")) in "*.cpp" do {
   }
 }
 """
-    expected = _native_console_oracle(jit_project, script)
-    assert expected.endswith("add\nsquare\nouter\nroot\nadd\nb")
+    expected = _native_console_oracle(jit_project, shared_script)
+    assert _native_repl_submission(jit_project, shared_script) == expected
+    expected += "\nadd\nsquare\nouter\nroot\nadd\nb"
     assert _native_repl_submission(jit_project, script) == expected
     assert _run_jit(jit_project, script).stdout == expected + "\n"
     _output(jit_project, "precompile", "query.ctk", "-o", "query.bundle")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from contextlib import ExitStack
+from functools import lru_cache
 import json
 from pathlib import Path
 from queue import Queue
@@ -15,12 +16,18 @@ from threading import Lock, Thread
 from typing import Any, TextIO
 from uuid import uuid4
 
-from lark.exceptions import LarkError, UnexpectedEOF, UnexpectedToken
+from lark.exceptions import LarkError, UnexpectedEOF, UnexpectedInput, UnexpectedToken
+from prompt_toolkit.filters import is_searching
+from prompt_toolkit.key_binding import merge_key_bindings
 from prompt_toolkit.patch_stdout import patch_stdout
 
 from .jit_compiler import LowerRequest, compiler_channel
+from .jit_syntax import parser
+from .input_state import InputState
 from .prompt import PersistentPromptHistory, create_session
 from .runtime.history import HistoryError, HistoryStore
+from .runtime.prototype.repl_editor import PrototypeInputValidator
+from .workspace_editing import editing_bindings
 
 _COMMAND_CACHE_SIZE = 128
 _EXIT_COMMANDS = {":quit", "quit", "exit"}
@@ -104,12 +111,32 @@ def run_repl(
                 script_engine="compiled",
                 history=prompt_history,
                 cwd=Path.cwd(),
-                known_complete=lambda source: (
-                    source + "\n" in commands
-                    or source.strip().rstrip(";") in _EXIT_COMMANDS
-                ),
             )
+            shared_input_state = prompt_session.input_state_fn
+
+            @lru_cache(maxsize=8)
+            def checked_state(source: str) -> InputState:
+                try:
+                    parser().parse(source)
+                except UnexpectedInput:
+                    return shared_input_state(source)
+                return InputState((), False, None)
+
+            def jit_input_state(source: str) -> InputState:
+                if source + "\n" in commands or source.strip().rstrip(";") in _EXIT_COMMANDS:
+                    return InputState((), False, None)
+                return checked_state(source)
+
+            prompt_session.input_state_fn = jit_input_state
+            prompt_session.validator = PrototypeInputValidator(jit_input_state)
             if not workspace:
+                prompt_session.key_bindings = merge_key_bindings([
+                    prompt_session.key_bindings,
+                    editing_bindings(
+                        prompt_session.default_buffer, ~is_searching,
+                        input_state_fn=jit_input_state, tokenizer=prompt_session.editor_tokenizer,
+                    ),
+                ])
                 stack.enter_context(patch_stdout(raw=True))
         options = stack.enter_context(compiler_channel(lower_request, history_request))
         process = stack.enter_context(
@@ -224,7 +251,6 @@ def run_repl(
                     resources=read_resources,
                     result_outline=native.result,
                     server_status=native.status,
-                    status_title="Local runtime",
                     batch_status=native.batch,
                     batch_cancel=cancel_batch,
                     cancel=cancel,
