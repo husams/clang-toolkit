@@ -30,6 +30,18 @@ execute_process(COMMAND "${CTK_JIT_CLANG}" -print-resource-dir
   OUTPUT_VARIABLE CTK_JIT_RESOURCE_DIR OUTPUT_STRIP_TRAILING_WHITESPACE
   COMMAND_ERROR_IS_FATAL ANY)
 
+set(CTK_JIT_GCC_FLAG "")
+if(CTK_ANALYSIS_GCC_TOOLCHAIN)
+  set(CTK_JIT_GCC_FLAG "--gcc-toolchain=${CTK_ANALYSIS_GCC_TOOLCHAIN}")
+  if(EXISTS "${CTK_ANALYSIS_GCC_TOOLCHAIN}/bin/g++")
+    execute_process(COMMAND "${CTK_ANALYSIS_GCC_TOOLCHAIN}/bin/g++" -print-libgcc-file-name
+      OUTPUT_VARIABLE _ctk_libgcc OUTPUT_STRIP_TRAILING_WHITESPACE
+      COMMAND_ERROR_IS_FATAL ANY)
+    get_filename_component(_ctk_gcc_install_dir "${_ctk_libgcc}" DIRECTORY)
+    set(CTK_JIT_GCC_FLAG "--gcc-install-dir=${_ctk_gcc_install_dir}")
+  endif()
+endif()
+
 set(CTK_JIT_SYSROOT "${CTK_ANALYSIS_SYSROOT}")
 if(APPLE)
   if(IS_DIRECTORY "${CMAKE_OSX_SYSROOT}")
@@ -138,6 +150,7 @@ if(DEFINED LLVM_ENABLE_RTTI AND NOT LLVM_ENABLE_RTTI)
     ir.cpp main.cpp grammar/syntax.cpp grammar/lower.cpp native_workspace.cpp
     native_history.cpp platform/file_values.cpp platform/launch.cpp
     PROPERTIES COMPILE_OPTIONS -fno-rtti)
+  target_compile_definitions(ctk-jit-runner PRIVATE CTK_JIT_CLANG_NO_RTTI)
 endif()
 target_compile_features(ctk-jit-runner PRIVATE cxx_std_17)
 set_target_properties(ctk-jit-runner ctk-jit-index-worker PROPERTIES
@@ -166,7 +179,7 @@ target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_LLVM_INCLUDE="${LLVM_INCLUDE_DIRS}"
   CTK_JIT_RESOURCE_DIR="${CTK_JIT_RESOURCE_DIR}"
   CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}"
-  CTK_JIT_GCC_TOOLCHAIN="${CTK_ANALYSIS_GCC_TOOLCHAIN}")
+  CTK_JIT_GCC_FLAG="${CTK_JIT_GCC_FLAG}")
 target_link_libraries(ctk-jit-runner PRIVATE
   ctk_jit_services clang-cpp LLVM ICU::uc ICU::data ZLIB::ZLIB ftxui::component
   "${CTK_JIT_YAML_LIBRARY}" "${CTK_JIT_PCRE2_LIBRARY}")

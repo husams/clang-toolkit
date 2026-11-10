@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -189,6 +190,37 @@ def test_native_nested_fields_match_python_workspace(tmp_path: Path) -> None:
         assert client.mock_calls == []
     finally:
         runtime.close()
+
+
+def test_native_bulk_close_releases_file_leases_and_cursors(tmp_path: Path) -> None:
+    if not _RUNNER.is_file():
+        pytest.skip("standalone ctk-jit runner has not been built")
+    (tmp_path / "sample.cpp").write_text("int add(int a, int b) { return a + b; }\n")
+    source = """\
+let lease = file open "sample.cpp"
+let cursor = cursor open "sample.cpp" functionDecl(hasName("add")).bind("f")
+let closed = file close all
+print closed.released_leases
+print closed.closed_cursors
+print len(closed.remaining)
+"""
+    result = subprocess.run(
+        [_RUNNER, "repl", "sample.cpp", ""],
+        cwd=tmp_path,
+        input=json.dumps({"slot": 0, "source": source}) + "\n",
+        env={
+            "PATH": "/nonexistent",
+            "CTK_SERVER": "unix:///nonexistent/ctk.sock",
+            "CTK_JIT_STATE_DIR": str(tmp_path / "state"),
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    ready, reply = map(json.loads, result.stdout.splitlines())
+    assert ready["ready"] and reply["compiled"] and not reply["error"]
+    assert reply["output"] == "1\n1\n0\n"
 
 
 def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:

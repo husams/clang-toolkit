@@ -83,6 +83,39 @@ template <typename Request> bool lease(Request& request, const Value& value) {
   return false;
 }
 
+MatchCode close_all_files(application::MatchController& controller,
+                          api::CloseFileResponse& response) {
+  const auto close = [&](const api::CloseFileRequest& request) {
+    api::CloseFileResponse closed;
+    const auto code = controller.close_file(owner, request, closed);
+    if (code != MatchCode::Ok && code != MatchCode::NotFound)
+      return code;
+    response.set_released_leases(response.released_leases() + closed.released_leases());
+    response.set_closed_cursors(response.closed_cursors() + closed.closed_cursors());
+    return MatchCode::Ok;
+  };
+
+  // Keep the responses alive while iterating over their protobuf fields in C++17.
+  const auto files = controller.list_files(owner);
+  api::CloseFileRequest request;
+  for (const auto& file : files.files()) {
+    if (file.lease_id().empty())
+      continue;
+    request.set_lease_id(file.lease_id());
+    if (const auto code = close(request); code != MatchCode::Ok)
+      return code;
+  }
+  const auto sessions = controller.list_sessions(owner);
+  for (const auto& session : sessions.sessions()) {
+    request.set_session_id(session.session_id());
+    if (const auto code = close(request); code != MatchCode::Ok)
+      return code;
+  }
+  const auto remaining = controller.list_files(owner);
+  response.mutable_remaining()->CopyFrom(remaining.files());
+  return MatchCode::Ok;
+}
+
 api::CompilationProfile profile(const LocalState& settings) {
   api::CompilationProfile result;
   result.set_working_directory(std::filesystem::current_path().string());
@@ -675,7 +708,7 @@ const Value* LocalOperations::execute(Values& runtime, llvm::StringRef command,
     api::CloseFileResponse closed;
     MatchCode code;
     if (args.empty())
-      code = local.close_all_files(owner, closed);
+      code = close_all_files(local, closed);
     else {
       api::CloseFileRequest request;
       if (!lease(request, first))
