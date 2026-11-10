@@ -12,7 +12,10 @@ import pytest
 from clang_toolkit.cli.jit_syntax import parser
 
 
-_RUNNER = Path(__file__).resolve().parents[2] / "build/jit-standalone/ctk-jit-runner"
+_RUNNER = Path(os.environ.get(
+    "CTK_TEST_JIT_RUNNER",
+    str(Path(__file__).resolve().parents[2] / "build/jit-standalone/ctk-jit-runner"),
+))
 
 
 def _tree(value: Tree | Token) -> list:

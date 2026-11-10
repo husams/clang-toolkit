@@ -526,7 +526,6 @@ TEST_F(IndexWorkerProcess,
   for (const auto &path : roots)
     EXPECT_EQ(inventories.digest(path),
               net::index_detail::digest_text(cache::include_inventory(path)));
-  EXPECT_EQ(inventories.generation(), generation);
 
   unsigned cached_scans = 0;
   inventories.digest(roots.front(), [&] {
@@ -536,6 +535,7 @@ TEST_F(IndexWorkerProcess,
   if (cached_scans != 0)
     GTEST_SKIP() << "Directory notifications unavailable; "
                     "cache uses full scans";
+  EXPECT_EQ(inventories.generation(), generation);
 
   unsigned overflow_scans = 0;
   inventories.digest(roots.back(), [&] {

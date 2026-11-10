@@ -10,7 +10,8 @@ if(CMAKE_HOST_APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
       "macOS target architectures (pinned on first configuration)")
 endif()
 
-if(NOT DEFINED CTK_LLVM_ROOT)
+if(NOT DEFINED CTK_LLVM_ROOT AND NOT DEFINED CMAKE_TOOLCHAIN_FILE AND
+   "$ENV{CMAKE_TOOLCHAIN_FILE}" STREQUAL "")
   if(CMAKE_HOST_APPLE)
     foreach(candidate /opt/homebrew/opt/llvm /usr/local/opt/llvm)
       if(EXISTS "${candidate}/bin/clang++")

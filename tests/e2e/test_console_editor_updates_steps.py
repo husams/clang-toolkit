@@ -222,11 +222,15 @@ def editor_evidence(editor_server, tmp_path):
         # Two candidates keep the picker open while exposing full metadata.
         definition = "let scale(value, factor = 2) = { value * factor }"
         submit(definition + "; let scan(value) = value", "scale")
-        os.write(master, b"sca\t")
-        picker = wait_for(
-            lambda: "user defined" in visible()
-            and "scale(value, factor = 2)" in visible()
-        )
+        os.write(master, b"sca")
+        wait_for(lambda: "Input 1:4" in visible())
+
+        def shows_callable() -> bool:
+            return "user defined" in visible() and "scale(value, factor = 2)" in visible()
+
+        if not shows_callable():
+            os.write(master, b"\t")
+        picker = wait_for(shows_callable)
         os.write(master, b"\x1b\x03")
         wait_for(lambda: "Input 1:1" in visible())
         help_output = submit("scale?", "Definition")

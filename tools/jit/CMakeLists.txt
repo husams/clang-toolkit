@@ -30,7 +30,7 @@ execute_process(COMMAND "${CTK_JIT_CLANG}" -print-resource-dir
   OUTPUT_VARIABLE CTK_JIT_RESOURCE_DIR OUTPUT_STRIP_TRAILING_WHITESPACE
   COMMAND_ERROR_IS_FATAL ANY)
 
-set(CTK_JIT_SYSROOT "")
+set(CTK_JIT_SYSROOT "${CTK_ANALYSIS_SYSROOT}")
 if(APPLE)
   if(IS_DIRECTORY "${CMAKE_OSX_SYSROOT}")
     set(CTK_JIT_SYSROOT "${CMAKE_OSX_SYSROOT}")
@@ -131,14 +131,28 @@ add_executable(ctk-jit-runner
   platform/file_values.cpp
   platform/launch.cpp
   platform/repl_cancellation.cpp)
+if(DEFINED LLVM_ENABLE_RTTI AND NOT LLVM_ENABLE_RTTI)
+  # These sources instantiate LLVM formatting adapters or Clang callbacks.
+  # analysis.cpp still needs RTTI for downcasts on CTK-owned state.
+  set_source_files_properties(
+    ir.cpp main.cpp grammar/syntax.cpp grammar/lower.cpp native_workspace.cpp
+    native_history.cpp platform/file_values.cpp platform/launch.cpp
+    PROPERTIES COMPILE_OPTIONS -fno-rtti)
+endif()
 target_compile_features(ctk-jit-runner PRIVATE cxx_std_17)
 set_target_properties(ctk-jit-runner ctk-jit-index-worker PROPERTIES
   CXX_EXTENSIONS OFF RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")
 target_include_directories(ctk-jit-runner SYSTEM PRIVATE
   ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS} "${CTK_JIT_PCRE2_INCLUDE_DIR}")
+set(_legacy_cli "${CMAKE_CURRENT_SOURCE_DIR}/../../.venv/bin/ctk-jit")
+if(Python3_EXECUTABLE)
+  get_filename_component(_python_bin "${Python3_EXECUTABLE}" DIRECTORY)
+  set(_legacy_cli "${_python_bin}/ctk-jit")
+endif()
+set(CTK_JIT_LEGACY_CLI "${_legacy_cli}" CACHE FILEPATH "Python JIT CLI")
 target_compile_definitions(ctk-jit-runner PRIVATE
-  CTK_JIT_LEGACY_CLI="${CMAKE_CURRENT_SOURCE_DIR}/../../.venv/bin/ctk-jit"
+  CTK_JIT_LEGACY_CLI="${CTK_JIT_LEGACY_CLI}"
   CTK_JIT_INDEX_WORKER="$<TARGET_FILE:ctk-jit-index-worker>"
   CTK_JIT_COMPILER="${CTK_JIT_CLANG}"
   CTK_JIT_CLANG_LIBRARY="$<TARGET_FILE:clang-cpp>"
@@ -151,9 +165,10 @@ target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_CLANG_INCLUDE="${CLANG_INCLUDE_DIRS}"
   CTK_JIT_LLVM_INCLUDE="${LLVM_INCLUDE_DIRS}"
   CTK_JIT_RESOURCE_DIR="${CTK_JIT_RESOURCE_DIR}"
-  CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}")
+  CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}"
+  CTK_JIT_GCC_TOOLCHAIN="${CTK_ANALYSIS_GCC_TOOLCHAIN}")
 target_link_libraries(ctk-jit-runner PRIVATE
-  ctk_jit_services clang-cpp LLVM ICU::uc ZLIB::ZLIB ftxui::component
+  ctk_jit_services clang-cpp LLVM ICU::uc ICU::data ZLIB::ZLIB ftxui::component
   "${CTK_JIT_YAML_LIBRARY}" "${CTK_JIT_PCRE2_LIBRARY}")
 
 add_dependencies(ctk-jit-runner ctk-jit-index-worker)

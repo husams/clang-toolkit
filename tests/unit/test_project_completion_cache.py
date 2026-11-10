@@ -216,7 +216,9 @@ def test_typing_stays_responsive_and_late_catalog_reopens_the_project_menu():
                 indexed_projects=cache.get,
             )
             cache.bind(
-                load, lambda: refresh_project_menu(session.default_buffer, session.app)
+                load, lambda: refresh_project_menu(
+                    session.default_buffer, session.app, cache.get()
+                )
             )
             prompt = asyncio.create_task(session.prompt_async("ctk> "))
             try:

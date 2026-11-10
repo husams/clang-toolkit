@@ -1,4 +1,5 @@
 #include "ctk/clang/call_graph_backend.hpp"
+#include "../match_row_collector.hpp"
 #include "../captured_binding_state.hpp"
 #include "../matcher_parser.hpp"
 #include "../native_snapshot_owner.hpp"
@@ -27,10 +28,10 @@ struct NativeCallSite {
   const clang::CallExpr *call{};
   const clang::Decl *invoking_callable{};
 };
-class CallableMatcher final
-    : public clang::ast_matchers::MatchFinder::MatchCallback {
+class CallableMatcher {
 public:
-  explicit CallableMatcher(const std::string &text) {
+  explicit CallableMatcher(const std::string &text)
+      : callback_([this](const auto &) { matched_ = true; }) {
     clang::ast_matchers::dynamic::Diagnostics diagnostics;
     llvm::StringRef matcher_text(text);
     auto parsed = parse_matcher_expression(matcher_text, diagnostics);
@@ -41,7 +42,7 @@ public:
       throw calls::CallGraphFailure(
           MatchCode::InvalidArgument,
           "call graph node_filter must be a declaration matcher");
-    if (!finder_.addDynamicMatcher(*parsed, this))
+    if (!finder_.addDynamicMatcher(*parsed, &callback_))
       throw calls::CallGraphFailure(
           MatchCode::InvalidArgument,
           "call graph node_filter must be a declaration matcher");
@@ -51,11 +52,8 @@ public:
     finder_.match(clang::DynTypedNode::create(decl), ast);
     return matched_;
   }
-  void run(const clang::ast_matchers::MatchFinder::MatchResult &) override {
-    matched_ = true;
-  }
-
 private:
+  MatchCallbackAdapter callback_;
   clang::ast_matchers::MatchFinder finder_;
   bool matched_{false};
 };

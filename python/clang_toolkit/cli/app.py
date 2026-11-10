@@ -841,6 +841,7 @@ async def _run(*, script_engine_default: str = "legacy") -> int:
                     lambda: refresh_project_menu(
                         session.default_buffer,
                         workspace.app if workspace is not None else session.app,
+                        project_cache.get(),
                     ),
                 )
                 project_cache.get()

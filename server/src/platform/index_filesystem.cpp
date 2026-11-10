@@ -7,6 +7,14 @@
 #elif defined(__linux__)
 #include <linux/magic.h>
 #include <sys/vfs.h>
+
+// Older SDK kernel headers omit these stable Linux filesystem identifiers.
+#ifndef XFS_SUPER_MAGIC
+#define XFS_SUPER_MAGIC 0x58465342
+#endif
+#ifndef F2FS_SUPER_MAGIC
+#define F2FS_SUPER_MAGIC 0xF2F52010
+#endif
 #endif
 
 #include <algorithm>

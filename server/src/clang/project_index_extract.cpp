@@ -1,4 +1,5 @@
 #include "ctk/clang/project_index_extract.hpp"
+#include "driver_defaults.hpp"
 #include "ctk/cache/include_inventory.hpp"
 #include "project_index_header_reuse.hpp"
 #include "snapshot/compilation_environment.hpp"
@@ -307,8 +308,10 @@ public:
     // Use the configured driver rather than FixedCompilationDatabase's
     // synthetic clang-tool name: driver defaults must match CTK's native parser
     // and the matching compiler that produced a PCH.
-    command_.CommandLine = {CTK_CLANG_TOOL_PATH,
-                            "-resource-dir=" CTK_CLANG_RESOURCE_DIR};
+    command_.CommandLine = {CTK_CLANG_TOOL_PATH};
+    const auto defaults = configured_driver_defaults();
+    command_.CommandLine.insert(command_.CommandLine.end(), defaults.begin(),
+                                defaults.end());
     if (ctk::compat::ends_with(source, ".c") &&
         std::none_of(arguments.begin(), arguments.end(), [](const auto &arg) {
           return ctk::compat::starts_with(arg, "-std=") &&
@@ -472,8 +475,8 @@ bool list_project_translation_units(const std::string &directory,
           continue;
         unit.arguments.push_back(arg);
       }
-      unit.arguments.insert(unit.arguments.begin(),
-                            "-resource-dir=" CTK_CLANG_RESOURCE_DIR);
+      const auto defaults = configured_driver_defaults();
+      unit.arguments.insert(unit.arguments.begin(), defaults.begin(), defaults.end());
       unit.serialized_context = serialize_project_index_context(
           unit.working_directory, unit.arguments, compiler);
       units.push_back(std::move(unit));

@@ -2,11 +2,24 @@
 
 #include "captured_binding_state.hpp"
 #include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <functional>
 #include <optional>
 
 namespace ctk::clang_layer {
 using clang::ast_matchers::MatchFinder;
 using ctk::match::v1::MatchResult;
+// Keep the Clang vtable in the same translation unit as RowCollector. SDK
+// builds can compile that boundary without C++ RTTI while callers retain it.
+class MatchCallbackAdapter final : public MatchFinder::MatchCallback {
+public:
+  explicit MatchCallbackAdapter(
+      std::function<void(const MatchFinder::MatchResult &)> callback);
+  void run(const MatchFinder::MatchResult &found) override;
+
+private:
+  std::function<void(const MatchFinder::MatchResult &)> callback_;
+};
+
 class RowCollector final : public MatchFinder::MatchCallback {
 public:
   RowCollector(MatchExecution &result, CapturedBindingState &state,

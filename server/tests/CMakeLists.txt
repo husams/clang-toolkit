@@ -21,7 +21,10 @@ endif()
 if(CTK_WITH_CLANG)
   string(REGEX MATCH "^[0-9]+" CTK_TEST_CLANG_VERSION_MAJOR "${CTK_CLANG_TOOL_VERSION}")
   target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_VERSION_MAJOR=${CTK_TEST_CLANG_VERSION_MAJOR})
-  target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_TOOL_PATH="${CTK_CLANG_TOOL}")
+  if(NOT CTK_TEST_CLANG_TOOL)
+    set(CTK_TEST_CLANG_TOOL "${CTK_CLANG_TOOL}")
+  endif()
+  target_compile_definitions(ctk_tests PRIVATE CTK_TEST_CLANG_TOOL_PATH="${CTK_TEST_CLANG_TOOL}")
   target_sources(ctk_tests PRIVATE
     test_index_definition_reuse.cpp
     test_clang_query.cpp

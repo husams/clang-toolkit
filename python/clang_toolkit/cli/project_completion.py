@@ -11,8 +11,7 @@ from pathlib import Path
 
 from lark import Token
 from prompt_toolkit.application import Application
-from prompt_toolkit.application.current import set_app
-from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
@@ -167,13 +166,24 @@ def project_completions(
     return matches
 
 
-def refresh_project_menu(buffer: Buffer, app: Application) -> None:
-    """Show an asynchronously loaded catalog only if the cursor still needs it."""
-    if app.is_running and project_context(buffer.document) is not None:
-        with set_app(app):
-            buffer.cancel_completion()
-            buffer.start_completion(select_first=False)
-        app.invalidate()
+def refresh_project_menu(
+    buffer: Buffer, app: Application, projects: Iterable[ProjectEntry]
+) -> None:
+    """Publish cached project matches when the catalog arrives."""
+    if not app.is_running:
+        return
+    document = buffer.document
+    context = project_context(document)
+    state = buffer.complete_state
+    if context is None or (state is not None and state.complete_index is not None):
+        return
+    matches = project_completions(document, context, projects)
+    # An earlier threaded completion can still be winding down. Starting a
+    # second task during that window is dropped by prompt_toolkit. Replacing
+    # the state on the UI loop also tells the older task to stop publishing.
+    buffer.complete_state = CompletionState(document, matches) if matches else None
+    buffer.on_completions_changed.fire()
+    app.invalidate()
 
 
 class ProjectCompleter(Completer):

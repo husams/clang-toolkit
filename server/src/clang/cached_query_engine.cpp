@@ -1,4 +1,6 @@
 #include "ctk/clang/compilation_database.hpp"
+#include "driver_defaults.hpp"
+#include "match_row_collector.hpp"
 #include "ctk/clang/file_discovery.hpp"
 #include "ctk/clang/snapshot_resource_scope.hpp"
 #include "ctk/clang/tooling.hpp"
@@ -238,10 +240,8 @@ std::vector<std::string> effective_arguments(const FileInput &file) {
       std::none_of(file.compile_arguments.begin(), file.compile_arguments.end(),
                    [](const auto &arg) { return ctk::compat::starts_with(arg, "-std="); }))
     arguments.emplace_back("-std=c++20");
-#ifdef CTK_CLANG_RESOURCE_DIR
-  arguments.emplace_back(std::string("-resource-dir=") +
-                         CTK_CLANG_RESOURCE_DIR);
-#endif
+  const auto defaults = configured_driver_defaults();
+  arguments.insert(arguments.end(), defaults.begin(), defaults.end());
   if (!file.working_directory.empty())
     arguments.push_back("-working-directory=" + file.working_directory);
   // Defaults must precede response files and '--'; explicit compiler options
@@ -673,15 +673,14 @@ private:
 class NativeQueryEngine final
     : public IQueryEngine,
       public std::enable_shared_from_this<NativeQueryEngine> {
-  class Callback final
-      : public clang::ast_matchers::MatchFinder::MatchCallback {
+  class Callback {
   public:
     Callback(const Checkpoint &checkpoint,
              const IQueryEngine::MatchCallback &callback)
         : checkpoint_(checkpoint), callback_(callback) {}
 
     void
-    run(const clang::ast_matchers::MatchFinder::MatchResult &result) override {
+    run(const clang::ast_matchers::MatchFinder::MatchResult &result) {
       if (!checkpoint_())
         return;
       Bindings bindings;
@@ -798,7 +797,8 @@ public:
         result.cancelled = true;
         result.message = "query cancelled";
       } else {
-        Callback callback(checkpoint, on_match);
+        Callback serialize(checkpoint, on_match);
+        MatchCallbackAdapter callback([&](const auto &found) { serialize.run(found); });
         clang::ast_matchers::MatchFinder finder;
         if (!finder.addDynamicMatcher(*matcher, &callback)) {
           result.message =

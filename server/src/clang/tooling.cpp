@@ -1,4 +1,5 @@
 #include "ctk/clang/tooling.hpp"
+#include "driver_defaults.hpp"
 #include "matcher_parser.hpp"
 #include "serialization/node_serializers.hpp"
 #include "ctk/support/algorithm.hpp"
@@ -343,7 +344,9 @@ private:
         } else {
           std::ostringstream source;
           source << source_file.rdbuf();
-          auto arguments = file.compile_arguments;
+          auto arguments = configured_driver_defaults();
+          arguments.insert(arguments.end(), file.compile_arguments.begin(),
+                           file.compile_arguments.end());
           if (std::none_of(arguments.begin(), arguments.end(),
                            [](const auto &arg) {
                              return arg == "-x" || ctk::compat::starts_with(arg, "-x=") ||
@@ -357,10 +360,6 @@ private:
                   [](const auto &arg) { return ctk::compat::starts_with(arg, "-std="); })) {
             arguments.emplace_back("-std=c++20");
           }
-#ifdef CTK_CLANG_RESOURCE_DIR
-          arguments.emplace_back(std::string("-resource-dir=") +
-                                 CTK_CLANG_RESOURCE_DIR);
-#endif
           if (!file.working_directory.empty()) {
             arguments.push_back("-working-directory=" + file.working_directory);
           }

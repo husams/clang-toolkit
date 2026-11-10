@@ -3,6 +3,7 @@
 # DEPS_ONLY=1 installs host tools; SKIP_DEPS=1 reuses installed dependencies.
 # SKIP_TESTS=1 omits tests; PACKAGE=1 builds an RPM; INSTALL=1 installs it with DNF.
 # BUILD_DIR, JOBS, INSTALL_PREFIX, and SQLITE_SOURCE_DIR override their defaults.
+# Arguments are forwarded to CMake. Use SKIP_DEPS=1 with a custom SDK.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -99,7 +100,7 @@ cmake -S "$repo_root" -B "$build_dir" -G Ninja \
   -DPython3_EXECUTABLE="$python_binary" -DCTK_SYSTEM_SQLITE=OFF \
   -DFETCHCONTENT_BASE_DIR="$repo_root/.deps" \
   -DCTK_BUILD_TESTS="$([[ "${SKIP_TESTS:-0}" == 1 ]] && echo OFF || echo ON)" \
-  "${sqlite_args[@]}"
+  "${sqlite_args[@]}" "$@"
 cmake --build "$build_dir" --parallel "$jobs"
 
 server_binary="$build_dir/server/ctk-server"

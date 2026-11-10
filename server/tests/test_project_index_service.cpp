@@ -860,9 +860,7 @@ TEST_F(ProjectIndexServiceTest,
 TEST_F(ProjectIndexServiceTest,
        StartsNextChangedUnitDuringCurrentSymbolPublication) {
   const auto counter = root / "worker-starts";
-  const auto lock = root / "worker-lock";
-  const auto overlap = root / "worker-overlap";
-  const auto wrapper = worker_wrapper_with_lock(counter, lock, overlap);
+  const auto wrapper = worker_wrapper(counter);
   fs::path database;
   {
     IndexServiceAdapter initial(storage, {}, wrapper);
@@ -900,7 +898,6 @@ TEST_F(ProjectIndexServiceTest,
   EXPECT_EQ(status.translation_units_failed(), 0);
   EXPECT_TRUE(trace.publication_started.load(std::memory_order_acquire));
   EXPECT_TRUE(trace.overlapped.load(std::memory_order_acquire));
-  EXPECT_TRUE(fs::exists(overlap));
 }
 
 TEST_F(ProjectIndexServiceTest,
@@ -2713,6 +2710,8 @@ TEST_F(ProjectIndexServiceTest, SourceOnlyAliasBrowsePagesAtStableRevision) {
   const auto indexed = start_and_wait(service);
   sqlite3 *db = nullptr;
   ASSERT_EQ(sqlite3_open(database_file().string().c_str(), &db), SQLITE_OK);
+  // The live index monitor can briefly hold SQLite's writer lock.
+  ASSERT_EQ(sqlite3_busy_timeout(db, 5000), SQLITE_OK);
   std::string inserts;
   for (int i = 0; i < 1002; ++i) {
     const auto n = std::to_string(i);

@@ -22,6 +22,14 @@ bool same_native_node(const clang::DynTypedNode &left,
   return false;
 }
 } // namespace
+MatchCallbackAdapter::MatchCallbackAdapter(
+    std::function<void(const MatchFinder::MatchResult &)> callback)
+    : callback_(std::move(callback)) {}
+
+void MatchCallbackAdapter::run(const MatchFinder::MatchResult &found) {
+  callback_(found);
+}
+
 RowCollector::RowCollector(MatchExecution &result, CapturedBindingState &state,
                            const IMatchBackend::Checkpoint &checkpoint,
                            const MatchLimits &limits,

@@ -30,6 +30,12 @@ async def _wait_for_text(session, expected: str) -> None:
     )
 
 
+async def _wait_for_history(session, count: int) -> None:
+    async with asyncio.timeout(3):
+        while session.default_buffer.working_index < count:
+            await asyncio.sleep(0.01)
+
+
 async def _submit_prompt_command(
     runtime: Runtime, store: HistoryStore, command: str
 ) -> str:
@@ -72,6 +78,7 @@ async def _navigate_history(store: HistoryStore, draft: str):
         )
         task = asyncio.create_task(session.prompt_async("ctk> "))
         try:
+            await _wait_for_history(session, len(store.read_commands()))
             pipe.send_text(draft)
             await _wait_for_text(session, draft)
             pipe.send_text("\x1b[A")
@@ -100,6 +107,7 @@ async def _accept_up_history(store: HistoryStore) -> str:
         )
         task = asyncio.create_task(session.prompt_async("ctk> "))
         try:
+            await _wait_for_history(session, len(store.read_commands()))
             command = store.read_commands()[-1]
             pipe.send_text("\x1b[A")
             await _wait_for_text(session, command)
@@ -120,6 +128,7 @@ async def _reverse_search_and_submit(store: HistoryStore, query: str) -> str:
         )
         task = asyncio.create_task(session.prompt_async("ctk> "))
         try:
+            await _wait_for_history(session, len(store.read_commands()))
             pipe.send_text("\x12")
             pipe.send_text(query)
             command = next(

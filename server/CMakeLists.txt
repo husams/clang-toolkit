@@ -154,6 +154,19 @@ if(CTK_WITH_CLANG)
   target_precompile_headers(ctk_clang PRIVATE src/clang/serialization/node_serializers.hpp)
   set_source_files_properties(src/platform/temporary_directory.cpp
     PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+  if(DEFINED LLVM_ENABLE_RTTI AND NOT LLVM_ENABLE_RTTI)
+    # These files implement subclasses of non-RTTI LLVM/Clang types. Keep
+    # RTTI enabled elsewhere for downcasts on CTK's own polymorphic types.
+    set_source_files_properties(
+      src/clang/call_graph/call_graph_builder.cpp
+      src/clang/compilation_database.cpp
+      src/clang/match_row_collector.cpp
+      src/clang/matcher_parser.cpp
+      src/clang/project_index_extract.cpp
+      src/clang/snapshot/build_snapshot.cpp
+      src/clang/snapshot/captured_filesystem.cpp
+      PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS -fno-rtti)
+  endif()
   add_dependencies(ctk_clang ctk_node_serializer_coverage)
   target_link_libraries(ctk_clang PRIVATE ctk_index_api)
   target_include_directories(ctk_clang PUBLIC include ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
@@ -171,18 +184,24 @@ if(CTK_WITH_CLANG)
   target_compile_definitions(ctk_clang PRIVATE
     CTK_CLANG_RESOURCE_DIR="${CTK_CLANG_RESOURCE_DIR}"
     CTK_CLANG_TOOL_PATH="${CTK_CLANG_TOOL}")
+  foreach(_setting IN ITEMS CTK_ANALYSIS_SYSROOT CTK_ANALYSIS_GCC_TOOLCHAIN)
+    if(${_setting})
+      target_compile_definitions(ctk_clang PRIVATE ${_setting}="${${_setting}}")
+    endif()
+  endforeach()
   set(CTK_CLANG_TOOL_VERSION "${CTK_CLANG_TOOL_VERSION}" PARENT_SCOPE)
   # Identify extractor behavior, not the linked executable's build UUID or the
   # server Git revision. Unrelated rebuilds must keep valid TU contributions.
   include("${PROJECT_SOURCE_DIR}/cmake/IndexProtocolFingerprint.cmake")
   set(_index_identity_inputs
     src/clang/project_index_extract.cpp src/clang/project_index_header_reuse.hpp
+    src/clang/driver_defaults.hpp
     include/ctk/clang/project_index_extract.hpp
     src/index_worker_main.cpp src/clang/snapshot/compilation_environment.cpp
     src/clang/snapshot/compilation_environment.hpp
     include/ctk/cache/include_inventory.hpp
     ../api/index/v1/index_service.proto)
-  set(_index_identity "ctk-index-extractor-v1\ncompiler:${CTK_CLANG_TOOL}\nresource:${CTK_CLANG_RESOURCE_DIR}")
+  set(_index_identity "ctk-index-extractor-v1\ncompiler:${CTK_CLANG_TOOL}\nresource:${CTK_CLANG_RESOURCE_DIR}\nsysroot:${CTK_ANALYSIS_SYSROOT}\ngcc:${CTK_ANALYSIS_GCC_TOOLCHAIN}")
   foreach(_input IN LISTS _index_identity_inputs)
     set(_path "${CMAKE_CURRENT_SOURCE_DIR}/${_input}")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_path}")

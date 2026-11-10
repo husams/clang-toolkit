@@ -235,6 +235,7 @@ and platform details are recorded in [AGENTS.md](AGENTS.md).
 
 ## Documentation
 
+- [GCC 8.5 SDK build and custom dependencies](docs/gcc85-sdk.md)
 - [API contract](api/README.md)
 - [Parse and match expressions](docs/parse-match-expressions.md)
 - [Compilation database discovery and flag lookup](docs/compilation-database.md)

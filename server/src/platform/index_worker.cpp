@@ -38,6 +38,74 @@ extern char **environ;
 namespace ctk::platform {
 
 namespace {
+#if defined(__linux__) && defined(__GLIBC__)
+#if !__GLIBC_PREREQ(2, 24)
+#define CTK_LEGACY_POSIX_SPAWN 1
+#endif
+#endif
+
+#ifdef CTK_LEGACY_POSIX_SPAWN
+// glibc before 2.24 can return from posix_spawn before the child has a
+// process group or has attempted exec. Wait on a close-on-exec channel so
+// immediate suspend/stop and launch failures have the same semantics.
+pid_t spawn_legacy_worker(char *const arguments[]) {
+  int errors[2];
+  if (pipe2(errors, O_CLOEXEC) < 0)
+    throw std::system_error(errno, std::generic_category(), "index worker pipe");
+  if (errors[1] <= STDERR_FILENO) {
+    const int duplicate = fcntl(errors[1], F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+    const int error = errno;
+    close(errors[1]);
+    if (duplicate < 0) {
+      close(errors[0]);
+      throw std::system_error(error, std::generic_category(), "index worker pipe");
+    }
+    errors[1] = duplicate;
+  }
+  const pid_t child = fork();
+  if (child < 0) {
+    const int error = errno;
+    close(errors[0]);
+    close(errors[1]);
+    throw std::system_error(error, std::generic_category(), "launch index worker");
+  }
+  if (child == 0) {
+    close(errors[0]);
+    if (setpgid(0, 0) == 0) {
+      const int null = open("/dev/null", O_RDWR);
+      if (null >= 0 && dup2(null, STDIN_FILENO) >= 0 &&
+          dup2(null, STDOUT_FILENO) >= 0) {
+        if (null != STDIN_FILENO && null != STDOUT_FILENO)
+          close(null);
+        execve(arguments[0], arguments, environ);
+      }
+    }
+    const int error = errno;
+    while (write(errors[1], &error, sizeof(error)) < 0 && errno == EINTR) {
+    }
+    _exit(127);
+  }
+  close(errors[1]);
+  int child_error = 0;
+  ssize_t received;
+  do {
+    received = read(errors[0], &child_error, sizeof(child_error));
+  } while (received < 0 && errno == EINTR);
+  const int read_error = errno;
+  close(errors[0]);
+  if (received == 0)
+    return child;
+  if (received != sizeof(child_error))
+    kill(child, SIGKILL);
+  while (waitpid(child, nullptr, 0) < 0 && errno == EINTR) {
+  }
+  const int error = received == sizeof(child_error)
+                        ? child_error
+                        : received < 0 ? read_error : EIO;
+  throw std::system_error(error, std::generic_category(), "launch index worker");
+}
+#endif
+
 constexpr std::uint64_t kGiB = 1024ULL * 1024 * 1024;
 constexpr std::uint64_t kWorkerMemoryBudget = 1536ULL * 1024 * 1024;
 constexpr std::uint64_t kWorkerOutputBudget = 128ULL * 1024 * 1024;
@@ -398,6 +466,9 @@ void IndexWorker::start(const std::filesystem::path &executable,
   char request_option[] = "--request", result_option[] = "--result";
   char *arguments[] = {program.data(), request_option, input.data(),
                        result_option,  output.data(),  nullptr};
+#ifdef CTK_LEGACY_POSIX_SPAWN
+  pid_ = spawn_legacy_worker(arguments);
+#else
   posix_spawnattr_t attributes;
   int error = posix_spawnattr_init(&attributes);
   if (error)
@@ -430,6 +501,7 @@ void IndexWorker::start(const std::filesystem::path &executable,
     throw std::system_error(error, std::generic_category(),
                             "launch index worker");
   pid_ = child;
+#endif
 }
 
 std::optional<int> IndexWorker::poll() {

@@ -97,6 +97,9 @@ parse_target(const fs::path &target_path, fs::path database_path,
     defaults.push_back("-isysroot");
     defaults.push_back(CTK_JIT_SYSROOT);
   }
+  if (llvm::StringRef(CTK_JIT_GCC_TOOLCHAIN) != "")
+    defaults.insert(defaults.end(), {"--sysroot=" CTK_JIT_SYSROOT,
+                                    "--gcc-toolchain=" CTK_JIT_GCC_TOOLCHAIN});
   tool.appendArgumentsAdjuster(tooling::getInsertArgumentAdjuster(
       defaults, tooling::ArgumentInsertPosition::BEGIN));
   if (!overrides.empty()) {
@@ -127,6 +130,10 @@ std::vector<const char *> script_flags() {
   if (llvm::StringRef(CTK_JIT_SYSROOT) != "") {
     args.push_back("-isysroot");
     args.push_back(CTK_JIT_SYSROOT);
+  }
+  if (llvm::StringRef(CTK_JIT_GCC_TOOLCHAIN) != "") {
+    args.push_back("--sysroot=" CTK_JIT_SYSROOT);
+    args.push_back("--gcc-toolchain=" CTK_JIT_GCC_TOOLCHAIN);
   }
   return args;
 }
@@ -281,6 +288,10 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
     if (llvm::StringRef(CTK_JIT_SYSROOT) != "") {
       args.push_back("-isysroot");
       args.push_back(CTK_JIT_SYSROOT);
+    }
+    if (llvm::StringRef(CTK_JIT_GCC_TOOLCHAIN) != "") {
+      args.emplace_back("--sysroot=" CTK_JIT_SYSROOT);
+      args.emplace_back("--gcc-toolchain=" CTK_JIT_GCC_TOOLCHAIN);
     }
     args.insert(args.end(), request.arguments.begin(), request.arguments.end());
     const auto snippet =
