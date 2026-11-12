@@ -109,6 +109,8 @@ target_link_libraries(ctk-jit-index-worker PRIVATE ctk_jit_services)
 
 add_executable(ctk-jit-runner
   main.cpp
+  cpp_source.cpp
+  script_artifact.cpp
   grammar/syntax.cpp
   grammar/lower.cpp
   grammar/help.cpp
@@ -125,8 +127,10 @@ add_executable(ctk-jit-runner
   workspace.cpp
   completion.cpp
   native_workspace.cpp
+  native_prompt.cpp
   native_history.cpp
   settings.cpp
+  platform/cpp_dependencies.cpp
   platform/compiler_channel.cpp
   platform/file_values.cpp
   platform/launch.cpp
@@ -138,7 +142,6 @@ target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang
 target_include_directories(ctk-jit-runner SYSTEM PRIVATE
   ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS} "${CTK_JIT_PCRE2_INCLUDE_DIR}")
 target_compile_definitions(ctk-jit-runner PRIVATE
-  CTK_JIT_LEGACY_CLI="${CMAKE_CURRENT_SOURCE_DIR}/../../.venv/bin/ctk-jit"
   CTK_JIT_INDEX_WORKER="$<TARGET_FILE:ctk-jit-index-worker>"
   CTK_JIT_COMPILER="${CTK_JIT_CLANG}"
   CTK_JIT_CLANG_LIBRARY="$<TARGET_FILE:clang-cpp>"
@@ -153,7 +156,7 @@ target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_RESOURCE_DIR="${CTK_JIT_RESOURCE_DIR}"
   CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}")
 target_link_libraries(ctk-jit-runner PRIVATE
-  ctk_jit_services clang-cpp LLVM ICU::uc ZLIB::ZLIB ftxui::component
+  ctk_jit_services clang-cpp LLVM ICU::uc ZLIB::ZLIB OpenSSL::Crypto ftxui::component
   "${CTK_JIT_YAML_LIBRARY}" "${CTK_JIT_PCRE2_LIBRARY}")
 
 add_dependencies(ctk-jit-runner ctk-jit-index-worker)

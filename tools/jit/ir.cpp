@@ -1018,7 +1018,7 @@ bool Values::accepts_ast(const AstHandle& ast) const {
   return static_cast<const IrContext*>(context)->targets.local.accepts(ast);
 }
 
-llvm::Error compile_ir(llvm::StringRef source) {
+llvm::Expected<std::unique_ptr<llvm::MemoryBuffer>> compile_ir_object(llvm::StringRef source) {
   // Keep the object compatible with the runner's generic process target.
   llvm::orc::JITTargetMachineBuilder target{llvm::Triple(llvm::sys::getProcessTriple())};
   target.setRelocationModel(llvm::Reloc::PIC_);
@@ -1033,7 +1033,11 @@ llvm::Error compile_ir(llvm::StringRef source) {
   if (!module) {
     return module.takeError();
   }
-  auto object = llvm::orc::SimpleCompiler(**machine)(**module);
+  return llvm::orc::SimpleCompiler(**machine)(**module);
+}
+
+llvm::Error compile_ir(llvm::StringRef source) {
+  auto object = compile_ir_object(source);
   if (!object) {
     return object.takeError();
   }
@@ -1042,7 +1046,8 @@ llvm::Error compile_ir(llvm::StringRef source) {
 }
 
 llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, bool precompiled, llvm::StringRef file,
-                   llvm::StringRef database, const LoadTarget& load, const ScriptArguments& arguments) {
+                   llvm::StringRef database, const LoadTarget& load, const ScriptArguments& arguments,
+                   bool standalone) {
   auto jit = create_ir_jit();
   if (!jit) {
     return jit.takeError();
@@ -1057,7 +1062,10 @@ llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, bool precompiled, 
   if (!entry) {
     return entry.takeError();
   }
-  RuntimeCompiler compiler(**jit);
+  std::optional<NativeHistory> history;
+  if (standalone)
+    history.emplace();
+  RuntimeCompiler compiler(**jit, history ? &*history : nullptr);
   std::mutex output_mutex;
   Targets targets(file, database, load);
   targets.local.set_events([&](std::string event) {
@@ -1187,12 +1195,6 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
         continue;
       }
     }
-    if (history) {
-      if (auto source = command->getString("history")) {
-        if (auto error = history->append(*source))
-          reply(llvm::json::Object{{"history_error", llvm::toString(std::move(error))}});
-      }
-    }
     const auto slot = command->getInteger("slot");
     if (!slot || *slot < 0) {
       return failure("expected a REPL command slot");
@@ -1201,6 +1203,7 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
     clear_repl_cancellation();
     auto cached = commands.find(*slot);
     bool compiled = false;
+    bool incomplete = false;
     llvm::Error result = llvm::Error::success();
     auto ir = command->getString("ir");
     std::string native_ir;
@@ -1208,13 +1211,19 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
       if (ir) {
         result = failure("provide CTK source or LLVM IR");
       } else {
-        auto lowered = lower_ctk(*source);
+        auto lowered = lower_ctk(*source, true, {}, false, &incomplete);
         if (!lowered) {
           result = lowered.takeError();
         } else {
           native_ir = std::move(*lowered);
           ir = native_ir;
         }
+      }
+    }
+    if (history && !(incomplete && command->getBoolean("prompt").value_or(false))) {
+      if (auto source = command->getString("history")) {
+        if (auto error = history->append(*source))
+          reply(llvm::json::Object{{"history_error", llvm::toString(std::move(error))}});
       }
     }
     if (ir && !result) {
@@ -1243,6 +1252,8 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
     IrContext runtime(targets, bindings, matchers, compiler);
     if (command->getBoolean("workspace").value_or(false))
       runtime.values.workspace = &workspace;
+    runtime.values.cancellable =
+        runtime.values.workspace || command->getBoolean("prompt").value_or(false);
     if (!result) {
       if (cached == commands.end()) {
         return failure("unknown REPL command slot");
@@ -1259,6 +1270,7 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
                                             {"markdown", std::move(item.markdown)}});
     reply(llvm::json::Object{
         {"compiled", compiled},
+        {"incomplete", incomplete},
         {"previews", std::move(previews)},
         {"exit", runtime.values.exit_requested},
         {"history_cleared", history && history->take_cleared()},

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 
 from lark import Token, Tree
 import pytest
@@ -55,6 +58,224 @@ def test_native_parser_uses_the_same_syntax_tree(source: str) -> None:
         timeout=15,
     )
     assert json.loads(result.stdout) == expected
+
+
+@pytest.mark.parametrize("driver", ["clang++", "../toolchain/bin/clang++"])
+def test_native_parse_uses_project_driver_config(tmp_path: Path, driver: str) -> None:
+    if not _RUNNER.is_file():
+        pytest.skip("standalone ctk-jit runner has not been built")
+    compiler = json.loads(subprocess.check_output([_RUNNER, "config"]))["compiler"]
+    bin_dir = tmp_path / "toolchain" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "clang++").symlink_to(compiler)
+    sysroot = tmp_path / "project-sdk"
+    includes = sysroot / "usr" / "include"
+    includes.mkdir(parents=True)
+    (includes / "ctk_project_driver.h").write_text("#define DRIVER_VALUE 73\n")
+    (bin_dir / "ctk-project-driver.cfg").write_text(
+        f'--sysroot="{sysroot}"\n-isysroot "{sysroot}"\n'
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "sample.cpp"
+    source.write_text(
+        '#include <ctk_project_driver.h>\n'
+        'static_assert(DRIVER_VALUE == 73, "wrong driver sysroot");\n'
+        'int from_project_driver() { return DRIVER_VALUE; }\n'
+    )
+    (project / "driver.rsp").write_text("--config=ctk-project-driver.cfg -std=c++17\n")
+    database = project / "compile_commands.json"
+    database.write_text(json.dumps([{
+        "directory": str(project),
+        "file": "sample.cpp",
+        "arguments": [driver, "@driver.rsp", "-c", "sample.cpp"],
+    }]))
+    result = subprocess.run(
+        [_RUNNER, "repl", source, database],
+        cwd=tmp_path,
+        input=json.dumps({
+            "slot": 0,
+            "source": (
+                "let tree = parse arg.file; "
+                'let rows = match functionDecl(hasName("from_project_driver")) in tree; '
+                "print len(rows)"
+            ),
+        }) + "\n",
+        env={
+            "PATH": str(bin_dir),
+            "CTK_SERVER": "unix:///nonexistent/ctk.sock",
+            "CTK_JIT_STATE_DIR": str(tmp_path / "state"),
+        },
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    ready, reply = map(json.loads, result.stdout.splitlines())
+    assert ready["ready"] and reply["compiled"] and not reply["error"]
+    assert reply["output"] == "1\n"
+
+
+def test_native_parse_with_compile_flags_and_no_project_driver(tmp_path: Path) -> None:
+    if not _RUNNER.is_file():
+        pytest.skip("standalone ctk-jit runner has not been built")
+    source = tmp_path / "sample.cpp"
+    source.write_text("#include <stdio.h>\nint project_value = PROJECT_VALUE;\n")
+    (tmp_path / "compile_flags.txt").write_text("-DPROJECT_VALUE=73\n")
+    result = subprocess.run(
+        [_RUNNER, "repl", source, ""],
+        cwd=tmp_path,
+        input=json.dumps({"slot": 0, "source": "let tree = parse arg.file; print 73"}) + "\n",
+        env={"PATH": "/nonexistent", "CTK_JIT_STATE_DIR": str(tmp_path / "state")},
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    ready, reply = map(json.loads, result.stdout.splitlines())
+    assert ready["ready"] and reply["compiled"] and not reply["error"]
+    assert reply["output"] == "73\n"
+
+
+@pytest.fixture
+def native_jit(tmp_path: Path) -> Callable[..., subprocess.CompletedProcess[str]]:
+    if not _RUNNER.is_file():
+        pytest.skip("standalone ctk-jit runner has not been built")
+    executable = tmp_path / "ctk-jit"
+    executable.symlink_to(_RUNNER)
+
+    def invoke(*args: str, source: str = "") -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [executable, *args],
+            cwd=tmp_path,
+            input=source,
+            env={
+                "PATH": "/nonexistent",
+                "PYTHONHOME": "/nonexistent",
+                "HOME": str(tmp_path),
+                "CTK_SERVER": "unix:///nonexistent/ctk.sock",
+                "CTK_JIT_STATE_DIR": str(tmp_path / "state"),
+                "CTK_JIT_CACHE_DIR": str(tmp_path / "cache"),
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    return invoke
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Apple compiler shim")
+def test_installed_native_cli_uses_apple_shim_sdk(
+    tmp_path: Path, native_jit: Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+    (tmp_path / "sample.cpp").write_text(
+        "#include <vector>\nint main() { return std::vector<int>().size(); }\n"
+    )
+    (tmp_path / "compile_commands.json").write_text(json.dumps([{
+        "directory": str(tmp_path),
+        "file": "sample.cpp",
+        "arguments": ["/usr/bin/clang++", "-std=c++17", "-c", "sample.cpp"],
+    }]))
+    (tmp_path / "query.ctk").write_text(
+        'let tree = parse arg.file\nprint len(match functionDecl(hasName("main")) in tree)\n'
+    )
+    result = native_jit("run", "query.ctk", "--file", "sample.cpp", "--compdb", ".", "--no-cache")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "1\n"
+
+
+def test_installed_native_cli_runs_caches_and_precompiles(
+    tmp_path: Path, native_jit: Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+    def output(*args: str) -> str:
+        result = native_jit(*args)
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        return result.stdout
+
+    (tmp_path / "library.ctk").write_text("let score(n) = n * 2\n")
+    script = tmp_path / "query.ctk"
+    script.write_text('import "library.ctk"\nprint score(3)\nprint arg.name\n')
+    args = ("run", "query.ctk", "--arg", "name=CTK")
+    assert output(*args, "--no-cache") == "6\nCTK\n"
+    cache = tmp_path / "cache"
+    assert not cache.exists()
+    assert output(*args) == "6\nCTK\n"
+    (cached,) = cache.glob("ir-obj-*.bundle")
+    stamp = cached.stat().st_mtime_ns
+    assert output(*args) == "6\nCTK\n"
+    assert cached.stat().st_mtime_ns == stamp
+    (tmp_path / "bundles%").mkdir()
+    bundle = tmp_path / "bundles%" / "query.bundle"
+    assert output("precompile", "query.ctk", "-o", str(bundle)) == ""
+    assert bundle.read_bytes() == cached.read_bytes()
+    executable = tmp_path / "ctk-jit"
+    executable.unlink()
+    shutil.copy2(_RUNNER, executable)
+    (tmp_path / "library.ctk").write_text("let score(n) = n * 4\n")
+    assert output("run", "--bundle", str(bundle), "--arg", "name=CTK") == "12\nCTK\n"
+    cached.write_bytes(b"corrupt")
+    assert output(*args) == "12\nCTK\n"
+    assert cached.read_bytes() == bundle.read_bytes()
+    script.write_text("print 9\n")
+    assert output(*args) == "9\n"
+    assert len(list(cache.glob("ir-obj-*.bundle"))) == 2
+
+    bundle.write_bytes(bundle.read_bytes()[:-1])
+    result = native_jit("run", "--bundle", str(bundle))
+    assert result.returncode == 1
+    assert "bundle object checksum mismatch" in result.stderr
+
+
+@pytest.mark.parametrize("options", [(), ("--ui", "prompt")])
+def test_installed_native_prompt_retains_bindings(
+    tmp_path: Path,
+    native_jit: Callable[..., subprocess.CompletedProcess[str]],
+    options: tuple[str, ...],
+) -> None:
+    source = """\
+let values = [2, 3]
+foreach x in values do {
+    print x
+}
+let values = [4]
+foreach x in values do {
+    print x
+}
+let tree = parse cpp`int first() { return 1; }
+int second() { return 2; }` using {translation_unit:true}
+print len(match functionDecl(isDefinition()) in tree)
+history save "prompt.jsonl"
+:quit
+"""
+    result = native_jit("repl", *options, source=source)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "2\n3\n4\n2\n"
+    records = [json.loads(line) for line in (tmp_path / "prompt.jsonl").read_text().splitlines()]
+    assert [row["command"] for row in records][:3] == [
+        "let values = [2, 3]", "foreach x in values do {\n    print x\n}", "let values = [4]",
+    ]
+
+
+def test_installed_native_cli_preserves_typed_cpp_jit(
+    tmp_path: Path, native_jit: Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+    (tmp_path / "sample.cpp").write_text("int add(int a, int b) { return a + b; }\n")
+    (tmp_path / "query.ctk").write_text(
+        "let tree = parse arg.file\n"
+        'let rows = match functionDecl(isDefinition(), unless(isImplicit()), hasName("add"))'
+        '.bind("f") in tree\n'
+        "foreach row in rows do {\n    print row.f.decl_name\n}\n"
+    )
+    for args in (
+        ("run", "query.ctk", "--file", "sample.cpp", "--cpp-jit", "--no-cache"),
+        ("precompile", "query.ctk", "--cpp-jit", "-o", "cpp.bundle"),
+        ("run", "--bundle", "cpp.bundle", "--file", "sample.cpp"),
+    ):
+        result = native_jit(*args)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ("" if args[0] == "precompile" else "add\n")
 
 
 def test_native_submission_retains_bindings_and_compiled_code(tmp_path: Path) -> None:

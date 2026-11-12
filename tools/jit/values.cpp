@@ -49,7 +49,7 @@ void Values::push() { scopes.emplace_back(); }
 void Values::pop() { scopes.pop_back(); }
 
 bool Values::tick() {
-  if (workspace && repl_cancelled()) {
+  if (cancellable && repl_cancelled()) {
     fatal = true;
     fail("operation cancelled");
     return false;
