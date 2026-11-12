@@ -169,6 +169,45 @@ def native_jit(tmp_path: Path) -> Callable[..., subprocess.CompletedProcess[str]
     return invoke
 
 
+@pytest.mark.parametrize("driver", ["g++", "g++-8.5", "x86_64-linux-gnu-g++-8", "c++"])
+def test_native_gcc_compile_command_preserves_supported_werror(
+    tmp_path: Path, native_jit: Callable[..., subprocess.CompletedProcess[str]], driver: str
+) -> None:
+    toolchain = tmp_path / "toolchain"
+    toolchain.mkdir()
+    gcc = toolchain / "g++-8.5"
+    gcc.touch()
+    if driver == "c++":
+        (toolchain / "g++").hardlink_to(gcc)
+        (toolchain / driver).hardlink_to(gcc)
+    elif driver != gcc.name:
+        (toolchain / driver).symlink_to(gcc.name)
+    (tmp_path / "compile_commands.json").write_text(json.dumps([{
+        "directory": str(tmp_path),
+        "file": "sample.cpp",
+        "arguments": [
+            f"toolchain/{driver}", "-std=c++17", "-Werror", "-Werror=maybe-uninitialized",
+            "-Werror=stringop-overflow", "-Werror=unused-variable", "-c", "sample.cpp",
+        ],
+    }]))
+    source = tmp_path / "sample.cpp"
+    source.write_text("int gcc_target() { return 73; }\n")
+    (tmp_path / "query.ctk").write_text(
+        'let tree = parse arg.file\nprint len(match functionDecl(hasName("gcc_target")) in tree)\n'
+    )
+    args = ("run", "query.ctk", "--file", "sample.cpp", "--compdb", ".", "--no-cache")
+    result = native_jit(*args)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "1\n"
+    assert "unknown warning option" not in result.stderr
+
+    source.write_text("int gcc_target() { int unused = 0; return 73; }\n")
+    result = native_jit(*args)
+    assert result.returncode == 1
+    assert "unused variable 'unused'" in result.stderr
+    assert "unknown warning option" not in result.stderr
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="Apple compiler shim")
 def test_installed_native_cli_uses_apple_shim_sdk(
     tmp_path: Path, native_jit: Callable[..., subprocess.CompletedProcess[str]]
