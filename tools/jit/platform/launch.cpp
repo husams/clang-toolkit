@@ -1,6 +1,7 @@
 #include "launch.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 
+#include <array>
 #include <cerrno>
 #include <cstdlib>
 #include <optional>
@@ -11,6 +12,8 @@
 
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/Program.h>
 #include <llvm/Support/Regex.h>
 #include <llvm/Support/raw_ostream.h>
 
@@ -137,6 +140,44 @@ bool is_gcc_driver(const std::filesystem::path &driver) {
     return false;
   const auto sibling = driver.parent_path() / (name == "cc" ? "gcc" : "g++");
   return std::filesystem::equivalent(driver, sibling, error);
+}
+
+llvm::Expected<std::string>
+run_project_driver(const std::filesystem::path &directory,
+                   llvm::ArrayRef<std::string> command) {
+  const auto driver = (directory / command.front()).string();
+  const auto working_directory = directory.string();
+  const platform::TemporaryDirectory temporary("ctk-jit-driver");
+  const auto diagnostics_path = (temporary.path() / "stderr").string();
+
+  // ExecuteAndWait has no working-directory parameter. Pass every project
+  // argument to the shell as data and replace the shell with the driver.
+  constexpr auto shell = "/bin/sh";
+  llvm::SmallVector<llvm::StringRef, 32> args{
+      shell, "-c", "cd \"$1\" && shift && exec \"$@\"", "ctk-jit",
+      working_directory, driver};
+  for (const auto &argument : command.drop_front())
+    args.push_back(argument);
+
+  const std::array<std::optional<llvm::StringRef>, 3> redirects{
+      llvm::StringRef(""), llvm::StringRef(""), llvm::StringRef(diagnostics_path)};
+  std::string execution_error;
+  const int status = llvm::sys::ExecuteAndWait(
+      shell, args, std::nullopt, redirects, 0, 0, &execution_error);
+  if (!execution_error.empty())
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   llvm::Twine(driver) + ": " + execution_error);
+  auto diagnostics = llvm::MemoryBuffer::getFile(diagnostics_path);
+  if (!diagnostics)
+    return llvm::createStringError(diagnostics.getError(),
+                                   "could not read diagnostics from %s", driver.c_str());
+  const auto output = (*diagnostics)->getBuffer();
+  if (status != 0)
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        llvm::Twine("configured GCC driver ") + driver + " exited with status " +
+            llvm::Twine(status) + (output.empty() ? "" : "\n") + output.rtrim());
+  return output.str();
 }
 
 } // namespace ctk::jit
