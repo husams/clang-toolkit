@@ -48,9 +48,40 @@ llvm::Error failure(const llvm::Twine &message) {
   return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
 }
 
+tooling::CommandLineArguments
+gcc_syntax_command(const tooling::CommandLineArguments &command,
+                   llvm::ArrayRef<std::string> overrides) {
+  const auto arguments = tooling::getInsertArgumentAdjuster(
+      tooling::CommandLineArguments(overrides.begin(), overrides.end()),
+      tooling::ArgumentInsertPosition::END)(command, "");
+  tooling::CommandLineArguments gcc{arguments.front()};
+  for (std::size_t i = 1; i < arguments.size(); ++i) {
+    llvm::StringRef option = arguments[i];
+    if (option == "--") {
+      gcc.insert(gcc.end(), arguments.begin() + i, arguments.end());
+      break;
+    }
+    // LibTooling infers these Clang options from the compiler name. GCC
+    // selects its own target and language driver from the executable.
+    if (option == "-target") {
+      ++i;
+      continue;
+    }
+    if (option.starts_with("--target=") || option.starts_with("--driver-mode=") ||
+        option == "-E" || option.starts_with("-Wp,-MD,") ||
+        option.starts_with("-Wp,-MMD,"))
+      continue;
+    gcc.push_back(arguments[i]);
+  }
+  gcc = tooling::getClangStripOutputAdjuster()(gcc, "");
+  gcc = tooling::getClangStripDependencyFileAdjuster()(gcc, "");
+  return tooling::getClangSyntaxOnlyAdjuster()(gcc, "");
+}
+
 llvm::Expected<std::unique_ptr<clang::ASTUnit>>
 parse_target(const fs::path &target_path, fs::path database_path,
              clang::DiagnosticConsumer &diagnostics,
+             llvm::raw_ostream &driver_diagnostics,
              llvm::ArrayRef<std::string> overrides = {},
              std::optional<llvm::StringRef> source = std::nullopt) {
   const auto file = fs::absolute(target_path).lexically_normal().string();
@@ -91,9 +122,20 @@ parse_target(const fs::path &target_path, fs::path database_path,
       fs::path(commands.front().CommandLine.front()).filename() == "clang-tool" &&
       database->getAllFiles().empty();
 
+  const auto directory = fs::absolute(commands.front().Directory);
+  const auto &command = commands.front().CommandLine;
+  const bool gcc_driver = ctk::jit::is_gcc_driver(directory / command.front());
+  const bool check_with_gcc = gcc_driver && !source;
+  if (check_with_gcc) {
+    auto checked = ctk::jit::run_project_driver(
+        directory, gcc_syntax_command(command, overrides));
+    if (!checked)
+      return checked.takeError();
+    driver_diagnostics << *checked;
+  }
+
   tooling::ClangTool tool(*database, {file});
   tool.setDiagnosticConsumer(&diagnostics);
-  const auto directory = fs::absolute(commands.front().Directory);
   tool.appendArgumentsAdjuster(
       [&](const tooling::CommandLineArguments &arguments, llvm::StringRef) {
         auto normalized = arguments;
@@ -112,9 +154,8 @@ parse_target(const fs::path &target_path, fs::path database_path,
       });
   tooling::CommandLineArguments defaults{std::string("-resource-dir=") +
                                          CTK_JIT_RESOURCE_DIR};
-  // GCC warning groups do not all exist in Clang. Keep the project's warning
-  // settings for groups the embedded frontend understands.
-  if (ctk::jit::is_gcc_driver(directory / commands.front().CommandLine.front()))
+  // A virtual source overlay is available only to the embedded frontend.
+  if (gcc_driver && source)
     defaults.emplace_back("-Wno-unknown-warning-option");
   const bool use_default_sysroot = use_default_toolchain ||
       ctk::jit::apple_driver_needs_sdk(commands.front().CommandLine,
@@ -130,6 +171,10 @@ parse_target(const fs::path &target_path, fs::path database_path,
         tooling::CommandLineArguments(overrides.begin(), overrides.end()),
         tooling::ArgumentInsertPosition::END));
   }
+  // GCC already applied the project's diagnostic policy. Clang still reports
+  // errors that prevent it from building a usable matcher AST.
+  if (check_with_gcc)
+    tool.appendArgumentsAdjuster(tooling::getInsertArgumentAdjuster("-w"));
   if (source)
     tool.mapVirtualFile(file, *source);
   std::vector<std::unique_ptr<clang::ASTUnit>> asts;
@@ -259,7 +304,7 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
   if (*target_path) {
     default_file = fs::absolute(target_path).lexically_normal().string();
     if (!native_ir) {
-      auto loaded = parse_target(target_path, database_path, diagnostics);
+      auto loaded = parse_target(target_path, database_path, diagnostics, llvm::errs());
       if (!loaded)
         return loaded.takeError();
       ast = std::move(*loaded);
@@ -298,7 +343,7 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
                               ? std::optional<llvm::StringRef>(*request.source)
                               : std::nullopt;
       auto unit =
-          parse_target(file, database, printer, request.arguments, source);
+          parse_target(file, database, printer, diagnostic_output, request.arguments, source);
       if (!unit) {
         auto error = unit.takeError();
         if (!workspace_diagnostics.empty())

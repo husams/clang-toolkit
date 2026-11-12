@@ -19,5 +19,8 @@ llvm::Error write_atomic(const std::filesystem::path &path, llvm::StringRef data
 bool apple_driver_needs_sdk(llvm::ArrayRef<std::string> command,
                             llvm::StringRef directory);
 bool is_gcc_driver(const std::filesystem::path &driver);
+llvm::Expected<std::string>
+run_project_driver(const std::filesystem::path &directory,
+                   llvm::ArrayRef<std::string> command);
 
 } // namespace ctk::jit
