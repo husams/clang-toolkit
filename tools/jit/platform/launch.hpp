@@ -18,5 +18,6 @@ bool prepare_private_cache(const std::filesystem::path &path);
 llvm::Error write_atomic(const std::filesystem::path &path, llvm::StringRef data);
 bool apple_driver_needs_sdk(llvm::ArrayRef<std::string> command,
                             llvm::StringRef directory);
+bool is_gcc_driver(const std::filesystem::path &driver);
 
 } // namespace ctk::jit

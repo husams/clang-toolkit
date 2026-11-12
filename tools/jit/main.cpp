@@ -112,6 +112,10 @@ parse_target(const fs::path &target_path, fs::path database_path,
       });
   tooling::CommandLineArguments defaults{std::string("-resource-dir=") +
                                          CTK_JIT_RESOURCE_DIR};
+  // GCC warning groups do not all exist in Clang. Keep the project's warning
+  // settings for groups the embedded frontend understands.
+  if (ctk::jit::is_gcc_driver(directory / commands.front().CommandLine.front()))
+    defaults.emplace_back("-Wno-unknown-warning-option");
   const bool use_default_sysroot = use_default_toolchain ||
       ctk::jit::apple_driver_needs_sdk(commands.front().CommandLine,
                                       commands.front().Directory);
