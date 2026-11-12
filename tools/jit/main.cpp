@@ -17,8 +17,10 @@
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
+#include <llvm/ADT/StringExtras.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/Support/Error.h>
+#include <llvm/Support/FileSystem.h>
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/TargetSelect.h>
@@ -31,8 +33,10 @@
 #include "grammar/lower.hpp"
 #include "grammar/syntax.hpp"
 #include "ir.hpp"
+#include "native_prompt.hpp"
 #include "native_workspace.hpp"
 #include "platform/launch.hpp"
+#include "script_artifact.hpp"
 
 namespace {
 
@@ -110,9 +114,10 @@ parse_target(const fs::path &target_path, fs::path database_path,
       });
   tooling::CommandLineArguments defaults{std::string("-resource-dir=") +
                                          CTK_JIT_RESOURCE_DIR};
-  // Keep the linked Clang's builtin headers as a fallback. SDK flags are only
-  // for the synthesized command and must not override project driver configs.
-  if (use_default_toolchain && llvm::StringRef(CTK_JIT_SYSROOT) != "") {
+  const bool use_default_sysroot = use_default_toolchain ||
+      ctk::jit::apple_driver_needs_sdk(commands.front().CommandLine,
+                                      commands.front().Directory);
+  if (use_default_sysroot && llvm::StringRef(CTK_JIT_SYSROOT) != "") {
     defaults.push_back("-isysroot");
     defaults.push_back(CTK_JIT_SYSROOT);
   }
@@ -231,15 +236,22 @@ llvm::Error run_object(std::unique_ptr<llvm::MemoryBuffer> object,
   return (*jit)->deinitialize(dylib);
 }
 
-llvm::Error run(llvm::StringRef mode, const char *target_path,
-                const char *database_path, const char *source_dir,
-                const char *prelude, const char *script_arguments) {
+llvm::Error initialize_native_target() {
   if (llvm::InitializeNativeTarget() ||
       llvm::InitializeNativeTargetAsmPrinter())
     return failure("could not initialize LLVM's native target");
+  return llvm::Error::success();
+}
 
-  std::unique_ptr<llvm::MemoryBuffer> input;
-  if (mode != "repl" && mode != "workspace") {
+llvm::Error run(llvm::StringRef mode, const char *target_path,
+                const char *database_path, const char *source_dir,
+                const char *prelude, const char *script_arguments,
+                std::unique_ptr<llvm::MemoryBuffer> input = nullptr,
+                bool *prompt_failed = nullptr) {
+  if (auto error = initialize_native_target())
+    return error;
+  const bool interactive = mode == "repl" || mode == "workspace" || mode == "prompt";
+  if (!input && !interactive) {
     auto buffer = llvm::MemoryBuffer::getSTDIN();
     if (!buffer)
       return llvm::errorCodeToError(buffer.getError());
@@ -250,7 +262,7 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
 
   clang::DiagnosticOptions diagnostic_options;
   clang::TextDiagnosticPrinter diagnostics(llvm::errs(), diagnostic_options);
-  const bool native_ir = mode == "ir" || mode == "ir-object" || mode == "repl" || mode == "workspace";
+  const bool native_ir = mode == "ir" || mode == "ir-object" || interactive;
   std::unique_ptr<clang::ASTUnit> ast;
   std::string default_file;
   if (*target_path) {
@@ -335,11 +347,13 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
   auto* context_ast = ast ? &ast->getASTContext() : nullptr;
   if (mode == "workspace")
     return ctk::jit::run_native_workspace(default_file, database_path, load, arguments);
+  if (mode == "prompt")
+    return ctk::jit::run_native_prompt(default_file, database_path, load, arguments, *prompt_failed);
   if (mode == "repl")
     return ctk::jit::repl_ir(default_file, database_path, load, arguments);
   if (mode == "ir" || mode == "ir-object")
     return ctk::jit::run_ir(std::move(input), mode == "ir-object",
-                            default_file, database_path, load, arguments);
+                            default_file, database_path, load, arguments, prompt_failed != nullptr);
   if (!context_ast)
     return failure("the C++ backend requires a target file");
   ctk::jit::RunContext context(*context_ast);
@@ -350,81 +364,136 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
 
 } // namespace
 
-static bool selects_workspace(int argc, char** argv) {
-  if (argc < 3 || llvm::StringRef(argv[1]) != "repl")
-    return false;
-  bool workspace = false;
-  for (int index = 2; index < argc; ++index) {
-    const llvm::StringRef argument(argv[index]);
-    const auto [flag, inline_value] = argument.split('=');
-    const bool assigned = ctk::compat::contains(argument, '=');
-    if (flag == "--ui" || flag == "--u") {
-      auto value = assigned ? inline_value : llvm::StringRef("workspace");
-      if (!assigned && index + 1 < argc && argv[index + 1][0] != '-')
-        value = argv[++index];
-      workspace = value == "workspace";
-    } else if (!assigned &&
-               (flag == "--file" || flag == "--compdb" || flag == "--arg" || flag == "--runner")) {
-      ++index;
-    }
-  }
-  return workspace;
+static void public_usage(llvm::StringRef command) {
+  if (command == "run")
+    llvm::outs() << "usage: ctk-jit run SCRIPT | --bundle BUNDLE [--file FILE] [--compdb COMPDB]\n"
+                    "       [--arg NAME=VALUE] [--no-cache] [--llvm-ir | --cpp-jit] [--runner RUNNER]\n";
+  else if (command == "precompile")
+    llvm::outs() << "usage: ctk-jit precompile SCRIPT -o BUNDLE [--no-cache]\n"
+                    "       [--llvm-ir | --cpp-jit] [--runner RUNNER]\n";
+  else if (command == "repl")
+    llvm::outs() << "usage: ctk-jit repl [--ui [prompt|workspace]] [--file FILE] [--compdb COMPDB]\n"
+                    "       [--arg NAME=VALUE] [--runner RUNNER]\n";
+  else
+    llvm::outs() << "usage: ctk-jit {run,repl,precompile} [options]\n";
 }
 
-static llvm::Error native_workspace_cli(int argc, char** argv) {
-  std::string file;
-  std::string database;
-  std::string runner;
+static llvm::Error public_cli(int argc, char **argv, bool &prompt_failed) {
+  const llvm::StringRef command(argv[1]);
+  const bool repl = command == "repl";
+  const bool build = command == "precompile";
+  std::string script, bundle, output, file, database, runner;
   llvm::json::Object arguments;
+  std::optional<bool> backend;
   bool workspace = false;
+  bool no_cache = false;
+  std::vector<char *> forward{argv[0], argv[1]};
   for (int index = 2; index < argc; ++index) {
+    const int first = index;
     const llvm::StringRef argument(argv[index]);
     const auto [flag, inline_value] = argument.split('=');
-    const bool assigned = ctk::compat::contains(argument, '=');
-    if (flag == "--help" || flag == "-h") {
-      llvm::outs() << "usage: ctk-jit repl --ui [workspace] [--file FILE] [--compdb COMPDB]"
-                      " [--arg NAME=VALUE] [--runner RUNNER]\n";
+    const bool assigned = argument.contains('=');
+    if (!assigned && (flag == "--help" || flag == "-h")) {
+      public_usage(command);
       return llvm::Error::success();
     }
-    if (flag == "--ui" || flag == "--u") {
-      llvm::StringRef mode = assigned ? inline_value : "workspace";
+    if (!argument.starts_with("-")) {
+      if (repl || !script.empty())
+        return failure(llvm::Twine("unexpected argument ") + argument);
+      script = argument.str();
+    } else if (repl && (flag == "--ui" || flag == "--u")) {
+      auto ui = assigned ? inline_value : llvm::StringRef("workspace");
       if (!assigned && index + 1 < argc && argv[index + 1][0] != '-')
-        mode = argv[++index];
-      if (mode != "workspace")
-        return failure("the native workspace entry point requires --ui workspace");
-      workspace = true;
-      continue;
-    }
-    if (flag != "--file" && flag != "--compdb" && flag != "--arg" && flag != "--runner")
-      return failure(llvm::Twine("unknown workspace option ") + flag);
-    llvm::StringRef value = inline_value;
-    if (!assigned) {
-      if (index + 1 == argc)
+        ui = argv[++index];
+      if (ui != "prompt" && ui != "workspace")
+        return failure("--ui expects prompt or workspace");
+      workspace = ui == "workspace";
+    } else if (!repl && !assigned && (flag == "--llvm-ir" || flag == "--cpp-jit")) {
+      const bool ir = flag == "--llvm-ir";
+      if (backend && *backend != ir)
+        return failure("--llvm-ir and --cpp-jit are mutually exclusive");
+      backend = ir;
+    } else if (!repl && !assigned && flag == "--no-cache") {
+      no_cache = true;
+    } else {
+      std::string *destination = nullptr;
+      if (flag == "--runner") destination = &runner;
+      else if (!build && flag == "--file") destination = &file;
+      else if (!build && flag == "--compdb") destination = &database;
+      else if (build && (flag == "--output" || flag == "-o")) destination = &output;
+      else if (!repl && !build && flag == "--bundle") destination = &bundle;
+      else if (build || flag != "--arg")
+        return failure(llvm::Twine("unknown option ") + flag);
+      if (!assigned && (index + 1 == argc || llvm::StringRef(argv[index + 1]).starts_with("--")))
         return failure(llvm::Twine("missing value for ") + flag);
-      value = argv[++index];
+      const auto value = assigned ? inline_value : llvm::StringRef(argv[++index]);
+      if (destination) {
+        *destination = value.str();
+        if (flag == "--runner")
+          continue;
+      } else {
+        const auto [name, item] = value.split('=');
+        if (!value.contains('=') || name.empty() ||
+            !(llvm::isAlpha(name.front()) || name.front() == '_') ||
+            !llvm::all_of(name, [](char ch) { return llvm::isAlnum(ch) || ch == '_'; }))
+          return failure("--arg expects NAME=VALUE");
+        if (arguments.get(name))
+          return failure(llvm::Twine("duplicate script argument '") + name + "'");
+        arguments[name] = item;
+      }
     }
-    if (flag == "--file")
-      file = value.str();
-    else if (flag == "--compdb")
-      database = value.str();
-    else if (flag == "--runner")
-      runner = value.str();
-    else {
-      const auto [name, item] = value.split('=');
-      if (name.empty() || !ctk::compat::contains(value, '='))
-        return failure("--arg expects NAME=VALUE");
-      arguments[name] = item;
-    }
+    forward.insert(forward.end(), argv + first, argv + index + 1);
   }
-  if (!workspace)
-    return failure("the native workspace entry point requires --ui");
+
+  if (file.empty())
+    if (auto target = arguments.getString("file"))
+      file = target->str();
   auto encoded = llvm::formatv("{0}", llvm::json::Value(std::move(arguments))).str();
   if (!runner.empty()) {
-    std::string mode = "workspace";
-    char* native[] = {runner.data(), mode.data(), file.data(), database.data(), encoded.data(), nullptr};
-    return ctk::jit::launch_cli(runner, native);
+    forward.push_back(nullptr);
+    return ctk::jit::launch_cli(runner, forward.data());
   }
-  return run("workspace", file.c_str(), database.c_str(), nullptr, nullptr, encoded.c_str());
+  if (repl) {
+    ctk::jit::configure_ast_cache();
+    return run(workspace ? "workspace" : "prompt", file.c_str(), database.c_str(),
+               nullptr, nullptr, encoded.c_str(), nullptr, &prompt_failed);
+  }
+
+  if (script.empty() == bundle.empty())
+    return failure("provide either a script or --bundle");
+  if (build && output.empty())
+    return failure("precompile requires --output");
+  if (backend && script.empty())
+    return failure("a backend option requires a source script");
+  const auto extension = fs::path(script).extension();
+  if (!script.empty() && extension != ".ctk" && extension != ".cpp")
+    return failure("expected a .ctk script or .cpp extension");
+  const bool ir = backend.value_or(extension == ".ctk");
+  if (ir && extension != ".ctk")
+    return failure("--llvm-ir requires a .ctk script");
+  static int executable_anchor;
+  const auto executable = llvm::sys::fs::getMainExecutable(argv[0], &executable_anchor);
+  const ctk::jit::ScriptToolchain toolchain{
+      CTK_JIT_COMPILER, script_flags(), executable, CTK_JIT_SDK_INCLUDE "/ctk/jit/runtime.hpp",
+      {CTK_JIT_COMPILER, CTK_JIT_CLANG_LIBRARY, CTK_JIT_LLVM_LIBRARY,
+       CTK_JIT_ICU_LIBRARY, CTK_JIT_ICU_DATA, CTK_JIT_YAML_LIBRARY}};
+  if (auto error = initialize_native_target())
+    return error;
+  if (build)
+    return ctk::jit::precompile_script(script, output, ir, no_cache, toolchain);
+
+  auto program = bundle.empty() ? ctk::jit::script_program(script, ir, no_cache, toolchain)
+                               : ctk::jit::read_script_bundle(bundle, toolchain);
+  if (!program)
+    return program.takeError();
+  if (!program->llvm_ir && encoded != "{}")
+    return failure("--arg is available for the LLVM IR backend");
+  ctk::jit::configure_ast_cache();
+  const auto mode = program->llvm_ir ? (program->object ? "ir-object" : "ir")
+                                   : (program->object ? "object" : "source");
+  return run(mode, file.c_str(), database.c_str(),
+             program->object ? nullptr : program->quote_directory.c_str(),
+             nullptr, encoded.c_str(), std::move(program->input), &prompt_failed);
 }
 
 static llvm::json::Array syntax_json(const ctk::jit::Syntax& tree) {
@@ -439,10 +508,24 @@ static llvm::json::Array syntax_json(const ctk::jit::Syntax& tree) {
 
 int main(int argc, char **argv) {
   const llvm::StringRef mode = argc >= 2 ? argv[1] : "";
-  if (fs::path(argv[0]).filename() == "ctk-jit" && !selects_workspace(argc, argv)) {
-    auto error = ctk::jit::launch_cli(CTK_JIT_LEGACY_CLI, argv);
-    llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
-    return 1;
+  if (mode == "--help" || mode == "-h" || argc == 1) {
+    public_usage({});
+    return argc == 1 ? 2 : 0;
+  }
+  const bool internal_repl = mode == "repl" && (argc == 4 || argc == 5) &&
+      fs::path(argv[0]).filename() != "ctk-jit" && argv[2][0] != '-';
+  if (mode == "run" || mode == "precompile" || (mode == "repl" && !internal_repl)) {
+    try {
+      bool prompt_failed = false;
+      if (auto error = public_cli(argc, argv, prompt_failed)) {
+        llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
+        return 1;
+      }
+      return prompt_failed ? 1 : 0;
+    } catch (const std::exception &error) {
+      llvm::errs() << "ctk-jit: " << error.what() << '\n';
+      return 1;
+    }
   }
   if (argc == 2 && (mode == "parse-ctk" || mode == "lower-ctk")) {
     auto input = llvm::MemoryBuffer::getSTDIN();
@@ -466,19 +549,6 @@ int main(int argc, char **argv) {
     }
     llvm::outs() << llvm::json::Value(syntax_json(*tree)) << '\n';
     return 0;
-  }
-  if (mode == "repl" && argc > 2 && argv[2][0] == '-') {
-    try {
-      ctk::jit::configure_ast_cache();
-      if (auto error = native_workspace_cli(argc, argv)) {
-        llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "ctk-jit: ");
-        return 1;
-      }
-      return 0;
-    } catch (const std::exception& error) {
-      llvm::errs() << "ctk-jit: " << error.what() << '\n';
-      return 1;
-    }
   }
   if (argc == 2 && mode == "config") {
     print_config();

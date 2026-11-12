@@ -33,8 +33,10 @@ using LoadTarget =
 using ScriptArguments = std::vector<std::pair<std::string, std::string>>;
 
 llvm::Error compile_ir(llvm::StringRef source);
+llvm::Expected<std::unique_ptr<llvm::MemoryBuffer>> compile_ir_object(llvm::StringRef source);
 llvm::Error run_ir(std::unique_ptr<llvm::MemoryBuffer> input, bool precompiled, llvm::StringRef file,
-                   llvm::StringRef database, const LoadTarget& load, const ScriptArguments& arguments);
+                   llvm::StringRef database, const LoadTarget& load, const ScriptArguments& arguments,
+                   bool standalone = false);
 struct ReplIO {
   std::function<llvm::Expected<std::optional<llvm::json::Object>>()> receive;
   std::function<void(llvm::json::Object)> send;

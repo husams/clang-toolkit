@@ -188,7 +188,7 @@ public:
       throw std::bad_alloc();
   }
 
-  llvm::Expected<Syntax> parse() {
+  llvm::Expected<Syntax> parse(bool *incomplete) {
     start();
 
     std::optional<Syntax> result;
@@ -205,8 +205,11 @@ public:
         best = score;
       }
     }
-    if (!result)
+    if (!result) {
+      if (incomplete)
+        *incomplete = furthest == source.size();
       return diagnostic();
+    }
     return std::move(*result);
   }
 
@@ -599,12 +602,14 @@ std::string decode_ctk_string(std::string_view input) {
   return result;
 }
 
-llvm::Expected<Syntax> parse_ctk(llvm::StringRef source) {
+llvm::Expected<Syntax> parse_ctk(llvm::StringRef source, bool *incomplete) {
+  if (incomplete)
+    *incomplete = false;
   if (!llvm::json::isUTF8(source))
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "CTK input must be UTF-8");
   try {
-    return Parser(source).parse();
+    return Parser(source).parse(incomplete);
   } catch (const std::exception &error) {
     return llvm::createStringError(llvm::inconvertibleErrorCode(), "%s",
                                    error.what());

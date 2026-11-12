@@ -2063,8 +2063,9 @@ private:
 } // namespace
 
 llvm::Expected<std::string> lower_ctk(llvm::StringRef source, bool display,
-                                      llvm::StringRef path, bool library) {
-  auto parsed = parse_ctk(source);
+                                      llvm::StringRef path, bool library,
+                                      bool *incomplete) {
+  auto parsed = parse_ctk(source, incomplete);
   if (!parsed)
     return parsed.takeError();
   const Syntax *program = &*parsed;

@@ -121,6 +121,8 @@ target_link_libraries(ctk-jit-index-worker PRIVATE ctk_jit_services)
 
 add_executable(ctk-jit-runner
   main.cpp
+  cpp_source.cpp
+  script_artifact.cpp
   grammar/syntax.cpp
   grammar/lower.cpp
   grammar/help.cpp
@@ -137,8 +139,10 @@ add_executable(ctk-jit-runner
   workspace.cpp
   completion.cpp
   native_workspace.cpp
+  native_prompt.cpp
   native_history.cpp
   settings.cpp
+  platform/cpp_dependencies.cpp
   platform/compiler_channel.cpp
   platform/file_values.cpp
   platform/launch.cpp
@@ -148,7 +152,9 @@ if(DEFINED LLVM_ENABLE_RTTI AND NOT LLVM_ENABLE_RTTI)
   # analysis.cpp still needs RTTI for downcasts on CTK-owned state.
   set_source_files_properties(
     ir.cpp main.cpp grammar/syntax.cpp grammar/lower.cpp native_workspace.cpp
-    native_history.cpp platform/file_values.cpp platform/launch.cpp
+    native_history.cpp native_prompt.cpp script_artifact.cpp cpp_source.cpp
+    platform/cpp_dependencies.cpp platform/file_values.cpp platform/launch.cpp
+    platform/repl_cancellation.cpp
     PROPERTIES COMPILE_OPTIONS -fno-rtti)
   target_compile_definitions(ctk-jit-runner PRIVATE CTK_JIT_CLANG_NO_RTTI)
 endif()
@@ -158,14 +164,7 @@ set_target_properties(ctk-jit-runner ctk-jit-index-worker PROPERTIES
 target_include_directories(ctk-jit-runner PRIVATE include ../../server/src/clang "${CTK_JIT_YAML_INCLUDE_DIR}")
 target_include_directories(ctk-jit-runner SYSTEM PRIVATE
   ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS} "${CTK_JIT_PCRE2_INCLUDE_DIR}")
-set(_legacy_cli "${CMAKE_CURRENT_SOURCE_DIR}/../../.venv/bin/ctk-jit")
-if(Python3_EXECUTABLE)
-  get_filename_component(_python_bin "${Python3_EXECUTABLE}" DIRECTORY)
-  set(_legacy_cli "${_python_bin}/ctk-jit")
-endif()
-set(CTK_JIT_LEGACY_CLI "${_legacy_cli}" CACHE FILEPATH "Python JIT CLI")
 target_compile_definitions(ctk-jit-runner PRIVATE
-  CTK_JIT_LEGACY_CLI="${CTK_JIT_LEGACY_CLI}"
   CTK_JIT_INDEX_WORKER="$<TARGET_FILE:ctk-jit-index-worker>"
   CTK_JIT_COMPILER="${CTK_JIT_CLANG}"
   CTK_JIT_CLANG_LIBRARY="$<TARGET_FILE:clang-cpp>"
@@ -181,7 +180,7 @@ target_compile_definitions(ctk-jit-runner PRIVATE
   CTK_JIT_SYSROOT="${CTK_JIT_SYSROOT}"
   CTK_JIT_GCC_FLAG="${CTK_JIT_GCC_FLAG}")
 target_link_libraries(ctk-jit-runner PRIVATE
-  ctk_jit_services clang-cpp LLVM ICU::uc ICU::data ZLIB::ZLIB ftxui::component
+  ctk_jit_services clang-cpp LLVM ICU::uc ICU::data ZLIB::ZLIB OpenSSL::Crypto ftxui::component
   "${CTK_JIT_YAML_LIBRARY}" "${CTK_JIT_PCRE2_LIBRARY}")
 
 add_dependencies(ctk-jit-runner ctk-jit-index-worker)

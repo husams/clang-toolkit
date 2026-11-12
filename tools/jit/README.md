@@ -11,8 +11,10 @@ Clang libraries with the server and gRPC transport disabled.
 cmake -S . -B build/jit-standalone -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCTK_BUILD_JIT=ON -DCTK_BUILD_NETWORK=OFF -DCTK_BUILD_TESTS=OFF
 cmake --build build/jit-standalone --target ctk-jit-runner
-uv sync --locked
-uv run ctk-jit run query.ctk --file src/example.cpp --compdb build/
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$PWD/build/jit-standalone/ctk-jit-runner" "$HOME/.local/bin/ctk-jit"
+export PATH="$HOME/.local/bin:$PATH"
+ctk-jit repl --ui
 ```
 
 Use a compilation database with one entry for the target file. Prefer a
@@ -20,21 +22,11 @@ compilation database produced by a toolchain compatible with the linked Clang.
 On macOS, use the matching Homebrew Clang when generating an entry with
 `clang++ -MJ` so the entry uses flags understood by the runner.
 The CLI accepts a database directory or the JSON file itself. Use `--runner`
-for a native runner built outside `build/jit-standalone`.
+to select a different native runner.
 
-Use the native runner as the installed `ctk-jit` workspace entry point.
-
-```sh
-mkdir -p "$HOME/.local/bin"
-ln -sfn "$PWD/build/jit-standalone/ctk-jit-runner" "$HOME/.local/bin/ctk-jit"
-ctk-jit repl --ui --file src/example.cpp --compdb build/
-```
-
-The launcher enters FTXUI for `repl --ui` and `repl --ui workspace`. Those modes
-parse fresh CTK source and generate LLVM IR inside the native process. The
-repository's Python environment provides `run`, `precompile`, and
-`repl --ui prompt`. Regenerate the bundled grammar and help from their shared
-sources with `uv run python tools/jit/grammar/generate.py`.
+The workspace, plain prompt, `run`, and `precompile` execute in the native
+process without Python or a CTK server. Regenerate the bundled grammar and
+help from their shared sources with `uv run python tools/jit/grammar/generate.py`.
 
 LLVM scripts can omit `--file` and `--compdb` when they supply their own input
 or operate on ordinary values. Use `--arg name=value` to supply a script value
@@ -50,6 +42,8 @@ foreach row in rows do {
     print row.f.decl_name
 }
 ```
+
+Run the query with `ctk-jit run query.ctk --file src/example.cpp --compdb build/`.
 
 The default backend uses the existing CTK parser and lowers its syntax tree
 directly to LLVM IR. The native runner evaluates values and control flow,
@@ -107,7 +101,7 @@ match functionDecl(isDefinition(), isExpansionInMainFile()).bind("f") in $source
 }
 ```
 
-The prompt recalls persistent history with Up/Down and Ctrl+R. `session label`
+The prompt recalls persistent history with Up/Down. `session label`
 tags subsequent commands, `history save "history.jsonl"` exports the records,
 and `history clear` clears them. The log is shared with the existing console
 at `$XDG_STATE_HOME/clang_tools/history.jsonl`, or
@@ -126,7 +120,7 @@ Batch progress updates while a command runs.
 Use `--cpp-jit` to select the C++ backend or `--llvm-ir` to select IR explicitly.
 
 ```sh
-uv run ctk-jit run query.ctk --cpp-jit --no-cache --file src/example.cpp --compdb build/
+ctk-jit run query.ctk --cpp-jit --no-cache --file src/example.cpp --compdb build/
 ```
 
 To exercise a custom matcher, pass a trusted `.cpp` file to `run`. Include
@@ -141,8 +135,8 @@ Precompile the script without a target file. Load its native object with the
 same runner and toolchain. Each invocation reads the target's current AST.
 
 ```sh
-uv run ctk-jit precompile query.ctk --output query.ctk-bundle
-uv run ctk-jit run --bundle query.ctk-bundle --file src/example.cpp --compdb build/
+ctk-jit precompile query.ctk --output query.ctk-bundle
+ctk-jit run --bundle query.ctk-bundle --file src/example.cpp --compdb build/
 ```
 
 Add `--cpp-jit` to precompile a C++ bundle.
@@ -153,6 +147,7 @@ build input, and object fingerprints. A bundle freezes the script and any
 C++ includes at precompile time. CTK `import` reads the library at execution
 time, including when a bundle runs. The original script is optional when
 running the bundle. Load only trusted bundles and native C++ extensions.
+Rebuild bundles created by the earlier Python launcher with `ctk-jit precompile`.
 
 `run query.ctk` and `precompile query.ctk` share an object cache per backend.
 For C++ objects, warm runs validate the script, toolchain, used headers, and
@@ -173,7 +168,7 @@ Bindings can hold ordinary CTK values and native runnables. Use `print g`
 to display a value binding or `print g.n` to display one of its fields.
 
 ```text
-$ uv run ctk-jit repl --file src/example.cpp --compdb build/
+$ ctk-jit repl --file src/example.cpp --compdb build/
 ctk-jit> let tree = parse arg.file
 ctk-jit> let rows = match functionDecl(isDefinition()).bind("f") in tree
 ctk-jit> foreach row in rows do { print row.f.decl_name }
@@ -189,7 +184,7 @@ ctk-jit> :quit
 ```
 
 Submit one statement or a semicolon-separated group. The continuation prompt
-accepts open blocks across lines. Each session keeps up to 128 compiled commands,
+accepts open blocks across lines. The line prompt keeps up to 128 compiled commands,
 keyed by exact input text, and evicts the oldest entry when full. Repeating a
 command reuses its compiled code. Saved runnables retain their code even when
 the command that defined them leaves the cache. Matches traverse the retained

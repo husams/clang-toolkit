@@ -393,7 +393,7 @@ const Value* LocalOperations::foreground_batch(Values& runtime, const Sequence& 
                               " inputs, jobs " + std::to_string(jobs)))
     return nullptr;
   for (std::int64_t group = 0, offset = 0; group < groups; ++group) {
-    if (workspace && repl_cancelled()) {
+    if (runtime.cancellable && repl_cancelled()) {
       show_progress("cancelled");
       return runtime.fail("batch cancelled");
     }
@@ -475,8 +475,9 @@ const Value* LocalOperations::foreground_batch(Values& runtime, const Sequence& 
     } else {
       failed_files += length;
     }
-    if (runtime.fatal || runtime.exit_requested || (workspace && repl_cancelled())) {
-      const bool cancelled = workspace && repl_cancelled();
+    if (runtime.fatal || runtime.exit_requested ||
+        (runtime.cancellable && repl_cancelled())) {
+      const bool cancelled = runtime.cancellable && repl_cancelled();
       show_progress(cancelled || runtime.exit_requested ? "cancelled" : "failed");
       if (cancelled)
         runtime.fail("batch cancelled");
