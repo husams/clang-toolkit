@@ -180,6 +180,7 @@ struct Values {
   const Value* last_printed = nullptr;
   const Value* result = nullptr;
   Workspace* workspace = nullptr;
+  bool cancellable = false;
   std::vector<Preview> previews;
   std::string source_path;
   std::size_t call_depth = 0;

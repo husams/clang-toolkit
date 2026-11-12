@@ -11,6 +11,7 @@ namespace ctk::jit {
 llvm::Expected<std::string> lower_ctk(llvm::StringRef source,
                                       bool display = true,
                                       llvm::StringRef path = {},
-                                      bool library = false);
+                                      bool library = false,
+                                      bool *incomplete = nullptr);
 
 } // namespace ctk::jit

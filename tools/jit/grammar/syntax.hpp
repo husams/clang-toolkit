@@ -18,7 +18,7 @@ struct Syntax {
   std::vector<Syntax> children;
 };
 
-llvm::Expected<Syntax> parse_ctk(llvm::StringRef source);
+llvm::Expected<Syntax> parse_ctk(llvm::StringRef source, bool *incomplete = nullptr);
 
 enum class PathRole { None, File, Directory, Relative };
 PathRole path_role_after(llvm::StringRef prefix);

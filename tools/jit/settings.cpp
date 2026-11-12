@@ -150,6 +150,25 @@ bool load_settings(Values& runtime) {
   return layers && apply(runtime, merged(*layers), true, false);
 }
 
+std::filesystem::path configured_script_cache() {
+  Bindings bindings;
+  LocalState state;
+  std::string output, error;
+  Values runtime(nullptr, bindings, state, output, error);
+  const auto layers = read_layers(runtime, locations());
+  if (!layers)
+    return {};
+  const auto settings = merged(*layers);
+  const auto *text = as<std::string>(settings.fields.find("cache_dir")->second);
+  if (!text || text->empty())
+    return {};
+  if (llvm::StringRef(*text).starts_with("~/")) {
+    if (const auto *home = std::getenv("HOME"); home && *home)
+      return fs::path(home) / text->substr(2);
+  }
+  return fs::absolute(*text);
+}
+
 const Value* update_setting(Values& runtime, llvm::StringRef name, const Value* value, bool user,
                             bool append) {
   if (runtime.state.batch_output_bytes)
