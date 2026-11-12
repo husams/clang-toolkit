@@ -5,18 +5,50 @@
 #include "semantic.hpp"
 #include "value_access.hpp"
 
+#include <algorithm>
 #include <exception>
+#include <filesystem>
 #include <utility>
 
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringExtras.h>
+#include <llvm/Support/Path.h>
 
 namespace ctk::jit {
 namespace {
 
 using namespace value_access;
 namespace json = llvm::json;
+namespace fs = std::filesystem;
+
+std::string escape_path(llvm::StringRef text, char quote) {
+  std::string result;
+  for (const unsigned char ch : text) {
+    if (ch < 32 || ch == 127) {
+      result += "\\x";
+      result += llvm::hexdigit(ch >> 4);
+      result += llvm::hexdigit(ch & 15);
+      continue;
+    }
+    if (ch == '\\' || ch == quote)
+      result += '\\';
+    result += static_cast<char>(ch);
+  }
+  return result;
+}
+
+std::string path_prefix(llvm::StringRef atom, char quote) {
+  std::size_t end = 1;
+  while (end < atom.size() && atom[end] != quote) {
+    if (atom[end] == '\\' && end + 1 < atom.size())
+      ++end;
+    ++end;
+  }
+  auto literal = atom.take_front(end).str() + quote;
+  return decode_ctk_string(literal) + atom.drop_front(std::min(end + 1, atom.size())).str();
+}
 
 enum class TokenKind { Name, Dot, Dollar, Open, Close, Other };
 
@@ -260,6 +292,57 @@ std::optional<llvm::StringRef> field_receiver(llvm::StringRef prefix) {
   if (index && tokens[index - 1].kind == TokenKind::Dollar)
     --index;
   return prefix.slice(tokens[index].begin, end).rtrim();
+}
+
+std::vector<PathSuggestion> path_suggestions(PathRole role, llvm::StringRef atom) {
+  const bool quoted = atom.starts_with('\'') || atom.starts_with('"');
+  const char quote = quoted ? atom.front() : '\'';
+  // Dynamic strings need evaluation, which Tab completion never performs.
+  if (quote == '"' && atom.find_first_of("${}") != llvm::StringRef::npos)
+    return {};
+  std::string prefix;
+  try {
+    prefix = quoted ? path_prefix(atom, quote) : atom.str();
+  } catch (const std::exception &) {
+    return {};
+  }
+  if (prefix == "~" || llvm::StringRef(prefix).starts_with("~/")) {
+    llvm::SmallString<128> home;
+    if (!llvm::sys::path::home_directory(home))
+      return {};
+    prefix = home.str().str() + "/" + prefix.substr(std::min<std::size_t>(2, prefix.size()));
+  }
+  if (prefix.find('\0') != std::string::npos)
+    return {};
+  const fs::path path(prefix);
+  if (role == PathRole::Relative && path.is_absolute())
+    return {};
+  const auto parent = path.parent_path();
+  const auto basename = path.filename().string();
+  std::vector<PathSuggestion> choices;
+  std::error_code error;
+  for (fs::directory_iterator entry(parent.empty() ? fs::path(".") : parent, error),
+       end; !error && entry != end; entry.increment(error)) {
+    auto name = entry->path().filename().string();
+    if (!llvm::StringRef(name).starts_with(basename) || !json::isUTF8(name))
+      continue;
+    std::error_code issue;
+    const auto status = entry->status(issue);
+    const bool directory = fs::is_directory(status);
+    if (issue || (!directory && (role == PathRole::Directory || !fs::is_regular_file(status))))
+      continue;
+    if (directory)
+      name += '/';
+    const auto spelling = (parent / name).string();
+    const char delimiter = quote == '"' && llvm::StringRef(spelling).find_first_of("${}") !=
+                                               llvm::StringRef::npos ? '\'' : quote;
+    choices.push_back({escape_path(name, 0) + (directory ? "  directory" : "  file"),
+                       delimiter + escape_path(spelling, delimiter) + delimiter});
+  }
+  std::sort(choices.begin(), choices.end(), [](const auto &left, const auto &right) {
+    return left.display < right.display;
+  });
+  return choices;
 }
 
 llvm::json::Array complete_fields(Values &values, llvm::StringRef reference,
