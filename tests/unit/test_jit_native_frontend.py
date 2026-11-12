@@ -57,6 +57,83 @@ def test_native_parser_uses_the_same_syntax_tree(source: str) -> None:
     assert json.loads(result.stdout) == expected
 
 
+@pytest.mark.parametrize("driver", ["clang++", "../toolchain/bin/clang++"])
+def test_native_parse_uses_project_driver_config(tmp_path: Path, driver: str) -> None:
+    if not _RUNNER.is_file():
+        pytest.skip("standalone ctk-jit runner has not been built")
+    compiler = json.loads(subprocess.check_output([_RUNNER, "config"]))["compiler"]
+    bin_dir = tmp_path / "toolchain" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "clang++").symlink_to(compiler)
+    sysroot = tmp_path / "project-sdk"
+    includes = sysroot / "usr" / "include"
+    includes.mkdir(parents=True)
+    (includes / "ctk_project_driver.h").write_text("#define DRIVER_VALUE 73\n")
+    (bin_dir / "ctk-project-driver.cfg").write_text(
+        f'--sysroot="{sysroot}"\n-isysroot "{sysroot}"\n'
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "sample.cpp"
+    source.write_text(
+        '#include <ctk_project_driver.h>\n'
+        'static_assert(DRIVER_VALUE == 73, "wrong driver sysroot");\n'
+        'int from_project_driver() { return DRIVER_VALUE; }\n'
+    )
+    (project / "driver.rsp").write_text("--config=ctk-project-driver.cfg -std=c++17\n")
+    database = project / "compile_commands.json"
+    database.write_text(json.dumps([{
+        "directory": str(project),
+        "file": "sample.cpp",
+        "arguments": [driver, "@driver.rsp", "-c", "sample.cpp"],
+    }]))
+    result = subprocess.run(
+        [_RUNNER, "repl", source, database],
+        cwd=tmp_path,
+        input=json.dumps({
+            "slot": 0,
+            "source": (
+                "let tree = parse arg.file; "
+                'let rows = match functionDecl(hasName("from_project_driver")) in tree; '
+                "print len(rows)"
+            ),
+        }) + "\n",
+        env={
+            "PATH": str(bin_dir),
+            "CTK_SERVER": "unix:///nonexistent/ctk.sock",
+            "CTK_JIT_STATE_DIR": str(tmp_path / "state"),
+        },
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    ready, reply = map(json.loads, result.stdout.splitlines())
+    assert ready["ready"] and reply["compiled"] and not reply["error"]
+    assert reply["output"] == "1\n"
+
+
+def test_native_parse_with_compile_flags_and_no_project_driver(tmp_path: Path) -> None:
+    if not _RUNNER.is_file():
+        pytest.skip("standalone ctk-jit runner has not been built")
+    source = tmp_path / "sample.cpp"
+    source.write_text("#include <stdio.h>\nint project_value = PROJECT_VALUE;\n")
+    (tmp_path / "compile_flags.txt").write_text("-DPROJECT_VALUE=73\n")
+    result = subprocess.run(
+        [_RUNNER, "repl", source, ""],
+        cwd=tmp_path,
+        input=json.dumps({"slot": 0, "source": "let tree = parse arg.file; print 73"}) + "\n",
+        env={"PATH": "/nonexistent", "CTK_JIT_STATE_DIR": str(tmp_path / "state")},
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    ready, reply = map(json.loads, result.stdout.splitlines())
+    assert ready["ready"] and reply["compiled"] and not reply["error"]
+    assert reply["output"] == "73\n"
+
+
 def test_native_submission_retains_bindings_and_compiled_code(tmp_path: Path) -> None:
     if not _RUNNER.is_file():
         pytest.skip("standalone ctk-jit runner has not been built")
