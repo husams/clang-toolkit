@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import json
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -166,28 +167,44 @@ def native_jit(tmp_path: Path) -> Callable[..., subprocess.CompletedProcess[str]
 
 
 @pytest.mark.parametrize("driver", ["g++", "g++-8.5", "x86_64-linux-gnu-g++-8", "c++"])
-def test_native_gcc_compile_command_preserves_supported_werror(
+def test_native_gcc_compile_command_uses_configured_driver(
     tmp_path: Path, native_jit: Callable[..., subprocess.CompletedProcess[str]], driver: str
 ) -> None:
     toolchain = tmp_path / "toolchain"
     toolchain.mkdir()
     gcc = toolchain / "g++-8.5"
-    gcc.touch()
+    compiler = json.loads(subprocess.check_output([_RUNNER, "config"], text=True))["compiler"]
+    gcc.write_text(
+        '#!/bin/sh\n'
+        'printf "%s\\n" "$@" > driver-arguments\n'
+        f'exec {shlex.quote(compiler)} -Wno-unknown-warning-option '
+        '-Wno-inconsistent-missing-override "$@"\n'
+    )
+    gcc.chmod(0o700)
     if driver == "c++":
         (toolchain / "g++").hardlink_to(gcc)
         (toolchain / driver).hardlink_to(gcc)
     elif driver != gcc.name:
         (toolchain / driver).symlink_to(gcc.name)
+    project = tmp_path / "build with spaces"
+    project.mkdir()
+    (project / "project.hpp").write_text("#define PROJECT_VALUE 73\n")
     (tmp_path / "compile_commands.json").write_text(json.dumps([{
-        "directory": str(tmp_path),
-        "file": "sample.cpp",
+        "directory": str(project),
+        "file": "../sample.cpp",
         "arguments": [
-            f"toolchain/{driver}", "-std=c++17", "-Werror", "-Werror=maybe-uninitialized",
-            "-Werror=stringop-overflow", "-Werror=unused-variable", "-c", "sample.cpp",
+            f"../toolchain/{driver}", "-std=c++17", "-Wall", "-Werror",
+            "-Werror=maybe-uninitialized", "-Werror=stringop-overflow",
+            "-include", "project.hpp", "-c", "../sample.cpp",
+            "-o", "sample.o", "-MD", "-MF", "sample.d",
         ],
     }]))
     source = tmp_path / "sample.cpp"
-    source.write_text("int gcc_target() { return 73; }\n")
+    source.write_text(
+        "struct Base { virtual int f(); virtual int g(); };\n"
+        "struct Derived : Base { int f() override; int g(); };\n"
+        "int gcc_target() { return PROJECT_VALUE; }\n"
+    )
     (tmp_path / "query.ctk").write_text(
         'let tree = parse arg.file\nprint len(match functionDecl(hasName("gcc_target")) in tree)\n'
     )
@@ -195,13 +212,18 @@ def test_native_gcc_compile_command_preserves_supported_werror(
     result = native_jit(*args)
     assert result.returncode == 0, result.stderr
     assert result.stdout == "1\n"
-    assert "unknown warning option" not in result.stderr
+    assert result.stderr == ""
+    driver_arguments = (project / "driver-arguments").read_text().splitlines()
+    assert {"-fsyntax-only", "-Wall", "-Werror", "../sample.cpp"} <= set(driver_arguments)
+    assert not {"-c", "-o", "-MD", "-MF"} & set(driver_arguments)
+    assert not (project / "sample.o").exists()
+    assert not (project / "sample.d").exists()
 
-    source.write_text("int gcc_target() { int unused = 0; return 73; }\n")
+    source.write_text("int gcc_target() { int unused = 0; return PROJECT_VALUE; }\n")
     result = native_jit(*args)
     assert result.returncode == 1
+    assert "configured GCC driver" in result.stderr
     assert "unused variable 'unused'" in result.stderr
-    assert "unknown warning option" not in result.stderr
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Apple compiler shim")
