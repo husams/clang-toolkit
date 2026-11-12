@@ -22,6 +22,7 @@
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/Triple.h>
@@ -55,11 +56,6 @@ parse_target(const fs::path &target_path, fs::path database_path,
   std::unique_ptr<tooling::CompilationDatabase> database;
   if (database_path.empty()) {
     database = tooling::CompilationDatabase::autoDetectFromSource(file, message);
-    if (!database) {
-      database = std::make_unique<tooling::FixedCompilationDatabase>(
-          fs::path(file).parent_path().string(),
-          std::vector<std::string>{fs::path(file).extension() == ".c" ? "-std=c17" : "-std=c++20"});
-    }
   } else {
     if (fs::is_directory(database_path))
       database_path /= "compile_commands.json";
@@ -67,6 +63,16 @@ parse_target(const fs::path &target_path, fs::path database_path,
         database_path.string(), message, tooling::JSONCommandLineSyntax::AutoDetect);
     if (!database)
       return failure(llvm::Twine("compilation database: ") + message);
+    database = tooling::inferTargetAndDriverMode(tooling::expandResponseFiles(
+        std::move(database), llvm::vfs::getRealFileSystem()));
+  }
+  if (!database) {
+    database = std::make_unique<tooling::FixedCompilationDatabase>(
+        fs::path(file).parent_path().string(),
+        std::vector<std::string>{fs::path(file).extension() == ".c"
+                                     ? "-std=c17" : "-std=c++20"});
+  } else {
+    database = tooling::inferToolLocation(std::move(database));
   }
 
   const auto commands = database->getCompileCommands(file);
@@ -74,6 +80,14 @@ parse_target(const fs::path &target_path, fs::path database_path,
     return failure(llvm::Twine("no compile command for ") + file);
   if (commands.size() != 1)
     return failure(llvm::Twine("multiple compile commands for ") + file);
+  if (commands.front().CommandLine.empty())
+    return failure(llvm::Twine("compile command has no driver for ") + file);
+
+  // FixedCompilationDatabase supplies this placeholder when there is no
+  // project driver, including for compile_flags.txt.
+  const bool use_default_toolchain =
+      fs::path(commands.front().CommandLine.front()).filename() == "clang-tool" &&
+      database->getAllFiles().empty();
 
   tooling::ClangTool tool(*database, {file});
   tool.setDiagnosticConsumer(&diagnostics);
@@ -81,6 +95,9 @@ parse_target(const fs::path &target_path, fs::path database_path,
   tool.appendArgumentsAdjuster(
       [&](const tooling::CommandLineArguments &arguments, llvm::StringRef) {
         auto normalized = arguments;
+        const auto driver = fs::path(normalized.front());
+        if (driver.has_parent_path() && !driver.is_absolute())
+          normalized.front() = (directory / driver).string();
         // The AST's input spelling is visible to file matchers.
         for (std::size_t index = 1; index < normalized.size(); ++index) {
           auto &argument = normalized[index];
@@ -93,11 +110,13 @@ parse_target(const fs::path &target_path, fs::path database_path,
       });
   tooling::CommandLineArguments defaults{std::string("-resource-dir=") +
                                          CTK_JIT_RESOURCE_DIR};
-  if (llvm::StringRef(CTK_JIT_SYSROOT) != "") {
+  // Keep the linked Clang's builtin headers as a fallback. SDK flags are only
+  // for the synthesized command and must not override project driver configs.
+  if (use_default_toolchain && llvm::StringRef(CTK_JIT_SYSROOT) != "") {
     defaults.push_back("-isysroot");
     defaults.push_back(CTK_JIT_SYSROOT);
   }
-  if (llvm::StringRef(CTK_JIT_GCC_FLAG) != "")
+  if (use_default_toolchain && llvm::StringRef(CTK_JIT_GCC_FLAG) != "")
     defaults.insert(defaults.end(), {"--sysroot=" CTK_JIT_SYSROOT,
                                     CTK_JIT_GCC_FLAG});
   tool.appendArgumentsAdjuster(tooling::getInsertArgumentAdjuster(
