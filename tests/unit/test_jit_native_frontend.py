@@ -208,6 +208,7 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
     (project / "sample.cpp").write_text("int add(int a, int b) { return a + b; }\n")
     (project / "src").mkdir()
     (project / "src" / "inside.cpp").write_text("int inside;\n")
+    (project / "src" / "space {name}.cpp").write_text("int spaced;\n")
     (project / ".hidden").touch()
     executable = tmp_path / "ctk-jit"
     executable.symlink_to(_RUNNER)
@@ -301,6 +302,56 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         read_until("Command help · F4")
         send("\x1b[17~")  # F6 from the right pane returns to the editor.
 
+        send("parse\t")
+        read_until("sample.cpp  file")
+        send("\x03")
+        send("parse sr\t")
+        read_until("src/  directory")
+        send("\r\t")
+        read_until("inside.cpp  file")
+        send("\r")
+        read_until("parse 'src/inside.cpp'", row=-2)
+        send("\x03")
+
+        for prefix, candidate, completed in (
+            ('let tree = parse "src/sp', "space {name}.cpp  file",
+             "let tree = parse 'src/space {name}.cpp'"),
+            ('match functionDecl() in "sam', "sample.cpp  file",
+             'match functionDecl() in "sample.cpp"'),
+            ("cfg in sam", "sample.cpp  file", "cfg in 'sample.cpp'"),
+            ("callgraph sam", "sample.cpp  file", "callgraph 'sample.cpp'"),
+            ("traverse sam", "sample.cpp  file", "traverse 'sample.cpp'"),
+            ('script "emit 1;" in sam', "sample.cpp  file",
+             """script "emit 1;" in 'sample.cpp'"""),
+            ("file open sam", "sample.cpp  file", "file open 'sample.cpp'"),
+            ("cursor open sam", "sample.cpp  file", "cursor open 'sample.cpp'"),
+            ("session add sam", "sample.cpp  file", "session add 'sample.cpp'"),
+            ("read sam", "sample.cpp  file", "read 'sample.cpp'"),
+            ("load sam", "sample.cpp  file", "load 'sample.cpp'"),
+            ("import sam", "sample.cpp  file", "import 'sample.cpp'"),
+            ("history save sam", "sample.cpp  file", "history save 'sample.cpp'"),
+            ("save 1 to sam", "sample.cpp  file", "save 1 to 'sample.cpp'"),
+            ("print 1 to sam", "sample.cpp  file", "print 1 to 'sample.cpp'"),
+            ("set output to sam", "sample.cpp  file", "set output to 'sample.cpp'"),
+            ("set compile_commands sam", "sample.cpp  file",
+             "set compile_commands 'sample.cpp'"),
+            ("let paths = files sr", "src/  directory", "let paths = files 'src/'"),
+            ("files [\"src/ins", "inside.cpp  file", 'files ["src/inside.cpp"]'),
+            ("glob(\"src/ins", "inside.cpp  file", 'glob("src/inside.cpp")'),
+            ("set cache_dir to s", "src/  directory", "set cache_dir to 'src/'"),
+            ("index start s", "src/  directory", "index start 'src/'"),
+            ('index lookup "usr" in s', "src/  directory",
+             """index lookup "usr" in 'src/'"""),
+        ):
+            send(prefix + "\t")
+            directory_only = prefix in {
+                "set cache_dir to s", "index start s", 'index lookup "usr" in s'
+            }
+            read_until(candidate, absent="sample.cpp  file" if directory_only else "")
+            send("\r")
+            read_until(completed, row=-2)
+            send("\x03")
+
         long_draft = "\n".join(f"# draft line {i}" for i in range(1, 21))
         send("\x1b[200~" + long_draft + "\x1b[201~")
         read_until("20 │ # draft line 20")
@@ -370,8 +421,11 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         read_until("nested_field")
         send("\r\x1b[F\r")
         read_until("1 │ print $data.outer.items[0].nested_field + 1")
-        match = 'match functionDecl(hasName("add")).bind("f") in "sample.cpp"'
-        send(match + "\r")
+        match_prefix = 'match functionDecl(hasName("add")).bind("f") in "sam'
+        match = match_prefix + 'ple.cpp"'
+        send(match_prefix + "\t")
+        read_until("sample.cpp  file")
+        send("\r\r")
         read_until("▸ match")
         send("\x1b[17~\r")
         read_until("sample.cpp:1")

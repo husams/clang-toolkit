@@ -922,7 +922,7 @@ private:
     const Syntax *destination = nullptr;
     if (name.starts_with("index_")) {
       for (const auto &part : parts)
-        if (part.name == "LEGACY_STRING")
+        if (llvm::StringRef(part.name).ends_with("STRING"))
           add(part);
       if (name == "index_find") {
         Kind symbol;

@@ -174,16 +174,13 @@ public:
   }
 
   llvm::Expected<Syntax> parse() {
-    for (const auto rule : ruleset.productions[start_symbol])
-      add(0, {rule, 0, 0});
+    start();
 
     std::optional<Syntax> result;
     std::optional<std::int64_t> best;
     for (std::size_t end = 0; end <= source.size(); ++end) {
-      auto &column = columns[end];
-      for (std::size_t i = 0; i < column.items.size(); ++i)
-        process(end, column.items[i]);
-
+      advance_column(end);
+      const auto &column = columns[end];
       const auto root = column.completed.find({start_symbol, 0});
       if (root == column.completed.end() || !trailing_trivia(end))
         continue;
@@ -198,7 +195,37 @@ public:
     return std::move(*result);
   }
 
+  PathRole path_role_at(std::size_t offset) {
+    start();
+    for (std::size_t end = 0; end <= offset; ++end)
+      advance_column(end);
+    auto role = PathRole::None;
+    for (const auto &[symbol, tokens] : columns[offset].scanned) {
+      if (tokens.empty())
+        continue;
+      const std::string_view name = terminals[symbol].name;
+      if (name == "LEGACY_DIRECTORY_STRING")
+        return PathRole::Directory;
+      if (name == "LEGACY_PATH_STRING")
+        role = PathRole::Relative;
+      else if (name == "LEGACY_FILE_STRING" && role == PathRole::None)
+        role = PathRole::File;
+    }
+    return role;
+  }
+
 private:
+  void start() {
+    for (const auto rule : ruleset.productions[start_symbol])
+      add(0, {rule, 0, 0});
+  }
+
+  void advance_column(std::size_t end) {
+    auto &items = columns[end].items;
+    for (std::size_t i = 0; i < items.size(); ++i)
+      process(end, items[i]);
+  }
+
   NodeId make_node(ForestNode::Type type, unsigned name, std::size_t begin,
                    std::size_t end) {
     nodes.push_back({type, name, begin, end, {}, std::nullopt, 0, false});
@@ -566,6 +593,14 @@ llvm::Expected<Syntax> parse_ctk(llvm::StringRef source) {
     return llvm::createStringError(llvm::inconvertibleErrorCode(), "%s",
                                    error.what());
   }
+}
+
+PathRole path_role_after(llvm::StringRef prefix) {
+  if (!llvm::json::isUTF8(prefix))
+    return PathRole::None;
+  // A literal activates the grammar's lookahead for commands such as files.
+  const auto probe = prefix.str() + " \"\"";
+  return Parser(probe).path_role_at(prefix.size() + 1);
 }
 
 } // namespace ctk::jit
