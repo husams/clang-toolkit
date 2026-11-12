@@ -1,6 +1,7 @@
 #include "native_workspace.hpp"
 #include "completion.hpp"
 #include "grammar/help.hpp"
+#include "grammar/syntax.hpp"
 #include "platform/repl_cancellation.hpp"
 #include "workspace_display.hpp"
 #include "ctk/support/algorithm.hpp"
@@ -1364,12 +1365,73 @@ private:
     return true;
   }
 
+  bool complete_path() {
+    const auto text = llvm::StringRef(draft);
+    const auto cursor = static_cast<std::size_t>(editor_cursor);
+    const auto before = text.take_front(cursor);
+    const auto tokens = display::tokens(before);
+    if (tokens.empty() || tokens.back().role == display::Role::Comment)
+      return false;
+
+    constexpr llvm::StringRef separators = " \t\r\n\"'\x60()[]{},;\x24=<>|!";
+    const auto separator = before.find_last_of(separators);
+    auto begin = separator == llvm::StringRef::npos ? 0 : separator + 1;
+    auto end = cursor;
+    const auto literal = std::find_if(tokens.rbegin(), tokens.rend(), [&](const auto &token) {
+      return token.role == display::Role::String &&
+             (token.end == cursor || token.end == begin);
+    });
+    if (literal != tokens.rend()) {
+      begin = literal->begin;
+      if (text[begin] == 96)
+        return false;
+    }
+    if (literal != tokens.rend() && literal->open_literal) {
+      // Replace the existing suffix and its closing quote as one atom.
+      while (end < text.size()) {
+        const auto ch = text[end++];
+        if (ch == text[begin])
+          break;
+        if (ch == '\\' && end < text.size())
+          ++end;
+      }
+    } else {
+      while (end < text.size() && !separators.contains(text[end]))
+        ++end;
+    }
+
+    auto role = path_role_after(text.take_front(begin));
+    if (role == PathRole::None && begin != cursor && end == cursor &&
+        literal == tokens.rend()) {
+      // Allow Tab directly after a complete keyword, including parse and files.
+      begin = cursor;
+      role = path_role_after(before);
+    }
+    if (role == PathRole::None)
+      return false;
+
+    const bool space = begin == cursor &&
+                       !llvm::StringRef(" \t\r\n([{,").contains(before.back());
+    std::vector<Row> rows;
+    for (auto &candidate : path_suggestions(role, text.slice(begin, cursor))) {
+      rows.push_back({std::move(candidate.display), {}, {}});
+      rows.back().completion = space ? " " + candidate.insertion
+                                     : std::move(candidate.insertion);
+    }
+    if (rows.empty())
+      return false;
+    completion_begin = begin;
+    completion_end = end;
+    open_completion(std::move(rows));
+    return true;
+  }
+
   void complete() {
     if (completion_open) {
       completion.move(1);
       return;
     }
-    if (completion_query || complete_presence())
+    if (completion_query || complete_presence() || complete_path())
       return;
     completion_end = static_cast<std::size_t>(editor_cursor);
     completion_begin = completion_end;

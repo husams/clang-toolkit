@@ -19,6 +19,10 @@ struct Syntax {
 };
 
 llvm::Expected<Syntax> parse_ctk(llvm::StringRef source);
+
+enum class PathRole { None, File, Directory, Relative };
+PathRole path_role_after(llvm::StringRef prefix);
+
 /// Decode escapes in a quoted string. Interpolation is handled by the caller.
 std::string decode_ctk_string(std::string_view literal);
 

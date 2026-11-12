@@ -20,6 +20,26 @@ def _replace_rule(grammar: str, original: str, replacement: str) -> str:
 @cache
 def parser() -> Lark:
     grammar = shared.grammar_text()
+    for command, role in (
+        ("COMPILE_COMMANDS", "FILE_STRING"),
+        ("INDEX LEGACY_START", "DIRECTORY_STRING"),
+        ("INDEX LEGACY_RENAME", "DIRECTORY_STRING"),
+        ("INDEX LEGACY_STATUS", "DIRECTORY_STRING"),
+        ("INDEX LEGACY_PAUSE", "DIRECTORY_STRING"),
+        ("INDEX LEGACY_RESUME", "DIRECTORY_STRING"),
+        ("INDEX LEGACY_CANCEL", "DIRECTORY_STRING"),
+    ):
+        grammar = _replace_rule(
+            grammar, f"LEGACY_{command} LEGACY_STRING", f"LEGACY_{command} LEGACY_{role}"
+        )
+    grammar = _replace_rule(
+        grammar, "[LEGACY_IN LEGACY_STRING] -> index_find",
+        "[LEGACY_IN LEGACY_DIRECTORY_STRING] -> index_find",
+    )
+    grammar = _replace_rule(
+        grammar, "LEGACY_IN LEGACY_STRING  -> index_lookup",
+        "LEGACY_IN LEGACY_DIRECTORY_STRING  -> index_lookup",
+    )
     for command in ("PEEK", "STEP"):
         grammar = _replace_rule(
             grammar,
