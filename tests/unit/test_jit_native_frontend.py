@@ -595,6 +595,29 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         read_until("parse 'src/inside.cpp'", row=-2)
         send("\x03")
 
+        # An accepted directory keeps the caret inside its (auto-closed) quote.
+        send('parse "sr\t')
+        read_until("src/  directory")
+        send("\r")
+        read_until("parse \"src/\"", row=-2, cursor=(7 + len('parse "src/'), height - 2))
+        send("X")
+        read_until('parse "src/X"', row=-2, absent='"X')
+        send("\x03")
+        send("parse sr\t")
+        read_until("src/  directory")
+        send("\r")
+        read_until("parse 'src/'", row=-2, cursor=(7 + len("parse 'src/"), height - 2))
+        send("X")
+        read_until("parse 'src/X'", row=-2)
+        send("\x03")
+        # Files still finish the literal, without duplicating its closing quote.
+        send('parse "src/ins\t')
+        read_until("inside.cpp  file")
+        send("\r")
+        read_until('parse "src/inside.cpp"', row=-2, absent='""',
+                   cursor=(7 + len('parse "src/inside.cpp"'), height - 2))
+        send("\x03")
+
         for prefix, candidate, completed in (
             ('let tree = parse "src/sp', "space {name}.cpp  file",
              "let tree = parse 'src/space {name}.cpp'"),

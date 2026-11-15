@@ -337,7 +337,7 @@ std::vector<PathSuggestion> path_suggestions(PathRole role, llvm::StringRef atom
     const char delimiter = quote == '"' && llvm::StringRef(spelling).find_first_of("${}") !=
                                                llvm::StringRef::npos ? '\'' : quote;
     choices.push_back({escape_path(name, 0) + (directory ? "  directory" : "  file"),
-                       delimiter + escape_path(spelling, delimiter) + delimiter});
+                       delimiter + escape_path(spelling, delimiter) + delimiter, directory});
   }
   std::sort(choices.begin(), choices.end(), [](const auto &left, const auto &right) {
     return left.display < right.display;

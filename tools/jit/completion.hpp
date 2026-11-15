@@ -15,6 +15,8 @@ enum class PathRole;
 struct PathSuggestion {
   std::string display;
   std::string insertion;
+  // Directory insertions end in `/` before the closing delimiter.
+  bool directory = false;
 };
 
 std::vector<PathSuggestion> path_suggestions(PathRole role, llvm::StringRef atom);

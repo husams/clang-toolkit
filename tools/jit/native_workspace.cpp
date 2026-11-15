@@ -115,6 +115,8 @@ struct Row {
   char action = 0;
   bool markdown = false;
   std::string completion;
+  // The completion ends in `/` plus a closing quote; keep the caret inside.
+  bool directory = false;
   std::string print;
   unsigned depth = 0;
   std::optional<std::int64_t> tree;
@@ -1397,6 +1399,7 @@ private:
       rows.push_back({std::move(candidate.display), {}, {}});
       rows.back().completion = space ? " " + candidate.insertion
                                      : std::move(candidate.insertion);
+      rows.back().directory = candidate.directory;
     }
     if (rows.empty())
       return false;
@@ -1464,6 +1467,9 @@ private:
       } else if (opens && (cursor == draft.size() || draft[cursor] != ')')) {
         draft.insert(cursor, 1, ')');
       }
+      // Stay inside the string after a directory so Tab can descend further.
+      if (row->directory && cursor > completion_begin)
+        --cursor;
       editor_cursor = static_cast<int>(cursor);
     }
     dismiss_completion();
