@@ -1233,6 +1233,9 @@ private:
     focus = Focus::Completion;
     completion.replace(std::move(results));
     completion.selected = 0;
+    // A lone candidate needs no popup: Tab accepts it directly.
+    if (completion.rows.size() == 1)
+      accept_completion();
   }
 
   struct CompletionQuery {
@@ -1411,7 +1414,10 @@ private:
 
   void complete() {
     if (completion_open) {
-      completion.move(1);
+      if (completion.rows.size() == 1)
+        accept_completion();
+      else
+        completion.move(1);
       return;
     }
     if (completion_query || complete_presence() || complete_path())
@@ -2185,6 +2191,10 @@ private:
       if (event == Event::Tab || event == Event::TabReverse ||
           event == Event::ArrowUp || event == Event::ArrowDown ||
           event == Event::PageUp || event == Event::PageDown) {
+        if (event == Event::Tab && completion.rows.size() == 1) {
+          accept_completion();
+          return true;
+        }
         completion.move(event == Event::PageUp     ? -7
                         : event == Event::PageDown ? 7
                         : event == Event::ArrowUp || event == Event::TabReverse

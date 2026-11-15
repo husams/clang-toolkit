@@ -587,9 +587,9 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         send("parse\t")
         read_until("sample.cpp  file")
         send("\x03")
-        send("parse sr\t")
-        read_until("src/  directory")
-        send("\r\t")
+        send("parse sr\t")  # A single match is accepted without a popup.
+        read_until("parse 'src/'", row=-2, absent="Completions")
+        send("\t")  # Tab again descends: two files, so the popup opens.
         read_until("inside.cpp  file")
         send("\r")
         read_until("parse 'src/inside.cpp'", row=-2)
@@ -597,23 +597,17 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
 
         # An accepted directory keeps the caret inside its (auto-closed) quote.
         send('parse "sr\t')
-        read_until("src/  directory")
-        send("\r")
         read_until("parse \"src/\"", row=-2, cursor=(7 + len('parse "src/'), height - 2))
         send("X")
         read_until('parse "src/X"', row=-2, absent='"X')
         send("\x03")
         send("parse sr\t")
-        read_until("src/  directory")
-        send("\r")
         read_until("parse 'src/'", row=-2, cursor=(7 + len("parse 'src/"), height - 2))
         send("X")
         read_until("parse 'src/X'", row=-2)
         send("\x03")
         # Files still finish the literal, without duplicating its closing quote.
         send('parse "src/ins\t')
-        read_until("inside.cpp  file")
-        send("\r")
         read_until('parse "src/inside.cpp"', row=-2, absent='""',
                    cursor=(7 + len('parse "src/inside.cpp"'), height - 2))
         send("\x03")
@@ -648,13 +642,8 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
             ('index lookup "usr" in s', "src/  directory",
              """index lookup "usr" in 'src/'"""),
         ):
-            send(prefix + "\t")
-            directory_only = prefix in {
-                "set cache_dir to s", "index start s", 'index lookup "usr" in s'
-            }
-            read_until(candidate, absent="sample.cpp  file" if directory_only else "")
-            send("\r")
-            read_until(completed, row=-2)
+            send(prefix + "\t")  # Exactly one candidate is accepted directly.
+            read_until(completed, row=-2, absent="Completions")
             send("\x03")
 
         long_draft = "\n".join(f"# draft line {i}" for i in range(1, 21))
@@ -693,10 +682,7 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         send("\x03")
 
         send("match functionDe\t")
-        read_until("Completions")
-        read_until("functionDecl(")
-        send("\r")
-        read_until("match functionDecl()")
+        read_until("match functionDecl()", absent="Completions")
         send("\x03")
         draft = "let data = {c:1,n:3,outer:{items:[{nested_field:17}]}}\nprint data.c + data.n"
         send("\x1b[200~" + draft + "\x1b[201~")
@@ -722,15 +708,15 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         read_until("1 │ print data.c")
         send("print $data.outer.items[0].nested_fild + 1")
         send("\x1b[D" * len("ld + 1") + "\t")
-        read_until("Completions")
-        read_until("nested_field")
-        send("\r\x1b[F\r")
-        read_until("1 │ print $data.outer.items[0].nested_field + 1")
+        read_until("1 │ print $data.outer.items[0].nested_field + 1",
+                   row=-2, absent="Completions")
+        send("\x1b[F\r")
+        read_until("Script · 1 line · Ctrl+J run")
         match_prefix = 'match functionDecl(hasName("add")).bind("f") in "sam'
         match = match_prefix + 'ple.cpp"'
         send(match_prefix + "\t")
-        read_until("sample.cpp  file")
-        send("\r\r")
+        read_until(match, row=-2, absent="Completions")
+        send("\r")
         read_until("▸ match")
         send("\x1b[17~\r")
         read_until("sample.cpp:1")
