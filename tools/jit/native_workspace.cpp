@@ -1246,6 +1246,10 @@ private:
     std::optional<std::string> reference;
     char quote = 0;
     bool quote_open = false;
+    // Index project arguments merge saved project names with these paths.
+    bool projects = false;
+    bool space = false;
+    std::vector<Row> paths;
   };
 
   void finish_completion(const json::Value *result) {
@@ -1255,7 +1259,20 @@ private:
       return;
 
     std::vector<Row> rows;
-    if (query->reference) {
+    if (query->projects) {
+      std::vector<std::string> names;
+      if (const auto *projects = result ? result->getAsArray() : nullptr)
+        for (const auto &entry : *projects)
+          if (const auto *project = entry.getAsObject())
+            if (const auto name = project->getString("name"))
+              names.push_back(name->str());
+      for (auto &candidate : project_suggestions(query->prefix, names)) {
+        rows.push_back({std::move(candidate.display), {}, {}});
+        rows.back().completion = query->space ? " " + candidate.insertion
+                                              : std::move(candidate.insertion);
+      }
+      std::ranges::move(query->paths, std::back_inserter(rows));
+    } else if (query->reference) {
       if (const auto *fields = result ? result->getAsArray() : nullptr) {
         for (const auto &entry : *fields) {
           const auto *field = entry.getAsObject();
@@ -1404,12 +1421,56 @@ private:
                                      : std::move(candidate.insertion);
       rows.back().directory = candidate.directory;
     }
+    // Saved project names come from the runtime; paths stay available too.
+    const bool projects = index_project_argument(text.take_front(begin));
+    if (projects && ready && !busy) {
+      completion_begin = begin;
+      completion_end = end;
+      completion_query = CompletionQuery{draft, editor_cursor,
+                                         text.slice(begin, cursor).str()};
+      completion_query->projects = true;
+      completion_query->space = space;
+      completion_query->paths = std::move(rows);
+      request(Reply::Completion, json::Object{{"inspect", "index_projects"}});
+      return true;
+    }
     if (rows.empty())
-      return false;
+      return projects;
     completion_begin = begin;
     completion_end = end;
     open_completion(std::move(rows));
     return true;
+  }
+
+  // An open string literal before the cursor holds a value, never a command
+  // or matcher name.
+  bool inside_string() const {
+    const auto tokens = display::tokens(
+        llvm::StringRef(draft).take_front(static_cast<std::size_t>(editor_cursor)));
+    return !tokens.empty() && tokens.back().role == display::Role::String &&
+           tokens.back().open_literal &&
+           tokens.back().end == static_cast<std::size_t>(editor_cursor);
+  }
+
+  // The command word when the completion word is its second word, such as
+  // `index s` or `let p = index `.
+  static std::optional<llvm::StringRef> statement_command(llvm::StringRef before) {
+    const auto start = before.find_last_of("\n;");
+    auto statement =
+        before.drop_front(start == llvm::StringRef::npos ? 0 : start + 1).ltrim();
+    if (statement.consume_front("let ")) {
+      const auto equals = statement.find('=');
+      if (equals == llvm::StringRef::npos)
+        return std::nullopt;
+      statement = statement.drop_front(equals + 1).ltrim();
+    }
+    const auto head = statement.rtrim();
+    if (head.empty() || head.size() == statement.size() ||
+        !llvm::all_of(head, [](char ch) {
+          return (ch >= 'a' && ch <= 'z') || ch == '_';
+        }))
+      return std::nullopt;
+    return head;
   }
 
   void complete() {
@@ -1420,7 +1481,8 @@ private:
         completion.move(1);
       return;
     }
-    if (completion_query || complete_presence() || complete_path())
+    if (completion_query || complete_presence() || complete_path() ||
+        inside_string())
       return;
     completion_end = static_cast<std::size_t>(editor_cursor);
     completion_begin = completion_end;
@@ -1431,6 +1493,18 @@ private:
     const auto before_word = text.take_front(completion_begin);
     const auto reference = field_receiver(before_word);
     if (!reference) {
+      if (const auto command = statement_command(before_word)) {
+        std::vector<Row> rows;
+        for (auto &word : native_subcommands(*command))
+          if (llvm::StringRef(word).starts_with_insensitive(prefix)) {
+            rows.push_back({word, {}, {}});
+            rows.back().completion = std::move(word);
+          }
+        if (!rows.empty()) {
+          open_completion(std::move(rows));
+          return;
+        }
+      }
       auto matches = matcher_completions(prefix);
       if (!matches.empty()) {
         open_completion(std::move(matches));
@@ -2324,6 +2398,9 @@ private:
 
   tui::Element render_panel(Panel &panel, Focus target, bool wrapping,
                             int width) {
+    // vscroll_indicator always takes the rightmost column; wrapping into it
+    // hid the last character of every wrapped line.
+    width = std::max(1, width - 1);
     tui::Elements rows;
     panel.row_boxes.resize(panel.rows.size());
     std::size_t longest = 0;

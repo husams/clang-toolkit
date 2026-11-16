@@ -534,6 +534,8 @@ api::ServerStatusResponse LocalOperations::status() {
 llvm::json::Value LocalOperations::workspace_state(llvm::StringRef kind) {
   if (kind == "status")
     return preview_message(status());
+  if (kind == "index_projects")
+    return embedded().index_projects();
   auto& local = controller();
   return llvm::json::Object{{"files", preview_message(local.list_files(owner))},
                             {"sessions", preview_message(local.list_sessions(owner))}};

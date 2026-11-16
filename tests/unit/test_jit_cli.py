@@ -880,18 +880,23 @@ def _embedded_repl(jit_project: Path):
         assert json.loads(process.stdout.readline())["ready"]
         slots: dict[str, int] = {}
 
-        def submit(script: str) -> str:
+        def send(request: dict) -> dict:
+            process.stdin.write(json.dumps(request) + "\n")
+            process.stdin.flush()
+            assert select([process.stdout], [], [], 60)[0], request
+            response = process.stdout.readline()
+            assert response, process.stderr.read() if process.stderr else ""
+            return json.loads(response)
+
+        def submit(script: str | dict):
+            if isinstance(script, dict):  # A workspace inspect request.
+                return send(script)["value"]
             if script in slots:
                 request = {"slot": slots[script]}
             else:
                 slots[script] = len(slots)
                 request = {"slot": slots[script], "source": script}
-            process.stdin.write(json.dumps(request) + "\n")
-            process.stdin.flush()
-            assert select([process.stdout], [], [], 60)[0], script
-            response = process.stdout.readline()
-            assert response, process.stderr.read() if process.stderr else ""
-            reply = json.loads(response)
+            reply = send(request)
             assert not reply["error"], reply["error"]
             return reply["output"].removesuffix("\n")
 
@@ -1011,6 +1016,31 @@ print found.symbols[0].line
         assert submit('let status = index rename "Demo" to "Renamed"; print status.project_name') == "Renamed"
     with _embedded_repl(jit_project) as submit:
         assert submit(search.replace('"Demo"', '"Renamed"')) == expected
+
+
+def test_embedded_project_index_display_and_completion_names(jit_project: Path) -> None:
+    (jit_project / "example.cpp").write_text("int add(int a, int b) { return a + b; }\n")
+    with _embedded_repl(jit_project) as submit:
+        assert submit({"inspect": "index_projects"}) == []
+        submit('index start "." as "Demo"')
+        _wait_for(lambda: submit('let state = index status "Demo"; print state.state.name'),
+                  "INDEX_STATE_COMPLETE")
+        listing = submit("index list").splitlines()
+        assert listing[0] == "Indexed projects"
+        assert listing[1].split() == ["Project", "Path", "State", "Saved", "files", "Pass",
+                                      "checked", "Extracting", "Last", "reused", "Last",
+                                      "newly", "indexed", "Last", "failed"]
+        row = listing[2].split()
+        assert row[0] == "Demo" and row[2] == "COMPLETE" and row[3] == "1"
+        assert row[4] == "1/1" and len(row) == 9
+        assert listing[-1] == "Total projects: 1"
+        projects = submit({"inspect": "index_projects"})
+        assert [item["name"] for item in projects] == ["Demo"]
+        assert os.path.realpath(projects[0]["root"]) == os.path.realpath(jit_project)
+        # Lookup lists every TU that saw the USR; each row names its unit.
+        lookup = submit('index lookup "c:@F@add#I#I#" in "Demo"').splitlines()
+        assert len(lookup) == 2 and lookup[1].startswith("add  [Function]")
+        assert lookup[1].endswith("example.cpp)") and "  (TU " in lookup[1]
 
 
 def test_embedded_managed_session_matches_existing_console(jit_project: Path) -> None:

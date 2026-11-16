@@ -1177,7 +1177,8 @@ llvm::Error repl_ir(llvm::StringRef file, llvm::StringRef database,
           const auto reference = command->getString("reference").value_or("");
           const auto presence = command->getBoolean("presence").value_or(false);
           reply(llvm::json::Object{{"value", complete_fields(runtime.values, reference, presence)}});
-        } else if (*inspect == "resources" || *inspect == "status") {
+        } else if (*inspect == "resources" || *inspect == "status" ||
+                   *inspect == "index_projects") {
           auto value = targets.local.workspace_state(*inspect);
           if (*inspect == "resources") {
             std::size_t number = 1;

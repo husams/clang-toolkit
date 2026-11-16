@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringMap.h>
 #include <llvm/Support/Base64.h>
 #include <llvm/Support/JSON.h>
@@ -63,6 +65,39 @@ std::vector<std::string> native_help_topics(llvm::StringRef prefix) {
         !name.str().empty())
       results.push_back(name.str());
   std::ranges::sort(results);
+  return results;
+}
+
+std::vector<std::string> native_subcommands(llvm::StringRef command) {
+  std::vector<std::string> results;
+  const auto *content = help_documents().getArray(command);
+  if (!content || command.empty() || command.contains(' '))
+    return results;
+  const auto text = (*content)[0].getAsString().value_or("");
+  llvm::SmallVector<llvm::StringRef> lines;
+  text.split(lines, '\n');
+  bool usage = false;
+  for (const auto line : lines) {
+    if (line == "Usage:") {
+      usage = true;
+      continue;
+    }
+    if (!usage)
+      continue;
+    if (!line.starts_with("  "))
+      break;
+    auto words = line.trim();
+    if (!words.consume_front(command) || !words.consume_front(" "))
+      continue;
+    const auto word = words.take_until([](char ch) { return ch == ' '; });
+    // Placeholders, literals and option groups are arguments, not commands.
+    if (word.empty() || !llvm::all_of(word, [](char ch) {
+          return (ch >= 'a' && ch <= 'z') || ch == '_';
+        }))
+      continue;
+    if (std::ranges::find(results, word.str()) == results.end())
+      results.push_back(word.str());
+  }
   return results;
 }
 

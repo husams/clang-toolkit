@@ -4,6 +4,8 @@
 
 #include <functional>
 
+#include <llvm/Support/JSON.h>
+
 namespace ctk::application {
 class MatchController;
 class ScriptController;
@@ -35,6 +37,8 @@ public:
   application::ScriptController& scripts();
   void finish();
   bool index_status(index::v1::ListProjectIndexesResponse& response) const;
+  // Saved and active projects as {name, root}; opens the index store on demand.
+  llvm::json::Array index_projects();
 
 private:
   struct Impl;

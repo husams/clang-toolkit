@@ -492,6 +492,14 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
     (project / "src" / "inside.cpp").write_text("int inside;\n")
     (project / "src" / "space {name}.cpp").write_text("int spaced;\n")
     (project / ".hidden").touch()
+    # Index completion needs a saved project outside the listed directory.
+    indexed = tmp_path / "indexed"
+    indexed.mkdir()
+    (indexed / "unit.cpp").write_text("int unit;\n")
+    (indexed / "compile_commands.json").write_text(json.dumps([{
+        "directory": str(indexed), "file": str(indexed / "unit.cpp"),
+        "arguments": ["clang++", "-c", "unit.cpp"],
+    }]))
     executable = tmp_path / "ctk-jit"
     executable.symlink_to(_RUNNER)
     history = tmp_path / "xdg/clang_tools/history.jsonl"
@@ -646,6 +654,35 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
             read_until(completed, row=-2, absent="Completions")
             send("\x03")
 
+        # Second words complete from the command's usage lines.
+        send("index p\t")
+        read_until("index pause", row=-2, absent="Completions")
+        send("\x03")
+        send("index s\t")
+        read_until("│status")
+        read_until("│start")
+        assert not any("│save" in row or "│session" in row for row in screen.display)
+        send("\x1b")
+        read_until("index s", row=-2, absent="Completions")
+        send("\x03")
+        # Text inside a string is a value; it never completes to command names.
+        send('index find "G\tx')
+        read_until('index find "Gx"', row=-2, absent="Completions")
+        send("\x03")
+        # Project arguments offer saved names next to directories.
+        send(f'index start "{indexed}" as "Demo"\r')
+        read_until("Name  Demo")
+        send('index status "D\t')
+        read_until('index status "Demo"', row=-2, absent="Completions")
+        send("\x03")
+        send('let found = index find "unit" in D\t')
+        read_until("""let found = index find "unit" in 'Demo'""", row=-2, absent="Completions")
+        send("\x03")
+        # Without a discovered database, start fails up front with guidance.
+        send('index start "src"\r')
+        read_until("no compile_commands.json in")
+        read_until("or set compile_commands")
+
         long_draft = "\n".join(f"# draft line {i}" for i in range(1, 21))
         send("\x1b[200~" + long_draft + "\x1b[201~")
         read_until("20 │ # draft line 20")
@@ -770,6 +807,8 @@ def test_native_ftxui_workspace_uses_fresh_ctk_source(tmp_path: Path) -> None:
         assert (tmp_path / "native/ast-cache").is_dir()
         commands = [json.loads(line)["command"] for line in history.read_text().splitlines()]
         assert commands == [
+            f'index start "{indexed}" as "Demo"',
+            'index start "src"',
             "let pair = [\n    7\n]",
             "print 'ctrl-j-run'",
             draft,

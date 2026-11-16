@@ -345,6 +345,64 @@ std::vector<PathSuggestion> path_suggestions(PathRole role, llvm::StringRef atom
   return choices;
 }
 
+std::vector<PathSuggestion> project_suggestions(llvm::StringRef atom,
+                                                const std::vector<std::string> &names) {
+  const bool quoted = atom.starts_with('\'') || atom.starts_with('"');
+  const char quote = quoted ? atom.front() : '\'';
+  if (quote == '"' && atom.find_first_of("${}") != llvm::StringRef::npos)
+    return {};
+  std::string prefix;
+  try {
+    prefix = quoted ? path_prefix(atom, quote) : atom.str();
+  } catch (const std::exception &) {
+    return {};
+  }
+  std::vector<PathSuggestion> choices;
+  for (const auto &name : names) {
+    if (name.empty() || !llvm::StringRef(name).starts_with_insensitive(prefix) ||
+        !json::isUTF8(name))
+      continue;
+    const char delimiter =
+        quote == '"' && llvm::StringRef(name).find_first_of("${}") != llvm::StringRef::npos
+            ? '\''
+            : quote;
+    choices.push_back({escape_path(name, 0) + "  project",
+                       delimiter + escape_path(name, delimiter) + delimiter, false});
+  }
+  return choices;
+}
+
+bool index_project_argument(llvm::StringRef before) {
+  const auto start = before.find_last_of("\n;");
+  auto statement = before.drop_front(start == llvm::StringRef::npos ? 0 : start + 1).ltrim();
+  if (statement.consume_front("let ")) {
+    const auto equals = statement.find('=');
+    if (equals == llvm::StringRef::npos)
+      return false;
+    statement = statement.drop_front(equals + 1).ltrim();
+  }
+  if (!statement.consume_front("index") || statement.empty() || !llvm::isSpace(statement.front()))
+    return false;
+  statement = statement.ltrim();
+  const auto command = statement.take_while([](char ch) { return identifier(ch); });
+  auto rest = statement.drop_front(command.size());
+  if (!rest.empty() && !llvm::isSpace(rest.front()))
+    return false;
+  rest = rest.trim();
+  static constexpr llvm::StringRef controls[] = {"status", "pause", "resume", "cancel",
+                                                 "rename"};
+  if (llvm::is_contained(controls, command))
+    return rest.empty();
+  if (command == "find" || command == "lookup") {
+    // `in` follows a closed literal or a keyword; it is not part of a value.
+    if (!rest.consume_back("in"))
+      return false;
+    return !rest.empty() &&
+           (llvm::isSpace(rest.back()) || rest.back() == '"' || rest.back() == '\'');
+  }
+  return false;
+}
+
 llvm::json::Array complete_fields(Values &values, llvm::StringRef reference,
                                   bool presence) {
   if (reference.size() > 8192)

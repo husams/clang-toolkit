@@ -131,12 +131,60 @@ std::string resolve_project(app::ProjectIndexController& index, llvm::StringRef 
   return root;
 }
 
+std::string state_name(index_api::IndexState state) {
+  return llvm::StringRef(index_api::IndexState_Name(state))
+      .drop_front(sizeof("INDEX_STATE_") - 1)
+      .str();
+}
+
+// Matches the Python console: one aligned row per project, with a dash where
+// no pass is running or no completed pass was recorded.
+std::string project_table(const index_api::ListProjectIndexesResponse& result) {
+  std::vector<std::vector<std::string>> rows{{"Project", "Path", "State", "Saved files",
+                                              "Pass checked", "Extracting", "Last reused",
+                                              "Last newly indexed", "Last failed"}};
+  for (const auto& item : result.projects()) {
+    const auto& pass = item.last_completed_pass();
+    const bool recorded = item.has_last_completed_pass();
+    const auto count = [&](std::uint64_t value) {
+      return recorded ? std::to_string(value) : std::string("-");
+    };
+    rows.push_back(
+        {project_name(item), item.project_root(), state_name(item.state()),
+         std::to_string(item.translation_units_indexed()),
+         item.state() == index_api::INDEX_STATE_IDLE
+             ? std::string("-")
+             : std::to_string(item.translation_units_completed() +
+                              item.translation_units_failed()) +
+                   "/" + std::to_string(item.translation_units_total()),
+         std::to_string(item.translation_units_indexing()), count(pass.reused()),
+         count(pass.newly_indexed()), count(pass.failed())});
+  }
+  std::vector<std::size_t> widths(rows.front().size());
+  for (const auto& row : rows)
+    for (std::size_t column = 0; column < row.size(); ++column)
+      widths[column] = std::max(widths[column], row[column].size());
+  std::string output = "Indexed projects";
+  for (const auto& row : rows) {
+    std::string line;
+    for (std::size_t column = 0; column < row.size(); ++column) {
+      if (column)
+        line += "  ";
+      line += row[column];
+      line.append(widths[column] - row[column].size(), ' ');
+    }
+    output += "\n" + llvm::StringRef(line).rtrim().str();
+  }
+  if (result.projects().empty())
+    output += "\nNo indexed projects.";
+  output += "\nTotal projects: " + std::to_string(result.total_count());
+  return output;
+}
+
 std::string index_status(const index_api::ProjectIndexStatus& status) {
   std::string output;
   llvm::raw_string_ostream out(output);
-  out << "Project index "
-      << llvm::StringRef(index_api::IndexState_Name(status.state()))
-             .drop_front(sizeof("INDEX_STATE_") - 1)
+  out << "Project index " << state_name(status.state())
       << "\nName  " << project_name(status) << "\nProject  " << status.project_root()
       << "\nSaved index  " << status.translation_units_indexed() << " files"
       << "\nRevision " << status.revision();
@@ -166,7 +214,9 @@ std::string index_status(const index_api::ProjectIndexStatus& status) {
   return output;
 }
 
-std::string symbol_lines(const index_api::FindSymbolsResponse& result) {
+// Lookup returns one row per translation unit that saw the USR; name the unit
+// so a header symbol does not read as a duplicate.
+std::string symbol_lines(const index_api::FindSymbolsResponse& result, bool units = false) {
   std::string output;
   llvm::raw_string_ostream out(output);
   out << "Symbol index revision " << result.revision() << (result.stale() ? " (stale)" : "");
@@ -174,6 +224,8 @@ std::string symbol_lines(const index_api::FindSymbolsResponse& result) {
     out << '\n'
         << symbol.qualified_name() << "  [" << symbol.kind() << "]  " << symbol.file_path() << ':'
         << symbol.line() << ':' << symbol.column();
+    if (units && !symbol.translation_unit().empty())
+      out << "  (TU " << symbol.translation_unit() << ')';
   }
   if (result.symbols().empty())
     out << "\nNo symbols in the indexed coverage.";
@@ -187,16 +239,7 @@ const Value* index_command(Values& runtime, app::ProjectIndexController& index,
                            llvm::StringRef database, bool display) {
   if (command == "index_list") {
     auto result = index.list();
-    std::string text;
-    if (display) {
-      llvm::raw_string_ostream out(text);
-      out << "Indexed projects";
-      for (const auto& item : result.projects())
-        out << '\n' << project_name(item) << "  " << item.project_root();
-      if (result.projects().empty())
-        out << "\nNo indexed projects.";
-      out << "\nTotal projects: " << result.total_count();
-    }
+    auto text = display ? project_table(result) : std::string{};
     return show(runtime, std::move(result), display, std::move(text));
   }
   const auto& first = string_arg(args, 0);
@@ -255,7 +298,7 @@ const Value* index_command(Values& runtime, app::ProjectIndexController& index,
     request.set_usr(first);
     request.set_project_root(resolve_project(index, string_arg(args, 1)));
     auto result = index.lookup(request);
-    auto text = display ? symbol_lines(result) : std::string{};
+    auto text = display ? symbol_lines(result, true) : std::string{};
     return show(runtime, std::move(result), display, std::move(text));
   }
 
@@ -264,7 +307,13 @@ const Value* index_command(Values& runtime, app::ProjectIndexController& index,
     index_api::StartProjectIndexRequest request;
     const auto root = local_path(first);
     request.set_project_root(root);
-    request.set_compile_commands(index_database(database, root));
+    auto commands = index_database(database, root);
+    if (commands.empty())
+      throw std::invalid_argument(
+          "no compile_commands.json in " + root +
+          " or its build/, build/dev/ or build/release/ directories; pass --compdb or "
+          "set compile_commands");
+    request.set_compile_commands(std::move(commands));
     if (args.items.size() > 1)
       request.set_project_name(string_arg(args, 1));
     status = index.start(request);
@@ -610,6 +659,13 @@ struct EmbeddedServices::Impl {
     return root;
   }
 
+  app::ProjectIndexController& project_index() {
+    if (!index)
+      index = std::make_unique<app::ProjectIndexController>(
+          owned_root(), std::function<bool()>{}, index_worker());
+    return *index;
+  }
+
   const Value* query_command(Values& runtime, llvm::StringRef command, const Sequence& args,
                              const LocalState& settings, bool display);
 };
@@ -688,13 +744,9 @@ const Value* EmbeddedServices::execute(Values& runtime, llvm::StringRef command,
                                        const Sequence& args, llvm::StringRef options,
                                        const LocalState& settings, bool display) {
   try {
-    if (command.starts_with("index_")) {
-      if (!impl_->index)
-        impl_->index = std::make_unique<app::ProjectIndexController>(
-            impl_->owned_root(), std::function<bool()>{}, index_worker());
-      return index_command(runtime, *impl_->index, command, args, options,
+    if (command.starts_with("index_"))
+      return index_command(runtime, impl_->project_index(), command, args, options,
                            settings.compilation_database, display);
-    }
     if (command == "durable_batch" || command.starts_with("batch_")) {
       if (!impl_->batches)
         impl_->batches = std::make_unique<app::BatchRegistry>(
@@ -712,6 +764,18 @@ bool EmbeddedServices::index_status(index::v1::ListProjectIndexesResponse& respo
     return false;
   response = impl_->index->list();
   return true;
+}
+
+llvm::json::Array EmbeddedServices::index_projects() {
+  llvm::json::Array projects;
+  try {
+    for (const auto& item : impl_->project_index().list().projects())
+      projects.push_back(
+          llvm::json::Object{{"name", project_name(item)}, {"root", item.project_root()}});
+  } catch (const std::exception&) {
+    // Completion degrades to paths when the index store is unavailable.
+  }
+  return projects;
 }
 
 void EmbeddedServices::finish() {
