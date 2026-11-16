@@ -117,7 +117,11 @@ struct Runnable {
 
 struct LocalState {
   std::string output_path;
+  // --compdb from the command line; it outranks settings files.
   std::string default_database;
+  // `set compile_commands` in this session; it outranks --compdb.
+  std::string session_database;
+  // Effective explicit database: session > --compdb > settings > none.
   std::string compilation_database;
   std::vector<std::string> compilation_arguments;
   Value default_targets;

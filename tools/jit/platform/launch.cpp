@@ -1,4 +1,5 @@
 #include "launch.hpp"
+#include "ctk/clang/compilation_database.hpp"
 #include "ctk/platform/temporary_directory.hpp"
 
 #include <array>
@@ -113,33 +114,7 @@ bool apple_driver_needs_sdk(llvm::ArrayRef<std::string> command,
 }
 
 bool is_gcc_driver(const std::filesystem::path &driver) {
-  static const llvm::Regex gcc(R"((^|-)(gcc|g\+\+)(-[0-9]+(\.[0-9]+)*)?$)");
-  const auto is_apple_shim = [](const std::filesystem::path &path) {
-#ifdef __APPLE__
-    return path == "/usr/bin/gcc" || path == "/usr/bin/g++" ||
-           path == "/usr/bin/cc" || path == "/usr/bin/c++";
-#else
-    (void)path;
-    return false;
-#endif
-  };
-  if (is_apple_shim(driver.lexically_normal()))
-    return false;
-  if (gcc.match(driver.filename().string()))
-    return true;
-  // cc and c++ commonly reach a versioned GCC driver through alternatives.
-  std::error_code error;
-  const auto resolved = std::filesystem::canonical(driver, error);
-  if (error || is_apple_shim(resolved))
-    return false;
-  if (gcc.match(resolved.filename().string()))
-    return true;
-  // Some distributions install these aliases as hard links.
-  const auto name = driver.filename();
-  if (name != "cc" && name != "c++")
-    return false;
-  const auto sibling = driver.parent_path() / (name == "cc" ? "gcc" : "g++");
-  return std::filesystem::equivalent(driver, sibling, error);
+  return clang_layer::is_gcc_driver(driver.string());
 }
 
 llvm::Expected<std::string>

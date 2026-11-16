@@ -78,6 +78,21 @@ const std::string& string_arg(const Sequence& args, std::size_t index) {
   throw std::invalid_argument("operation requires a string argument");
 }
 
+// The index reads a directory holding compile_commands.json (a JSON path
+// names its directory). An explicit database is relative to the current
+// directory, like every other command; otherwise the project root and its
+// build/, build/dev/ and build/release/ directories are searched.
+std::string index_database(llvm::StringRef database, const std::string& root) {
+  if (!database.empty())
+    return fs::absolute(fs::path(database.str())).lexically_normal().string();
+  for (const auto* directory : {"", "build", "build/dev", "build/release"}) {
+    const auto candidate = (fs::path(root) / directory).lexically_normal();
+    if (fs::is_regular_file(candidate / "compile_commands.json"))
+      return candidate.string();
+  }
+  return {};
+}
+
 std::string local_path(llvm::StringRef path) {
   if (path.starts_with("~/") || path == "~") {
     if (const auto* home = environment("HOME"))
@@ -247,8 +262,9 @@ const Value* index_command(Values& runtime, app::ProjectIndexController& index,
   index_api::ProjectIndexStatus status;
   if (command == "index_start") {
     index_api::StartProjectIndexRequest request;
-    request.set_project_root(local_path(first));
-    request.set_compile_commands(database.str());
+    const auto root = local_path(first);
+    request.set_project_root(root);
+    request.set_compile_commands(index_database(database, root));
     if (args.items.size() > 1)
       request.set_project_name(string_arg(args, 1));
     status = index.start(request);

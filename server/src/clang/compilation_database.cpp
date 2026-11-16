@@ -2,8 +2,11 @@
 
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
+#include <clang/Tooling/Tooling.h>
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/Program.h>
+#include <llvm/Support/Regex.h>
 #include <llvm/Support/raw_ostream.h>
 #include <sqlite3.h>
 
@@ -25,23 +28,35 @@ fs::path absolute(const fs::path &path, const fs::path &directory) {
   return fs::weakly_canonical(path.is_absolute() ? path : directory / path);
 }
 
-std::optional<fs::path> discover(const FileInput &input, const fs::path &source,
+constexpr auto flags_file = "compile_flags.txt";
+
+bool is_flags_file(const fs::path &path) { return path.filename() == flags_file; }
+
+std::optional<fs::path> discover(const std::string &explicit_path,
+                                 const fs::path &source,
                                  const fs::path &working) {
-  if (!input.compilation_database.empty()) {
-    auto path = absolute(input.compilation_database, working);
-    if (fs::is_directory(path))
-      path /= "compile_commands.json";
+  if (!explicit_path.empty()) {
+    auto path = absolute(explicit_path, working);
+    if (fs::is_directory(path)) {
+      // A directory may hold a JSON database or only compile_flags.txt.
+      path = !fs::is_regular_file(path / "compile_commands.json") &&
+                     fs::is_regular_file(path / flags_file)
+                 ? path / flags_file
+                 : path / "compile_commands.json";
+    }
     if (!fs::is_regular_file(path))
       throw std::invalid_argument("compilation database not found: " +
                                   path.string());
     return path;
   }
+  // The working directory's database wins over the source's own: both the
+  // server and ctk-jit resolve relative to where the user runs them.
   for (auto start : {working, source.parent_path()}) {
     for (auto directory = start; !directory.empty();) {
       for (const auto *suffix :
            {"compile_commands.json", "build/compile_commands.json",
             "build/dev/compile_commands.json",
-            "build/release/compile_commands.json"}) {
+            "build/release/compile_commands.json", flags_file}) {
         auto candidate = directory / suffix;
         if (fs::is_regular_file(candidate))
           return fs::weakly_canonical(candidate);
@@ -53,6 +68,42 @@ std::optional<fs::path> discover(const FileInput &input, const fs::path &source,
     }
   }
   return std::nullopt;
+}
+
+std::optional<fs::path> discover(const FileInput &input, const fs::path &source,
+                                 const fs::path &working) {
+  return discover(input.compilation_database, source, working);
+}
+
+// compile_flags.txt applies its flags to every file, like Clang's plugin.
+std::optional<FileInput> flags_lookup(const fs::path &path,
+                                      const fs::path &source) {
+  std::string error;
+  auto database = clang::tooling::FixedCompilationDatabase::loadFromFile(
+      path.string(), error);
+  if (!database)
+    throw std::invalid_argument("cannot load compilation flags " +
+                                path.string() + ": " + error);
+  auto commands = database->getCompileCommands(source.string());
+  if (commands.empty())
+    return std::nullopt;
+  auto &command = commands.front();
+  return FileInput{source.string(), std::move(command.CommandLine),
+                   std::move(command.Directory)};
+}
+
+// Make a driver path absolute: relative paths against the command directory,
+// bare names through PATH (as Clang's inferToolLocation does).
+std::string absolute_driver(const std::string &driver,
+                            const std::string &directory) {
+  const fs::path path(driver);
+  if (path.is_absolute())
+    return path.lexically_normal().string();
+  if (path.has_parent_path())
+    return (fs::path(directory) / path).lexically_normal().string();
+  if (auto found = llvm::sys::findProgramByName(driver))
+    return *found;
+  return driver;
 }
 
 fs::path index_path() {
@@ -360,7 +411,8 @@ FileInput resolve_compilation_command(const FileInput &input) {
   if (!database)
     return input;
   static CompilationIndex index;
-  auto command = index.lookup(*database, source);
+  auto command = is_flags_file(*database) ? flags_lookup(*database, source)
+                                          : index.lookup(*database, source);
   if (!command) {
     if (!input.compilation_database.empty())
       throw std::invalid_argument(
@@ -370,16 +422,29 @@ FileInput resolve_compilation_command(const FileInput &input) {
   }
   auto raw = std::move(command->compile_arguments);
   command->compile_arguments.clear();
+  if (raw.empty())
+    throw std::invalid_argument("compile command has no driver for " +
+                                source.string());
   // Exact commands retain response files for the AST builder's captured
   // filesystem; inferred commands have already expanded them. Remove the
   // driver here; the builder strips source/output operands. Append overrides
   // last, before any input separator.
   std::size_t first = 1;
-  const auto driver = fs::path(raw.front()).filename().string();
-  if (driver == "ccache" || driver == "sccache" || driver == "distcc")
+  const auto launcher = fs::path(raw.front()).filename().string();
+  if ((launcher == "ccache" || launcher == "sccache" || launcher == "distcc") &&
+      raw.size() > 1)
     first = 2;
-  for (std::size_t i = first; i < raw.size(); ++i)
-    command->compile_arguments.push_back(raw[i]);
+  // Keep what the driver's name implies (--target=, --driver-mode=) as
+  // options, so every consumer parses with the project's target and mode.
+  std::vector<std::string> invocation(raw.begin() + (first - 1), raw.end());
+  const auto driver = invocation.front();
+  // compile_flags.txt has no driver: FixedCompilationDatabase names a
+  // synthetic clang-tool next to the running executable.
+  const bool synthetic = fs::path(driver).filename() == "clang-tool";
+  if (!synthetic)
+    clang::tooling::addTargetAndModeForProgramName(invocation, driver);
+  for (std::size_t i = 1; i < invocation.size(); ++i)
+    command->compile_arguments.push_back(invocation[i]);
   // Overrides are options, even when the database terminates its options with
   // '--' before the source filename.
   const auto separator = std::find(command->compile_arguments.begin(),
@@ -387,7 +452,43 @@ FileInput resolve_compilation_command(const FileInput &input) {
   command->compile_arguments.insert(separator, input.compile_arguments.begin(),
                                     input.compile_arguments.end());
   command->compilation_database = database->string();
+  command->driver = synthetic ? std::string()
+                              : absolute_driver(driver, command->working_directory);
+  command->compilation_source = input.compilation_database.empty()
+                                    ? CompilationSource::Discovered
+                                    : CompilationSource::Explicit;
   return *command;
+}
+
+bool is_gcc_driver(const std::string &driver_name) {
+  const fs::path driver(driver_name);
+  static const llvm::Regex gcc(R"((^|-)(gcc|g\+\+)(-[0-9]+(\.[0-9]+)*)?$)");
+  const auto is_apple_shim = [](const fs::path &path) {
+#ifdef __APPLE__
+    return path == "/usr/bin/gcc" || path == "/usr/bin/g++" ||
+           path == "/usr/bin/cc" || path == "/usr/bin/c++";
+#else
+    (void)path;
+    return false;
+#endif
+  };
+  if (is_apple_shim(driver.lexically_normal()))
+    return false;
+  if (gcc.match(driver.filename().string()))
+    return true;
+  // cc and c++ commonly reach a versioned GCC driver through alternatives.
+  std::error_code error;
+  const auto resolved = fs::canonical(driver, error);
+  if (error || is_apple_shim(resolved))
+    return false;
+  if (gcc.match(resolved.filename().string()))
+    return true;
+  // Some distributions install these aliases as hard links.
+  const auto name = driver.filename();
+  if (name != "cc" && name != "c++")
+    return false;
+  const auto sibling = driver.parent_path() / (name == "cc" ? "gcc" : "g++");
+  return fs::equivalent(driver, sibling, error);
 }
 
 FileInput resolve_snippet_compilation_command(const FileInput &input) {

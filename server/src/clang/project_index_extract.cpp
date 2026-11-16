@@ -431,11 +431,17 @@ bool extract_project_index(
 bool list_project_translation_units(const std::string &directory,
                                     std::vector<ProjectIndexCommand> &units,
                                     std::string &error) {
+  // CompilationDatabase::loadFromDirectory appends every failed plugin's
+  // message to its error string even when a later plugin succeeds. Report it
+  // only on failure, or the worker prints a spurious error on success.
+  std::string load_error;
   std::unique_ptr<clang::tooling::CompilationDatabase> db =
       clang::tooling::JSONCompilationDatabase::loadFromDirectory(directory,
-                                                                 error);
-  if (!db)
+                                                                 load_error);
+  if (!db) {
+    error = std::move(load_error);
     return false;
+  }
   db = clang::tooling::expandResponseFiles(std::move(db),
                                            llvm::vfs::getRealFileSystem());
   db = clang::tooling::inferToolLocation(std::move(db));

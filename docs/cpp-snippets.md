@@ -45,11 +45,12 @@ defines, include paths and working directory. It substitutes the temporary
 The existing file is not modified or automatically included. Template/type
 definitions still need to be visible to the snippet.
 
-If `using` is omitted, the server selects the first compilation database entry
-in database order. It uses the current explicit database or discovers one from
-the working directory. If no database is found, explicit-flags/default parsing
-applies. A found or explicitly selected database that is invalid or empty is an
-error.
+If `using` is omitted and the console has a default target (`ctk-jit --file`),
+that target's command is borrowed. Otherwise the first compilation database
+entry is used, in database order. The database is the current explicit one, or
+one discovered from the working directory. If no database is found,
+explicit-flags/default parsing applies. A found or explicitly selected database
+that is invalid or empty is an error.
 Select a donor explicitly when the project contains different compiler settings.
 
 ## Optional headers and overrides

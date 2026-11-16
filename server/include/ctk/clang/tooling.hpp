@@ -20,12 +20,21 @@ struct Project {
   std::vector<std::string> files;
 };
 
+// Where resolve_compilation_command found the command. None means the
+// caller's defaults apply (no database was named or discovered).
+enum class CompilationSource { None, Explicit, Discovered };
+
 struct FileInput {
   std::string path;
   std::vector<std::string> compile_arguments;
   std::string working_directory;
   std::string compilation_database;
   bool compilation_profile_frozen{false};
+  // Set by resolve_compilation_command: the database's compiler driver
+  // (absolute when it names a path or is found on PATH; empty for
+  // compile_flags.txt and defaults) and how the command was found.
+  std::string driver;
+  CompilationSource compilation_source{CompilationSource::None};
 };
 
 struct SemanticBinding {

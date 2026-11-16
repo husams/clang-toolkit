@@ -2,12 +2,17 @@
 
 `parse`, file matching, traversal, CFG, call graphs, query sessions and native
 scripts resolve each source file's command on the server before acquiring an
-AST. Clients and the server must use paths visible to the server.
+AST. Clients and the server must use paths visible to the server. The
+standalone `ctk-jit` runner uses the same resolver for every command that
+parses project C++ (see [ctk-jit](#ctk-jit)).
 
 With no selection, the server searches the request working directory and its
-parents for `compile_commands.json` or `build/compile_commands.json`, then the
-source directory and its parents. A database found this way supplies the first
-command for an exact normalized source path. For headers and other files without
+parents, then the source directory and its parents. At each directory it tries
+`compile_commands.json`, `build/compile_commands.json`,
+`build/dev/compile_commands.json`, `build/release/compile_commands.json` and
+finally `compile_flags.txt`, which applies its flags to every file. The working
+directory's database therefore wins over one next to the source. A database
+found this way supplies the first command for an exact normalized source path. For headers and other files without
 an entry, it first uses the first TU entry in the same source directory, in
 database order. This compares the files' normalized parent directories, not
 their compiler working directories, and does not include subdirectories. The
@@ -17,8 +22,8 @@ filename, language and directory similarity, then transfer its options to the
 requested file. Exact header entries take precedence. Standalone files without
 a usable database command retain explicit-flags/default C++ parsing behavior.
 
-Select a JSON file or its directory explicitly when the build directory is
-elsewhere:
+Select a JSON file, a `compile_flags.txt`, or a directory holding either
+explicitly when the build directory is elsewhere:
 
 ```sh
 ctk --compile-commands /workspace/project/build/compile_commands.json
@@ -54,13 +59,17 @@ source and cannot infer a command produces an error; it is never silently
 replaced with default flags.
 
 Both JSON `arguments` arrays and shell-tokenized `command` strings are loaded
-with Clang's native JSON compilation database parser. Commands are not executed.
+with Clang's native JSON compilation database parser. The server never executes
+commands (ctk-jit runs a GCC driver only as described [below](#ctk-jit)).
 The command's `directory` controls relative include paths and response files.
 The server strips compiler/input/output/dependency-generation arguments and
-uses its own compatible Clang toolchain. Request `compile_arguments` and console
-`extra_args` append overrides after database flags. The existing server Clang
-resource-directory default still applies. Multiple commands for a file use the
-first database entry; configuration selection is not currently exposed.
+uses its own compatible Clang toolchain. The target and driver mode that the
+compiler's name implies (for example `aarch64-linux-gnu-g++` or `clang-cl`)
+are kept as `--target=`/`--driver-mode=` options, so the server parses with the
+project's target. Request `compile_arguments` and console `extra_args` append
+overrides after database flags. The existing server Clang resource-directory
+default still applies. Multiple commands for a file use the first database
+entry; configuration selection is not currently exposed.
 
 Header inference preserves the TU's command directory, include paths, macros,
 target and compatible language standard, while replacing its source/output
@@ -94,6 +103,47 @@ commands expand them on each lookup before Clang transfers the command, using
 a filesystem with private working-directory state. Effective commands
 participate in AST cache identity, so
 changed flags acquire a new AST while previously retained trees stay immutable.
+
+## ctk-jit
+
+`ctk-jit run` and `ctk-jit repl` resolve every project parse through the
+server's resolver above: `parse "file"`, `match ... in "file"`, CFG, call graph
+and traversal on paths, `file open`, sessions, `run X.cpp` targets and
+`parse cpp`. Precedence, highest first:
+
+1. `set compile_commands` in the current session;
+2. `--compdb PATH` (alias `--compile-commands PATH`);
+3. `compile_commands` in `/etc/clang_tools/config.yaml`, `~/.clang_tools.yaml`
+   or `./.clang_tools.yaml`;
+4. discovery as described above;
+5. CTK's defaults: `-std=c++20` (`-std=c17` for `.c`) and no project flags.
+
+Missing entries are inferred for explicit and discovered databases alike, and
+several entries for one file use the first. An explicit path that does not exist
+is an error. Relative explicit paths are relative to the current directory.
+
+ctk-jit builds the AST with its embedded Clang, using the database's compiler as
+the driver name so Clang infers the project's target, driver mode and
+toolchain location. When that compiler is GCC (`gcc`, `g++`, versioned or
+target-prefixed names, or `cc`/`c++` aliases of them) and the database was
+selected explicitly (by `--compdb`, a settings file, `set compile_commands` or a
+`parse cpp` option), ctk-jit first runs that GCC with `-fsyntax-only` so GCC's
+own warning policy decides whether the target is accepted. A process runs the
+check once per command and source size/modification time. ctk-jit never runs a
+compiler from a discovered database: for discovered GCC commands Clang ignores
+GCC-only warning options and keeps the project's `-Werror` for groups it knows.
+
+`parse cpp` without `using` borrows the `--file` target's command when there is
+one, else the first entry of the selected or discovered database, else CTK's
+defaults. With `using`, it parses with the named file's command.
+
+`index start` reads a directory containing `compile_commands.json`, or that
+file itself. With no selection it uses the project root's
+`compile_commands.json`, `build/`, `build/dev/` or `build/release/`.
+
+Scripts themselves (`.ctk` and `.cpp` script compilation and `ctk-jit
+precompile`) compile against the CTK runtime with ctk-jit's own flags. They
+never use a compilation database.
 
 ## Borrow settings for temporary snippets
 

@@ -17,12 +17,20 @@ export PATH="$HOME/.local/bin:$PATH"
 ctk-jit repl --ui
 ```
 
-Use a compilation database with one entry for the target file. Prefer a
-compilation database produced by a toolchain compatible with the linked Clang.
-On macOS, use the matching Homebrew Clang when generating an entry with
-`clang++ -MJ` so the entry uses flags understood by the runner.
-The CLI accepts a database directory or the JSON file itself. Use `--runner`
-to select a different native runner.
+Prefer a compilation database produced by a toolchain compatible with the
+linked Clang. On macOS, use the matching Homebrew Clang when generating an entry
+with `clang++ -MJ` so the entry uses flags understood by the runner.
+`--compdb` (alias `--compile-commands`) accepts a JSON database, a
+`compile_flags.txt`, or a directory holding either. Without it, the runner uses
+`compile_commands` from `.clang_tools.yaml` settings, then discovers a database
+exactly as the CTK server does: the current directory and its parents, then the
+source's directory and its parents, each checked for `compile_commands.json`,
+`build/`, `build/dev/`, `build/release/` and `compile_flags.txt`. Every command
+that parses project C++, including `file open`, sessions and `parse cpp`, uses
+this one resolver. A project's GCC driver runs only for an explicitly selected
+database; scripts and `precompile` never use the database. See
+[compilation databases](../../docs/compilation-database.md#ctk-jit) for details.
+Use `--runner` to select a different native runner.
 
 The workspace, plain prompt, `run`, and `precompile` execute in the native
 process without Python or a CTK server. Regenerate the bundled grammar and

@@ -133,7 +133,12 @@ bool apply(Values& runtime, const Record& settings, bool initialize, bool valida
   auto& state = runtime.state;
   state.spelled_only = *traversal == "IgnoreUnlessSpelledInSource";
   state.compilation_arguments = *arguments;
-  state.compilation_database = database ? *database : state.default_database;
+  // A session's `set compile_commands` and the command line's --compdb are
+  // explicit choices for this run; settings files only supply a default.
+  state.compilation_database = !state.session_database.empty()   ? state.session_database
+                               : !state.default_database.empty() ? state.default_database
+                               : database                        ? *database
+                                                                 : std::string();
   state.default_targets = get("files");
   if (initialize) {
     state.output_path = *output == "stdout" ? "" : *output;
@@ -213,6 +218,10 @@ const Value* update_setting(Values& runtime, llvm::StringRef name, const Value* 
   const Value content{std::make_shared<Record>(layer)};
   if (!write_settings_file(runtime, paths[index].string(), content))
     return nullptr;
+  if (name == "compile_commands") {
+    const auto* selected = value ? as<std::string>(*value) : nullptr;
+    runtime.state.session_database = selected ? *selected : std::string();
+  }
   if (!apply(runtime, effective, false, false))
     return nullptr;
   if (name == "output") {

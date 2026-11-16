@@ -916,8 +916,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         command.add_argument(
             "--compdb",
+            "--compile-commands",
+            dest="compdb",
             type=Path,
-            help="compilation database or its directory",
+            help="compilation database, compile_flags.txt, or their directory",
         )
         command.add_argument("--arg", action="append", default=[], metavar="NAME=VALUE")
     build = commands.add_parser("precompile", help="compile source to a local bundle")

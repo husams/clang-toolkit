@@ -333,8 +333,12 @@ extern "C" const Value* ctk_jit_parse_cpp_v1(IrContext* context, const Value* co
     }
   }
   if (context->targets.local.scoped()) {
+    // Without `using`, the default target supplies the snippet's settings.
+    auto scoped = request;
+    if (scoped.file.empty())
+      scoped.file = context->targets.file.str();
     auto ast = context->targets.local.parse_snippet(
-        request, std::get<std::string>(code->data), includes, translation_unit);
+        scoped, std::get<std::string>(code->data), includes, translation_unit);
     return ast ? runtime.hold({*ast}) : runtime.fail(llvm::toString(ast.takeError()));
   }
   if (!translation_unit)

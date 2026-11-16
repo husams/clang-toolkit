@@ -1,6 +1,9 @@
+#include <algorithm>
 #include <exception>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -27,6 +30,7 @@
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/Triple.h>
 
+#include "ctk/clang/compilation_database.hpp"
 #include "ctk/jit/runtime.hpp"
 #include "grammar/lower.hpp"
 #include "grammar/syntax.hpp"
@@ -78,60 +82,127 @@ gcc_syntax_command(const tooling::CommandLineArguments &command,
   return tooling::getClangSyntaxOnlyAdjuster()(gcc, "");
 }
 
-llvm::Expected<std::unique_ptr<clang::ASTUnit>>
-parse_target(const fs::path &target_path, fs::path database_path,
-             clang::DiagnosticConsumer &diagnostics,
-             llvm::raw_ostream &driver_diagnostics,
-             llvm::ArrayRef<std::string> overrides = {},
-             std::optional<llvm::StringRef> source = std::nullopt) {
-  const auto file = fs::absolute(target_path).lexically_normal().string();
-  std::string message;
-  std::unique_ptr<tooling::CompilationDatabase> database;
-  if (database_path.empty()) {
-    database = tooling::CompilationDatabase::autoDetectFromSource(file, message);
-  } else {
-    if (fs::is_directory(database_path))
-      database_path /= "compile_commands.json";
-    database = tooling::JSONCompilationDatabase::loadFromFile(
-        database_path.string(), message, tooling::JSONCommandLineSyntax::AutoDetect);
-    if (!database)
-      return failure(llvm::Twine("compilation database: ") + message);
-    database = tooling::inferTargetAndDriverMode(tooling::expandResponseFiles(
-        std::move(database), llvm::vfs::getRealFileSystem()));
+// One resolved compilation command, served for whichever file ClangTool asks.
+class SingleCommandDatabase final : public tooling::CompilationDatabase {
+public:
+  explicit SingleCommandDatabase(tooling::CompileCommand command)
+      : command_(std::move(command)) {}
+  std::vector<tooling::CompileCommand>
+  getCompileCommands(llvm::StringRef) const override {
+    return {command_};
   }
-  if (!database) {
-    database = std::make_unique<tooling::FixedCompilationDatabase>(
-        fs::path(file).parent_path().string(),
-        std::vector<std::string>{fs::path(file).extension() == ".c"
-                                     ? "-std=c17" : "-std=c++20"});
-  } else {
-    database = tooling::inferToolLocation(std::move(database));
+  std::vector<std::string> getAllFiles() const override {
+    return {command_.Filename};
   }
 
+private:
+  tooling::CompileCommand command_;
+};
+
+// The configured GCC driver checks a target once per process for a given
+// command and source revision; only accepted checks are remembered.
+std::mutex &gcc_checks_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+std::set<std::string> &gcc_checks() {
+  static std::set<std::string> accepted;
+  return accepted;
+}
+
+std::string gcc_check_key(const tooling::CommandLineArguments &command,
+                          const fs::path &directory, const std::string &file) {
+  std::string key = directory.string();
+  for (const auto &argument : command) {
+    key += '\0';
+    key += argument;
+  }
+  std::error_code error;
+  const std::uintmax_t size = fs::file_size(file, error);
+  const std::int64_t time = static_cast<std::int64_t>(
+      fs::last_write_time(file, error).time_since_epoch().count());
+  key += '\0' + file + '\0' + std::to_string(error ? std::uintmax_t{0} : size) +
+         '\0' + std::to_string(time);
+  return key;
+}
+
+// Resolve a target through the compilation-database resolver shared with the
+// server: explicit (--compdb, settings, parse options) > discovery > none.
+llvm::Expected<ctk::clang_layer::FileInput>
+resolve_target(const std::string &file, const std::string &database,
+               const std::string &working_directory,
+               llvm::ArrayRef<std::string> overrides) {
+  ctk::clang_layer::FileInput input{
+      file, std::vector<std::string>(overrides.begin(), overrides.end()),
+      working_directory.empty() ? fs::current_path().string()
+                                : working_directory,
+      database};
+  try {
+    return ctk::clang_layer::resolve_compilation_command(input);
+  } catch (const std::exception &error) {
+    return failure(llvm::Twine("compilation database: ") + error.what());
+  }
+}
+
+// Build the matcher AST for FILE from a resolved command. Unresolved inputs
+// use CTK's standalone defaults. SOURCE replaces FILE's contents in memory.
+llvm::Expected<std::unique_ptr<clang::ASTUnit>>
+parse_command(const std::string &file,
+              const ctk::clang_layer::FileInput &resolved,
+              clang::DiagnosticConsumer &diagnostics,
+              llvm::raw_ostream &driver_diagnostics,
+              std::optional<llvm::StringRef> source = std::nullopt) {
+  using ctk::clang_layer::CompilationSource;
+  const bool unresolved = resolved.compilation_source == CompilationSource::None;
+  tooling::CompileCommand compile;
+  compile.Filename = file;
+  compile.Directory = unresolved ? fs::path(file).parent_path().string()
+                                 : resolved.working_directory;
+  compile.CommandLine.push_back(resolved.driver.empty() ? "clang-tool"
+                                                        : resolved.driver);
+  if (unresolved)
+    compile.CommandLine.push_back(fs::path(file).extension() == ".c"
+                                      ? "-std=c17" : "-std=c++20");
+  compile.CommandLine.insert(compile.CommandLine.end(),
+                             resolved.compile_arguments.begin(),
+                             resolved.compile_arguments.end());
+  if (unresolved)
+    compile.CommandLine.push_back(file);
+  // Expand response files in the command's directory, as Clang's JSON
+  // database plugin does.
+  auto database = tooling::expandResponseFiles(
+      std::make_unique<SingleCommandDatabase>(compile),
+      llvm::vfs::getRealFileSystem());
   const auto commands = database->getCompileCommands(file);
-  if (commands.empty())
-    return failure(llvm::Twine("no compile command for ") + file);
-  if (commands.size() != 1)
-    return failure(llvm::Twine("multiple compile commands for ") + file);
-  if (commands.front().CommandLine.empty())
+  if (commands.empty() || commands.front().CommandLine.empty())
     return failure(llvm::Twine("compile command has no driver for ") + file);
 
-  // FixedCompilationDatabase supplies this placeholder when there is no
-  // project driver, including for compile_flags.txt.
-  const bool use_default_toolchain =
-      fs::path(commands.front().CommandLine.front()).filename() == "clang-tool" &&
-      database->getAllFiles().empty();
-
+  // compile_flags.txt and the defaults have no project driver.
+  const bool use_default_toolchain = resolved.driver.empty();
   const auto directory = fs::absolute(commands.front().Directory);
   const auto &command = commands.front().CommandLine;
-  const bool gcc_driver = ctk::jit::is_gcc_driver(directory / command.front());
-  const bool check_with_gcc = gcc_driver && !source;
+  const bool gcc_driver =
+      !use_default_toolchain && ctk::jit::is_gcc_driver(resolved.driver);
+  // Run a project's GCC only for a database the user selected (--compdb,
+  // settings or a parse option), never one discovered from the filesystem.
+  const bool check_with_gcc = gcc_driver && !source &&
+                              resolved.compilation_source == CompilationSource::Explicit;
   if (check_with_gcc) {
-    auto checked = ctk::jit::run_project_driver(
-        directory, gcc_syntax_command(command, overrides));
-    if (!checked)
-      return checked.takeError();
-    driver_diagnostics << *checked;
+    const auto syntax = gcc_syntax_command(command, {});
+    auto key = gcc_check_key(syntax, directory, file);
+    bool cached = false;
+    {
+      std::lock_guard lock(gcc_checks_mutex());
+      cached = gcc_checks().contains(key);
+    }
+    if (!cached) {
+      auto checked = ctk::jit::run_project_driver(directory, syntax);
+      if (!checked)
+        return checked.takeError();
+      driver_diagnostics << *checked;
+      std::lock_guard lock(gcc_checks_mutex());
+      gcc_checks().insert(std::move(key));
+    }
   }
 
   tooling::ClangTool tool(*database, {file});
@@ -139,9 +210,6 @@ parse_target(const fs::path &target_path, fs::path database_path,
   tool.appendArgumentsAdjuster(
       [&](const tooling::CommandLineArguments &arguments, llvm::StringRef) {
         auto normalized = arguments;
-        const auto driver = fs::path(normalized.front());
-        if (driver.has_parent_path() && !driver.is_absolute())
-          normalized.front() = (directory / driver).string();
         // The AST's input spelling is visible to file matchers.
         for (std::size_t index = 1; index < normalized.size(); ++index) {
           auto &argument = normalized[index];
@@ -154,23 +222,18 @@ parse_target(const fs::path &target_path, fs::path database_path,
       });
   tooling::CommandLineArguments defaults{std::string("-resource-dir=") +
                                          CTK_JIT_RESOURCE_DIR};
-  // A virtual source overlay is available only to the embedded frontend.
-  if (gcc_driver && source)
+  // Without the GCC check, keep the project's -Werror for warning groups that
+  // Clang knows and ignore GCC-only ones.
+  if (gcc_driver && !check_with_gcc)
     defaults.emplace_back("-Wno-unknown-warning-option");
   const bool use_default_sysroot = use_default_toolchain ||
-      ctk::jit::apple_driver_needs_sdk(commands.front().CommandLine,
-                                      commands.front().Directory);
+      ctk::jit::apple_driver_needs_sdk(command, commands.front().Directory);
   if (use_default_sysroot && llvm::StringRef(CTK_JIT_SYSROOT) != "") {
     defaults.push_back("-isysroot");
     defaults.push_back(CTK_JIT_SYSROOT);
   }
   tool.appendArgumentsAdjuster(tooling::getInsertArgumentAdjuster(
       defaults, tooling::ArgumentInsertPosition::BEGIN));
-  if (!overrides.empty()) {
-    tool.appendArgumentsAdjuster(tooling::getInsertArgumentAdjuster(
-        tooling::CommandLineArguments(overrides.begin(), overrides.end()),
-        tooling::ArgumentInsertPosition::END));
-  }
   // GCC already applied the project's diagnostic policy. Clang still reports
   // errors that prevent it from building a usable matcher AST.
   if (check_with_gcc)
@@ -183,6 +246,52 @@ parse_target(const fs::path &target_path, fs::path database_path,
       asts.front()->getDiagnostics().hasErrorOccurred())
     return failure(llvm::Twine("could not parse target ") + file);
   return std::move(asts.front());
+}
+
+llvm::Expected<std::unique_ptr<clang::ASTUnit>>
+parse_target(const fs::path &target_path, const fs::path &database_path,
+             clang::DiagnosticConsumer &diagnostics,
+             llvm::raw_ostream &driver_diagnostics,
+             llvm::ArrayRef<std::string> overrides = {},
+             std::optional<llvm::StringRef> source = std::nullopt) {
+  const auto file = fs::absolute(target_path).lexically_normal().string();
+  auto resolved = resolve_target(file, database_path.string(), "", overrides);
+  if (!resolved)
+    return resolved.takeError();
+  return parse_command(file, *resolved, diagnostics, driver_diagnostics, source);
+}
+
+// `parse cpp` without `using`: borrow the default target's command, else the
+// database's first entry, and transfer it to the in-memory snippet file.
+llvm::Expected<std::optional<ctk::clang_layer::FileInput>>
+snippet_command(const std::string &donor, const std::string &database,
+                const std::string &working_directory,
+                llvm::ArrayRef<std::string> overrides) {
+  ctk::clang_layer::FileInput input{donor, {}, working_directory, database};
+  try {
+    auto resolved = ctk::clang_layer::resolve_snippet_compilation_command(input);
+    if (resolved.compilation_source == ctk::clang_layer::CompilationSource::None)
+      return std::nullopt;
+    const auto driver = resolved.driver;
+    const auto origin = resolved.compilation_source;
+    const auto donor_path =
+        fs::absolute(fs::path(resolved.working_directory) / resolved.path)
+            .lexically_normal();
+    auto transferred = ctk::clang_layer::transfer_snippet_compilation_command(
+        std::move(resolved),
+        std::vector<std::string>(overrides.begin(), overrides.end()));
+    // The donor's directory precedes every -iquote search directory, and a
+    // borrowed header or C command still produces a C++ TU.
+    auto &arguments = transferred.compile_arguments;
+    arguments.insert(arguments.begin(), {"-iquote", donor_path.parent_path().string()});
+    const auto separator = std::find(arguments.begin(), arguments.end(), "--");
+    arguments.insert(separator, {"-x", "c++"});
+    transferred.driver = driver;
+    transferred.compilation_source = origin;
+    return std::optional(std::move(transferred));
+  } catch (const std::exception &error) {
+    return failure(llvm::Twine("compilation database: ") + error.what());
+  }
 }
 
 std::vector<const char *> script_flags() {
@@ -335,10 +444,10 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
     auto file = fs::path(request.file);
     if (!file.empty() && !file.is_absolute() && !request.directory.empty())
       file = fs::path(request.directory) / file;
+    const auto database = request.compilation_database.empty()
+                              ? fs::path(database_path)
+                              : fs::path(request.compilation_database);
     if (!file.empty() || !request.source) {
-      const auto database = request.compilation_database.empty()
-                                ? fs::path(database_path)
-                                : fs::path(request.compilation_database);
       const auto source = request.source
                               ? std::optional<llvm::StringRef>(*request.source)
                               : std::nullopt;
@@ -354,6 +463,35 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
       return unit;
     }
 
+    const auto working = request.directory.empty()
+                             ? fs::current_path()
+                             : fs::absolute(request.directory);
+    const auto snippet_file = (working / ".ctk-snippet.cpp").lexically_normal();
+    auto borrowed = snippet_command(default_file, database.string(),
+                                    working.string(), request.arguments);
+    if (!borrowed)
+      return failure("could not parse C++ snippet: " +
+                     llvm::toString(borrowed.takeError()));
+    if (*borrowed) {
+      auto &command = **borrowed;
+      // Point the transferred input operand at the in-memory snippet.
+      for (auto &argument : command.compile_arguments)
+        if (argument == "ctk-snippet.cpp") {
+          argument = snippet_file.string();
+          break;
+        }
+      auto unit = parse_command(snippet_file.string(), command, printer,
+                                diagnostic_output, *request.source);
+      if (!unit) {
+        llvm::consumeError(unit.takeError());
+        if (!workspace_diagnostics.empty())
+          return failure("could not parse C++ snippet\n" + workspace_diagnostics);
+        return failure("could not parse C++ snippet");
+      }
+      (*unit)->getDiagnostics().setClient(new clang::IgnoringDiagConsumer());
+      return unit;
+    }
+
     std::vector<std::string> args{"-std=c++20", std::string("-resource-dir=") +
                                                     CTK_JIT_RESOURCE_DIR};
     if (llvm::StringRef(CTK_JIT_SYSROOT) != "") {
@@ -361,10 +499,8 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
       args.push_back(CTK_JIT_SYSROOT);
     }
     args.insert(args.end(), request.arguments.begin(), request.arguments.end());
-    const auto snippet =
-        fs::absolute(fs::path(request.directory) / ".ctk-snippet.cpp");
     auto unit = tooling::buildASTFromCodeWithArgs(
-        *request.source, args, snippet.string(), CTK_JIT_COMPILER,
+        *request.source, args, snippet_file.string(), CTK_JIT_COMPILER,
         std::make_shared<clang::PCHContainerOperations>(),
         tooling::getClangStripDependencyFileAdjuster(), {}, &printer);
     if (!unit || printer.getNumErrors() ||
@@ -398,14 +534,15 @@ llvm::Error run(llvm::StringRef mode, const char *target_path,
 
 static void public_usage(llvm::StringRef command) {
   if (command == "run")
-    llvm::outs() << "usage: ctk-jit run SCRIPT | --bundle BUNDLE [--file FILE] [--compdb COMPDB]\n"
-                    "       [--arg NAME=VALUE] [--no-cache] [--llvm-ir | --cpp-jit] [--runner RUNNER]\n";
+    llvm::outs() << "usage: ctk-jit run SCRIPT | --bundle BUNDLE [--file FILE]\n"
+                    "       [--compdb | --compile-commands COMPDB] [--arg NAME=VALUE] [--no-cache]\n"
+                    "       [--llvm-ir | --cpp-jit] [--runner RUNNER]\n";
   else if (command == "precompile")
     llvm::outs() << "usage: ctk-jit precompile SCRIPT -o BUNDLE [--no-cache]\n"
                     "       [--llvm-ir | --cpp-jit] [--runner RUNNER]\n";
   else if (command == "repl")
-    llvm::outs() << "usage: ctk-jit repl [--ui [prompt|workspace]] [--file FILE] [--compdb COMPDB]\n"
-                    "       [--arg NAME=VALUE] [--runner RUNNER]\n";
+    llvm::outs() << "usage: ctk-jit repl [--ui [prompt|workspace]] [--file FILE]\n"
+                    "       [--compdb | --compile-commands COMPDB] [--arg NAME=VALUE] [--runner RUNNER]\n";
   else
     llvm::outs() << "usage: ctk-jit {run,repl,precompile} [options]\n";
 }
@@ -451,7 +588,8 @@ static llvm::Error public_cli(int argc, char **argv, bool &prompt_failed) {
       std::string *destination = nullptr;
       if (flag == "--runner") destination = &runner;
       else if (!build && flag == "--file") destination = &file;
-      else if (!build && flag == "--compdb") destination = &database;
+      else if (!build && (flag == "--compdb" || flag == "--compile-commands"))
+        destination = &database;
       else if (build && (flag == "--output" || flag == "-o")) destination = &output;
       else if (!repl && !build && flag == "--bundle") destination = &bundle;
       else if (build || flag != "--arg")
